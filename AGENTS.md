@@ -1,5 +1,12 @@
 # AGENTS.md: guide for AI agents and contributors
 
+> **HARD FORK: C17 REWRITE IN PROGRESS.** This repository is being rewritten from Rust to ISO C17 +
+> POSIX. For all new work, **`REWRITE_PLAN.md` is authoritative and overrides this file** (including
+> "Rust only", the no-JavaScript/Tauri rule's Rust framing, and the `cargo`/`xtask` workflow). The
+> Rust tree below stays as the read-only behavioural reference until chunk Z3 deletes it. The rest of
+> this file describes that reference; its *product* rules (never crash, everything is a command,
+> no format/colour assumptions, clean-room, tests are the gate) still apply to the C code.
+
 PhotoCraft is an open-source, native, Photoshop-comparable image editor written in **Rust only** (no JavaScript or TypeScript). **No Tauri, Electron or webview shells:** the desktop app is native egui/eframe on wgpu, and the web build is the same Rust compiled to WebAssembly (trunk + wasm-bindgen). Never add Tauri (or any webview/JS UI framework) as a dependency, build step or packaging target. The product name is always written **PhotoCraft** (`{Function}Craft` in PascalCase, like its siblings ArtCraft, ArtCraftX, DesignCraft, VectorCraft, EffectCraft, FilmCraft, LightCraft, PdfCraft) in user-facing text: UI, window titles, About, installers, release names, docs prose. Machine names stay lowercase: crates (`photocraft-*`), binaries, file names, ids (`ai.storyteller.photocraft`). Standards and learnings shared across the crafting apps live in `../craftrules` (read its `README.md`; the repository is not public — outside contributors should ask a maintainer for the standards relevant to their change). Contribute reusable learnings there, never code; repos don't share code. The goal is 1:1 Photoshop parity (same menus, shortcuts, behaviour and file fidelity) with better performance, and every feature drivable by agents. Read this file first, then `docs/`.
 
 ## 1. Orientation (5 minutes)
