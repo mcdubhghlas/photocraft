@@ -10,6 +10,7 @@
 //!
 //! JSON objects are serde_json::Value (keys sorted). Failures print {"error": "..."} and exit 1,
 //! so differential tests can compare errors too.
+mod raw_vectors;
 use base64::Engine;
 use half::f16;
 fn fnv(h: &mut u64, b: &[u8]) { for &x in b { *h ^= x as u64; *h = h.wrapping_mul(0x100000001b3); } }
@@ -1371,6 +1372,7 @@ fn main() {
         ["tiff-vectors"] => tiff_vectors(),
         ["f9-vectors"] => f9_vectors(),
         ["raster-vectors"] => raster_vectors(),
+        ["raw-vectors"] => raw_vectors::raw_vectors(),
         ["icc-info", f] => icc_info(f),
         ["psd-info", f] => psd_info(f),
         ["decode", f, out] => decode(f, out),

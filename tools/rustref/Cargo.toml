@@ -21,5 +21,6 @@ photocraft-psd = { path = "../../crates/psd", features = ["testgen"] }
 photocraft-codecs = { path = "../../crates/codecs" }
 photocraft-io = { path = "../../crates/io" }
 photocraft-compose = { path = "../../crates/compose" }
+photocraft-raw = { path = "../../crates/raw", features = ["testgen"] }
 
 [workspace]

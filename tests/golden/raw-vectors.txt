@@ -1,0 +1,256 @@
+file hostile0 1054 61c02737b7f070c4
+decode hostile0 b7e6d1a298ad24ce
+develop hostile0 bilinear b2820832601f527b
+develop hostile0 mhc ead7f45ef779665d
+develop hostile0 ahd 33a15f757146844a
+file hostile1 1532 467a253dc9b9ab2f
+decode hostile1 a94266e8d4a62695
+develop hostile1 bilinear 555c6b3d3e10aca0
+develop hostile1 mhc ef9dc7dccd3d9c98
+develop hostile1 ahd aae65735f0f5d9b3
+file hostile2 1146 2c2631ee04e8d13a
+decode hostile2 a94266e8d4a62695
+develop hostile2 bilinear 555c6b3d3e10aca0
+develop hostile2 mhc ef9dc7dccd3d9c98
+develop hostile2 ahd aae65735f0f5d9b3
+file hostile3 3356 3aad6ad53f97e0a5
+decode hostile3 db7cf82c437b72c4
+develop hostile3 bilinear 9f3a01c2961b11a1
+develop hostile3 mhc f781db71d971ff74
+develop hostile3 ahd cf79e3ae27e52b3f
+file hostile4 878 ed1b3672dca885f8
+decode hostile4 0db875f303a654ce
+develop hostile4 bilinear d8d693137b40ed27
+develop hostile4 mhc 1b7ca66653e475c8
+develop hostile4 ahd b0cbe2c6966314a5
+file hostile5 690 fa1ca6c60e209284
+decode hostile5 d1b80d5d8863a492
+develop hostile5 bilinear 6c4925d20f95dba3
+develop hostile5 mhc d964d0570aad5fcb
+develop hostile5 ahd 9854134c7cbb3cd5
+file hostile6 16686 43e54812754fc8b8
+decode hostile6 17ef019a7078cf23
+develop hostile6 bilinear 2c67f9fc6f39f4e7
+develop hostile6 mhc fee292398e1b542d
+develop hostile6 ahd 4a5eb3f55b6c0f23
+file hostile7 1042 172e542dc6642eb4
+decode hostile7 4945d3020e4d2555
+develop hostile7 bilinear 29d5638d5cda81a9
+develop hostile7 mhc 243b376f203ae3be
+develop hostile7 ahd 6dad9c56b931362c
+file dng16 2232 6a12c3990e596b32
+decode dng16 263804071abc641f
+develop dng16 bilinear 439a9c7895c907d2
+develop dng16 mhc 99b9587dbc14e62a
+develop dng16 ahd d7c9717bbd6ab55b
+file dng16be 2192 32cdeabb2e63bd00
+decode dng16be 263804071abc641f
+develop dng16be bilinear 439a9c7895c907d2
+develop dng16be mhc 99b9587dbc14e62a
+develop dng16be ahd d7c9717bbd6ab55b
+file dng12 1826 005d1310caae4463
+decode dng12 936ba11050413730
+develop dng12 bilinear 8c48005f041017a5
+develop dng12 mhc 51b6b07db705b061
+develop dng12 ahd 66d0524a1e331b1a
+file dng10be 1606 a768ddad2d225aee
+decode dng10be a3c000c1db69badb
+develop dng10be bilinear c6338b1ee33b8ccb
+develop dng10be mhc d279cd79a9d0f5ad
+develop dng10be ahd 2810fcfe2af91dfd
+file dng8 1368 c36126ed51773086
+decode dng8 2589e71d724552b2
+develop dng8 bilinear ac191dc7e2418bc0
+develop dng8 mhc c2d592c3154202a2
+develop dng8 ahd bce1d7a03e9497cf
+file dngtiles14 2384 da488f29457007bf
+decode dngtiles14 8a11f9c32ec5cec1
+develop dngtiles14 bilinear d4916c01f4ee84ed
+develop dngtiles14 mhc d2a380571f1db5c4
+develop dngtiles14 ahd b9c49a77c7382ee9
+file dngtiles16be 2278 f5be50ee1ba977d9
+decode dngtiles16be 263804071abc641f
+develop dngtiles16be bilinear 439a9c7895c907d2
+develop dngtiles16be mhc 99b9587dbc14e62a
+develop dngtiles16be ahd d7c9717bbd6ab55b
+file dnglj12 1768 1823d28abc5e71f3
+decode dnglj12 936ba11050413730
+develop dnglj12 bilinear 8c48005f041017a5
+develop dnglj12 mhc 51b6b07db705b061
+develop dnglj12 ahd 66d0524a1e331b1a
+file linear 1894 e97e436b3d31190e
+decode linear 6c3e866e7735b556
+develop linear bilinear 03335832127bb688
+develop linear mhc 03335832127bb688
+develop linear ahd 03335832127bb688
+file meta 10934 a1594f19cecd6f12
+decode meta f1e9028ab326f84e
+develop meta bilinear cb6b3d3e2b8d5746
+develop meta mhc 00e0c59fb6120fc6
+develop meta ahd 00e0c59fb6120fc6
+file cm_strips 3310 ef9d886f96b458e5
+decode cm_strips fd5a71be913a3406
+develop cm_strips bilinear ad49f28165db0658
+develop cm_strips mhc 919598ee4be58f9d
+develop cm_strips ahd b7c40277fe4a3029
+file cm_tiles 1890 1c1379cef904e090
+decode cm_tiles fd5a71be913a3406
+develop cm_tiles bilinear ad49f28165db0658
+develop cm_tiles mhc 919598ee4be58f9d
+develop cm_tiles ahd b7c40277fe4a3029
+file forward 1398 4a0127b9cce35c20
+decode forward 4f4a90fc85759499
+develop forward bilinear dd0fa5fbecf4ca37
+develop forward mhc dd0fa5fbecf4ca37
+develop forward ahd dd0fa5fbecf4ca37
+file gainmap 1034 9b8c72464de46c57
+decode gainmap df891c75a734323e
+develop gainmap bilinear fc9726b14791c812
+develop gainmap mhc cc5d51a6d303e342
+develop gainmap ahd 827ba69f99d30251
+file greyworld 1002 92f6ae9372fa74c5
+decode greyworld 4d7bb2c2dfd2b2f0
+develop greyworld bilinear 50af7e1396dc0c9e
+develop greyworld mhc 50af7e1396dc0c9e
+develop greyworld ahd 50af7e1396dc0c9e
+file scene 6670 0dabf5fc099a972d
+decode scene d0514488dbde9356
+develop scene bilinear b07d4c70b72f7bae
+develop scene mhc 6dbdb67bca8d9c64
+develop scene ahd 57f25fdb22865ce4
+file clipped 654 fdcf75017ddeae11
+decode clipped 58e20ca1be814bab
+develop clipped bilinear e680cd799b8edc0c
+develop clipped mhc e680cd799b8edc0c
+develop clipped ahd e680cd799b8edc0c
+file cr2_a 5836 b7865a06f762d73b
+decode cr2_a de3051b7c2dcae86
+develop cr2_a bilinear 427232773341f7d8
+develop cr2_a mhc 2949d73581767121
+develop cr2_a ahd 820a724f06ca8e71
+file cr2_b 6194 52a8ae9520f3c4a9
+decode cr2_b de3051b7c2dcae86
+develop cr2_b bilinear 427232773341f7d8
+develop cr2_b mhc 2949d73581767121
+develop cr2_b ahd 820a724f06ca8e71
+file cr2_c 5608 b2aaef77d8317679
+decode cr2_c de3051b7c2dcae86
+develop cr2_c bilinear 427232773341f7d8
+develop cr2_c mhc 2949d73581767121
+develop cr2_c ahd 820a724f06ca8e71
+file cr2_d 5912 3d59031c1d1e851f
+decode cr2_d de3051b7c2dcae86
+develop cr2_d bilinear 427232773341f7d8
+develop cr2_d mhc 2949d73581767121
+develop cr2_d ahd 820a724f06ca8e71
+file cr2phase_0112_16_4 14016 43fc8ea854800f0c
+decode cr2phase_0112_16_4 d9c971b2cf39fab4
+develop cr2phase_0112_16_4 bilinear aac03e891a8e3889
+develop cr2phase_0112_16_4 mhc 15b51301b50c16b0
+develop cr2phase_0112_16_4 ahd 8b6ffef87b395dcc
+file cr2phase_0112_17_5 13862 cbeb865e63ca1bc8
+decode cr2phase_0112_17_5 2cbbea7ccde559e9
+develop cr2phase_0112_17_5 bilinear 68a919354766581e
+develop cr2phase_0112_17_5 mhc 8db07a8a7b83834a
+develop cr2phase_0112_17_5 ahd c4985fba4d1457aa
+file cr2phase_1201_16_4 14018 dc6f73485f2672f3
+decode cr2phase_1201_16_4 0546a14a94586fce
+develop cr2phase_1201_16_4 bilinear c68d3dad333073f3
+develop cr2phase_1201_16_4 mhc ec3f935cc364b88d
+develop cr2phase_1201_16_4 ahd c8f409789742f0fe
+file cr2phase_1201_17_5 13874 4ee9f54095d07583
+decode cr2phase_1201_17_5 a0b4ecd983ecb8c3
+develop cr2phase_1201_17_5 bilinear de36d154026dade1
+develop cr2phase_1201_17_5 mhc 999652c49a8a49ed
+develop cr2phase_1201_17_5 ahd 67654cdfd45e89d0
+file cr2flat_80000250 7632 f603a7c0225588e7
+decode cr2flat_80000250 4885f981cb21527b
+develop cr2flat_80000250 bilinear e284243dff0d5ff4
+develop cr2flat_80000250 mhc e284243dff0d5ff4
+develop cr2flat_80000250 ahd e284243dff0d5ff4
+file cr2flat_80000001 7632 24292acc072d50d4
+decode cr2flat_80000001 77ad07c1a674179c
+develop cr2flat_80000001 bilinear 4c68029e8ca71f57
+develop cr2flat_80000001 mhc 4c68029e8ca71f57
+develop cr2flat_80000001 ahd 4c68029e8ca71f57
+file cr2flat_0 7620 afc92f603b088019
+decode cr2flat_0 77ad07c1a674179c
+develop cr2flat_0 bilinear 4c68029e8ca71f57
+develop cr2flat_0 mhc 4c68029e8ca71f57
+develop cr2flat_0 ahd 4c68029e8ca71f57
+file nef_like 1082 8c27d90be9038601
+decode nef_like 8a91dcc48ae37e07
+develop nef_like bilinear 7b7f157efa9e9226
+develop nef_like mhc ad5e669c25dab54b
+develop nef_like ahd 003afe48a747caf1
+file arw_like 1162 4ac103837fc61543
+decode arw_like e7a617006a56199b
+develop arw_like bilinear efb94f67fcded020
+develop arw_like mhc 9ffa7e1bb1b2b287
+develop arw_like ahd 8941dbaf471eb1ff
+file craw 5426 5095bf7b3b14a315
+decode craw 579a8d7a5f594443
+develop craw bilinear 9a57234349a0f14d
+develop craw mhc 5a65e30e16107c35
+develop craw ahd 137d05ee059d1714
+file craw_wide 818 fe17e29a4b845c40
+decode craw_wide ce3ea473176667dd
+develop craw_wide bilinear 3b1f54a890a90cd9
+develop craw_wide mhc bae832c2802b32f6
+develop craw_wide ahd e53c9cc825423d67
+file rw2_12 65838 39010f6b45bc1bd2
+decode rw2_12 b1209ef13b36fdf4
+develop rw2_12 bilinear 972606d0d0d74f3c
+develop rw2_12 mhc db099bd338c4610b
+develop rw2_12 ahd b0e09d480bd7de3a
+file rw2_14 65838 7542697ae7a3ebb0
+decode rw2_14 81d2db4111974022
+develop rw2_14 bilinear bad089fb6593f434
+develop rw2_14 mhc df5c61d58b9e1292
+develop rw2_14 ahd c62b6b9361b02ba7
+file orf 2386 49fcfb5f4717ea9f
+decode orf 6c511ff8d889273c
+develop orf bilinear eaf0195752207198
+develop orf mhc 03bba4ff95a6533c
+develop orf ahd b097b5f509796b53
+option hostile0 auto 64d712b42742ea53
+option hostile0 mult 63ae6abc314fc34e
+option hostile0 badmult err malformed camera raw: white-balance multipliers must be positive
+option hostile0 exposure 7a89b904de0d64c9
+option hostile0 noorient d98041d049ad086f
+option meta auto 8487f6646924c1be
+option meta mult 429bb3cfef5b2e41
+option meta badmult err malformed camera raw: white-balance multipliers must be positive
+option meta exposure 2325fc5429abfc46
+option meta noorient 3527b17b90a14f06
+option greyworld auto a2694429c0fbed61
+option greyworld mult d53ba7cf637f4635
+option greyworld badmult err malformed camera raw: white-balance multipliers must be positive
+option greyworld exposure bd7eab72e195cc9e
+option greyworld noorient ad4150cd0af13c9e
+option linear auto dc2179b62053e3ff
+option linear mult c0dc0131657f7d2a
+option linear badmult err malformed camera raw: white-balance multipliers must be positive
+option linear exposure 7657d827d7f7c7e4
+option linear noorient 6a8ab6e4185a326c
+option gainmap auto 827ba69f99d30251
+option gainmap mult 163b4896cad5ffa2
+option gainmap badmult err malformed camera raw: white-balance multipliers must be positive
+option gainmap exposure e4ff5ee52fa89e44
+option gainmap noorient 44c656fecd81e44a
+truncate hostile0 e4b8aee2ca0096d7
+mutate hostile0 ad0c5553b0970978
+truncate hostile1 9a9b636aa44b3777
+mutate hostile1 377a198bb5df3458
+truncate hostile2 7cc3c9e115031fd1
+mutate hostile2 4fdfa731a3d700cd
+truncate hostile3 7ffbd236e077a5ed
+mutate hostile3 7396d9ceab0fb3c1
+truncate hostile4 95f3c5226282016d
+mutate hostile4 2a1f6f1c3d4e30ae
+truncate hostile5 81624fcecd52d1ee
+mutate hostile5 23c06678d9585e95
+truncate hostile6 a8d273b8b837bc15
+mutate hostile6 331e3e0ffc86633a
+truncate hostile7 e2b207a6cc792c17
+mutate hostile7 75c1a49cc353010a

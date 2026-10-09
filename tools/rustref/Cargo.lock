@@ -1101,6 +1101,7 @@ dependencies = [
  "photocraft-io",
  "photocraft-psd",
  "photocraft-raster",
+ "photocraft-raw",
  "serde_json",
 ]
 
