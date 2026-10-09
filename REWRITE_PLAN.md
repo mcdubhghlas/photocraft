@@ -36,7 +36,7 @@ A `[-]` line carries `(who, YYYY-MM-DD)`; a `[x]` line carries the date it was f
    line in §7 saying why not. Add differential tests against `tools/rustref` where outputs are
    numeric or byte-level (pixels, encoded files, JSON).
 5. `make check` (build with strict warnings + all tests) and `make sanitize` (ASan + UBSan) must be
-   green. Run `make analyze` when the module parses untrusted input.
+   green; `make tsan` too if the chunk uses threads. Run `make analyze` when the module parses untrusted input.
 6. Flip the line to `[x] (date)`, add a dated line to §8 (what landed, test counts, deviations,
    anything left open), and record intentional behaviour differences in §7.
 7. Keep the tree building at every commit. Commit message: `C17 <chunk-id>: <summary>`.
@@ -69,6 +69,8 @@ reason; later chunks follow it.
 | D17 | Vendored code lives in `third_party/<name>/` with its LICENSE, and gets an `ATTRIBUTION.md` row. Only for libraries that aren't commonly packaged (Nuklear, pocketfft, plutosvg/plutovg, optionally WAMR). | Clean-room and licence hygiene carry over. |
 | D18 | LGPL libraries (FriBidi, libheif) are linked dynamically only. FreeType is used under the FTL (credit in About + README). | Licence compatibility with MIT OR Apache-2.0. |
 | D19 | The macOS native menu bar (`muda`), Apple-event file opening, and Wayland portal colour picking are dropped for the first pass; the in-window menu bar is used everywhere. | Need Objective-C or D-Bus; not C17/POSIX. Listed in §7; can return as isolated platform files later. |
+| D20 | The build requires **GNU make ≥ 3.81** (`gmake` on the BSDs; macOS ships 3.81). Use only 3.81 features: no `$(file)`, `!=`, `.ONESHELL`. | POSIX make has no pattern rules or `wildcard`; out-of-tree builds of hundreds of files need them. |
+| D21 | XSI interfaces are allowed per file: `#define _XOPEN_SOURCE 700` as the first line, with a comment naming the function (e.g. `realpath` in `src/base/file.c`). Everything else stays at `_POSIX_C_SOURCE=200809L`. | glibc hides XSI functions under plain POSIX, even ones Linux/macOS/BSD all have. |
 
 ## 3. Layout and module map
 
@@ -151,8 +153,11 @@ lines; split by responsibility. Comments explain *why*; headers document purpose
 ownership and thread safety. Strict warnings are errors in `make check`
 (`-Wall -Wextra -Wpedantic -Wconversion -Wshadow -Wstrict-prototypes`, plus `-Werror` only there).
 
-**Tests.** `tests/harness.h` gives `TEST(name)`, `CHECK(cond)`, `CHECK_EQ_INT/U64/F32_NEAR/MEM/STR`,
-and fixtures. One executable per module (`build/tests/test_<module>`); `make test` runs all. Corpus
+**Tests.** `tests/harness.h` gives `CHECK`, `CHECK_EQ_INT` (signed), `CHECK_EQ_UINT` (unsigned),
+`CHECK_NEAR`, `CHECK_EQ_STR`, `CHECK_EQ_MEM`, `CHECK_CONTAINS` and `RUN(test_fn)`; see its header
+comment. Every `tests/<module>/test_*.c` is its own executable (one translation unit, linked
+against `libphotocraft.a`); `make test` builds and runs them all. Code that uses threads must also
+pass `make tsan`. Corpus
 tests (real PSDs etc.) are opt-in: `make test-corpus` after `tools/corpus.sh fetch` (B4).
 
 ## 5. Chunks
@@ -160,7 +165,7 @@ tests (real PSDs etc.) are opt-in: `make test-corpus` after `tools/corpus.sh fet
 ### Phase 0: bootstrap
 
 - [x] **B0** · inventory, decisions, this plan (2026-10-09)
-- [ ] **B1** · build system and `src/base` → `Makefile`, `src/base/`, `tests/harness.h`, `.clang-format`
+- [x] **B1** (2026-10-09) · build system and `src/base` → `Makefile`, `src/base/`, `tests/harness.h`, `.clang-format`
   - `Makefile` with every target in D3, pkg-config detection, `-std=c17`, strict warnings in `check`,
     `sanitize` (ASan+UBSan, feature-detected), `analyze` (clang `--analyze` or cppcheck if present).
   - `src/base`: `status.h` (pc_status, pc_error), `num.h` (checked size math, saturating casts,
@@ -438,3 +443,4 @@ Add one line per difference: `chunk · what differs · why · user-visible?`
 Newest last. One dated line per chunk session: chunk, what landed, test counts, open items.
 
 - 2026-10-09 · B0 · Inventoried 667 Rust source files (~300k lines in `src/`, ~35k more in integration tests/benches/examples, 4.3k in xtask); every file assigned to exactly one chunk (generator check). Decisions D1–D19 recorded. Branch `WD-40`. No C code yet.
+- 2026-10-09 · B1 · `Makefile` (all/test/check/sanitize/tsan/analyze/valgrind/install/clean; compiler flags feature-probed; `MODULES`/`PKGS`/`PROGRAMS` lists for later chunks to extend), `tests/harness.h`, `.clang-format`, `src/base`: status, num (checked math, Rust-`as` saturating casts, NaN-preserving clamp), mem, buf, bytes (endian loads/stores, sticky-error reader), file (EINTR/partial-I/O loops, bounded reads, `mkdir -p`, atomic write matching `crates/format/src/atomic.rs` semantics and messages), pool (deterministic chunking, lowest-index error, nested→serial), log. 8 test executables, 47 tests, 11,399 checks: green under `make check` (gcc 15.2), clang 23 strict, `make sanitize`, `make tsan`, `make analyze` (clang analyzer, 7 files clean). Not run: valgrind (this machine's glibc is built with `-march=znver4`; valgrind 3.27 SIGILLs on AVX-512 in glibc's own startup, even for `/bin/true`; our code is built for baseline x86-64; `make valgrind` detects this and skips), cppcheck (not installed), macOS/BSD builds (no machines). Added D20 (GNU make) and D21 (per-file XSI). Open: C4 still ports `atomic.rs`'s failure-injection tests and the Windows-only rename retry is dropped (D2).

@@ -1,0 +1,11 @@
+# C style for the C17 rewrite (REWRITE_PLAN.md §4).
+Language: Cpp
+BasedOnStyle: LLVM
+IndentWidth: 4
+ColumnLimit: 110
+BreakBeforeBraces: Linux
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: Never
+IndentCaseLabels: false
+PointerAlignment: Right
+SortIncludes: Never

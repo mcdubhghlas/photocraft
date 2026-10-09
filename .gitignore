@@ -11,3 +11,7 @@ target/
 /craft-fonts
 *.log
 __pycache__/
+
+# C17 rewrite build output (REWRITE_PLAN.md)
+/build/
+/build-*/
