@@ -2,7 +2,8 @@
 #
 #   make            build the library (and programs, once they exist)
 #   make test       build and run every tests/*/test_*.c
-#   make check      strict build (warnings are errors) + tests       -> build/check
+#   make check      layer check + strict build (warnings are errors) + tests -> build/check
+#   make corpus     fetch the real-file test corpora into corpus/ (tools/corpus.sh)
 #   make sanitize   ASan + UBSan build + tests (when the compiler has them) -> build/san
 #   make tsan       ThreadSanitizer build + tests                     -> build/tsan
 #   make analyze    clang static analyzer, or cppcheck, if installed
@@ -72,7 +73,7 @@ SPIKE := $(BUILD)/bin/photocraft-spike
 TEST_SRCS := $(wildcard tests/*/test_*.c)
 TEST_BINS := $(TEST_SRCS:tests/%.c=$(BUILD)/tests/%)
 
-.PHONY: all spike test check sanitize tsan analyze valgrind install clean
+.PHONY: all spike corpus test check sanitize tsan analyze valgrind install clean
 .DEFAULT_GOAL := all
 
 all: $(LIB) $(PROGRAMS:%=$(BUILD)/bin/%) $(if $(HAVE_GUI),$(SPIKE))
@@ -114,7 +115,12 @@ test: $(TEST_BINS)
 	done; exit $$fail
 
 check:
-	$(MAKE) BUILD=build/check STRICT=1 test
+	@sh tools/check-layers.sh
+	$(MAKE) BUILD=build/check STRICT=1 all test
+
+# Real-file test corpora (gitignored), sha256-verified: tools/corpus.sh list|fetch|verify.
+corpus:
+	@sh tools/corpus.sh fetch all
 
 SAN := $(if $(call cc_accepts,-fsanitize=address$(,)undefined),-fsanitize=address$(,)undefined -fno-sanitize-recover=all -fno-omit-frame-pointer)
 sanitize:

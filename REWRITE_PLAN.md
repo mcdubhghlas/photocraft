@@ -160,7 +160,15 @@ ownership and thread safety. Strict warnings are errors in `make check`
 comment. Every `tests/<module>/test_*.c` is its own executable (one translation unit, linked
 against `libphotocraft.a`); `make test` builds and runs them all. Code that uses threads must also
 pass `make tsan`. Corpus
-tests (real PSDs etc.) are opt-in: `make test-corpus` after `tools/corpus.sh fetch` (B4).
+tests (real PSDs etc.) are opt-in: `make corpus` (= `tools/corpus.sh fetch all`) puts the pinned,
+sha256-verified files in `corpus/`; corpus tests skip cleanly when it is absent.
+
+**Reference outputs (while the Rust tree exists).** `tools/rustref` (Cargo, Rust 1.95 via its
+`rust-toolchain.toml`) prints the reference's view of a file: `psd-info`, `decode`, `composite`,
+`vectors`. `tools/golden.sh CMD PATH...` records them as committed JSON in `tests/golden/<cmd>/`
+(pixel outputs as `raw_sha256`); C tests compare against those. Generate the goldens a chunk
+needs *before* Z3. Existing: psd-info for corpus/psd, psd-tools, photoshop (737 files); decode for
+corpus/pngsuite (178).
 
 ## 5. Chunks
 
@@ -183,7 +191,7 @@ tests (real PSDs etc.) are opt-in: `make test-corpus` after `tools/corpus.sh fet
   SDL3 window with a GL 3.3 context, draws Nuklear widgets with FreeType-rendered text at HiDPI,
   reads pen pressure from SDL3, opens an SDL3 file dialog. Linux verified; record the results for macOS
   and the BSDs, or note "untested". If the stack fails a requirement, update D4 before U1.
-- [ ] **B4** · tooling → `tools/`
+- [x] **B4** (2026-10-09) · tooling → `tools/`
   - `tools/corpus.sh fetch|verify`: the corpus pins and sha256s from `xtask/src/corpus_pins.rs`, using `curl` and `sha256sum`/`shasum`.
   - `tools/check-layers.sh`: the §3 include rules, run by `make check`.
   - `tools/rustref/` (seeded in B2: a standalone Cargo project printing serde_json/half/base64 vectors
@@ -456,3 +464,4 @@ Newest last. One dated line per chunk session: chunk, what landed, test counts, 
 - 2026-10-09 · B2 follow-up · Extra verification: a 32-bit (`-m32`) strict build compiles cleanly; with x87 maths one JSON test failed (excess precision), so D22 now rejects `FLT_EVAL_METHOD != 0` and adds `-ffp-contract=off`; with `-msse2 -mfpmath=sse` the 11 test executables that link (32-bit zstd/blake3 aren't installed here, so test_compress/test_hash weren't run 32-bit) pass.
 - 2026-10-09 · B3 (in progress) · `src/ui/spike/` (gl33 loader via SDL_GL_GetProcAddress with our own Khronos typedefs, FreeType RGBA glyph atlas as an nk_user_font with HiDPI scale, Nuklear GL 3.3 renderer with scissor clipping, SDL3 event mapping incl. pen axis/touch and SDL_ShowOpenFileDialog via a user event, minimal PNG writer, `--snapshot` mode); vendored Nuklear v4.13.3 (`third_party/nuklear/`, our config in `photocraft_nuklear.h`, 32-bit draw indices). Makefile: `GUI_PKGS = sdl3 freetype2` applied to UI objects only; `make spike`; spike built by `all`/`check` when the packages exist; included in `make analyze` (17 files clean). Verified on Linux/Mesa 26.2 GL 4.6 core via the offscreen driver: snapshots at scale 1, 1.5 (clang build) and 2 render correctly (Inter text crisp at 2x, Latin-1/Extended-A, quotes, dash, euro; checkbox/property/combo/edit/progress; pressure-varying stroke); gcc + clang strict, ASan/UBSan clean except a 256-byte leak inside SDL3/Mesa that a bare SDL GL context reproduces (not ours). NOT verified: interactive window, pen pressure/tilt, file dialog, text input — the installed libsdl3 3.4.18 has no X11/Wayland driver (USE lacked X/wayland/dbus; drivers: offscreen, dummy, evdev). macOS/BSD untested. Spike limitations for U1 to fix: fixed glyph set (no on-demand atlas/CJK), no HarfBuzz shaping, no kerning.
 - 2026-10-09 · B3 (in progress) · libsdl3 rebuilt with `USE="X dbus"` (drivers now x11, offscreen, dummy, evdev; XInput2 via libXi). User ran the spike interactively on X11: window, sharp text, checkbox/property/combo and typing into the edit field all work (screenshot). Canvas didn't draw because it only accepted pen events and no tablet is attached ("Pen: not seen yet"); added fixed-width mouse drawing (ignoring SDL's pen-synthesised mouse events). Pen pressure/tilt can't be verified without a tablet: carried to P2 as an open item. File dialog still to be tried.
+- 2026-10-09 · B4 · `tools/corpus.sh list|fetch|verify` (POSIX sh, tested with mksh): pins in `tools/corpus/pins.txt` and manifests `tools/corpus/*.sha256` copied from xtask (now authoritative; xtask's copies are frozen); PngSuite now sha256-pinned (xtask fetched it unverified). Fetched all 7 corpora (942 files, 117 MB) in ~16 s; re-fetch skips; a tampered file fails `verify` and `fetch` repairs it. `tools/check-layers.sh` (Rust direct-dependency graph + "GUI headers only in src/ui, src/app") runs first in `make check`; a planted violation is caught on both rules. `tools/rustref` gained `psd-info`, `decode`, `composite` (links crates/psd, codecs, io, compose; errors as {"error":...}); needs rustc 1.95, installed side-by-side with `rustup toolchain install 1.95.0 --profile minimal` and pinned by `tools/rustref/rust-toolchain.toml` (the user's default stable 1.91 untouched). `tools/golden.sh` wrote 915 goldens (5.7 MB) to `tests/golden/`: psd-info for 737 PSDs (2 record the reference's truncation errors) and decode for 178 PngSuite files (16 corrupt-file errors). `make corpus` added. All gates green. Not done: composite goldens (a tolerance/size policy is needed first, decide in C1); `make test-corpus` arrives with the first module that has corpus tests (F6).

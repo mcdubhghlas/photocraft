@@ -1,0 +1,4 @@
+# The workspace crates need rustc >= 1.95 (rust-version in the root Cargo.toml).
+[toolchain]
+channel = "1.95.0"
+profile = "minimal"

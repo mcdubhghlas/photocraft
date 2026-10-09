@@ -1,0 +1,18 @@
+# Test-corpus pins for tools/corpus.sh (REWRITE_PLAN.md B4). Ported from xtask/src/corpus_pins.rs,
+# which is frozen; this file and tools/corpus/<name>.sha256 are now authoritative.
+#
+# One line per upstream:  corpus|prefix|owner/repo|commit|subdir|extras
+#   prefix  manifest paths starting with it come from this upstream (longest prefix wins)
+#   extras  comma-separated from:to licence/readme files copied next to the corpus
+# The manifest tools/corpus/<corpus>.sha256 ("<sha256>  <path>") selects and verifies the files.
+psd|psd-tools/|psd-tools/psd-tools|96eb134c17b2c65edf4c4151c0f00b802ada86c2|tests/psd_files|LICENSE:psd-tools/LICENSE
+psd|ag-psd/|Agamnentzar/ag-psd|387049670cb89b88fb8fe1b7c01aeacf98dd2e3b|test|LICENSE:ag-psd/LICENSE
+psd-tools||psd-tools/psd-tools|96eb134c17b2c65edf4c4151c0f00b802ada86c2|tests/psd_files|LICENSE:LICENSE
+photoshop||storytold/photocraft-corpus|f5b1178cab15309e05b7b504545df3c701f6d8fd|photoshop|README.md:README.md,LICENSE-MIT:LICENSE-MIT,LICENSE-APACHE:LICENSE-APACHE
+heif|heic-rs/|tbraun96/heic-rs|4f0d4df474c773dfc3b14fa80e7219be6898866e|tests/fixtures|LICENSE-MIT:heic-rs/LICENSE-MIT,LICENSE-APACHE:heic-rs/LICENSE-APACHE
+heif|pillow-heif/|bigcat88/pillow_heif|b16be1196dfa465a342d68894696e685ca3655cb|tests/images|LICENSE.txt:pillow-heif/LICENSE.txt
+exr||AcademySoftwareFoundation/openexr|69b2604fc76e370615438bdc8d2cd95b9349c12e|src/test/bin/test_images|LICENSE.md:LICENSE.md
+affinity|vector-art/|samuel-etver/vector-art|255f8add3c8f0740196e22bd59502b811b532f0b|simple|LICENSE:vector-art/LICENSE
+affinity|afdesignload/|NickBeeuwsaert/AFDesignLoad|a18dd50a7079fb861a28835eeefa0d015f03f4a1|testDesigns|LICENSE:afdesignload/LICENSE
+affinity|jac21/|Jac21/Branding|57ae3f45bf4637f6927c0b07de25b922c55f944f|Logos/JC/DesignerFiles/Affinity|LICENSE.md:jac21/LICENSE.md
+affinity|asset-store-template/|eviltwo/AssetStoreTemplate|f671981ee89d15526285b3cc87b4393d3defe644|AssetStoreTemplate|LICENSE:asset-store-template/LICENSE
