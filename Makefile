@@ -21,9 +21,9 @@ CFLAGS ?= -O2 -g
 ARFLAGS = rcs
 
 # Modules in layer order (REWRITE_PLAN.md §3). Each chunk appends its module here.
-MODULES = base geom cms color raster psd
+MODULES = base geom cms color raster psd codecs
 # pkg-config packages the current modules need.
-PKGS = zlib libzstd libblake3
+PKGS = zlib libzstd libblake3 libpng16 libjpeg libwebp libwebpmux libwebpdemux
 # Vendored third-party C (REWRITE_PLAN.md D17), compiled without our strict warnings: it isn't
 # our code to fix, and upstream builds it warning-free with its own flags.
 THIRD_PARTY = yyjson nuklear
@@ -53,6 +53,16 @@ WERROR = $(if $(STRICT),-Werror)
 PKG_CFLAGS := $(if $(PKGS),$(shell $(PKG_CONFIG) --cflags $(PKGS)))
 PKG_LIBS := $(if $(PKGS),$(shell $(PKG_CONFIG) --libs $(PKGS)))
 
+# Optional codec libraries (REWRITE_PLAN.md D3, D27, D18): on when found, or force WITH_EXR=0 /
+# WITH_HEIF=0. Only OpenEXRCore (the C API) is linked from OpenEXR.
+WITH_EXR ?= $(shell $(PKG_CONFIG) --exists OpenEXR 2>/dev/null && echo 1)
+WITH_HEIF ?= $(shell $(PKG_CONFIG) --exists libheif 2>/dev/null && echo 1)
+EXR_CFLAGS := $(if $(filter 1,$(WITH_EXR)),$(shell $(PKG_CONFIG) --cflags OpenEXR),-DPC_NO_EXR)
+EXR_LIBS := $(if $(filter 1,$(WITH_EXR)),$(filter -L% -lOpenEXRCore%,$(shell $(PKG_CONFIG) --libs OpenEXR)))
+HEIF_CFLAGS := $(if $(filter 1,$(WITH_HEIF)),$(shell $(PKG_CONFIG) --cflags libheif),-DPC_NO_HEIF)
+HEIF_LIBS := $(if $(filter 1,$(WITH_HEIF)),$(shell $(PKG_CONFIG) --libs libheif))
+CODEC_CFLAGS = $(EXR_CFLAGS) $(HEIF_CFLAGS)
+
 HAVE_GUI := $(shell $(PKG_CONFIG) --exists $(GUI_PKGS) 2>/dev/null && echo y)
 GUI_CFLAGS := $(if $(HAVE_GUI),$(shell $(PKG_CONFIG) --cflags $(GUI_PKGS)))
 GUI_LIBS := $(if $(HAVE_GUI),$(shell $(PKG_CONFIG) --libs $(GUI_PKGS)))
@@ -60,7 +70,7 @@ GUI_LIBS := $(if $(HAVE_GUI),$(shell $(PKG_CONFIG) --libs $(GUI_PKGS)))
 ALL_CPPFLAGS = -D_POSIX_C_SOURCE=200809L -Isrc $(THIRD_PARTY:%=-Ithird_party/%) $(PKG_CFLAGS) $(EXTRA_CPPFLAGS) $(CPPFLAGS)
 ALL_CFLAGS = -std=c17 $(FP_STRICT) $(WARN) $(WERROR) $(PTHREAD) $(CFLAGS) $(EXTRA_CFLAGS)
 ALL_LDFLAGS = $(PTHREAD) $(LDFLAGS) $(EXTRA_LDFLAGS)
-ALL_LDLIBS = $(PKG_LIBS) $(LDLIBS) -lm
+ALL_LDLIBS = $(PKG_LIBS) $(EXR_LIBS) $(HEIF_LIBS) $(LDLIBS) -lm
 
 SRCS := $(foreach m,$(MODULES),$(wildcard src/$(m)/*.c))
 THIRD_SRCS := $(foreach t,$(THIRD_PARTY),$(wildcard third_party/$(t)/*.c))
@@ -108,6 +118,10 @@ $(LIB): $(OBJS)
 	$(AR) $(ARFLAGS) $@ $(OBJS)
 
 $(SPIKE_OBJS): EXTRA_CPPFLAGS = $(GUI_CFLAGS)
+# Only the codecs and their tests see the optional libraries' headers (and PC_NO_EXR / PC_NO_HEIF).
+# Only the codecs see the optional libraries' headers.
+$(filter $(BUILD)/obj/src/codecs/%,$(OBJS)): EXTRA_CPPFLAGS = $(CODEC_CFLAGS)
+$(BUILD)/tests/codecs/%: EXTRA_CPPFLAGS = $(CODEC_CFLAGS)
 
 $(SPIKE): $(SPIKE_OBJS) $(LIB)
 	@mkdir -p $(@D)
@@ -150,7 +164,7 @@ analyze:
 	@if command -v clang >/dev/null 2>&1; then \
 		for f in $(SRCS); do \
 			clang --analyze -Xclang -analyzer-werror -std=c17 -D_POSIX_C_SOURCE=200809L -Isrc $(THIRD_PARTY:%=-Ithird_party/%) $(PKG_CFLAGS) \
-				-o /dev/null $$f || exit 1; \
+				$(CODEC_CFLAGS) -o /dev/null $$f || exit 1; \
 		done; \
 		for f in $(if $(HAVE_GUI),$(SPIKE_SRCS)); do \
 			clang --analyze -Xclang -analyzer-werror -std=c17 -D_POSIX_C_SOURCE=200809L -Isrc $(THIRD_PARTY:%=-Ithird_party/%) $(PKG_CFLAGS) \
