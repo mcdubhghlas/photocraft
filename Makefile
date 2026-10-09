@@ -21,7 +21,7 @@ CFLAGS ?= -O2 -g
 ARFLAGS = rcs
 
 # Modules in layer order (REWRITE_PLAN.md §3). Each chunk appends its module here.
-MODULES = base geom
+MODULES = base geom cms color raster
 # pkg-config packages the current modules need.
 PKGS = zlib libzstd libblake3
 # Vendored third-party C (REWRITE_PLAN.md D17), compiled without our strict warnings: it isn't
@@ -64,7 +64,9 @@ ALL_LDLIBS = $(PKG_LIBS) $(LDLIBS) -lm
 
 SRCS := $(foreach m,$(MODULES),$(wildcard src/$(m)/*.c))
 THIRD_SRCS := $(foreach t,$(THIRD_PARTY),$(wildcard third_party/$(t)/*.c))
-OBJS := $(SRCS:%.c=$(BUILD)/obj/%.o) $(THIRD_SRCS:%.c=$(BUILD)/obj/%.o)
+# Binary data compiled in (POSIX od + sed; no xxd): name = file under data/ (see GEN rules below).
+GEN_SRCS := $(BUILD)/gen/coated_cmyk_icc.c
+OBJS := $(SRCS:%.c=$(BUILD)/obj/%.o) $(THIRD_SRCS:%.c=$(BUILD)/obj/%.o) $(GEN_SRCS:%.c=%.o)
 LIB := $(BUILD)/libphotocraft.a
 # B3 GUI stack spike (src/ui/spike): built when SDL3 and FreeType are installed.
 SPIKE_SRCS := $(wildcard src/ui/spike/*.c)
@@ -86,6 +88,19 @@ $(BUILD)/obj/third_party/%.o: third_party/%.c
 $(BUILD)/obj/%.o: %.c
 	@mkdir -p $(@D)
 	$(CC) $(ALL_CPPFLAGS) $(ALL_CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+# The shipped synthetic CMYK profile (src/cms/builtin.h: pc_coated_cmyk_icc).
+$(BUILD)/gen/coated_cmyk_icc.c: data/profiles/photocraft-coated-cmyk.icc
+	@mkdir -p $(@D)
+	@{ echo '/* Generated from data/profiles/photocraft-coated-cmyk.icc by the Makefile. */'; \
+	  echo '#include <stddef.h>'; \
+	  echo 'const unsigned char pc_coated_cmyk_icc[] = {'; \
+	  od -An -v -tu1 $< | sed -e 's/[[:space:]][[:space:]]*/,/g' -e 's/^,//' -e 's/,$$//' -e 's/$$/,/' -e '/^,$$/d'; \
+	  echo '};'; \
+	  echo "const size_t pc_coated_cmyk_icc_len = sizeof pc_coated_cmyk_icc;"; } > $@.tmp && mv $@.tmp $@
+
+$(BUILD)/gen/%.o: $(BUILD)/gen/%.c
+	$(CC) -std=c17 $(CFLAGS) $(EXTRA_CFLAGS) -c $< -o $@
 
 $(LIB): $(OBJS)
 	@mkdir -p $(@D)

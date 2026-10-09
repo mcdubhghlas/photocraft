@@ -1091,12 +1091,16 @@ name = "rustref"
 version = "0.0.0"
 dependencies = [
  "base64",
+ "blake3",
  "half",
+ "photocraft-cms",
  "photocraft-codecs",
+ "photocraft-color",
  "photocraft-compose",
  "photocraft-geom",
  "photocraft-io",
  "photocraft-psd",
+ "photocraft-raster",
  "serde_json",
 ]
 

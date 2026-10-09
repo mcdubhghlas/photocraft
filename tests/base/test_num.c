@@ -91,6 +91,17 @@ static void test_float_casts_match_rust(void)
     CHECK_EQ_UINT(pc_f32_to_size(12.9f), 12);
 }
 
+static void test_f64_to_f32_like_rust(void)
+{
+    CHECK_NEAR(pc_f64_to_f32(0.1), 0.100000001490116119384765625, 0.0);
+    CHECK(isinf(pc_f64_to_f32(1e300)) && pc_f64_to_f32(1e300) > 0);
+    CHECK(isinf(pc_f64_to_f32(-1e300)) && pc_f64_to_f32(-1e300) < 0);
+    CHECK(pc_f64_to_f32(0x1.fffffe8p127) == FLT_MAX); /* above FLT_MAX, below the midpoint: rounds down */
+    CHECK(isinf(pc_f64_to_f32(0x1.ffffffp127)));            /* the midpoint rounds to even: inf */
+    CHECK(isnan(pc_f64_to_f32(NAN)));
+    CHECK(pc_f64_to_f32(1e-50) == 0.0f);
+}
+
 static void test_clamp(void)
 {
     CHECK_NEAR(pc_clampf(2.0f, 0.0f, 1.0f), 1.0, 0.0);
@@ -111,6 +122,7 @@ int main(int argc, char **argv)
     RUN(test_i32_saturating);
     RUN(test_i32_wrapping);
     RUN(test_float_casts_match_rust);
+    RUN(test_f64_to_f32_like_rust);
     RUN(test_clamp);
     return pc_t_finish();
 }

@@ -9,6 +9,7 @@
 
 #include "base/mem.h"
 #include "base/num.h"
+#include "base/utf8.h"
 
 /* std::f64::consts (M_PI is not ISO C). */
 static const double PI = 3.14159265358979323846;
@@ -62,55 +63,6 @@ bool pc_warp_style_is_preset(pc_warp_style s)
     return (unsigned)s < PC_WARP_STYLE_COUNT && s != PC_WARP_NONE && s != PC_WARP_CUSTOM;
 }
 
-/* Unicode White_Space (what Rust's char::is_whitespace tests). */
-static bool is_unicode_space(uint32_t c)
-{
-    return (c >= 0x09 && c <= 0x0D) || c == 0x20 || c == 0x85 || c == 0xA0 || c == 0x1680 ||
-           (c >= 0x2000 && c <= 0x200A) || c == 0x2028 || c == 0x2029 || c == 0x202F || c == 0x205F || c == 0x3000;
-}
-
-/* Decode one UTF-8 sequence at s[*i]; returns false on malformed input. */
-static bool utf8_next(const unsigned char *s, size_t len, size_t *i, uint32_t *cp)
-{
-    unsigned char b = s[*i];
-    size_t n;
-    size_t k;
-    uint32_t c;
-    if (b < 0x80) {
-        *cp = b;
-        (*i)++;
-        return true;
-    }
-    if (b >= 0xC2 && b <= 0xDF) {
-        n = 1;
-        c = b & 0x1Fu;
-    } else if (b >= 0xE0 && b <= 0xEF) {
-        n = 2;
-        c = b & 0x0Fu;
-    } else if (b >= 0xF0 && b <= 0xF4) {
-        n = 3;
-        c = b & 0x07u;
-    } else {
-        return false;
-    }
-    if (len - *i <= n) {
-        return false;
-    }
-    for (k = 1; k <= n; k++) {
-        unsigned char cc = s[*i + k];
-        if ((cc & 0xC0u) != 0x80u) {
-            return false;
-        }
-        c = c << 6 | (cc & 0x3Fu);
-    }
-    if ((n == 2 && (c < 0x800 || (c >= 0xD800 && c <= 0xDFFF))) || (n == 3 && (c < 0x10000 || c > 0x10FFFF))) {
-        return false;
-    }
-    *i += n + 1;
-    *cp = c;
-    return true;
-}
-
 static bool ascii_ieq(const char *a, size_t alen, const char *b)
 {
     size_t i;
@@ -141,10 +93,10 @@ bool pc_warp_style_parse(const char *text, size_t len, pc_warp_style *out)
     }
     while (i < len) {
         uint32_t cp;
-        if (!utf8_next((const unsigned char *)text, len, &i, &cp)) {
+        if (!pc_utf8_next((const uint8_t *)text, len, &i, &cp)) {
             return false;
         }
-        if (is_unicode_space(cp)) {
+        if (pc_unicode_is_space(cp)) {
             continue;
         }
         if (cp >= 0x80 || klen + 1 >= sizeof key) {

@@ -175,6 +175,17 @@ static inline int32_t pc_f32_to_i32(float x) { return pc_f64_to_i32((double)x); 
 static inline int64_t pc_f32_to_i64(float x) { return pc_f64_to_i64((double)x); }
 static inline size_t pc_f32_to_size(float x) { return pc_f64_to_size((double)x); }
 
+/* ---- Rust `f64 as f32`: round to nearest even; beyond float range -> +-inf ----
+ * (C leaves out-of-range double -> float conversion undefined unless Annex F applies.) */
+static inline float pc_f64_to_f32(double x)
+{
+    /* 0x1.ffffffp127 is halfway between FLT_MAX and 2^128: from there on, nearest-even
+     * rounding gives infinity. */
+    if (x >= 0x1.ffffffp127) { return (float)INFINITY; }
+    if (x <= -0x1.ffffffp127) { return -(float)INFINITY; }
+    return (float)x; /* in range (or NaN): exact IEEE rounding */
+}
+
 /* ---- Rust f32/f64::clamp: NaN stays NaN (unlike fminf(fmaxf())) ---- */
 
 static inline float pc_clampf(float x, float lo, float hi)
