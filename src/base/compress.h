@@ -1,10 +1,10 @@
 /* zlib/deflate/gzip (zlib) and zstd (libzstd) wrappers. Replace flate2, crc32fast and ruzstd
  * (REWRITE_PLAN.md D15). Thread-safe.
  *
- * Decompression mirrors the reference's `Read::take(max)` pattern: output stops at max_out
- * bytes, at the end of the stream, or when the input runs out. Only corrupt data is an error;
- * a truncated stream or one longer than max_out is *not* (check info->stream_end and the output
- * length, as the Rust callers do). Error messages match flate2's ("corrupt deflate stream").
+ * Decompression mirrors the reference's `Read::take(max)` + read-to-end pattern: output stops at
+ * max_out bytes (not an error, even mid-stream) or at the end of the stream. Input that runs out
+ * before either is an error, as flate2 1.1 reports it ("incomplete deflate stream"); corrupt data
+ * is "corrupt deflate stream". On error the output is unchanged.
  * Compressed bytes differ from the reference's encoders; they decompress identically (§7). */
 #ifndef PC_BASE_COMPRESS_H
 #define PC_BASE_COMPRESS_H

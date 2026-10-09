@@ -1,0 +1,227 @@
+case	merged Psd Bitmap 1bit Raw	d773fa5b95ccfcc5	033fdd849cce08d7
+case	merged Psd Bitmap 1bit Rle	d5ec635c8cee7480	033fdd849cce08d7
+case	merged Psd Bitmap 1bit Zip	5bcc9772e98e07c9	033fdd849cce08d7
+case	merged Psd Bitmap 1bit ZipPrediction	d6ce9d71c108a76e	033fdd849cce08d7
+case	merged Psd Grayscale 8bit Raw	775e3f77f94ed378	0f06ac06533ce5a2
+case	merged Psd Grayscale 8bit Rle	5a75af7d68ca1434	0f06ac06533ce5a2
+case	merged Psd Grayscale 8bit Zip	92537e8c5fba3785	0f06ac06533ce5a2
+case	merged Psd Grayscale 8bit ZipPrediction	eb339af49675cb58	0f06ac06533ce5a2
+case	merged Psd Grayscale 16bit Raw	d308f916abfa0e57	2559fc6719d065a5
+case	merged Psd Grayscale 16bit Rle	a6776fabe3902fa7	2559fc6719d065a5
+case	merged Psd Grayscale 16bit Zip	4f88b1f5c5d26bce	2559fc6719d065a5
+case	merged Psd Grayscale 16bit ZipPrediction	51bb7827d68bce2a	2559fc6719d065a5
+case	merged Psd Grayscale 32bit Raw	0126120c2135d988	c8be773e867fae0e
+case	merged Psd Grayscale 32bit Rle	69d2629e7463c312	c8be773e867fae0e
+case	merged Psd Grayscale 32bit Zip	45465c8f071e42c8	c8be773e867fae0e
+case	merged Psd Grayscale 32bit ZipPrediction	f5fb9b52913e56a0	c8be773e867fae0e
+case	merged Psd Indexed 8bit Raw	70a3efd0eaeb457e	cc7a7d69655d3106
+case	merged Psd Indexed 8bit Rle	9920a1f22d05ea56	cc7a7d69655d3106
+case	merged Psd Indexed 8bit Zip	09fcfe5fd8de1d33	cc7a7d69655d3106
+case	merged Psd Indexed 8bit ZipPrediction	9454fdd16a352d2e	cc7a7d69655d3106
+case	merged Psd Rgb 8bit Raw	d1ab67488a0ff2d1	99c87968eb46bf02
+case	merged Psd Rgb 8bit Rle	f5b84b80c404dcb0	99c87968eb46bf02
+case	merged Psd Rgb 8bit Zip	53516031f651ce3d	99c87968eb46bf02
+case	merged Psd Rgb 8bit ZipPrediction	75e111be2c53dd6a	99c87968eb46bf02
+case	merged Psd Rgb 16bit Raw	833411475c2a582b	cc9f841135eef888
+case	merged Psd Rgb 16bit Rle	b0e4775d06769c11	cc9f841135eef888
+case	merged Psd Rgb 16bit Zip	dbd92de33eb2539a	cc9f841135eef888
+case	merged Psd Rgb 16bit ZipPrediction	610e8794c27bc422	cc9f841135eef888
+case	merged Psd Rgb 32bit Raw	776397dffa515497	e6b00ea3f17f196a
+case	merged Psd Rgb 32bit Rle	3c13b3d7bc23a0d2	e6b00ea3f17f196a
+case	merged Psd Rgb 32bit Zip	2fd64bfa60762587	e6b00ea3f17f196a
+case	merged Psd Rgb 32bit ZipPrediction	f2154a47fb05c161	e6b00ea3f17f196a
+case	merged Psd Cmyk 8bit Raw	a8b468d42f2a11ce	dd66419472b9b152
+case	merged Psd Cmyk 8bit Rle	d453c9dc92101445	dd66419472b9b152
+case	merged Psd Cmyk 8bit Zip	136cdc8444329832	dd66419472b9b152
+case	merged Psd Cmyk 8bit ZipPrediction	23b55d28ec16a124	dd66419472b9b152
+case	merged Psd Cmyk 16bit Raw	87cbe2c23227a0f1	cd0ed073bdc28d8b
+case	merged Psd Cmyk 16bit Rle	d2cd9a82bbca1315	cd0ed073bdc28d8b
+case	merged Psd Cmyk 16bit Zip	4e972a1f66b2386f	cd0ed073bdc28d8b
+case	merged Psd Cmyk 16bit ZipPrediction	fd7dd804e3e4a60b	cd0ed073bdc28d8b
+case	merged Psd Lab 8bit Raw	273782bb7f3c443f	765ed78ea9e8799b
+case	merged Psd Lab 8bit Rle	3eb3f50d66a5604e	765ed78ea9e8799b
+case	merged Psd Lab 8bit Zip	f1c4928c6b29b8df	765ed78ea9e8799b
+case	merged Psd Lab 8bit ZipPrediction	6d8ed84246a7b908	765ed78ea9e8799b
+case	merged Psd Lab 16bit Raw	a047964fe3f643bd	3f94e669d5c49d07
+case	merged Psd Lab 16bit Rle	feb52be0926f0983	3f94e669d5c49d07
+case	merged Psd Lab 16bit Zip	6e0af29f90e7814c	3f94e669d5c49d07
+case	merged Psd Lab 16bit ZipPrediction	ddd8db7a0edd21cc	3f94e669d5c49d07
+case	merged Psd Multichannel 8bit Raw	1361e35064899f18	874cc9d6406ede20
+case	merged Psd Multichannel 8bit Rle	be570063ec3a573a	874cc9d6406ede20
+case	merged Psd Multichannel 8bit Zip	313537dfeba2ce96	874cc9d6406ede20
+case	merged Psd Multichannel 8bit ZipPrediction	6f103f86e75f68f9	874cc9d6406ede20
+case	merged Psd Multichannel 16bit Raw	c7d2b161b5763f9a	08e53a33e6846caa
+case	merged Psd Multichannel 16bit Rle	1edfd35b6d306eac	08e53a33e6846caa
+case	merged Psd Multichannel 16bit Zip	6a0415477a9dcb74	08e53a33e6846caa
+case	merged Psd Multichannel 16bit ZipPrediction	7ea6fcb999cd8b67	08e53a33e6846caa
+case	merged Psd Duotone 8bit Raw	5f2697a5c86a145d	0f06ac06533ce5a2
+case	merged Psd Duotone 8bit Rle	c4b864c203bb2e93	0f06ac06533ce5a2
+case	merged Psd Duotone 8bit Zip	00de6ce0984b3f6a	0f06ac06533ce5a2
+case	merged Psd Duotone 8bit ZipPrediction	589f8fdf5a474735	0f06ac06533ce5a2
+case	layered Psd Grayscale 8bit Raw	0749e0a25357bfa6	5f284466d1830a97
+case	layered Psd Grayscale 8bit Rle	4483bebfccc28fe2	5f284466d1830a97
+case	layered Psd Grayscale 8bit Zip	7d2092f5f6e59247	5f284466d1830a97
+case	layered Psd Grayscale 8bit ZipPrediction	d084be76f5f6f97c	5f284466d1830a97
+case	layered Psd Grayscale 16bit Raw	bb60bf4daa77266f	edf507c3cb3054bf
+case	layered Psd Grayscale 16bit Rle	ac9ec050982dde89	edf507c3cb3054bf
+case	layered Psd Grayscale 16bit Zip	fd95584521f5e64c	edf507c3cb3054bf
+case	layered Psd Grayscale 16bit ZipPrediction	88f1435f7cda89ad	edf507c3cb3054bf
+case	layered Psd Grayscale 32bit Raw	081544441df29085	54423f6a2cf6b076
+case	layered Psd Grayscale 32bit Rle	d286791d1cf0ba82	54423f6a2cf6b076
+case	layered Psd Grayscale 32bit Zip	fff5e412a6bbc8d1	54423f6a2cf6b076
+case	layered Psd Grayscale 32bit ZipPrediction	8207e496da156c1f	54423f6a2cf6b076
+case	layered Psd Rgb 8bit Raw	15e66aa83f9de5c6	a48fbd554e8d4c03
+case	layered Psd Rgb 8bit Rle	d81c19da855da803	a48fbd554e8d4c03
+case	layered Psd Rgb 8bit Zip	69ae8740956da47c	a48fbd554e8d4c03
+case	layered Psd Rgb 8bit ZipPrediction	5aa79e4a3854c9eb	a48fbd554e8d4c03
+case	layered Psd Rgb 16bit Raw	f51008b4d7f4a5d2	1a066e90ea20f9c2
+case	layered Psd Rgb 16bit Rle	b070bd2c0d3adfbd	1a066e90ea20f9c2
+case	layered Psd Rgb 16bit Zip	deae3f24502ba4af	1a066e90ea20f9c2
+case	layered Psd Rgb 16bit ZipPrediction	6be6a6787a7018bd	1a066e90ea20f9c2
+case	layered Psd Rgb 32bit Raw	e4a261bfc9452b8a	deb96f77df860db0
+case	layered Psd Rgb 32bit Rle	79f1158ee0965491	deb96f77df860db0
+case	layered Psd Rgb 32bit Zip	7bab60a6193c06fe	deb96f77df860db0
+case	layered Psd Rgb 32bit ZipPrediction	bfceb0c0b1cd7c11	deb96f77df860db0
+case	layered Psd Cmyk 8bit Raw	62c66d44f70c24af	0260dd66471ecbf0
+case	layered Psd Cmyk 8bit Rle	1e00714543f2b8d1	0260dd66471ecbf0
+case	layered Psd Cmyk 8bit Zip	559261ec7bd6af8d	0260dd66471ecbf0
+case	layered Psd Cmyk 8bit ZipPrediction	87353de0490c24a4	0260dd66471ecbf0
+case	layered Psd Cmyk 16bit Raw	c03ea2d76102e121	a1abea7fdf08872f
+case	layered Psd Cmyk 16bit Rle	fb02fef8c8d3298f	a1abea7fdf08872f
+case	layered Psd Cmyk 16bit Zip	d23b8e0aa300bf3c	a1abea7fdf08872f
+case	layered Psd Cmyk 16bit ZipPrediction	e8581259220a95cf	a1abea7fdf08872f
+case	layered Psd Lab 8bit Raw	837dc06988646908	70a109d229a753dd
+case	layered Psd Lab 8bit Rle	9597dc530f8ba9f1	70a109d229a753dd
+case	layered Psd Lab 8bit Zip	72b638e91719f8ee	70a109d229a753dd
+case	layered Psd Lab 8bit ZipPrediction	4531c7242ca61c15	70a109d229a753dd
+case	layered Psd Lab 16bit Raw	261790df69572704	bbd35b979a774cf0
+case	layered Psd Lab 16bit Rle	b2aebdc3b93bc9e3	bbd35b979a774cf0
+case	layered Psd Lab 16bit Zip	748b3fe65f4b1171	bbd35b979a774cf0
+case	layered Psd Lab 16bit ZipPrediction	ff8f1f0cf063400b	bbd35b979a774cf0
+case	small Psd Raw	a214dcf7c3c09a75	dcbc960cfe8c007f
+case	small Psd Rle	0714b7784c52ffc3	dcbc960cfe8c007f
+case	small Psd Zip	e922bd00c4551b1f	dcbc960cfe8c007f
+case	small Psd ZipPrediction	08eed0a21edb0626	dcbc960cfe8c007f
+case	1x1 canvas Psd	5d05a9b4a1def39c	07582ba3d5119f38
+case	merged Psb Bitmap 1bit Raw	dd8405ae89e11738	033fdd849cce08d7
+case	merged Psb Bitmap 1bit Rle	8a583d8a115b0e0f	033fdd849cce08d7
+case	merged Psb Bitmap 1bit Zip	daa70aafa47423a8	033fdd849cce08d7
+case	merged Psb Bitmap 1bit ZipPrediction	26664a59424229df	033fdd849cce08d7
+case	merged Psb Grayscale 8bit Raw	64d1416a297af7ff	0f06ac06533ce5a2
+case	merged Psb Grayscale 8bit Rle	37eecb4c97150e09	0f06ac06533ce5a2
+case	merged Psb Grayscale 8bit Zip	b547815491575254	0f06ac06533ce5a2
+case	merged Psb Grayscale 8bit ZipPrediction	29fa869eee74aaff	0f06ac06533ce5a2
+case	merged Psb Grayscale 16bit Raw	523f96c90a63b186	2559fc6719d065a5
+case	merged Psb Grayscale 16bit Rle	66f9063072bb9d7c	2559fc6719d065a5
+case	merged Psb Grayscale 16bit Zip	584e1ad20ac49c45	2559fc6719d065a5
+case	merged Psb Grayscale 16bit ZipPrediction	2f1ef368832f8685	2559fc6719d065a5
+case	merged Psb Grayscale 32bit Raw	2a87417b02a7e98d	c8be773e867fae0e
+case	merged Psb Grayscale 32bit Rle	6a0941df3cf78ac3	c8be773e867fae0e
+case	merged Psb Grayscale 32bit Zip	956dad60f4bcaad1	c8be773e867fae0e
+case	merged Psb Grayscale 32bit ZipPrediction	ce25f804d470ff57	c8be773e867fae0e
+case	merged Psb Indexed 8bit Raw	8304cf1cad109af5	cc7a7d69655d3106
+case	merged Psb Indexed 8bit Rle	ef4d3ff3c4777adb	cc7a7d69655d3106
+case	merged Psb Indexed 8bit Zip	930fca7943b29e82	cc7a7d69655d3106
+case	merged Psb Indexed 8bit ZipPrediction	2c5047af6221b24d	cc7a7d69655d3106
+case	merged Psb Rgb 8bit Raw	f9d09f78a4932142	99c87968eb46bf02
+case	merged Psb Rgb 8bit Rle	c302666ad0d2cc29	99c87968eb46bf02
+case	merged Psb Rgb 8bit Zip	d95159f28aefa00c	99c87968eb46bf02
+case	merged Psb Rgb 8bit ZipPrediction	244d83feafc9aad1	99c87968eb46bf02
+case	merged Psb Rgb 16bit Raw	ef1a9cfd13e3b772	cc9f841135eef888
+case	merged Psb Rgb 16bit Rle	fe2c144ce25dab46	cc9f841135eef888
+case	merged Psb Rgb 16bit Zip	7e530330d68a2add	cc9f841135eef888
+case	merged Psb Rgb 16bit ZipPrediction	e95ba4b191488921	cc9f841135eef888
+case	merged Psb Rgb 32bit Raw	4080b67f584678f2	e6b00ea3f17f196a
+case	merged Psb Rgb 32bit Rle	0b62baf55ffef099	e6b00ea3f17f196a
+case	merged Psb Rgb 32bit Zip	6396d8b6b89582fc	e6b00ea3f17f196a
+case	merged Psb Rgb 32bit ZipPrediction	3ca3ba1c959dd744	e6b00ea3f17f196a
+case	merged Psb Cmyk 8bit Raw	5cc0de091625ff4f	dd66419472b9b152
+case	merged Psb Cmyk 8bit Rle	5017c9e54511ba9c	dd66419472b9b152
+case	merged Psb Cmyk 8bit Zip	240887a1a861cb49	dd66419472b9b152
+case	merged Psb Cmyk 8bit ZipPrediction	eedbc228cdabf15b	dd66419472b9b152
+case	merged Psb Cmyk 16bit Raw	4536fe1b884213fc	cd0ed073bdc28d8b
+case	merged Psb Cmyk 16bit Rle	4a1d56d145355a48	cd0ed073bdc28d8b
+case	merged Psb Cmyk 16bit Zip	aa6811fd7e5a5a38	cd0ed073bdc28d8b
+case	merged Psb Cmyk 16bit ZipPrediction	630a853b6b955d0e	cd0ed073bdc28d8b
+case	merged Psb Lab 8bit Raw	1de1f2f2ed04d154	765ed78ea9e8799b
+case	merged Psb Lab 8bit Rle	fdfe220b3b09e3db	765ed78ea9e8799b
+case	merged Psb Lab 8bit Zip	53a0c956374264d2	765ed78ea9e8799b
+case	merged Psb Lab 8bit ZipPrediction	35f04e08c3db4ad3	765ed78ea9e8799b
+case	merged Psb Lab 16bit Raw	bee49ade4148be48	3f94e669d5c49d07
+case	merged Psb Lab 16bit Rle	f970036aa5b93434	3f94e669d5c49d07
+case	merged Psb Lab 16bit Zip	92caf88b60ddc4d3	3f94e669d5c49d07
+case	merged Psb Lab 16bit ZipPrediction	f784f4fcc6f26b17	3f94e669d5c49d07
+case	merged Psb Multichannel 8bit Raw	77dbb1b389ca5425	874cc9d6406ede20
+case	merged Psb Multichannel 8bit Rle	413c775c6c6e7f63	874cc9d6406ede20
+case	merged Psb Multichannel 8bit Zip	c1019ac5eae6bf39	874cc9d6406ede20
+case	merged Psb Multichannel 8bit ZipPrediction	95cc9cf1da60c750	874cc9d6406ede20
+case	merged Psb Multichannel 16bit Raw	9a4c94327cc718df	08e53a33e6846caa
+case	merged Psb Multichannel 16bit Rle	f0cb5bcdaa1f90cd	08e53a33e6846caa
+case	merged Psb Multichannel 16bit Zip	9cd1d9b4e63541cf	08e53a33e6846caa
+case	merged Psb Multichannel 16bit ZipPrediction	6ac925cc6efde61e	08e53a33e6846caa
+case	merged Psb Duotone 8bit Raw	4ee72e10d7c4ae6a	0f06ac06533ce5a2
+case	merged Psb Duotone 8bit Rle	d111e718e8d18b52	0f06ac06533ce5a2
+case	merged Psb Duotone 8bit Zip	ccc962c1fb2b7dc7	0f06ac06533ce5a2
+case	merged Psb Duotone 8bit ZipPrediction	9f4cf571f3aae202	0f06ac06533ce5a2
+case	layered Psb Grayscale 8bit Raw	f2eea732fc4eeffa	5f284466d1830a97
+case	layered Psb Grayscale 8bit Rle	bbf20c0cbd4dbc67	5f284466d1830a97
+case	layered Psb Grayscale 8bit Zip	f9587d21a1b2af51	5f284466d1830a97
+case	layered Psb Grayscale 8bit ZipPrediction	0a07683e8245a76a	5f284466d1830a97
+case	layered Psb Grayscale 16bit Raw	161fb7d7b904b8ca	edf507c3cb3054bf
+case	layered Psb Grayscale 16bit Rle	03c96e531b81b8da	edf507c3cb3054bf
+case	layered Psb Grayscale 16bit Zip	3ef62c29eaee96ba	edf507c3cb3054bf
+case	layered Psb Grayscale 16bit ZipPrediction	a9f0e9f5b46f8076	edf507c3cb3054bf
+case	layered Psb Grayscale 32bit Raw	3c012d6555ca3ac5	54423f6a2cf6b076
+case	layered Psb Grayscale 32bit Rle	f52ef7415c4b3460	54423f6a2cf6b076
+case	layered Psb Grayscale 32bit Zip	ec14d3c1006a20fb	54423f6a2cf6b076
+case	layered Psb Grayscale 32bit ZipPrediction	54487343c71958e1	54423f6a2cf6b076
+case	layered Psb Rgb 8bit Raw	2a6b363f4a3ff637	a48fbd554e8d4c03
+case	layered Psb Rgb 8bit Rle	862d317561fb2c52	a48fbd554e8d4c03
+case	layered Psb Rgb 8bit Zip	32219c97ab477761	a48fbd554e8d4c03
+case	layered Psb Rgb 8bit ZipPrediction	7ce161d9792f44e2	a48fbd554e8d4c03
+case	layered Psb Rgb 16bit Raw	f0c4aac7f45f33fc	1a066e90ea20f9c2
+case	layered Psb Rgb 16bit Rle	05fef13a1dd3af5b	1a066e90ea20f9c2
+case	layered Psb Rgb 16bit Zip	dddc7cd6835072b8	1a066e90ea20f9c2
+case	layered Psb Rgb 16bit ZipPrediction	3dfe54fdcfbb6680	1a066e90ea20f9c2
+case	layered Psb Rgb 32bit Raw	67317a09e1d882f8	deb96f77df860db0
+case	layered Psb Rgb 32bit Rle	3dc1bdaf678be259	deb96f77df860db0
+case	layered Psb Rgb 32bit Zip	af3aeb22a81f0816	deb96f77df860db0
+case	layered Psb Rgb 32bit ZipPrediction	a54d46434a1f25e7	deb96f77df860db0
+case	layered Psb Cmyk 8bit Raw	a0860441ab3c328e	0260dd66471ecbf0
+case	layered Psb Cmyk 8bit Rle	1d9814a761f1a0ca	0260dd66471ecbf0
+case	layered Psb Cmyk 8bit Zip	debd6a7248e9f0e2	0260dd66471ecbf0
+case	layered Psb Cmyk 8bit ZipPrediction	adfcccef3dbccac1	0260dd66471ecbf0
+case	layered Psb Cmyk 16bit Raw	95d68d9b326cb628	a1abea7fdf08872f
+case	layered Psb Cmyk 16bit Rle	be063906a224d5f4	a1abea7fdf08872f
+case	layered Psb Cmyk 16bit Zip	7cb78717e43137df	a1abea7fdf08872f
+case	layered Psb Cmyk 16bit ZipPrediction	8ca3cfc5fd081aa8	a1abea7fdf08872f
+case	layered Psb Lab 8bit Raw	afdc1be9352b004d	70a109d229a753dd
+case	layered Psb Lab 8bit Rle	0a0ae2da07f00f80	70a109d229a753dd
+case	layered Psb Lab 8bit Zip	a56fdb2510037937	70a109d229a753dd
+case	layered Psb Lab 8bit ZipPrediction	3fca16978d6cf070	70a109d229a753dd
+case	layered Psb Lab 16bit Raw	27df3fc91045de0e	bbd35b979a774cf0
+case	layered Psb Lab 16bit Rle	b8dc5070b53d2579	bbd35b979a774cf0
+case	layered Psb Lab 16bit Zip	78bdf8b6017ae63e	bbd35b979a774cf0
+case	layered Psb Lab 16bit ZipPrediction	f7254fc35ffe26ca	bbd35b979a774cf0
+case	small Psb Raw	14c64b8692f20cfd	dcbc960cfe8c007f
+case	small Psb Rle	fa09d6afdb43d160	dcbc960cfe8c007f
+case	small Psb Zip	95ef53fe4ede1c76	dcbc960cfe8c007f
+case	small Psb ZipPrediction	ff49c8e0d2eafc57	dcbc960cfe8c007f
+case	1x1 canvas Psb	8de54e03624a42fd	07582ba3d5119f38
+builder	Rgb 8 Raw Psd	4c7508ca67dd4709
+builder	Rgb 8 Raw Psb	5b104c72798c7114
+builder	Rgb 8 Rle Psd	e6044533292df8f1
+builder	Rgb 8 Rle Psb	503b62b358171910
+builder	Rgb 16 Raw Psd	dbb81d32b045f810
+builder	Rgb 16 Raw Psb	762ed55b305ef639
+builder	Rgb 16 Rle Psd	efacb85f6783e032
+builder	Rgb 16 Rle Psb	075669da2cab43c7
+builder	Grayscale 8 Raw Psd	3ba470e7ea71aed2
+builder	Grayscale 8 Raw Psb	4678e7a8eff8e083
+builder	Grayscale 8 Rle Psd	0a8c0d92b50b5dea
+builder	Grayscale 8 Rle Psb	0a86703da2a35766
+builder	Cmyk 16 Raw Psd	01ee5f37e3e3a6e4
+builder	Cmyk 16 Raw Psb	5b04c62dbf036a31
+builder	Cmyk 16 Rle Psd	1247463f229f0e1c
+builder	Cmyk 16 Rle Psb	16a83818ece45515
+misc	c7301e29c2c3a121

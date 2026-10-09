@@ -125,7 +125,10 @@ static pc_status inflate_impl(pc_zfmt fmt, const uint8_t *data, size_t len, size
             goto cleanup;
         }
         if (z.avail_in == 0 && fed == len && before_out == z.avail_out && before_in == z.avail_in) {
-            break; /* input exhausted mid-stream: truncated, not an error (like flate2) */
+            /* Input exhausted before the stream ended and before the limit: flate2 (1.1) reports
+             * this as UnexpectedEof "incomplete deflate stream" to a reader that keeps reading. */
+            s = pc_fail(err, PC_ERR_FORMAT, "incomplete deflate stream");
+            goto cleanup;
         }
     }
     if (info != NULL) {

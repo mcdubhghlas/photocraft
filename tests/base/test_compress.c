@@ -78,9 +78,13 @@ static void test_inflate_take_semantics(void)
     CHECK_EQ_INT(pc_inflate(PC_Z_ZLIB, z.data, z.len, 0, &out, &info, NULL), PC_OK);
     CHECK_EQ_UINT(out.len, 0);
 
-    /* Truncated input: a short result, not an error (flate2 read semantics). */
-    CHECK_EQ_INT(pc_inflate(PC_Z_ZLIB, z.data, z.len / 2, N, &out, &info, NULL), PC_OK);
-    CHECK(out.len > 0 && out.len < N);
+    /* Truncated input is an error (flate2 1.1: UnexpectedEof "incomplete deflate stream"), unless
+     * the limit is reached first; a missing Adler-32 trailer counts as truncated. */
+    CHECK_EQ_INT(pc_inflate(PC_Z_ZLIB, z.data, z.len / 2, N, &out, &info, &e), PC_ERR_FORMAT);
+    CHECK_EQ_STR(e.msg, "incomplete deflate stream");
+    CHECK_EQ_INT(pc_inflate(PC_Z_ZLIB, z.data, z.len - 2, N + 1, &out, &info, &e), PC_ERR_FORMAT);
+    CHECK_EQ_INT(pc_inflate(PC_Z_ZLIB, z.data, z.len - 2, N, &out, &info, NULL), PC_OK);
+    CHECK_EQ_UINT(out.len, N);
     CHECK(!info.stream_end);
 
     /* Trailing garbage after the stream is ignored. */
@@ -104,9 +108,9 @@ static void test_inflate_take_semantics(void)
     CHECK_EQ_STR(e.msg, "corrupt deflate stream");
     CHECK_EQ_STR(pc_buf_cstr(&out), "keep");
     CHECK_EQ_INT(pc_inflate(PC_Z_ZLIB, (const uint8_t *)"\x00\x01garbage", 9, 100, &out, NULL, &e), PC_ERR_FORMAT);
-    CHECK_EQ_INT(pc_inflate(PC_Z_ZLIB, NULL, 0, 100, &out, &info, &e), PC_OK);
-    CHECK_EQ_UINT(out.len, 0);
-    CHECK(!info.stream_end);
+    CHECK_EQ_INT(pc_inflate(PC_Z_ZLIB, NULL, 0, 100, &out, &info, &e), PC_ERR_FORMAT);
+    CHECK_EQ_STR(e.msg, "incomplete deflate stream");
+    CHECK_EQ_INT(pc_inflate(PC_Z_ZLIB, NULL, 0, 0, &out, &info, &e), PC_OK);
     CHECK_EQ_INT(pc_deflate(PC_Z_GZIP, 6, data, 10, &out, &e), PC_ERR_INVALID);
     CHECK_EQ_INT(pc_deflate(PC_Z_ZLIB, 10, data, 10, &out, &e), PC_ERR_INVALID);
     pc_buf_fini(&z);

@@ -1,0 +1,668 @@
+#include "psd/slices.h"
+
+#include <stdlib.h>
+#include <string.h>
+
+#include "base/buf.h"
+#include "base/mem.h"
+#include "base/num.h"
+#include "base/utf8.h"
+#include "psd/descriptor.h"
+#include "psd/internal.h"
+
+static char *empty_str(void)
+{
+    char *s = malloc(1);
+    if (s != NULL) {
+        s[0] = '\0';
+    }
+    return s;
+}
+
+static char **str_fields(pc_psd_slice *s, int i)
+{
+    switch (i) {
+    case 0:
+        return &s->name;
+    case 1:
+        return &s->url;
+    case 2:
+        return &s->target;
+    case 3:
+        return &s->message;
+    case 4:
+        return &s->alt;
+    default:
+        return &s->cell_text;
+    }
+}
+
+pc_status pc_psd_slice_init(pc_psd_slice *s, pc_error *err)
+{
+    int i;
+    memset(s, 0, sizeof *s);
+    for (i = 0; i < 6; i++) {
+        *str_fields(s, i) = empty_str();
+        if (*str_fields(s, i) == NULL) {
+            pc_psd_slice_fini(s);
+            return psd_nomem(err);
+        }
+    }
+    return PC_OK;
+}
+
+void pc_psd_slice_fini(pc_psd_slice *s)
+{
+    int i;
+    if (s == NULL) {
+        return;
+    }
+    for (i = 0; i < 6; i++) {
+        free(*str_fields(s, i));
+        *str_fields(s, i) = NULL;
+    }
+}
+
+void pc_psd_slices_fini(pc_psd_slices *s)
+{
+    size_t i;
+    if (s == NULL) {
+        return;
+    }
+    free(s->group_name);
+    for (i = 0; i < s->n; i++) {
+        pc_psd_slice_fini(&s->slices[i]);
+    }
+    free(s->slices);
+    memset(s, 0, sizeof *s);
+}
+
+static bool slice_eq(const pc_psd_slice *a, const pc_psd_slice *b)
+{
+    int i;
+    pc_psd_slice *ma = (pc_psd_slice *)(uintptr_t)a; /* str_fields takes a mutable pointer; read only */
+    pc_psd_slice *mb = (pc_psd_slice *)(uintptr_t)b;
+    for (i = 0; i < 6; i++) {
+        if (strcmp(*str_fields(ma, i), *str_fields(mb, i)) != 0) {
+            return false;
+        }
+    }
+    return a->id == b->id && a->group_id == b->group_id && a->origin == b->origin && a->has_layer_id == b->has_layer_id &&
+           (!a->has_layer_id || a->layer_id == b->layer_id) && a->kind == b->kind &&
+           memcmp(a->rect, b->rect, sizeof a->rect) == 0 && a->cell_text_is_html == b->cell_text_is_html &&
+           a->horizontal_align == b->horizontal_align && a->vertical_align == b->vertical_align &&
+           memcmp(a->color, b->color, 4) == 0 && memcmp(a->outsets, b->outsets, sizeof a->outsets) == 0;
+}
+
+bool pc_psd_slices_eq(const pc_psd_slices *a, const pc_psd_slices *b)
+{
+    size_t i;
+    if (a->version != b->version || memcmp(a->bounds, b->bounds, sizeof a->bounds) != 0 ||
+        strcmp(a->group_name, b->group_name) != 0 || a->n != b->n) {
+        return false;
+    }
+    for (i = 0; i < a->n; i++) {
+        if (!slice_eq(&a->slices[i], &b->slices[i])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/* ---- descriptor helpers ---- */
+
+static bool d_int(const pc_psd_desc *d, const char *key, int64_t *out)
+{
+    const pc_psd_value *v = pc_psd_desc_get(d, key);
+    if (v == NULL) {
+        return false;
+    }
+    switch (v->kind) {
+    case PC_PSD_V_INTEGER:
+        *out = v->i;
+        return true;
+    case PC_PSD_V_LARGE_INTEGER:
+        *out = v->l;
+        return true;
+    case PC_PSD_V_DOUBLE:
+    case PC_PSD_V_UNIT_FLOAT:
+        *out = pc_f64_to_i64(v->d);
+        return true;
+    default:
+        return false;
+    }
+}
+
+static int64_t d_int_or(const pc_psd_desc *d, const char *key, int64_t dflt)
+{
+    int64_t v;
+    return d_int(d, key, &v) ? v : dflt;
+}
+
+static pc_status d_text(const pc_psd_desc *d, const char *key, char **out, pc_error *err)
+{
+    const pc_psd_value *v = pc_psd_desc_get(d, key);
+    if (v != NULL && v->kind == PC_PSD_V_TEXT) {
+        return pc_psd_ustr_to_utf8(&v->text, out, err);
+    }
+    *out = empty_str();
+    return *out != NULL ? PC_OK : psd_nomem(err);
+}
+
+/* The enum value's bytes, lossy, compared against `s`. */
+static bool enum_is(const pc_psd_value *v, const char *s)
+{
+    size_t n;
+    const uint8_t *b = pc_psd_id_bytes(&v->value, &n);
+    pc_buf t = PC_BUF_INIT;
+    bool eq;
+    if (pc_utf8_lossy(b, n, &t, NULL) != PC_OK) {
+        pc_buf_fini(&t);
+        return false;
+    }
+    eq = strlen(s) == t.len && (t.len == 0 || memcmp(t.data, s, t.len) == 0);
+    pc_buf_fini(&t);
+    return eq;
+}
+
+static const pc_psd_value *d_enum(const pc_psd_desc *d, const char *key)
+{
+    const pc_psd_value *v = pc_psd_desc_get(d, key);
+    return v != NULL && v->kind == PC_PSD_V_ENUMERATED ? v : NULL;
+}
+
+static bool d_bounds(const pc_psd_desc *d, const char *key, int32_t out[4])
+{
+    const pc_psd_value *v = pc_psd_desc_get(d, key);
+    static const char *const K[4] = {"Top ", "Left", "Btom", "Rght"};
+    int i;
+    if (v == NULL || v->kind != PC_PSD_V_DESCRIPTOR) {
+        return false;
+    }
+    for (i = 0; i < 4; i++) {
+        out[i] = pc_u32_as_i32((uint32_t)(uint64_t)d_int_or(v->desc, K[i], 0)); /* `as i32` truncation */
+    }
+    return true;
+}
+
+static uint32_t origin_from(const pc_psd_value *e)
+{
+    if (enum_is(e, "autoGenerated")) {
+        return 0;
+    }
+    if (enum_is(e, "layerGenerated") || enum_is(e, "layer")) {
+        return 1;
+    }
+    return 2;
+}
+
+static uint32_t kind_from(const pc_psd_value *e)
+{
+    if (enum_is(e, "noImage")) {
+        return 0;
+    }
+    if (enum_is(e, "Tbl ") || enum_is(e, "table")) {
+        return 2;
+    }
+    return 1;
+}
+
+static uint8_t clamp_u8(int64_t v)
+{
+    return (uint8_t)(v < 0 ? 0 : v > 255 ? 255 : v);
+}
+
+static pc_status slice_from_descriptor(const pc_psd_desc *d, pc_psd_slice *s, pc_error *err)
+{
+    int32_t b[4] = {0, 0, 0, 0};
+    const pc_psd_value *e;
+    const pc_psd_value *bg;
+    int64_t lid;
+    pc_status st;
+    memset(s, 0, sizeof *s);
+    (void)d_bounds(d, "bounds", b);
+    e = d_enum(d, "bgColorType");
+    bg = pc_psd_desc_get(d, "bgColor");
+    if (e != NULL && enum_is(e, "Clr ") && bg != NULL && bg->kind == PC_PSD_V_DESCRIPTOR) {
+        const pc_psd_desc *c = bg->desc;
+        s->color[0] = pc_psd_desc_get(c, "alpha") != NULL ? clamp_u8(d_int_or(c, "alpha", 0)) : 255;
+        s->color[1] = clamp_u8(d_int_or(c, "Rd  ", 0));
+        s->color[2] = clamp_u8(d_int_or(c, "Grn ", 0));
+        s->color[3] = clamp_u8(d_int_or(c, "Bl  ", 0));
+    }
+    s->id = (uint32_t)(uint64_t)d_int_or(d, "sliceID", 0);
+    s->group_id = (uint32_t)(uint64_t)d_int_or(d, "groupID", 0);
+    e = d_enum(d, "origin");
+    s->origin = e != NULL ? origin_from(e) : 2;
+    if (d_int(d, "layerID", &lid)) {
+        s->has_layer_id = true;
+        s->layer_id = (uint32_t)(uint64_t)lid;
+    }
+    e = d_enum(d, "Type");
+    s->kind = e != NULL ? kind_from(e) : 1;
+    /* Descriptor bounds are top/left/bottom/right; records use left/top/right/bottom. */
+    s->rect[0] = b[1];
+    s->rect[1] = b[0];
+    s->rect[2] = b[3];
+    s->rect[3] = b[2];
+    CK(d_text(d, "Nm  ", &s->name, err));
+    CK(d_text(d, "url", &s->url, err));
+    CK(d_text(d, "null", &s->target, err));
+    CK(d_text(d, "Msge", &s->message, err));
+    CK(d_text(d, "altTag", &s->alt, err));
+    CK(d_text(d, "cellText", &s->cell_text, err));
+    {
+        const pc_psd_value *h = pc_psd_desc_get(d, "cellTextIsHTML");
+        s->cell_text_is_html = h != NULL && h->kind == PC_PSD_V_BOOLEAN && h->b;
+    }
+    s->outsets[0] = pc_u32_as_i32((uint32_t)(uint64_t)d_int_or(d, "topOutset", 0));
+    s->outsets[1] = pc_u32_as_i32((uint32_t)(uint64_t)d_int_or(d, "leftOutset", 0));
+    s->outsets[2] = pc_u32_as_i32((uint32_t)(uint64_t)d_int_or(d, "bottomOutset", 0));
+    s->outsets[3] = pc_u32_as_i32((uint32_t)(uint64_t)d_int_or(d, "rightOutset", 0));
+    return PC_OK;
+fail:
+    pc_psd_slice_fini(s);
+    return st;
+}
+
+static pc_status read_ustr_utf8(psd_rd *r, char **out, pc_error *err)
+{
+    pc_psd_ustr u = {NULL, 0};
+    pc_status st = psd_read_ustr(r, &u, err);
+    if (st == PC_OK) {
+        st = pc_psd_ustr_to_utf8(&u, out, err);
+    }
+    pc_psd_ustr_fini(&u);
+    return st;
+}
+
+static pc_status push_slice(pc_psd_slices *s, size_t *cap, pc_psd_slice *sl, pc_error *err)
+{
+    if (s->n == *cap) {
+        pc_psd_slice *g = pc_grow_array(s->slices, cap, s->n + 1, sizeof *g);
+        if (g == NULL) {
+            pc_psd_slice_fini(sl);
+            return psd_nomem(err);
+        }
+        s->slices = g;
+    }
+    s->slices[s->n++] = *sl;
+    return PC_OK;
+}
+
+static pc_status read_v6(psd_rd *r, pc_psd_slices *out, pc_error *err)
+{
+    pc_psd_slices s;
+    uint32_t n;
+    uint32_t i;
+    size_t cap = 0;
+    int k;
+    pc_status st;
+    memset(&s, 0, sizeof s);
+    s.version = 6;
+    for (k = 0; k < 4; k++) {
+        CK(psd_i32(r, &s.bounds[k], err));
+    }
+    CK(read_ustr_utf8(r, &s.group_name, err));
+    CK(psd_u32(r, &n, err));
+    if (n > psd_remaining(r) / 16) {
+        st = psd_invalid(err, "slice count exceeds the resource size");
+        goto fail;
+    }
+    for (i = 0; i < n; i++) {
+        pc_psd_slice sl;
+        uint8_t html;
+        memset(&sl, 0, sizeof sl);
+        st = psd_u32(r, &sl.id, err);
+        if (st == PC_OK) {
+            st = psd_u32(r, &sl.group_id, err);
+        }
+        if (st == PC_OK) {
+            st = psd_u32(r, &sl.origin, err);
+        }
+        if (st == PC_OK && sl.origin == 1) {
+            st = psd_u32(r, &sl.layer_id, err);
+            sl.has_layer_id = true;
+        }
+        if (st == PC_OK) {
+            st = read_ustr_utf8(r, &sl.name, err);
+        }
+        if (st == PC_OK) {
+            st = psd_u32(r, &sl.kind, err);
+        }
+        for (k = 0; k < 4 && st == PC_OK; k++) {
+            st = psd_i32(r, &sl.rect[k], err);
+        }
+        if (st == PC_OK) {
+            st = read_ustr_utf8(r, &sl.url, err);
+        }
+        if (st == PC_OK) {
+            st = read_ustr_utf8(r, &sl.target, err);
+        }
+        if (st == PC_OK) {
+            st = read_ustr_utf8(r, &sl.message, err);
+        }
+        if (st == PC_OK) {
+            st = read_ustr_utf8(r, &sl.alt, err);
+        }
+        if (st == PC_OK) {
+            st = psd_u8(r, &html, err);
+            sl.cell_text_is_html = html != 0;
+        }
+        if (st == PC_OK) {
+            st = read_ustr_utf8(r, &sl.cell_text, err);
+        }
+        if (st == PC_OK) {
+            st = psd_u32(r, &sl.horizontal_align, err);
+        }
+        if (st == PC_OK) {
+            st = psd_u32(r, &sl.vertical_align, err);
+        }
+        for (k = 0; k < 4 && st == PC_OK; k++) {
+            st = psd_u8(r, &sl.color[k], err);
+        }
+        if (st != PC_OK) {
+            pc_psd_slice_fini(&sl);
+            goto fail;
+        }
+        CK(push_slice(&s, &cap, &sl, err));
+    }
+    /* Optional trailing descriptor (Photoshop 7+): per-slice extras such as outsets. */
+    if (psd_remaining(r) >= 4) {
+        pc_psd_desc vd;
+        if (psd_read_vdesc(r, &vd, NULL) == PC_OK) {
+            const pc_psd_value *list = pc_psd_desc_get(&vd, "slices");
+            size_t j;
+            for (j = 0; list != NULL && list->kind == PC_PSD_V_LIST && j < list->nlist; j++) {
+                pc_psd_slice extra;
+                size_t m;
+                if (list->list[j].kind != PC_PSD_V_DESCRIPTOR ||
+                    slice_from_descriptor(list->list[j].desc, &extra, NULL) != PC_OK) {
+                    continue;
+                }
+                for (m = 0; m < s.n; m++) {
+                    if (s.slices[m].id == extra.id) {
+                        memcpy(s.slices[m].outsets, extra.outsets, sizeof extra.outsets);
+                        break;
+                    }
+                }
+                pc_psd_slice_fini(&extra);
+            }
+            pc_psd_desc_fini(&vd);
+        }
+    }
+    *out = s;
+    return PC_OK;
+fail:
+    pc_psd_slices_fini(&s);
+    return st;
+}
+
+pc_status pc_psd_slices_parse(const uint8_t *data, size_t len, pc_psd_slices *out, pc_error *err)
+{
+    psd_rd r = psd_rd_make(data, len);
+    uint32_t version;
+    pc_psd_desc d;
+    pc_psd_slices s;
+    const pc_psd_value *list;
+    size_t cap = 0;
+    size_t i;
+    pc_status st = psd_u32(&r, &version, err);
+    if (st != PC_OK) {
+        return st;
+    }
+    if (version == 6) {
+        return read_v6(&r, out, err);
+    }
+    if (version != 7 && version != 8) {
+        return psd_invalid(err, "unsupported slices resource version %u", (unsigned)version);
+    }
+    st = psd_read_vdesc(&r, &d, err);
+    if (st != PC_OK) {
+        return st;
+    }
+    memset(&s, 0, sizeof s);
+    s.version = version;
+    list = pc_psd_desc_get(&d, "slices");
+    for (i = 0; list != NULL && list->kind == PC_PSD_V_LIST && i < list->nlist; i++) {
+        pc_psd_slice sl;
+        if (list->list[i].kind != PC_PSD_V_DESCRIPTOR) {
+            continue;
+        }
+        CK(slice_from_descriptor(list->list[i].desc, &sl, err));
+        CK(push_slice(&s, &cap, &sl, err));
+    }
+    (void)d_bounds(&d, "bounds", s.bounds);
+    CK(d_text(&d, "baseName", &s.group_name, err));
+    pc_psd_desc_fini(&d);
+    *out = s;
+    return PC_OK;
+fail:
+    pc_psd_desc_fini(&d);
+    pc_psd_slices_fini(&s);
+    return st;
+}
+
+static void put_ustr(psd_w *w, const char *s)
+{
+    pc_psd_ustr u = {NULL, 0};
+    pc_status st = pc_psd_ustr_from_utf8(s, false, &u, w->err);
+    if (st != PC_OK) {
+        psd_w_fail(w, st);
+        return;
+    }
+    psd_write_ustr(w, &u);
+    pc_psd_ustr_fini(&u);
+}
+
+/* d.with(key, Integer(v)); errors stick in *st. */
+static void add_int(pc_psd_desc *d, const char *key, int32_t v, pc_status *st, pc_error *err)
+{
+    pc_psd_value val = pc_psd_value_int(v);
+    if (*st == PC_OK) {
+        *st = pc_psd_desc_add(d, key, &val, err);
+    }
+}
+
+static void add_text(pc_psd_desc *d, const char *key, const char *s, pc_status *st, pc_error *err)
+{
+    pc_psd_value val;
+    if (*st == PC_OK) {
+        *st = pc_psd_value_text(s, false, &val, err);
+        if (*st == PC_OK) {
+            *st = pc_psd_desc_add(d, key, &val, err);
+        }
+    }
+}
+
+static void add_enum(pc_psd_desc *d, const char *key, const char *ty, const char *v, pc_status *st, pc_error *err)
+{
+    pc_psd_value val;
+    if (*st == PC_OK) {
+        *st = pc_psd_value_enum(ty, v, &val, err);
+        if (*st == PC_OK) {
+            *st = pc_psd_desc_add(d, key, &val, err);
+        }
+    }
+}
+
+static void add_obj(pc_psd_desc *d, const char *key, pc_psd_desc *obj, pc_status *st, pc_error *err)
+{
+    pc_psd_value val;
+    if (*st != PC_OK) {
+        pc_psd_desc_fini(obj);
+        return;
+    }
+    *st = pc_psd_value_object(obj, &val, err);
+    if (*st == PC_OK) {
+        *st = pc_psd_desc_add(d, key, &val, err);
+    }
+}
+
+static void add_bounds(pc_psd_desc *d, const char *key, const int32_t tlbr[4], pc_status *st, pc_error *err)
+{
+    pc_psd_desc b;
+    if (*st != PC_OK) {
+        return;
+    }
+    *st = pc_psd_desc_init(&b, "Rct1", err);
+    add_int(&b, "Top ", tlbr[0], st, err);
+    add_int(&b, "Left", tlbr[1], st, err);
+    add_int(&b, "Btom", tlbr[2], st, err);
+    add_int(&b, "Rght", tlbr[3], st, err);
+    add_obj(d, key, &b, st, err);
+}
+
+static void add_list(pc_psd_desc *d, const char *key, pc_psd_value *list, pc_status *st, pc_error *err)
+{
+    if (*st != PC_OK) {
+        pc_psd_value_fini(list);
+        return;
+    }
+    *st = pc_psd_desc_add(d, key, list, err);
+}
+
+pc_status pc_psd_slices_to_bytes(const pc_psd_slices *s, pc_psd_bytes *out, pc_error *err)
+{
+    psd_w w;
+    size_t i;
+    int k;
+    bool any_outsets = false;
+    psd_w_init(&w, err);
+    psd_put_u32(&w, 6);
+    for (k = 0; k < 4; k++) {
+        psd_put_i32(&w, s->bounds[k]);
+    }
+    put_ustr(&w, s->group_name);
+    psd_put_u32(&w, (uint32_t)s->n);
+    for (i = 0; i < s->n; i++) {
+        const pc_psd_slice *sl = &s->slices[i];
+        psd_put_u32(&w, sl->id);
+        psd_put_u32(&w, sl->group_id);
+        psd_put_u32(&w, sl->origin);
+        if (sl->origin == 1) {
+            psd_put_u32(&w, sl->has_layer_id ? sl->layer_id : 0);
+        }
+        put_ustr(&w, sl->name);
+        psd_put_u32(&w, sl->kind);
+        for (k = 0; k < 4; k++) {
+            psd_put_i32(&w, sl->rect[k]);
+        }
+        put_ustr(&w, sl->url);
+        put_ustr(&w, sl->target);
+        put_ustr(&w, sl->message);
+        put_ustr(&w, sl->alt);
+        psd_put_u8(&w, sl->cell_text_is_html ? 1 : 0);
+        put_ustr(&w, sl->cell_text);
+        psd_put_u32(&w, sl->horizontal_align);
+        psd_put_u32(&w, sl->vertical_align);
+        psd_put(&w, sl->color, 4);
+        for (k = 0; k < 4; k++) {
+            any_outsets = any_outsets || sl->outsets[k] != 0;
+        }
+    }
+    if (any_outsets && psd_w_ok(&w)) {
+        pc_psd_desc root;
+        pc_psd_value list;
+        pc_status st = pc_psd_desc_init(&root, "null", err);
+        memset(&list, 0, sizeof list);
+        list.kind = PC_PSD_V_LIST;
+        for (i = 0; i < s->n && st == PC_OK; i++) {
+            const pc_psd_slice *sl = &s->slices[i];
+            pc_psd_desc d;
+            pc_psd_value v;
+            st = pc_psd_desc_init(&d, "slice", err);
+            add_int(&d, "sliceID", pc_u32_as_i32(sl->id), &st, err);
+            add_int(&d, "topOutset", sl->outsets[0], &st, err);
+            add_int(&d, "leftOutset", sl->outsets[1], &st, err);
+            add_int(&d, "bottomOutset", sl->outsets[2], &st, err);
+            add_int(&d, "rightOutset", sl->outsets[3], &st, err);
+            if (st == PC_OK) {
+                st = pc_psd_value_object(&d, &v, err);
+            } else {
+                pc_psd_desc_fini(&d);
+            }
+            if (st == PC_OK) {
+                st = pc_psd_value_list_push(&list, &v, err);
+            }
+        }
+        add_list(&root, "slices", &list, &st, err);
+        if (st == PC_OK) {
+            psd_write_vdesc(&w, &root);
+        } else {
+            psd_w_fail(&w, st);
+        }
+        pc_psd_desc_fini(&root);
+    }
+    return psd_w_finish(&w, out);
+}
+
+pc_status pc_psd_slices_to_descriptor_bytes(const pc_psd_slices *s, pc_psd_bytes *out, pc_error *err)
+{
+    pc_psd_desc root;
+    pc_psd_value list;
+    psd_w w;
+    size_t i;
+    pc_status st = pc_psd_desc_init(&root, "null", err);
+    memset(&list, 0, sizeof list);
+    list.kind = PC_PSD_V_LIST;
+    for (i = 0; i < s->n && st == PC_OK; i++) {
+        const pc_psd_slice *sl = &s->slices[i];
+        const char *origin = sl->origin == 0 ? "autoGenerated" : sl->origin == 1 ? "layerGenerated" : "userGenerated";
+        const char *kind = sl->kind == 0 ? "noImage" : sl->kind == 2 ? "Tbl " : "Img ";
+        int32_t b[4];
+        pc_psd_desc d;
+        pc_psd_value v;
+        pc_psd_value bv;
+        st = pc_psd_desc_init(&d, "slice", err);
+        add_int(&d, "sliceID", pc_u32_as_i32(sl->id), &st, err);
+        add_int(&d, "groupID", pc_u32_as_i32(sl->group_id), &st, err);
+        add_enum(&d, "origin", "ESliceOrigin", origin, &st, err);
+        if (sl->has_layer_id && sl->origin == 1) {
+            add_int(&d, "layerID", pc_u32_as_i32(sl->layer_id), &st, err);
+        }
+        add_text(&d, "Nm  ", sl->name, &st, err);
+        add_enum(&d, "Type", "ESliceType", kind, &st, err);
+        b[0] = sl->rect[1];
+        b[1] = sl->rect[0];
+        b[2] = sl->rect[3];
+        b[3] = sl->rect[2];
+        add_bounds(&d, "bounds", b, &st, err);
+        add_text(&d, "url", sl->url, &st, err);
+        add_text(&d, "null", sl->target, &st, err);
+        add_text(&d, "Msge", sl->message, &st, err);
+        add_text(&d, "altTag", sl->alt, &st, err);
+        if (st == PC_OK) {
+            bv = pc_psd_value_bool(sl->cell_text_is_html);
+            st = pc_psd_desc_add(&d, "cellTextIsHTML", &bv, err);
+        }
+        add_text(&d, "cellText", sl->cell_text, &st, err);
+        add_enum(&d, "horzAlign", "ESliceHorzAlign", "default", &st, err);
+        add_enum(&d, "vertAlign", "ESliceVertAlign", "default", &st, err);
+        add_enum(&d, "bgColorType", "ESliceBGColorType", "None", &st, err);
+        add_int(&d, "topOutset", sl->outsets[0], &st, err);
+        add_int(&d, "leftOutset", sl->outsets[1], &st, err);
+        add_int(&d, "bottomOutset", sl->outsets[2], &st, err);
+        add_int(&d, "rightOutset", sl->outsets[3], &st, err);
+        if (st == PC_OK) {
+            st = pc_psd_value_object(&d, &v, err);
+        } else {
+            pc_psd_desc_fini(&d);
+        }
+        if (st == PC_OK) {
+            st = pc_psd_value_list_push(&list, &v, err);
+        }
+    }
+    add_bounds(&root, "bounds", s->bounds, &st, err);
+    add_list(&root, "slices", &list, &st, err);
+    add_text(&root, "baseName", s->group_name, &st, err);
+    if (st != PC_OK) {
+        pc_psd_desc_fini(&root);
+        return st;
+    }
+    psd_w_init(&w, err);
+    psd_put_u32(&w, 7);
+    psd_write_vdesc(&w, &root);
+    pc_psd_desc_fini(&root);
+    return psd_w_finish(&w, out);
+}

@@ -651,6 +651,122 @@ fn raster_vectors() {
     }
 }
 
+/// Hash sweeps over crates/psd (tests/psd/test_parity.c replays them). Per testgen case: the
+/// file bytes (compared by C only where no zlib stream is involved) and the decoded planes plus
+/// RGBA8 previews (always compared).
+fn psd_vectors() {
+    use photocraft_psd::*;
+    const F0: u64 = 0xcbf29ce484222325;
+    for c in testgen::all_cases() {
+        let f = &c.file;
+        let mut hb = F0;
+        fnv(&mut hb, &f.to_bytes().unwrap_or_default());
+        let mut hd = F0;
+        match f.decode_merged() {
+            Ok(m) => fnv(&mut hd, &m),
+            Err(e) => fnv(&mut hd, e.to_string().as_bytes()),
+        }
+        for l in f.layers() {
+            for ch in &l.channels {
+                match l.decode_channel(ch.id, f.header.depth, f.header.version) {
+                    Ok(d) => fnv(&mut hd, &d),
+                    Err(e) => fnv(&mut hd, e.to_string().as_bytes()),
+                }
+            }
+        }
+        match f.composite_rgba8() {
+            Ok(img) => fnv(&mut hd, &img.data),
+            Err(e) => fnv(&mut hd, e.to_string().as_bytes()),
+        }
+        for l in f.iter_layers() {
+            match l.rgba8() {
+                Ok(img) => {
+                    fnv(&mut hd, &img.data);
+                    fnv(&mut hd, &img.left.to_le_bytes());
+                }
+                Err(e) => fnv(&mut hd, e.to_string().as_bytes()),
+            }
+            if let Some(m) = l.user_mask() {
+                match m {
+                    Ok(img) => {
+                        fnv(&mut hd, &img.data);
+                        fnv(&mut hd, &[img.default_value]);
+                    }
+                    Err(e) => fnv(&mut hd, e.to_string().as_bytes()),
+                }
+            }
+        }
+        let tree = format!("{:?}", f.layer_tree());
+        fnv(&mut hd, tree.as_bytes());
+        println!("case\t{}\t{hb:016x}\t{hd:016x}", c.name);
+    }
+    // Builder documents (RLE and raw are deterministic).
+    for (mode, depth) in [(ColorMode::Rgb, 8u16), (ColorMode::Rgb, 16), (ColorMode::Grayscale, 8), (ColorMode::Cmyk, 16)] {
+        for comp in [Compression::Raw, Compression::Rle] {
+            for version in [Version::Psd, Version::Psb] {
+                let (w, h) = (7u32, 5u32);
+                let spp = match mode { ColorMode::Rgb => 4, ColorMode::Grayscale => 2, _ => 5 };
+                let px = |n: usize, seed: usize| -> PixelData {
+                    let v8: Vec<u8> = (0..n * spp).map(|i| ((i * 31 + seed * 7) % 256) as u8).collect();
+                    let v16: Vec<u16> = (0..n * spp).map(|i| ((i * 7919 + seed * 131) % 65536) as u16).collect();
+                    match (mode, depth) {
+                        (ColorMode::Rgb, 8) => PixelData::Rgba8(v8),
+                        (ColorMode::Rgb, _) => PixelData::Rgba16(v16),
+                        (ColorMode::Grayscale, 8) => PixelData::GrayA8(v8),
+                        (ColorMode::Grayscale, _) => PixelData::GrayA16(v16),
+                        (_, 8) => PixelData::Cmyka8(v8),
+                        _ => PixelData::Cmyka16(v16),
+                    }
+                };
+                let mut b = PsdBuilder::new(w, h).color_mode(mode).depth(depth).compression(comp).version(version).resolution(150.0).icc_profile(vec![1, 2, 3]);
+                let mut l1 = LayerSpec::new("Bottom \u{e9}", -2, 1, 4, 3, px(12, 1));
+                l1.mask = Some(MaskSpec { rect: Rect::from_xywh(0, 0, 3, 2), data: vec![0, 128, 255, 9, 8, 7], default_color: 255, disabled: true });
+                l1.fill_opacity = Some(77);
+                l1.blend_mode = BlendMode::Multiply;
+                b.push_layer(l1);
+                b.begin_group(GroupSpec { name: "Group".into(), blend_mode: BlendMode::Screen, opacity: 200, visible: false, open: false });
+                let mut l2 = LayerSpec::new("In group", 1, 1, 2, 2, px(4, 2));
+                l2.visible = false;
+                l2.clipping = true;
+                l2.opacity = 100;
+                b.push_layer(l2);
+                let _ = b.end_group();
+                b.composite(px((w * h) as usize, 3));
+                let mut hb = F0;
+                match b.to_bytes() {
+                    Ok(bytes) => fnv(&mut hb, &bytes),
+                    Err(e) => fnv(&mut hb, e.to_string().as_bytes()),
+                }
+                println!("builder\t{mode:?} {depth} {comp:?} {version:?}\t{hb:016x}");
+            }
+        }
+    }
+    let mut hx = F0;
+    fnv(&mut hx, &testgen::sample_descriptor().to_bytes());
+    fnv(&mut hx, &hdr::default_toning_data());
+    let sl = slices::SlicesResource {
+        version: 6,
+        bounds: [0, 0, 80, 100],
+        group_name: "site".into(),
+        slices: vec![
+            slices::SliceRecord { id: 1, origin: 2, name: "logo".into(), kind: 1, rect: [20, 10, 60, 30], url: "u".into(), color: [255, 1, 2, 3], ..Default::default() },
+            slices::SliceRecord { id: 2, origin: 1, layer_id: Some(7), kind: 0, rect: [5, 40, 25, 70], outsets: [1, 2, 3, 4], ..Default::default() },
+        ],
+    };
+    fnv(&mut hx, &sl.to_bytes());
+    fnv(&mut hx, &sl.to_descriptor_bytes());
+    let sp = vec![path::PsdSubpath { closed: true, operation: 2, knots: vec![path::PsdKnot { linked: true, pre: (0.1, -0.2), anchor: (0.5, 0.5), post: (1.25, 3.0) }] }];
+    fnv(&mut hx, &path::PathData::from_subpaths(&sp, true).to_bytes());
+    let plane = |v: u8| filter_effects::EffectsPlane::encode(Compression::Rle, &[v; 16], 4, 4, 8).unwrap();
+    let mut slots = vec![None; 4];
+    slots[0] = Some(plane(10));
+    slots[3] = Some(plane(255));
+    let rect = Rect { top: 1, left: 2, bottom: 5, right: 6 };
+    let fx = filter_effects::FilterEffects { version: 3, items: vec![filter_effects::FilterEffectsItem { id: "a-1".into(), version: 1, rect, depth: 8, max_channels: 2, slots, mask: Some((rect, plane(128))) }] };
+    fnv(&mut hx, &fx.to_bytes());
+    println!("misc\t{hx:016x}");
+}
+
 /// One line describing a parsed ICC profile and how it converts (or the error).
 fn icc_info(path: &str) {
     use photocraft_cms::{Builtin, Intent, Profile, Transform};
@@ -703,6 +819,7 @@ fn main() {
         ["geom-vectors"] => geom_vectors(),
         ["cms-vectors"] => cms_vectors(),
         ["color-vectors"] => color_vectors(),
+        ["psd-vectors"] => psd_vectors(),
         ["raster-vectors"] => raster_vectors(),
         ["icc-info", f] => icc_info(f),
         ["psd-info", f] => psd_info(f),

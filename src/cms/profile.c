@@ -28,43 +28,7 @@ uint64_t pc_cms_hash_bytes(const uint8_t *b, size_t len)
 
 void pc_cms_debug_str(const uint8_t *b, size_t len, char *out, size_t cap)
 {
-    pc_buf s = PC_BUF_INIT;
-    pc_buf o = PC_BUF_INIT;
-    size_t i = 0;
-    if (cap == 0) {
-        return;
-    }
-    out[0] = '\0';
-    if (pc_utf8_lossy(b, len, &s, NULL) != PC_OK || pc_buf_append_byte(&o, '"', NULL) != PC_OK) {
-        goto done;
-    }
-    while (i < s.len) {
-        uint32_t cp = 0;
-        size_t start = i;
-        if (!pc_utf8_next(s.data, s.len, &i, &cp)) {
-            break;
-        }
-        if (cp == '"' || cp == '\\') {
-            (void)pc_buf_appendf(&o, NULL, "\\%c", (char)cp);
-        } else if (cp == 0) {
-            (void)pc_buf_append_str(&o, "\\0", NULL);
-        } else if (cp == '\t') {
-            (void)pc_buf_append_str(&o, "\\t", NULL);
-        } else if (cp == '\n') {
-            (void)pc_buf_append_str(&o, "\\n", NULL);
-        } else if (cp == '\r') {
-            (void)pc_buf_append_str(&o, "\\r", NULL);
-        } else if (cp < 0x20 || cp == 0x7F) {
-            (void)pc_buf_appendf(&o, NULL, "\\u{%x}", (unsigned)cp);
-        } else {
-            (void)pc_buf_append(&o, s.data + start, i - start, NULL);
-        }
-    }
-    (void)pc_buf_append_byte(&o, '"', NULL);
-    (void)snprintf(out, cap, "%s", pc_buf_cstr(&o));
-done:
-    pc_buf_fini(&s);
-    pc_buf_fini(&o);
+    pc_utf8_debug_quote(b, len, out, cap);
 }
 
 /* Bounded big-endian reads at absolute offsets (the reference's Reader). */

@@ -17,7 +17,7 @@ photocraft-geom = { path = "../../crates/geom" }
 photocraft-cms = { path = "../../crates/cms" }
 photocraft-color = { path = "../../crates/color" }
 photocraft-raster = { path = "../../crates/raster" }
-photocraft-psd = { path = "../../crates/psd" }
+photocraft-psd = { path = "../../crates/psd", features = ["testgen"] }
 photocraft-codecs = { path = "../../crates/codecs" }
 photocraft-io = { path = "../../crates/io" }
 photocraft-compose = { path = "../../crates/compose" }

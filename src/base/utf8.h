@@ -31,4 +31,8 @@ pc_status pc_utf16be_lossy(const uint8_t *be, size_t n, pc_buf *out, pc_error *e
  * space. Returns the trimmed length and sets *start. */
 size_t pc_utf8_trim(const char *s, size_t len, size_t *start);
 
+/* Rust's `{:?}` of String::from_utf8_lossy(b): quoted, with \" \\ \0 \t \n \r and \u{x} escapes
+ * for other ASCII controls. Written to out (NUL-terminated, truncated to cap). */
+void pc_utf8_debug_quote(const uint8_t *b, size_t len, char *out, size_t cap);
+
 #endif
