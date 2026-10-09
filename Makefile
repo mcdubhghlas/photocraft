@@ -25,9 +25,12 @@ MODULES = base
 PKGS = zlib libzstd libblake3
 # Vendored third-party C (REWRITE_PLAN.md D17), compiled without our strict warnings: it isn't
 # our code to fix, and upstream builds it warning-free with its own flags.
-THIRD_PARTY = yyjson
+THIRD_PARTY = yyjson nuklear
 # Executables (src/cli, src/app) once they exist.
 PROGRAMS =
+# Libraries only the UI layer may use (REWRITE_PLAN.md D4). Their flags are applied to src/ui
+# objects only, so nothing lower can include SDL by accident.
+GUI_PKGS = sdl3 freetype2
 
 , := ,
 
@@ -39,6 +42,9 @@ WARN_CANDIDATES = -Wall -Wextra -Wpedantic -Wconversion -Wshadow -Wstrict-protot
 WARN := $(foreach f,$(WARN_CANDIDATES),$(if $(call cc_accepts,$(f)),$(f)))
 DEPFLAGS := $(if $(call cc_accepts,-MMD -MP -MF /dev/null),-MMD -MP)
 PTHREAD := $(if $(call cc_accepts,-pthread),-pthread,-lpthread)
+# Never fuse a*b+c into FMA (clang's default allows it): Rust doesn't, and pixel results must match
+# the reference bit for bit (REWRITE_PLAN.md D22).
+FP_STRICT := $(if $(call cc_accepts,-ffp-contract=off),-ffp-contract=off)
 
 STRICT ?=
 WERROR = $(if $(STRICT),-Werror)
@@ -46,8 +52,12 @@ WERROR = $(if $(STRICT),-Werror)
 PKG_CFLAGS := $(if $(PKGS),$(shell $(PKG_CONFIG) --cflags $(PKGS)))
 PKG_LIBS := $(if $(PKGS),$(shell $(PKG_CONFIG) --libs $(PKGS)))
 
-ALL_CPPFLAGS = -D_POSIX_C_SOURCE=200809L -Isrc $(THIRD_PARTY:%=-Ithird_party/%) $(PKG_CFLAGS) $(CPPFLAGS)
-ALL_CFLAGS = -std=c17 $(WARN) $(WERROR) $(PTHREAD) $(CFLAGS) $(EXTRA_CFLAGS)
+HAVE_GUI := $(shell $(PKG_CONFIG) --exists $(GUI_PKGS) 2>/dev/null && echo y)
+GUI_CFLAGS := $(if $(HAVE_GUI),$(shell $(PKG_CONFIG) --cflags $(GUI_PKGS)))
+GUI_LIBS := $(if $(HAVE_GUI),$(shell $(PKG_CONFIG) --libs $(GUI_PKGS)))
+
+ALL_CPPFLAGS = -D_POSIX_C_SOURCE=200809L -Isrc $(THIRD_PARTY:%=-Ithird_party/%) $(PKG_CFLAGS) $(EXTRA_CPPFLAGS) $(CPPFLAGS)
+ALL_CFLAGS = -std=c17 $(FP_STRICT) $(WARN) $(WERROR) $(PTHREAD) $(CFLAGS) $(EXTRA_CFLAGS)
 ALL_LDFLAGS = $(PTHREAD) $(LDFLAGS) $(EXTRA_LDFLAGS)
 ALL_LDLIBS = $(PKG_LIBS) $(LDLIBS) -lm
 
@@ -55,13 +65,17 @@ SRCS := $(foreach m,$(MODULES),$(wildcard src/$(m)/*.c))
 THIRD_SRCS := $(foreach t,$(THIRD_PARTY),$(wildcard third_party/$(t)/*.c))
 OBJS := $(SRCS:%.c=$(BUILD)/obj/%.o) $(THIRD_SRCS:%.c=$(BUILD)/obj/%.o)
 LIB := $(BUILD)/libphotocraft.a
+# B3 GUI stack spike (src/ui/spike): built when SDL3 and FreeType are installed.
+SPIKE_SRCS := $(wildcard src/ui/spike/*.c)
+SPIKE_OBJS := $(SPIKE_SRCS:%.c=$(BUILD)/obj/%.o)
+SPIKE := $(BUILD)/bin/photocraft-spike
 TEST_SRCS := $(wildcard tests/*/test_*.c)
 TEST_BINS := $(TEST_SRCS:tests/%.c=$(BUILD)/tests/%)
 
-.PHONY: all test check sanitize tsan analyze valgrind install clean
+.PHONY: all spike test check sanitize tsan analyze valgrind install clean
 .DEFAULT_GOAL := all
 
-all: $(LIB) $(PROGRAMS:%=$(BUILD)/bin/%)
+all: $(LIB) $(PROGRAMS:%=$(BUILD)/bin/%) $(if $(HAVE_GUI),$(SPIKE))
 
 # Listed first: GNU make 3.81 takes the first matching pattern rule, not the most specific.
 $(BUILD)/obj/third_party/%.o: third_party/%.c
@@ -76,6 +90,19 @@ $(LIB): $(OBJS)
 	@mkdir -p $(@D)
 	rm -f $@
 	$(AR) $(ARFLAGS) $@ $(OBJS)
+
+$(SPIKE_OBJS): EXTRA_CPPFLAGS = $(GUI_CFLAGS)
+
+$(SPIKE): $(SPIKE_OBJS) $(LIB)
+	@mkdir -p $(@D)
+	$(CC) $(SPIKE_OBJS) $(LIB) $(ALL_LDFLAGS) $(GUI_LIBS) $(ALL_LDLIBS) -o $@
+
+spike:
+ifeq ($(HAVE_GUI),)
+	@echo "spike: needs pkg-config packages: $(GUI_PKGS)"; exit 1
+else
+	@$(MAKE) $(SPIKE)
+endif
 
 $(BUILD)/tests/%: tests/%.c $(LIB)
 	@mkdir -p $(@D)
@@ -103,7 +130,11 @@ analyze:
 		for f in $(SRCS); do \
 			clang --analyze -Xclang -analyzer-werror -std=c17 -D_POSIX_C_SOURCE=200809L -Isrc $(THIRD_PARTY:%=-Ithird_party/%) $(PKG_CFLAGS) \
 				-o /dev/null $$f || exit 1; \
-		done; echo "analyze: clang static analyzer clean ($(words $(SRCS)) files)"; \
+		done; \
+		for f in $(if $(HAVE_GUI),$(SPIKE_SRCS)); do \
+			clang --analyze -Xclang -analyzer-werror -std=c17 -D_POSIX_C_SOURCE=200809L -Isrc $(THIRD_PARTY:%=-Ithird_party/%) $(PKG_CFLAGS) \
+				$(GUI_CFLAGS) -o /dev/null $$f || exit 1; \
+		done; echo "analyze: clang static analyzer clean ($(words $(SRCS) $(if $(HAVE_GUI),$(SPIKE_SRCS))) files)"; \
 	elif command -v cppcheck >/dev/null 2>&1; then \
 		cppcheck --error-exitcode=1 --std=c11 --enable=warning,portability -Isrc $(THIRD_PARTY:%=-Ithird_party/%) $(SRCS); \
 	else echo "analyze: neither clang nor cppcheck found; skipped"; fi
@@ -134,4 +165,4 @@ install: all
 clean:
 	rm -rf build
 
--include $(OBJS:.o=.d) $(TEST_BINS:=.d)
+-include $(OBJS:.o=.d) $(SPIKE_OBJS:.o=.d) $(TEST_BINS:=.d)

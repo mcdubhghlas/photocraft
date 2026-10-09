@@ -6,6 +6,15 @@
 #ifndef PC_BASE_STATUS_H
 #define PC_BASE_STATUS_H
 
+#include <float.h>
+
+/* Bit-exact parity with the reference needs float and double arithmetic done at their own
+ * precision, as Rust always does. 32-bit x86 compilers default to the x87 FPU (FLT_EVAL_METHOD 2),
+ * which keeps extra precision and gives different results. */
+#if !defined(FLT_EVAL_METHOD) || FLT_EVAL_METHOD != 0
+#error "PhotoCraft needs FLT_EVAL_METHOD == 0; on 32-bit x86 build with -msse2 -mfpmath=sse"
+#endif
+
 typedef enum pc_status {
     PC_OK = 0,
     PC_ERR_INVALID,     /* bad argument or parameter (caller error, or hostile params) */

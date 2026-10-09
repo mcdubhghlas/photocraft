@@ -10,6 +10,7 @@ next to them.
 
 | Path | Title | Author | Source | License |
 |---|---|---|---|---|
+| `third_party/nuklear/` | Nuklear v4.13.3 (immediate-mode GUI, vendored for the C17 rewrite) | Micha Mettke and contributors | https://github.com/Immediate-Mode-UI/Nuklear | MIT or public domain, [`LICENSE`](third_party/nuklear/LICENSE) |
 | `third_party/yyjson/` | yyjson 0.13.0 (JSON library, vendored for the C17 rewrite) | YaoYuan | https://github.com/ibireme/yyjson | MIT, [`LICENSE`](third_party/yyjson/LICENSE) |
 | `crates/ui-egui/src/i18n/el.tsv` | Greek UI translations | PhotoCraft contributors | Original translations of PhotoCraft's English labels | MIT OR Apache-2.0, [`LICENSE-translations.txt`](crates/ui-egui/src/i18n/LICENSE-translations.txt) |
 | `crates/ui-egui/src/i18n/de.tsv` | German UI translations | PhotoCraft contributors | Original translations of PhotoCraft's English labels | MIT OR Apache-2.0, [`LICENSE-translations.txt`](crates/ui-egui/src/i18n/LICENSE-translations.txt) |

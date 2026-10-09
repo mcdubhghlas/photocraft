@@ -1,0 +1,7 @@
+Nuklear v4.13.3 (2026-05-05), https://github.com/Immediate-Mode-UI/Nuklear
+Source: https://github.com/Immediate-Mode-UI/Nuklear/archive/refs/tags/v4.13.3.tar.gz
+sha256(tarball): 834bf30974a294e996f7b1222aa59f1eb4ee259bd8d7d7967e8a2fb213d82dde
+Files: nuklear.h, LICENSE (MIT or public domain), unmodified.
+Ours (not upstream): photocraft_nuklear.h (the one place NK_* options are set), nuklear.c
+(the implementation translation unit).
+Why vendored: REWRITE_PLAN.md D4/D17 (single header, not packaged by distributions).
