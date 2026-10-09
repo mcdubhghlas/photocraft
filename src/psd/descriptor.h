@@ -120,6 +120,7 @@ struct pc_psd_desc {
 void pc_psd_ustr_fini(pc_psd_ustr *s);
 /* UTF-8 → units, optionally with a trailing NUL (UnicodeString::new / new_nul). */
 pc_status pc_psd_ustr_from_utf8(const char *s, bool nul, pc_psd_ustr *out, pc_error *err);
+pc_status pc_psd_ustr_from_utf8n(const char *s, size_t len, bool nul, pc_psd_ustr *out, pc_error *err);
 /* Lossy UTF-8, trailing NULs stripped; owned, NUL-terminated (free()). */
 pc_status pc_psd_ustr_to_utf8(const pc_psd_ustr *s, char **out, pc_error *err);
 bool pc_psd_ustr_eq(const pc_psd_ustr *a, const pc_psd_ustr *b);

@@ -1,0 +1,22 @@
+f9	aco sample	d41944a5a5859053
+f9	aco misc	07b0ecbacfa45f6a
+f9	ase sample	a201c82022c223e7
+f9	ase misc	d5aa2bbc0d860d69
+f9	grd sample	9d84a470dbbba416
+f9	grd models	47d41a794d1d4e28
+f9	pat d8 a0	510c7969fe8d517a
+f9	pat d8 a1	63fc54babb4e6876
+f9	pat d16 a0	5dabda3011912480
+f9	pat d16 a1	6f9525bf6104dc37
+f9	pat d32 a0	5655879922a22244
+f9	pat d32 a1	e2adc26c420db69d
+f9	pat misc	f3de4d30e42404f1
+f9	abr v1 rle0	e41c9fcc8e016e3d
+f9	abr v1 rle1	6050a4ad7a039cc7
+f9	abr v2 rle0	eeadc5ae9f733019
+f9	abr v2 rle1	e485e10d86ae3010
+f9	abr v6.1 rle0	2dc9e9a4c36e99ef
+f9	abr v6.1 rle1	651954f7b74641c9
+f9	abr v6.2 rle0	fcafaa1fc988dfb5
+f9	abr v6.2 rle1	6c5b8d22816f3f9d
+f9	abr misc	488916aa65d5fb0b

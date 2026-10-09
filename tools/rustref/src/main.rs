@@ -767,6 +767,554 @@ fn psd_vectors() {
     println!("misc\t{hx:016x}");
 }
 
+/// Hash sweeps over crates/psd/src/tiff.rs (tests/psd/test_tiff.c replays them).
+fn tiff_vectors() {
+    use photocraft_psd::tiff::{self, ByteOrder, ImageSourceData};
+    use photocraft_psd::*;
+    const F0: u64 = 0xcbf29ce484222325;
+    for c in testgen::all_cases() {
+        let d = ImageSourceData::from_psd(&c.file);
+        let mut h = F0;
+        for order in [ByteOrder::Big, ByteOrder::Little] {
+            match d.to_bytes(order) {
+                Ok((b, w)) => {
+                    fnv(&mut h, &b);
+                    for x in &w {
+                        fnv(&mut h, x.as_bytes());
+                    }
+                    match ImageSourceData::from_bytes(&b) {
+                        Ok((back, w2)) => {
+                            for x in &w2 {
+                                fnv(&mut h, x.as_bytes());
+                            }
+                            fnv(&mut h, &back.to_bytes(ByteOrder::Big).map(|x| x.0).unwrap_or_default());
+                            fnv(&mut h, &back.to_bytes(ByteOrder::Little).map(|x| x.0).unwrap_or_default());
+                        }
+                        Err(e) => fnv(&mut h, e.to_string().as_bytes()),
+                    }
+                }
+                Err(e) => fnv(&mut h, e.to_string().as_bytes()),
+            }
+        }
+        let res = tiff::resources_to_bytes(&c.file.resources).unwrap_or_default();
+        fnv(&mut h, &res);
+        match tiff::transcode::transcode_resources(&res, ByteOrder::Big, ByteOrder::Little) {
+            Ok((l, _)) => fnv(&mut h, &l),
+            Err(e) => fnv(&mut h, e.to_string().as_bytes()),
+        }
+        println!("tiff\t{}\t{h:016x}", c.name);
+    }
+}
+
+// ---- F9: brushes, patterns, swatches, gradients ----
+
+fn f9_str(o: &mut Vec<u8>, b: &[u8]) {
+    o.extend_from_slice(&(b.len() as u32).to_le_bytes());
+    o.extend_from_slice(b);
+}
+
+fn f9_outcome<T>(h: &mut u64, r: photocraft_psd::Result<T>, dump: &dyn Fn(&T, &mut Vec<u8>)) {
+    match r {
+        Ok(v) => {
+            let mut o = b"ok".to_vec();
+            dump(&v, &mut o);
+            fnv(h, &o);
+        }
+        Err(e) => {
+            let m = e.to_string();
+            fnv(h, b"err");
+            fnv(h, &m.as_bytes()[..m.len().min(255)]);
+        }
+    }
+}
+
+/// The original, every truncation and every byte XOR 0x5a.
+fn f9_sweep<T>(h: &mut u64, data: &[u8], parse: &dyn Fn(&[u8]) -> photocraft_psd::Result<T>, dump: &dyn Fn(&T, &mut Vec<u8>)) {
+    fnv(h, data);
+    f9_outcome(h, parse(data), dump);
+    for n in 0..data.len() {
+        f9_outcome(h, parse(&data[..n]), dump);
+    }
+    for i in 0..data.len() {
+        let mut c = data.to_vec();
+        c[i] ^= 0x5a;
+        f9_outcome(h, parse(&c), dump);
+    }
+}
+
+fn f9_pattern(p: &photocraft_psd::patterns::PsdPattern, o: &mut Vec<u8>) {
+    o.extend_from_slice(&p.mode.to_le_bytes());
+    o.extend_from_slice(&p.width.to_le_bytes());
+    o.extend_from_slice(&p.height.to_le_bytes());
+    f9_str(o, p.name.as_bytes());
+    f9_str(o, p.id.as_bytes());
+    o.push(p.palette.is_some() as u8);
+    f9_str(o, p.palette.as_deref().unwrap_or_default());
+    o.extend_from_slice(&p.depth.to_le_bytes());
+    o.extend_from_slice(&(p.channels.len() as u32).to_le_bytes());
+    for c in &p.channels {
+        f9_str(o, c);
+    }
+    o.push(p.alpha.is_some() as u8);
+    f9_str(o, p.alpha.as_deref().unwrap_or_default());
+}
+
+fn f9_patterns(v: &Vec<photocraft_psd::patterns::PsdPattern>, o: &mut Vec<u8>) {
+    o.extend_from_slice(&(v.len() as u32).to_le_bytes());
+    for p in v {
+        f9_pattern(p, o);
+    }
+}
+
+fn f9_pat(depth: u16, alpha: bool) -> photocraft_psd::patterns::PsdPattern {
+    let (w, h) = (5u32, 3u32);
+    let bpp = usize::from(depth / 8);
+    let plane = |s: u8| (0..w as usize * h as usize * bpp).map(|i| (i as u8).wrapping_mul(7).wrapping_add(s)).collect::<Vec<u8>>();
+    photocraft_psd::patterns::PsdPattern {
+        mode: 3,
+        width: w,
+        height: h,
+        name: "Test ✓".into(),
+        id: "0bd2d3ba-1234-11d4-8f8f-aabbccddeeff".into(),
+        palette: None,
+        depth,
+        channels: vec![plane(1), plane(2), plane(3)],
+        alpha: alpha.then(|| plane(9)),
+    }
+}
+
+fn f9_sample(o: &mut Vec<u8>, s: &photocraft_psd::abr::AbrSample) {
+    f9_str(o, s.id.as_bytes());
+    o.extend_from_slice(&s.width.to_le_bytes());
+    o.extend_from_slice(&s.height.to_le_bytes());
+    o.extend_from_slice(&s.depth.to_le_bytes());
+    f9_str(o, &s.data);
+}
+
+fn f9_abr_sample(id: &str, w: u32, h: u32, depth: u16) -> photocraft_psd::abr::AbrSample {
+    let bpp = usize::from(depth / 8);
+    let data = (0..w as usize * h as usize * bpp).map(|i| if (i / bpp) % 3 == 0 { 255 } else { (i % 7) as u8 * 30 }).collect();
+    photocraft_psd::abr::AbrSample { id: id.into(), width: w, height: h, depth, data }
+}
+
+fn f9_vectors() {
+    use photocraft_psd::descriptor::{Descriptor, Id, UnicodeString, Value, VersionedDescriptor};
+    use photocraft_psd::{abr, aco, ase, grd, patterns};
+    const F0: u64 = 0xcbf29ce484222325;
+    let line = |name: &str, h: u64| println!("f9\t{name}\t{h:016x}");
+    let bytes_or = |h: &mut u64, r: photocraft_psd::Result<Vec<u8>>| f9_outcome(h, r, &|b: &Vec<u8>, o: &mut Vec<u8>| o.extend_from_slice(b));
+
+    // ---- aco ----
+    let aco_dump = |f: &aco::AcoFile, o: &mut Vec<u8>| {
+        o.push(f.has_names as u8);
+        for s in &f.swatches {
+            f9_str(o, s.name.as_bytes());
+            let (sp, v) = s.color.to_record();
+            o.extend_from_slice(&sp.to_le_bytes());
+            for x in v {
+                o.extend_from_slice(&x.to_le_bytes());
+            }
+        }
+    };
+    let aco_sample = vec![
+        aco::AcoSwatch { name: "Pure Red".into(), color: aco::AcoColor::Rgb([65535, 0, 0]) },
+        aco::AcoSwatch { name: "Hue".into(), color: aco::AcoColor::Hsb([12000, 65535, 40000]) },
+        aco::AcoSwatch { name: "Cyan ink".into(), color: aco::AcoColor::Cmyk([65535, 0, 0, 1234]) },
+        aco::AcoSwatch { name: "Lab −".into(), color: aco::AcoColor::Lab { l: 5321, a: -12800, b: 12700 } },
+        aco::AcoSwatch { name: "Gray".into(), color: aco::AcoColor::Gray(5000) },
+        aco::AcoSwatch { name: "Book 日本".into(), color: aco::AcoColor::Other { space: 3, values: [1, 2, 3, 4] } },
+        aco::AcoSwatch { name: String::new(), color: aco::AcoColor::Rgb([1, 2, 3]) },
+    ];
+    let mut h = F0;
+    let b = aco::write(&aco_sample).unwrap();
+    f9_sweep(&mut h, &b, &aco::parse, &aco_dump);
+    line("aco sample", h);
+    let mut h = F0;
+    let v1 = [0u8, 1, 0, 2, 0, 0, 255, 255, 0, 0, 0, 0, 0, 0, 0, 8, 0x13, 0x88, 0, 0, 0, 0, 0, 0];
+    f9_sweep(&mut h, &v1, &aco::parse, &aco_dump);
+    let mut v2 = vec![0u8, 2, 0, 1, 0, 0, 0, 1, 0, 2, 0, 3, 0, 0];
+    v2.extend_from_slice(&[0, 0, 0, 2, 0, b'O', 0, b'K']);
+    f9_sweep(&mut h, &v2, &aco::parse, &aco_dump);
+    let long = aco::AcoSwatch { name: "x".repeat(5000), color: aco::AcoColor::Gray(0) };
+    let b = aco::write(&[long]).unwrap();
+    fnv(&mut h, &b);
+    f9_outcome(&mut h, aco::parse(&b), &aco_dump);
+    let many = vec![aco::AcoSwatch { name: String::new(), color: aco::AcoColor::Gray(0) }; 65536];
+    bytes_or(&mut h, aco::write(&many));
+    let mut seed = 0x1234_5678u32;
+    for len in 0..300 {
+        let junk: Vec<u8> = (0..len)
+            .map(|_| {
+                seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                (seed >> 24) as u8
+            })
+            .collect();
+        f9_outcome(&mut h, aco::parse(&junk), &aco_dump);
+        let mut v = vec![0, 1];
+        v.extend_from_slice(&junk);
+        f9_outcome(&mut h, aco::parse(&v), &aco_dump);
+    }
+    line("aco misc", h);
+
+    // ---- ase ----
+    let sw_dump = |s: &ase::AseSwatch, o: &mut Vec<u8>| {
+        f9_str(o, s.name.as_bytes());
+        let put = |o: &mut Vec<u8>, v: &[f32]| {
+            for x in v {
+                o.extend_from_slice(&x.to_bits().to_le_bytes());
+            }
+        };
+        match &s.color {
+            ase::AseColor::Rgb(c) => { o.push(0); put(o, c); }
+            ase::AseColor::Cmyk(c) => { o.push(1); put(o, c); }
+            ase::AseColor::Lab(c) => { o.push(2); put(o, c); }
+            ase::AseColor::Gray(g) => { o.push(3); put(o, &[*g]); }
+            ase::AseColor::Other { model, data } => { o.push(4); o.extend_from_slice(model); f9_str(o, data); }
+        }
+        o.push(match s.kind { ase::AseKind::Global => 0, ase::AseKind::Spot => 1, ase::AseKind::Process => 2 });
+    };
+    let ase_dump = |f: &ase::AseFile, o: &mut Vec<u8>| {
+        for e in &f.entries {
+            match e {
+                ase::AseEntry::Swatch(s) => { o.push(b'S'); sw_dump(s, o); }
+                ase::AseEntry::Group { name, swatches } => {
+                    o.push(b'G');
+                    f9_str(o, name.as_bytes());
+                    o.extend_from_slice(&(swatches.len() as u32).to_le_bytes());
+                    for s in swatches {
+                        sw_dump(s, o);
+                    }
+                }
+            }
+        }
+    };
+    let sw = |name: &str, color: ase::AseColor, kind: ase::AseKind| ase::AseSwatch { name: name.into(), color, kind };
+    let ase_sample = ase::AseFile {
+        entries: vec![
+            ase::AseEntry::Swatch(sw("Loose red", ase::AseColor::Rgb([1.0, 0.0, 0.0]), ase::AseKind::Process)),
+            ase::AseEntry::Group {
+                name: "Brand ✓".into(),
+                swatches: vec![
+                    sw("Ink", ase::AseColor::Cmyk([0.1, 0.2, 0.3, 0.4]), ase::AseKind::Spot),
+                    sw("Lab", ase::AseColor::Lab([0.5321, -12.25, 40.5]), ase::AseKind::Global),
+                    sw("Mid gray", ase::AseColor::Gray(0.5), ase::AseKind::Process),
+                    sw("Odd", ase::AseColor::Other { model: *b"HSV ", data: vec![1, 2, 3, 4, 5, 6] }, ase::AseKind::Process),
+                ],
+            },
+            ase::AseEntry::Group { name: String::new(), swatches: vec![] },
+        ],
+    };
+    let mut h = F0;
+    let b = ase::write(&ase_sample).unwrap();
+    f9_sweep(&mut h, &b, &ase::parse, &ase_dump);
+    line("ase sample", h);
+    let mut h = F0;
+    let nf = ase::AseFile { entries: vec![ase::AseEntry::Swatch(sw("n", ase::AseColor::Rgb([f32::NAN, f32::INFINITY, 0.5]), ase::AseKind::Process))] };
+    let b = ase::write(&nf).unwrap();
+    f9_sweep(&mut h, &b, &ase::parse, &ase_dump);
+    let lenient: &[u8] = b"ASEF\0\x01\0\0\0\0\0\x04\xc0\x02\0\0\0\0\x77\x77\0\0\0\x03\x09\x09\x09\xc0\x01\0\0\0\x06\0\x02\0G\0\0\0\x01\0\0\0\x0e\0\x02\0A\0\0Gray\x3e\x80\0\0";
+    f9_sweep(&mut h, lenient, &ase::parse, &ase_dump);
+    let many = ase::AseFile { entries: vec![ase::AseEntry::Group { name: "g".into(), swatches: vec![sw("", ase::AseColor::Gray(0.0), ase::AseKind::Process); 100_001] }] };
+    bytes_or(&mut h, ase::write(&many));
+    let mut seed = 0xDEAD_BEEFu32;
+    for len in 0..400 {
+        let junk: Vec<u8> = (0..len)
+            .map(|_| {
+                seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                (seed >> 24) as u8
+            })
+            .collect();
+        let mut v = b"ASEF\0\x01\0\0\0\0\0\x10".to_vec();
+        v.extend_from_slice(&junk);
+        f9_outcome(&mut h, ase::parse(&v), &ase_dump);
+        f9_outcome(&mut h, ase::parse(&junk), &ase_dump);
+    }
+    line("ase misc", h);
+
+    // ---- grd ----
+    let grd_dump = |v: &Vec<grd::GrdGradient>, o: &mut Vec<u8>| {
+        for g in v {
+            f9_str(o, g.name.as_bytes());
+            o.push(g.noise as u8);
+            o.extend_from_slice(&(g.stops.len() as u32).to_le_bytes());
+            for s in &g.stops {
+                o.extend_from_slice(&s.location.to_bits().to_le_bytes());
+                o.extend_from_slice(&s.midpoint.to_bits().to_le_bytes());
+                let (m, c): (u8, Vec<f32>) = match s.color {
+                    grd::GrdColor::Rgb(c) => (0, c.to_vec()),
+                    grd::GrdColor::Hsb(c) => (1, c.to_vec()),
+                    grd::GrdColor::Cmyk(c) => (2, c.to_vec()),
+                    grd::GrdColor::Lab(c) => (3, c.to_vec()),
+                    grd::GrdColor::Gray(g) => (4, vec![g]),
+                    grd::GrdColor::Foreground => (5, vec![]),
+                    grd::GrdColor::Background => (6, vec![]),
+                };
+                o.push(m);
+                for x in c {
+                    o.extend_from_slice(&x.to_bits().to_le_bytes());
+                }
+            }
+            o.extend_from_slice(&(g.opacity.len() as u32).to_le_bytes());
+            for (a, b, c) in &g.opacity {
+                for x in [a, b, c] {
+                    o.extend_from_slice(&x.to_bits().to_le_bytes());
+                }
+            }
+        }
+    };
+    let grd_sample = vec![
+        grd::GrdGradient {
+            name: "Sunset ✓".into(),
+            noise: false,
+            stops: vec![
+                grd::GrdStop { location: 0.0, midpoint: 0.5, color: grd::GrdColor::Foreground },
+                grd::GrdStop { location: 0.25, midpoint: 0.3, color: grd::GrdColor::Rgb([1.0, 0.5, 0.0]) },
+                grd::GrdStop { location: 1.0, midpoint: 0.5, color: grd::GrdColor::Background },
+                grd::GrdStop { location: 0.7, midpoint: 0.1, color: grd::GrdColor::Lab([50.0, 1.0, 2.0]) },
+            ],
+            opacity: vec![(0.0, 1.0, 0.5), (1.0, 0.25, 0.5), (0.333, 0.777, 0.123)],
+        },
+        grd::GrdGradient { name: "Noise".into(), noise: true, ..Default::default() },
+    ];
+    let mut h = F0;
+    let b = grd::write(&grd_sample);
+    f9_sweep(&mut h, &b, &grd::parse, &grd_dump);
+    line("grd sample", h);
+    let en = |t: &str, v: &str| Value::Enumerated { type_id: Id::new(t), value: Id::new(v) };
+    let uf = |u: &[u8; 4], v: f64| Value::UnitFloat { unit: *u, value: v };
+    let stop = |clr: Option<Value>, extra: Vec<(&str, Value)>| {
+        let mut d = Descriptor::new("Clrt");
+        if let Some(c) = clr {
+            d = d.with("Clr ", c);
+        }
+        for (k, v) in extra {
+            d = d.with(k, v);
+        }
+        Value::Descriptor(d)
+    };
+    let stops = vec![
+        stop(
+            Some(Value::Descriptor(Descriptor::new("HSBC").with("H   ", uf(b"#Ang", 210.5)).with("Strt", Value::Double(40.0)).with("Brgh", Value::Integer(77)))),
+            vec![("Type", en("Clry", "UsrS")), ("Lctn", Value::Integer(0)), ("Mdpn", Value::Integer(50))],
+        ),
+        stop(
+            Some(Value::Descriptor(
+                Descriptor::new("CMYC").with("Cyn ", Value::Double(10.25)).with("Mgnt", Value::Double(20.0)).with("Ylw ", Value::Double(30.0)).with("Blck", Value::Double(40.5)),
+            )),
+            vec![("Lctn", Value::Integer(1024)), ("Mdpn", Value::Integer(33))],
+        ),
+        stop(
+            Some(Value::Descriptor(Descriptor::new("LbCl").with("Lmnc", Value::Double(53.2)).with("A   ", Value::Double(-12.5)).with("B   ", Value::Double(40.0)))),
+            vec![("Lctn", Value::LargeInteger(2048))],
+        ),
+        stop(Some(Value::Descriptor(Descriptor::new("Grsc").with("Gry ", Value::Double(25.0)))), vec![("Lctn", Value::Double(5000.0))]),
+        stop(
+            Some(Value::GlobalObject(Descriptor::new("RGBC").with("Rd  ", Value::Double(255.0)).with("Grn ", Value::Double(128.5)).with("Bl  ", Value::Double(0.0)))),
+            vec![("Lctn", Value::Integer(-20)), ("Mdpn", Value::Double(1e300))],
+        ),
+        stop(Some(Value::Descriptor(Descriptor::new("XXXX"))), vec![]),
+        stop(None, vec![("Type", en("Clry", "FrgC")), ("Lctn", Value::Integer(4096))]),
+        stop(None, vec![("Type", en("Clry", "BckC")), ("Mdpn", Value::Integer(-5))]),
+        Value::Integer(5),
+        stop(Some(Value::Descriptor(Descriptor::new("RGBC").with("Rd  ", Value::Double(f64::from_bits(0x7ff8_0000_0000_0000))))), vec![]),
+        stop(None, vec![]),
+    ];
+    let trns = vec![
+        Value::Descriptor(Descriptor::new("TrnS").with("Opct", uf(b"#Prc", 50.0)).with("Lctn", Value::Integer(0)).with("Mdpn", Value::Integer(50))),
+        Value::Descriptor(Descriptor::new("TrnS")),
+        Value::Integer(3),
+        Value::Descriptor(Descriptor::new("TrnS").with("Opct", Value::Double(250.0)).with("Lctn", Value::Double(-3.0))),
+    ];
+    let grad = Descriptor::new("Grdn")
+        .with("Nm  ", Value::Text(UnicodeString::new_nul("Models ✓")))
+        .with("GrdF", en("GrdF", "CstS"))
+        .with("Clrs", Value::List(stops))
+        .with("Trns", Value::List(trns));
+    let items = vec![
+        Value::Descriptor(Descriptor::new("Grdn").with("Grad", Value::Descriptor(grad))),
+        Value::Integer(1),
+        Value::Descriptor(Descriptor::new("Grdn")),
+        Value::Descriptor(Descriptor::new("Grdn").with("Grad", Value::GlobalObject(Descriptor::new("Grdn").with("Nm  ", Value::Text(UnicodeString::new("G"))).with("GrdF", en("GrdF", "ClNs"))))),
+    ];
+    let mut models = b"8BGR\0\x05".to_vec();
+    models.extend_from_slice(&VersionedDescriptor::new(Descriptor::new("null").with("GrdL", Value::List(items))).to_bytes());
+    let mut h = F0;
+    f9_sweep(&mut h, &models, &grd::parse, &grd_dump);
+    f9_outcome(&mut h, grd::parse(&grd::write(&[])), &grd_dump);
+    for b in [&b""[..], b"8BG", b"8BGR\0", b"8BGR\0\x03", b"8BPS\0\x05"] {
+        f9_outcome(&mut h, grd::parse(b), &grd_dump);
+    }
+    line("grd models", h);
+
+    // ---- patterns ----
+    let pblock = |b: &[u8]| patterns::parse_pattern_block(b);
+    let pfile = |b: &[u8]| patterns::parse_pat_file(b);
+    for depth in [8u16, 16, 32] {
+        for alpha in [false, true] {
+            let ps = vec![f9_pat(depth, alpha), patterns::PsdPattern { name: "Second".into(), ..f9_pat(depth, false) }];
+            let mut h = F0;
+            let blk = patterns::write_pattern_block(&ps).unwrap();
+            f9_sweep(&mut h, &blk, &pblock, &f9_patterns);
+            let f = patterns::write_pat_file(&ps).unwrap();
+            f9_sweep(&mut h, &f, &pfile, &f9_patterns);
+            line(&format!("pat d{depth} a{}", alpha as u8), h);
+        }
+    }
+    let mut extra = Vec::new();
+    let mut indexed = f9_pat(8, false);
+    indexed.mode = 2;
+    indexed.channels.truncate(1);
+    indexed.palette = Some((0..768u32).map(|i| (i * 3 % 256) as u8).collect());
+    extra.push(indexed.clone());
+    indexed.palette = Some(vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    indexed.name = "short palette".into();
+    extra.push(indexed);
+    let mut cmyk = f9_pat(16, true);
+    cmyk.mode = 4;
+    cmyk.channels.push(vec![0x42; 5 * 3 * 2]);
+    extra.push(cmyk);
+    extra.push(patterns::PsdPattern {
+        mode: 1,
+        width: 5,
+        height: 3,
+        name: "bits".into(),
+        id: String::new(),
+        palette: None,
+        depth: 1,
+        channels: vec![vec![0b1010_1000, 0b0101_0000, 0b1111_1000]],
+        alpha: None,
+    });
+    let mut h = F0;
+    for p in &extra {
+        let blk = patterns::write_pattern_block(std::slice::from_ref(p)).unwrap();
+        f9_sweep(&mut h, &blk, &pblock, &f9_patterns);
+    }
+    let set = |b: &mut [u8], at: usize, v: i32| b[at..at + 4].copy_from_slice(&v.to_be_bytes());
+    for depth in [8u16, 16, 32] {
+        let p = f9_pat(depth, true);
+        let mut blk = patterns::write_pattern_block(std::slice::from_ref(&p)).unwrap();
+        let vma = 4 + 16 + (p.name.encode_utf16().count() + 1) * 2 + 1 + p.id.len() + 8;
+        let orig = blk.clone();
+        for (k, v) in [(0usize, -2i32), (4, -3), (8, 4), (12, 5)] {
+            set(&mut blk, vma + k, v);
+        }
+        f9_outcome(&mut h, patterns::parse_pattern_block(&blk), &f9_patterns);
+        if depth == 32 {
+            // Over the decode budget; at 8 and 16 bits it fits and would allocate gigabytes.
+            let mut huge = orig.clone();
+            set(&mut huge, vma + 8, 30_000);
+            set(&mut huge, vma + 12, 30_000);
+            f9_outcome(&mut h, patterns::parse_pattern_block(&huge), &f9_patterns);
+        }
+        let mut bad = orig.clone();
+        set(&mut bad, vma + 4, i32::MIN);
+        set(&mut bad, vma + 12, i32::MAX);
+        f9_outcome(&mut h, patterns::parse_pattern_block(&bad), &f9_patterns);
+        let mut zero = orig.clone();
+        set(&mut zero, vma + 8, 0);
+        f9_outcome(&mut h, patterns::parse_pattern_block(&zero), &f9_patterns);
+    }
+    let mut big = f9_pat(8, false);
+    big.mode = 1;
+    big.channels.truncate(1);
+    let mut blk = patterns::write_pattern_block(std::slice::from_ref(&big)).unwrap();
+    let vma = 4 + 16 + (big.name.encode_utf16().count() + 1) * 2 + 1 + big.id.len() + 8;
+    set(&mut blk, vma + 8, 1000);
+    set(&mut blk, vma + 12, 900);
+    f9_outcome(&mut h, patterns::parse_pattern_block(&blk), &f9_patterns);
+    for bad in [&b"8BPS\0\x01"[..], b"8BP", b""] {
+        f9_outcome(&mut h, patterns::parse_pat_file(bad), &f9_patterns);
+    }
+    let mut toolarge = f9_pat(8, false);
+    toolarge.width = 40_000;
+    bytes_or(&mut h, patterns::write_pattern_block(&[toolarge]));
+    line("pat misc", h);
+
+    // ---- abr ----
+    let abr_dump = |f: &abr::AbrFile, o: &mut Vec<u8>| {
+        o.extend_from_slice(&f.version.to_le_bytes());
+        o.extend_from_slice(&f.subversion.to_le_bytes());
+        o.extend_from_slice(&(f.legacy.len() as u32).to_le_bytes());
+        for b in &f.legacy {
+            f9_str(o, b.name.as_bytes());
+            o.extend_from_slice(&b.spacing.to_le_bytes());
+            o.push(b.anti_alias as u8);
+            match &b.tip {
+                abr::LegacyTip::Computed { diameter, hardness, angle, roundness } => {
+                    o.push(0);
+                    for v in [*diameter, *hardness, *angle as u16, *roundness] {
+                        o.extend_from_slice(&v.to_le_bytes());
+                    }
+                }
+                abr::LegacyTip::Sampled(s) => {
+                    o.push(1);
+                    f9_sample(o, s);
+                }
+            }
+        }
+        o.extend_from_slice(&(f.samples.len() as u32).to_le_bytes());
+        for s in &f.samples {
+            f9_sample(o, s);
+        }
+        f9_patterns(&f.patterns, o);
+        o.extend_from_slice(&(f.presets.len() as u32).to_le_bytes());
+        for d in &f.presets {
+            f9_str(o, &d.to_bytes());
+        }
+        o.extend_from_slice(&(f.warnings.len() as u32).to_le_bytes());
+        for w in &f.warnings {
+            f9_str(o, w.as_bytes());
+        }
+    };
+    for version in [1u16, 2] {
+        for rle in [false, true] {
+            let brushes = vec![
+                abr::LegacyBrush { name: String::new(), spacing: 25, anti_alias: true, tip: abr::LegacyTip::Computed { diameter: 19, hardness: 80, angle: -30, roundness: 50 } },
+                abr::LegacyBrush {
+                    name: if version == 2 { "Leaf ✓".into() } else { String::new() },
+                    spacing: 40,
+                    anti_alias: false,
+                    tip: abr::LegacyTip::Sampled(f9_abr_sample("", 13, 9, 8)),
+                },
+                abr::LegacyBrush { name: String::new(), spacing: 10, anti_alias: true, tip: abr::LegacyTip::Sampled(f9_abr_sample("", 4, 6, 16)) },
+            ];
+            let mut h = F0;
+            let b = abr::write_v12(version, &brushes, rle).unwrap();
+            f9_sweep(&mut h, &b, &abr::parse, &abr_dump);
+            line(&format!("abr v{version} rle{}", rle as u8), h);
+        }
+    }
+    let samples = vec![f9_abr_sample("$abc", 20, 11, 8), f9_abr_sample("$def", 5, 5, 16)];
+    let preset = Descriptor::new("brushPreset")
+        .with("Nm  ", Value::Text(UnicodeString::new_nul("Grass")))
+        .with("Brsh", Value::Descriptor(Descriptor::new("sampledBrush").with("sampledData", Value::Text(UnicodeString::new_nul("$abc")))));
+    for sub in [1u16, 2] {
+        for rle in [false, true] {
+            let pats: Vec<patterns::PsdPattern> = if rle { vec![f9_pat(8, true)] } else { vec![] };
+            let mut h = F0;
+            let b = abr::write_v6(sub, &samples, &pats, std::slice::from_ref(&preset), rle).unwrap();
+            f9_sweep(&mut h, &b, &abr::parse, &abr_dump);
+            line(&format!("abr v6.{sub} rle{}", rle as u8), h);
+        }
+    }
+    let mut h = F0;
+    for b in [&b""[..], &[0, 3, 0, 0], &[0, 6, 0, 9], &[0, 2, 0xff, 0xff], &[0, 1, 0, 1, 0, 3, 0, 0, 0, 0], &[0, 6, 0, 1, b'8', b'B', b'I', b'M', b'z', b'z', b'z', b'z', 0, 0, 0, 0]] {
+        f9_outcome(&mut h, abr::parse(b), &abr_dump);
+    }
+    let mut s = f9_abr_sample("", 2, 2, 8);
+    s.width = abr::MAX_EDGE + 1;
+    bytes_or(&mut h, abr::write_v12(1, &[abr::LegacyBrush { name: String::new(), spacing: 1, anti_alias: true, tip: abr::LegacyTip::Sampled(s) }], false));
+    bytes_or(&mut h, abr::write_v12(3, &[], false));
+    bytes_or(&mut h, abr::write_v6(3, &[], &[], &[], false));
+    for v in samples[1].to_unit() {
+        fnv(&mut h, &v.to_bits().to_le_bytes());
+    }
+    for v in samples[0].to_unit() {
+        fnv(&mut h, &v.to_bits().to_le_bytes());
+    }
+    line("abr misc", h);
+}
+
 /// One line describing a parsed ICC profile and how it converts (or the error).
 fn icc_info(path: &str) {
     use photocraft_cms::{Builtin, Intent, Profile, Transform};
@@ -820,6 +1368,8 @@ fn main() {
         ["cms-vectors"] => cms_vectors(),
         ["color-vectors"] => color_vectors(),
         ["psd-vectors"] => psd_vectors(),
+        ["tiff-vectors"] => tiff_vectors(),
+        ["f9-vectors"] => f9_vectors(),
         ["raster-vectors"] => raster_vectors(),
         ["icc-info", f] => icc_info(f),
         ["psd-info", f] => psd_info(f),

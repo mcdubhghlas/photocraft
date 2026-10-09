@@ -1,3 +1,4 @@
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,6 +11,49 @@
 #include "psd/types.h"
 
 /* ---- shared types ---- */
+
+void pc_psd_warnings_fini(pc_psd_warnings *w)
+{
+    size_t i;
+    if (w == NULL) {
+        return;
+    }
+    for (i = 0; i < w->n; i++) {
+        free(w->v[i]);
+    }
+    free(w->v);
+    w->v = NULL;
+    w->n = 0;
+}
+
+pc_status psd_warn(pc_psd_warnings *w, pc_error *err, const char *fmt, ...)
+{
+    char buf[1024];
+    va_list ap;
+    char *s;
+    char **g;
+    int n;
+    va_start(ap, fmt);
+    n = vsnprintf(buf, sizeof buf, fmt, ap);
+    va_end(ap);
+    if (n < 0) {
+        buf[0] = '\0';
+    }
+    s = malloc(strlen(buf) + 1);
+    g = realloc(w->v, (w->n + 1) * sizeof *g);
+    if (s == NULL || g == NULL) {
+        free(s);
+        if (g != NULL) {
+            w->v = g;
+        }
+        return psd_nomem(err);
+    }
+    memcpy(s, buf, strlen(buf) + 1);
+    w->v = g;
+    w->v[w->n++] = s;
+    return PC_OK;
+}
+
 
 void pc_psd_bytes_fini(pc_psd_bytes *b)
 {
@@ -49,6 +93,46 @@ pc_status pc_psd_bytes_clone(const pc_psd_bytes *b, pc_psd_bytes *out, pc_error 
 bool pc_psd_bytes_eq(const pc_psd_bytes *a, const pc_psd_bytes *b)
 {
     return a->len == b->len && (a->len == 0 || memcmp(a->data, b->data, a->len) == 0);
+}
+
+void pc_psd_str_fini(pc_psd_str *s)
+{
+    if (s != NULL) {
+        free(s->s);
+        s->s = NULL;
+        s->len = 0;
+    }
+}
+
+pc_status pc_psd_str_set(pc_psd_str *out, const char *s, size_t len, pc_error *err)
+{
+    char *p = NULL;
+    if (len > 0) {
+        if (len == SIZE_MAX || (p = malloc(len + 1)) == NULL) {
+            return psd_nomem(err);
+        }
+        memcpy(p, s, len);
+        p[len] = '\0';
+    }
+    free(out->s);
+    out->s = p;
+    out->len = len;
+    return PC_OK;
+}
+
+pc_status pc_psd_str_clone(const pc_psd_str *s, pc_psd_str *out, pc_error *err)
+{
+    pc_psd_str c = {NULL, 0};
+    pc_status st = pc_psd_str_set(&c, s->s, s->len, err);
+    if (st == PC_OK) {
+        *out = c;
+    }
+    return st;
+}
+
+bool pc_psd_str_eq(const pc_psd_str *a, const pc_psd_str *b)
+{
+    return a->len == b->len && (a->len == 0 || memcmp(a->s, b->s, a->len) == 0);
 }
 
 bool pc_psd_opt_bytes_eq(const pc_psd_opt_bytes *a, const pc_psd_opt_bytes *b)
@@ -622,10 +706,41 @@ pc_status psd_units_to_utf8(const uint16_t *u, size_t n, char **out, pc_error *e
     return buf_to_cstr(&o, out, err);
 }
 
+pc_status psd_str_from_units(const uint16_t *u, size_t n, pc_psd_str *out, pc_error *err)
+{
+    pc_buf o = PC_BUF_INIT;
+    size_t i = 0;
+    pc_status st = PC_OK;
+    while (i < n && st == PC_OK) {
+        uint32_t c = u[i++];
+        if (c >= 0xD800 && c <= 0xDBFF && i < n && u[i] >= 0xDC00 && u[i] <= 0xDFFF) {
+            c = 0x10000u + ((c - 0xD800u) << 10) + (u[i++] - 0xDC00u);
+        } else if (c >= 0xD800 && c <= 0xDFFF) {
+            c = 0xFFFD;
+        }
+        st = pc_utf8_put(&o, c, err);
+    }
+    if (st == PC_OK && o.len > 0) {
+        st = pc_buf_append_byte(&o, 0, err);
+    }
+    if (st != PC_OK) {
+        pc_buf_fini(&o);
+        return st;
+    }
+    pc_psd_str_fini(out);
+    out->s = (char *)o.data;
+    out->len = o.len > 0 ? o.len - 1 : 0;
+    return PC_OK;
+}
+
 pc_status psd_utf8_to_units(const char *s, uint16_t **out, size_t *n, pc_error *err)
 {
+    return psd_utf8n_to_units(s, strlen(s), out, n, err);
+}
+
+pc_status psd_utf8n_to_units(const char *s, size_t len, uint16_t **out, size_t *n, pc_error *err)
+{
     const uint8_t *p = (const uint8_t *)s;
-    size_t len = strlen(s);
     size_t i = 0;
     size_t k = 0;
     uint16_t *u = NULL;

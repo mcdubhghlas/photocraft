@@ -44,6 +44,30 @@ bool pc_psd_opt_bytes_eq(const pc_psd_opt_bytes *a, const pc_psd_opt_bytes *b);
 pc_status pc_psd_opt_bytes_clone(const pc_psd_opt_bytes *b, pc_psd_opt_bytes *out, pc_error *err);
 void pc_psd_opt_bytes_fini(pc_psd_opt_bytes *b);
 
+/* Human-readable warnings about data that was skipped, dropped or kept unconverted (owned
+ * NUL-terminated strings). */
+typedef struct pc_psd_warnings {
+    char **v;
+    size_t n;
+} pc_psd_warnings;
+
+void pc_psd_warnings_fini(pc_psd_warnings *w); /* NULL-safe */
+
+/* An owned UTF-8 string with its length (Rust String): may hold U+0000; s is always
+ * NUL-terminated after len bytes (s may be NULL when len == 0). */
+typedef struct pc_psd_str {
+    char *s;
+    size_t len;
+} pc_psd_str;
+
+void pc_psd_str_fini(pc_psd_str *s); /* NULL-safe */
+/* Copies len bytes (not validated). Replaces *out. */
+pc_status pc_psd_str_set(pc_psd_str *out, const char *s, size_t len, pc_error *err);
+pc_status pc_psd_str_clone(const pc_psd_str *s, pc_psd_str *out, pc_error *err);
+bool pc_psd_str_eq(const pc_psd_str *a, const pc_psd_str *b);
+/* The bytes, "" for an empty string. */
+static inline const char *pc_psd_str_c(const pc_psd_str *s) { return s->s != NULL ? s->s : ""; }
+
 /* File format version. */
 typedef enum pc_psd_version { PC_PSD_V1 = 1, PC_PSD_V2 = 2 } pc_psd_version; /* PSD, PSB */
 

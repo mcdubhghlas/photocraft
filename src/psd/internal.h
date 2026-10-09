@@ -33,6 +33,9 @@ pc_status psd_bad_sig(pc_error *err, const char *expected, const uint8_t found[4
  * "{p}: {e}")))`), turning the error into PC_ERR_FORMAT. */
 pc_status psd_wrap_invalid(pc_error *err, pc_status st, const char *prefix);
 
+/* Appends a formatted warning (at most 1023 bytes). */
+pc_status psd_warn(pc_psd_warnings *w, pc_error *err, const char *fmt, ...);
+
 /* ---- reader ---- */
 
 typedef struct psd_rd {
@@ -115,5 +118,8 @@ pc_status psd_encode_legacy_name(const char *s, pc_psd_bytes *out, pc_error *err
 pc_status psd_units_to_utf8(const uint16_t *u, size_t n, char **out, pc_error *err);
 /* UTF-8 → UTF-16 units (owned); invalid UTF-8 sequences become U+FFFD. */
 pc_status psd_utf8_to_units(const char *s, uint16_t **out, size_t *n, pc_error *err);
+pc_status psd_utf8n_to_units(const char *s, size_t len, uint16_t **out, size_t *n, pc_error *err);
+/* String::from_utf16_lossy into a pc_psd_str (replaces *out on success). */
+pc_status psd_str_from_units(const uint16_t *u, size_t n, pc_psd_str *out, pc_error *err);
 
 #endif

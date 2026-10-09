@@ -20,9 +20,14 @@ void pc_psd_ustr_fini(pc_psd_ustr *s)
 
 pc_status pc_psd_ustr_from_utf8(const char *s, bool nul, pc_psd_ustr *out, pc_error *err)
 {
+    return pc_psd_ustr_from_utf8n(s, strlen(s), nul, out, err);
+}
+
+pc_status pc_psd_ustr_from_utf8n(const char *s, size_t len, bool nul, pc_psd_ustr *out, pc_error *err)
+{
     uint16_t *u = NULL;
     size_t n = 0;
-    pc_status st = psd_utf8_to_units(s, &u, &n, err);
+    pc_status st = psd_utf8n_to_units(s, len, &u, &n, err);
     if (st != PC_OK) {
         return st;
     }
