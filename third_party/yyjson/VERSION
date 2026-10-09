@@ -1,0 +1,5 @@
+yyjson 0.13.0 (2026-09-08), https://github.com/ibireme/yyjson
+Source: https://github.com/ibireme/yyjson/archive/refs/tags/0.13.0.tar.gz
+sha256(tarball): 34e0f62a2bc11ab20d601e8ca1cc2b2079503aa45119a19133d89d19b94a0fae
+Files: src/yyjson.c, src/yyjson.h, LICENSE (MIT), unmodified.
+Why vendored: REWRITE_PLAN.md D7 (not installed everywhere; two files).

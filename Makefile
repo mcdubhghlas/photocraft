@@ -21,8 +21,11 @@ ARFLAGS = rcs
 
 # Modules in layer order (REWRITE_PLAN.md §3). Each chunk appends its module here.
 MODULES = base
-# pkg-config packages the current modules need (B2 adds libcjson, zlib, ...).
-PKGS =
+# pkg-config packages the current modules need.
+PKGS = zlib libzstd libblake3
+# Vendored third-party C (REWRITE_PLAN.md D17), compiled without our strict warnings: it isn't
+# our code to fix, and upstream builds it warning-free with its own flags.
+THIRD_PARTY = yyjson
 # Executables (src/cli, src/app) once they exist.
 PROGRAMS =
 
@@ -43,13 +46,14 @@ WERROR = $(if $(STRICT),-Werror)
 PKG_CFLAGS := $(if $(PKGS),$(shell $(PKG_CONFIG) --cflags $(PKGS)))
 PKG_LIBS := $(if $(PKGS),$(shell $(PKG_CONFIG) --libs $(PKGS)))
 
-ALL_CPPFLAGS = -D_POSIX_C_SOURCE=200809L -Isrc $(PKG_CFLAGS) $(CPPFLAGS)
+ALL_CPPFLAGS = -D_POSIX_C_SOURCE=200809L -Isrc $(THIRD_PARTY:%=-Ithird_party/%) $(PKG_CFLAGS) $(CPPFLAGS)
 ALL_CFLAGS = -std=c17 $(WARN) $(WERROR) $(PTHREAD) $(CFLAGS) $(EXTRA_CFLAGS)
 ALL_LDFLAGS = $(PTHREAD) $(LDFLAGS) $(EXTRA_LDFLAGS)
 ALL_LDLIBS = $(PKG_LIBS) $(LDLIBS) -lm
 
 SRCS := $(foreach m,$(MODULES),$(wildcard src/$(m)/*.c))
-OBJS := $(SRCS:%.c=$(BUILD)/obj/%.o)
+THIRD_SRCS := $(foreach t,$(THIRD_PARTY),$(wildcard third_party/$(t)/*.c))
+OBJS := $(SRCS:%.c=$(BUILD)/obj/%.o) $(THIRD_SRCS:%.c=$(BUILD)/obj/%.o)
 LIB := $(BUILD)/libphotocraft.a
 TEST_SRCS := $(wildcard tests/*/test_*.c)
 TEST_BINS := $(TEST_SRCS:tests/%.c=$(BUILD)/tests/%)
@@ -58,6 +62,11 @@ TEST_BINS := $(TEST_SRCS:tests/%.c=$(BUILD)/tests/%)
 .DEFAULT_GOAL := all
 
 all: $(LIB) $(PROGRAMS:%=$(BUILD)/bin/%)
+
+# Listed first: GNU make 3.81 takes the first matching pattern rule, not the most specific.
+$(BUILD)/obj/third_party/%.o: third_party/%.c
+	@mkdir -p $(@D)
+	$(CC) -std=c17 $(PTHREAD) $(CFLAGS) $(EXTRA_CFLAGS) $(DEPFLAGS) -c $< -o $@
 
 $(BUILD)/obj/%.o: %.c
 	@mkdir -p $(@D)
@@ -92,11 +101,11 @@ endif
 analyze:
 	@if command -v clang >/dev/null 2>&1; then \
 		for f in $(SRCS); do \
-			clang --analyze -Xclang -analyzer-werror -std=c17 -D_POSIX_C_SOURCE=200809L -Isrc $(PKG_CFLAGS) \
+			clang --analyze -Xclang -analyzer-werror -std=c17 -D_POSIX_C_SOURCE=200809L -Isrc $(THIRD_PARTY:%=-Ithird_party/%) $(PKG_CFLAGS) \
 				-o /dev/null $$f || exit 1; \
 		done; echo "analyze: clang static analyzer clean ($(words $(SRCS)) files)"; \
 	elif command -v cppcheck >/dev/null 2>&1; then \
-		cppcheck --error-exitcode=1 --std=c11 --enable=warning,portability -Isrc $(SRCS); \
+		cppcheck --error-exitcode=1 --std=c11 --enable=warning,portability -Isrc $(THIRD_PARTY:%=-Ithird_party/%) $(SRCS); \
 	else echo "analyze: neither clang nor cppcheck found; skipped"; fi
 
 TSAN := $(if $(call cc_accepts,-fsanitize=thread),-fsanitize=thread)

@@ -56,7 +56,7 @@ reason; later chunks follow it.
 | D4 | GUI: **SDL3** (window, input, pen tablet, clipboard, file dialogs, drag-and-drop, locale) + **OpenGL 3.3 core** + **Nuklear** (vendored single-header immediate-mode toolkit). | egui is immediate-mode; Nuklear is the closest C equivalent, so the 92k-line UI ports screen by screen. SDL3's pen API replaces the `unsafe` tablet crate, and its dialogs replace `rfd`. |
 | D5 | GPU compositor: GLSL 330 shaders on the same GL context. The CPU compositor stays the oracle. | Replaces wgpu/WGSL; GL 3.3 runs on macOS (4.1 core), Mesa and the BSDs. |
 | D6 | Parallelism: own `pc_pool` (pthreads, parallel-for over tile/row ranges). | Replaces rayon. Must be deterministic: results identical with 1 or N threads. |
-| D7 | JSON: **cJSON**, wrapped by `src/base/json.*` (typed getters that return errors, never crash). | Replaces serde_json; tiny, MIT, packaged everywhere. |
+| D7 | JSON: **yyjson** 0.13.0, vendored in `third_party/yyjson/` (changed from cJSON in B2), wrapped by `src/base/json.*` for serde_json parity: exact u64/i64/f64 distinction, serde_json float text (shortest digits, zmij layout: `1.0`, `1e+20`, `1e-7`; f32 values via `yyjson_mut_float`), `Value` key sorting (`PC_JSON_SORT_KEYS`), last-duplicate-wins lookup, depth limit 127, errors "… at line L column C". Modules use yyjson's API directly for building/walking. | cJSON stores every number as a double: u64 ids above 2^53 and the int/float distinction (`as_u64` on `1.0`) would be lost. yyjson keeps both and has an exact shortest float printer. |
 | D8 | Own domain code is ported 1:1 in behaviour: `cms`, `psd`, `raw`, `affinity`, `compose`, `algo`, `paint`, `vector`, `doc`, `ops`, `engine`. Not swapped for lcms2/libraw/etc. | Exact numeric parity with the reference and the Photoshop oracles. |
 | D9 | Codecs use libraries: libpng, libjpeg-turbo, libtiff, libwebp, OpenEXRCore (C API of OpenEXR ≥ 3.1), libheif. The in-tree VP8 encoder (`codecs/vp8/`) is **not** ported: libwebp encodes lossy WebP. | Mature, fuzzed decoders for untrusted files. Byte output of encoders may differ; pixels must round-trip (§7). |
 | D10 | Text: FreeType (outlines, metrics), HarfBuzz (shaping), FriBidi (bidi), libunibreak (line breaking). | Replaces parley/skrifa/swash. No ICU: dictionary line breaking for Thai/Lao/Khmer/Burmese/Japanese falls back to UAX #14 rules (§7). |
@@ -66,7 +66,7 @@ reason; later chunks follow it.
 | D14 | MCP server and control channel: own JSON-RPC over stdio/TCP with `poll()`; no async runtime. | Replaces tokio + rmcp. The protocol is small. |
 | D15 | Hashing/compression: libblake3, zlib (deflate + crc32), libzstd. base64 and IEEE half floats are small internal helpers in `src/base/`. | Replaces blake3, flate2, crc32fast, ruzstd, base64, half. |
 | D16 | Workspace sandboxing (cap-std) → `openat`/`O_NOFOLLOW`/`O_DIRECTORY` relative to a directory fd. | POSIX equivalent of capability-based paths. |
-| D17 | Vendored code lives in `third_party/<name>/` with its LICENSE, and gets an `ATTRIBUTION.md` row. Only for libraries that aren't commonly packaged (Nuklear, pocketfft, plutosvg/plutovg, optionally WAMR). | Clean-room and licence hygiene carry over. |
+| D17 | Vendored code lives in `third_party/<name>/` with its LICENSE, and gets an `ATTRIBUTION.md` row. Only for libraries that aren't commonly packaged (yyjson, Nuklear, pocketfft, plutosvg/plutovg, optionally WAMR). | Clean-room and licence hygiene carry over. |
 | D18 | LGPL libraries (FriBidi, libheif) are linked dynamically only. FreeType is used under the FTL (credit in About + README). | Licence compatibility with MIT OR Apache-2.0. |
 | D19 | The macOS native menu bar (`muda`), Apple-event file opening, and Wayland portal colour picking are dropped for the first pass; the in-window menu bar is used everywhere. | Need Objective-C or D-Bus; not C17/POSIX. Listed in §7; can return as isolated platform files later. |
 | D20 | The build requires **GNU make ≥ 3.81** (`gmake` on the BSDs; macOS ships 3.81). Use only 3.81 features: no `$(file)`, `!=`, `.ONESHELL`. | POSIX make has no pattern rules or `wildcard`; out-of-tree builds of hundreds of files need them. |
@@ -175,7 +175,7 @@ tests (real PSDs etc.) are opt-in: `make test-corpus` after `tools/corpus.sh fet
     temp file + `fsync` + `rename`), `pool.h` (D6), `log.h`.
   - Tests for every helper, including overflow, partial I/O (pipe/socketpair), EINTR, and the
     "out-param untouched on failure" contract.
-- [ ] **B2** · `src/base` wrappers: JSON (cJSON, D7), base64, half floats, blake3, zlib deflate/inflate +
+- [x] **B2** (2026-10-09) · `src/base` wrappers: JSON (yyjson, D7), base64, half floats, blake3, zlib deflate/inflate +
   crc32, zstd decode → `src/base/`. Bounded output sizes; tests with malformed and truncated input.
 - [ ] **B3** · GUI stack spike (de-risks D4/D5 before anything depends on it): `src/ui/spike/` opens an
   SDL3 window with a GL 3.3 context, draws Nuklear widgets with FreeType-rendered text at HiDPI,
@@ -184,7 +184,8 @@ tests (real PSDs etc.) are opt-in: `make test-corpus` after `tools/corpus.sh fet
 - [ ] **B4** · tooling → `tools/`
   - `tools/corpus.sh fetch|verify`: the corpus pins and sha256s from `xtask/src/corpus_pins.rs`, using `curl` and `sha256sum`/`shasum`.
   - `tools/check-layers.sh`: the §3 include rules, run by `make check`.
-  - `tools/rustref/`: a temporary Cargo binary that links the reference crates and dumps
+  - `tools/rustref/` (seeded in B2: a standalone Cargo project printing serde_json/half/base64 vectors
+    for the `src/base` tests; turn it into subcommands here): a temporary Cargo binary that links the reference crates and dumps
     machine-readable outputs (decoded pixels as raw + JSON metadata, composites, command results) for
     differential tests. Starts with `psd-info`, `decode`, `composite`; later chunks add subcommands.
   - `tools/golden.sh`: regenerates `tests/golden/` from `tools/rustref` (needs Cargo; run only while
@@ -437,6 +438,11 @@ Add one line per difference: `chunk · what differs · why · user-visible?`
 - D9 · lossy WebP and JPEG encoders produce different bytes (libwebp/libjpeg-turbo vs the in-tree coders); decoded pixels stay within the Rust tests' tolerances · library choice · byte-level only
 - D10 · no dictionary line breaking (Thai, Lao, Khmer, Burmese, Japanese words) · no ICU · yes, in text layout of those scripts
 - D19 · no macOS global menu bar, no Apple-event "Open With", no Wayland portal colour picker · not C17/POSIX · yes
+- B2 · zlib/zstd output bytes differ from flate2 (miniz_oxide) and ruzstd at the same level; decompressed data is identical · library choice · no (byte-level only)
+- B2 · JSON parse errors: same kind, same "at line L column C" format and the same position for most inputs, but some wording differs from serde_json ("trailing comma is not allowed" vs "trailing comma", "expected value" vs "expected `:`", surrogate/control-character messages; "01" is reported at column 1, serde says 2) · yyjson's messages · only in error text
+- B2 · `"-0"` parses as integer 0 (serde_json: float -0.0), so `as_u64("-0")` succeeds · yyjson · edge case only
+- B2 · zstd frames needing a window over 128 MiB are rejected by default (ruzstd allows 100 MiB+ up to its own cap); callers pass a smaller limit where the reference does (Affinity: 64 MiB) · libzstd's safe default · only for hostile/odd files
+- B2 · `pc_f16_from_f64` rounds through f32 (the `half` crate does this on x86 with F16C, directly on aarch64, and with a quirky software path elsewhere; the reference only calls `from_f32`) · reference is platform-dependent · no
 
 ## 8. Progress log
 
@@ -444,3 +450,4 @@ Newest last. One dated line per chunk session: chunk, what landed, test counts, 
 
 - 2026-10-09 · B0 · Inventoried 667 Rust source files (~300k lines in `src/`, ~35k more in integration tests/benches/examples, 4.3k in xtask); every file assigned to exactly one chunk (generator check). Decisions D1–D19 recorded. Branch `WD-40`. No C code yet.
 - 2026-10-09 · B1 · `Makefile` (all/test/check/sanitize/tsan/analyze/valgrind/install/clean; compiler flags feature-probed; `MODULES`/`PKGS`/`PROGRAMS` lists for later chunks to extend), `tests/harness.h`, `.clang-format`, `src/base`: status, num (checked math, Rust-`as` saturating casts, NaN-preserving clamp), mem, buf, bytes (endian loads/stores, sticky-error reader), file (EINTR/partial-I/O loops, bounded reads, `mkdir -p`, atomic write matching `crates/format/src/atomic.rs` semantics and messages), pool (deterministic chunking, lowest-index error, nested→serial), log. 8 test executables, 47 tests, 11,399 checks: green under `make check` (gcc 15.2), clang 23 strict, `make sanitize`, `make tsan`, `make analyze` (clang analyzer, 7 files clean). Not run: valgrind (this machine's glibc is built with `-march=znver4`; valgrind 3.27 SIGILLs on AVX-512 in glibc's own startup, even for `/bin/true`; our code is built for baseline x86-64; `make valgrind` detects this and skips), cppcheck (not installed), macOS/BSD builds (no machines). Added D20 (GNU make) and D21 (per-file XSI). Open: C4 still ports `atomic.rs`'s failure-injection tests and the Windows-only rename retry is dropped (D2).
+- 2026-10-09 · B2 · `src/base`: json (yyjson wrapper, see D7), base64 (base64 0.22 STANDARD semantics and error messages), half (f16, port of half 2.7.1), hash (BLAKE3 via libblake3, hex), compress (zlib/raw/gzip inflate with flate2 `take()` semantics, deflate, crc32, zstd one-frame decode with window limit, zstd compress). Vendored yyjson 0.13.0 (`third_party/yyjson/`, sha256 of release tarball in `VERSION`, ATTRIBUTION row); Makefile gained `THIRD_PARTY` (built without our warning flags) and `PKGS = zlib libzstd libblake3`. Reference vectors from the real crates via `tools/rustref` (serde_json 1.0.149 [registry; lock says 1.0.151, same zmij formatter], half 2.7.1, base64 0.22.1): f16 exhaustive (65,536) + 2M random conversions, serde_json float text for 200k random f64 and f32, Value serialisation compact/pretty, 16 base64 cases, JSON error positions. 13 test executables, 68 tests, 11,746 checks green under `make check`, `make sanitize`, `make tsan`, clang 23 strict, `make analyze` (12 files). D7 switched cJSON → yyjson (u64/int-vs-float fidelity). Open: the JSON error-wording differences in §7 could be narrowed by mapping more yyjson messages if any caller exposes them.

@@ -1,0 +1,16 @@
+# TEMPORARY Rust reference dumper for the C17 rewrite (REWRITE_PLAN.md B4). Not part of the
+# workspace. Run: cargo run --offline --release --manifest-path tools/rustref/Cargo.toml
+# Prints the reference vectors that tests/base/test_{half,json,base64}.c check against.
+# base64 0.22.1 matches the workspace lock; fetch it with `cargo fetch` if offline fails.
+[package]
+name = "rustref"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+serde_json = "=1.0.149"
+half = "=2.7.1"
+base64 = "=0.22.1"
+
+[workspace]
