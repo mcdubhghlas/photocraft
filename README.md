@@ -24,6 +24,7 @@
 
 <p align="center">
   <a href="https://discord.gg/artcraft"><img alt="Join the ArtCraft community on Discord" src="https://img.shields.io/badge/Join%20us%20on%20Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" height="40"></a>
+  <a href="https://gofund.me/5741b867c"><img alt="Support this project on GoFundMe" src="https://img.shields.io/badge/Support%20on%20GoFundMe-00B964?style=for-the-badge&logo=gofundme&logoColor=white" height="40"></a>
 </p>
 
 <p align="center">

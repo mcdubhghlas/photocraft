@@ -39,6 +39,7 @@ typedef struct app {
     /* demo state */
     float pressure, tilt_x, tilt_y;
     int pen_down, pen_seen;
+    int mouse_drawing;
     char opened[1024];
     char name[64];
     int snap;
@@ -121,7 +122,7 @@ static void key(app *a, SDL_Keycode k, SDL_Keymod mod, bool down)
     }
 }
 
-static void add_dot(app *a, float wx, float wy)
+static void add_dot(app *a, float wx, float wy, float radius)
 {
     float x = to_ui(a, wx) - a->canvas.x;
     float y = to_ui(a, wy) - a->canvas.y;
@@ -130,7 +131,7 @@ static void add_dot(app *a, float wx, float wy)
     }
     a->dots[a->ndots].x = x;
     a->dots[a->ndots].y = y;
-    a->dots[a->ndots].r = 1.0f + 9.0f * a->pressure;
+    a->dots[a->ndots].r = radius;
     a->ndots++;
 }
 
@@ -158,7 +159,14 @@ static bool handle_event(app *a, const SDL_Event *e)
     switch (e->type) {
     case SDL_EVENT_QUIT:
     case SDL_EVENT_WINDOW_CLOSE_REQUESTED: return false;
-    case SDL_EVENT_MOUSE_MOTION: nk_input_motion(c, (int)to_ui(a, e->motion.x), (int)to_ui(a, e->motion.y)); break;
+    case SDL_EVENT_MOUSE_MOTION:
+        nk_input_motion(c, (int)to_ui(a, e->motion.x), (int)to_ui(a, e->motion.y));
+        /* Mouse drawing (fixed width) so the canvas works without a tablet. SDL also turns pen
+         * input into mouse events (which == SDL_PEN_MOUSEID); those are drawn from pen events. */
+        if (a->mouse_drawing && e->motion.which != SDL_PEN_MOUSEID) {
+            add_dot(a, e->motion.x, e->motion.y, 3.0f);
+        }
+        break;
     case SDL_EVENT_MOUSE_BUTTON_DOWN:
     case SDL_EVENT_MOUSE_BUTTON_UP: {
         enum nk_buttons b = e->button.button == SDL_BUTTON_RIGHT    ? NK_BUTTON_RIGHT
@@ -170,6 +178,12 @@ static bool handle_event(app *a, const SDL_Event *e)
             nk_input_button(c, NK_BUTTON_DOUBLE, x, y, true);
         }
         nk_input_button(c, b, x, y, e->button.down);
+        if (b == NK_BUTTON_LEFT && e->button.which != SDL_PEN_MOUSEID) {
+            a->mouse_drawing = e->button.down;
+            if (e->button.down) {
+                add_dot(a, e->button.x, e->button.y, 3.0f);
+            }
+        }
         break;
     }
     case SDL_EVENT_MOUSE_WHEEL: nk_input_scroll(c, nk_vec2(e->wheel.x, e->wheel.y)); break;
@@ -193,13 +207,13 @@ static bool handle_event(app *a, const SDL_Event *e)
     case SDL_EVENT_PEN_PROXIMITY_IN: a->pen_seen = 1; break;
     case SDL_EVENT_PEN_DOWN:
         a->pen_down = 1;
-        add_dot(a, e->ptouch.x, e->ptouch.y);
+        add_dot(a, e->ptouch.x, e->ptouch.y, 1.0f + 9.0f * a->pressure);
         break;
     case SDL_EVENT_PEN_UP: a->pen_down = 0; break;
     case SDL_EVENT_PEN_MOTION:
         a->pen_seen = 1;
         if (a->pen_down) {
-            add_dot(a, e->pmotion.x, e->pmotion.y);
+            add_dot(a, e->pmotion.x, e->pmotion.y, 1.0f + 9.0f * a->pressure);
         }
         break;
     case SDL_EVENT_PEN_AXIS:
@@ -281,7 +295,7 @@ static void draw_ui(app *a, float w, float h)
                     nk_fill_circle(canvas, nk_rect(r.x + d->x - d->r, r.y + d->y - d->r, 2 * d->r, 2 * d->r),
                                    nk_rgba(20, 20, 20, 230));
                 }
-                nk_draw_text(canvas, nk_rect(r.x + 8, r.y + 6, r.w - 16, 20), "Draw here with a pen", 20,
+                nk_draw_text(canvas, nk_rect(r.x + 8, r.y + 6, r.w - 16, 20), "Draw here: pen (pressure) or mouse", 34,
                              &a->font.nk, nk_rgb(255, 255, 255), nk_rgb(120, 120, 120));
             }
         }
