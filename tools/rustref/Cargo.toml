@@ -12,6 +12,7 @@ publish = false
 serde_json = "=1.0.149"
 half = "=2.7.1"
 base64 = "=0.22.1"
+photocraft-geom = { path = "../../crates/geom" }
 photocraft-psd = { path = "../../crates/psd" }
 photocraft-codecs = { path = "../../crates/codecs" }
 photocraft-io = { path = "../../crates/io" }

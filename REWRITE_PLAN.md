@@ -115,7 +115,10 @@ when invariants matter; plain structs for plain data. Internal functions are `st
 **Errors.** Fallible functions return `pc_status` (`PC_OK == 0`; `PC_ERR_INVALID`, `PC_ERR_NOMEM`,
 `PC_ERR_IO`, `PC_ERR_FORMAT`, `PC_ERR_UNSUPPORTED`, `PC_ERR_LIMIT`, `PC_ERR_CANCELLED`, …) and take an
 optional last parameter `pc_error *err` (may be `NULL`) that receives the code, `errno` if relevant,
-and a message (fixed `char[256]`, no allocation). Rust `Result<T, E>` → status + out-param. Out-params
+and a message (fixed `char[256]`, no allocation). Rust `Result<T, E>` → status + out-param.
+`pc_fail(err, code, fmt, ...)` and `pc_fail_errno(...)` are macros that evaluate to `code` (so the
+clang analyser can follow error returns); pass a constant code, and write `(void)pc_fail(...)` when
+using one as a statement. Out-params
 are written **only on success**. Rust error *messages* that tests or the control protocol expose must
 match the reference text.
 
@@ -205,15 +208,15 @@ corpus/pngsuite (178).
 
 Needs B1 (all) and B2 (psd, codecs, affinity). F6–F17 are independent of F1–F5 and can run in parallel with them.
 
-- [ ] **F1** · geom: points, rects, affine, mesh warp · ~1,019 lines → `src/geom/`
+- [x] **F1** (2026-10-09) · geom: points, rects, affine, mesh warp · ~1,019 lines → `src/geom/`
   - `crates/geom/src/`: lib.rs, warp.rs
-- [ ] **F2** · color: colour models, conversions, blend-mode math · ~1,115 lines → `src/color/`
-  - `crates/color/src/`: blend.rs, convert.rs, lib.rs
 - [ ] **F3** · cms (1/2): ICC parsing, curves, CLUTs, pipelines, transforms · ~2,705 lines → `src/cms/`
   - `crates/cms/src/`: clut.rs, curve.rs, gamut.rs, lib.rs, math.rs, pipeline.rs, profile.rs, transform.rs
 - [ ] **F4** · cms (2/2): built-in profiles, synthesis, ICC writing, LUT files · ~1,693 lines → `src/cms/`
   - `crates/cms/src/`: builtin.rs, lut3d.rs, lutfile.rs, synth.rs, write.rs
   - integration tests (this is the crate's last chunk; port any not yet done): `crates/cms/tests/`: bench.rs, cms.rs, regen.rs
+- [ ] **F2** · color: colour models, conversions, blend-mode math · ~1,115 lines → `src/color/`
+  - `crates/color/src/`: blend.rs, convert.rs, lib.rs
 - [ ] **F5** · raster: pixel formats, COW tiles, surfaces, interrupt flag · ~1,037 lines → `src/raster/`
   - `crates/raster/src/`: interrupt.rs, lib.rs
 - [ ] **F6** · psd (1/4): header, byte I/O, RLE/ZIP compression, image resources, file skeleton · ~2,916 lines → `src/psd/`
@@ -465,3 +468,5 @@ Newest last. One dated line per chunk session: chunk, what landed, test counts, 
 - 2026-10-09 · B3 (in progress) · `src/ui/spike/` (gl33 loader via SDL_GL_GetProcAddress with our own Khronos typedefs, FreeType RGBA glyph atlas as an nk_user_font with HiDPI scale, Nuklear GL 3.3 renderer with scissor clipping, SDL3 event mapping incl. pen axis/touch and SDL_ShowOpenFileDialog via a user event, minimal PNG writer, `--snapshot` mode); vendored Nuklear v4.13.3 (`third_party/nuklear/`, our config in `photocraft_nuklear.h`, 32-bit draw indices). Makefile: `GUI_PKGS = sdl3 freetype2` applied to UI objects only; `make spike`; spike built by `all`/`check` when the packages exist; included in `make analyze` (17 files clean). Verified on Linux/Mesa 26.2 GL 4.6 core via the offscreen driver: snapshots at scale 1, 1.5 (clang build) and 2 render correctly (Inter text crisp at 2x, Latin-1/Extended-A, quotes, dash, euro; checkbox/property/combo/edit/progress; pressure-varying stroke); gcc + clang strict, ASan/UBSan clean except a 256-byte leak inside SDL3/Mesa that a bare SDL GL context reproduces (not ours). NOT verified: interactive window, pen pressure/tilt, file dialog, text input — the installed libsdl3 3.4.18 has no X11/Wayland driver (USE lacked X/wayland/dbus; drivers: offscreen, dummy, evdev). macOS/BSD untested. Spike limitations for U1 to fix: fixed glyph set (no on-demand atlas/CJK), no HarfBuzz shaping, no kerning.
 - 2026-10-09 · B3 (in progress) · libsdl3 rebuilt with `USE="X dbus"` (drivers now x11, offscreen, dummy, evdev; XInput2 via libXi). User ran the spike interactively on X11: window, sharp text, checkbox/property/combo and typing into the edit field all work (screenshot). Canvas didn't draw because it only accepted pen events and no tablet is attached ("Pen: not seen yet"); added fixed-width mouse drawing (ignoring SDL's pen-synthesised mouse events). Pen pressure/tilt can't be verified without a tablet: carried to P2 as an open item. File dialog still to be tried.
 - 2026-10-09 · B4 · `tools/corpus.sh list|fetch|verify` (POSIX sh, tested with mksh): pins in `tools/corpus/pins.txt` and manifests `tools/corpus/*.sha256` copied from xtask (now authoritative; xtask's copies are frozen); PngSuite now sha256-pinned (xtask fetched it unverified). Fetched all 7 corpora (942 files, 117 MB) in ~16 s; re-fetch skips; a tampered file fails `verify` and `fetch` repairs it. `tools/check-layers.sh` (Rust direct-dependency graph + "GUI headers only in src/ui, src/app") runs first in `make check`; a planted violation is caught on both rules. `tools/rustref` gained `psd-info`, `decode`, `composite` (links crates/psd, codecs, io, compose; errors as {"error":...}); needs rustc 1.95, installed side-by-side with `rustup toolchain install 1.95.0 --profile minimal` and pinned by `tools/rustref/rust-toolchain.toml` (the user's default stable 1.91 untouched). `tools/golden.sh` wrote 915 goldens (5.7 MB) to `tests/golden/`: psd-info for 737 PSDs (2 record the reference's truncation errors) and decode for 178 PngSuite files (16 corrupt-file errors). `make corpus` added. All gates green. Not done: composite goldens (a tolerance/size policy is needed first, decide in C1); `make test-corpus` arrives with the first module that has corpus tests (F6).
+- 2026-10-09 · F1 · `src/geom/geom.{h,c}` (size, half-open rect with the reference's saturating/wrapping edge rules, tiles with floor division and an inclusive tile-range API replacing the Rust iterator, point, affine) and `src/geom/warp.{h,c}` (17 styles with names/parse incl. Unicode white space, preset maps, Bezier mesh fit/eval/split/merge/param_at/bounds, warp map/identity/to_mesh/then_affine/output_bounds). Every Rust test ported (lib.rs 8, warp.rs 6) plus edge cases (from_xywh wrap, extreme tiles, malformed meshes never crash and evaluate to NaN, patch clamps, then_affine onto itself without leaking). Bit-exact parity: `rustref geom-vectors` sweeps all styles x 5 bends x 2 distortions x 2 orientations over a 15x15 grid in and outside the box plus mesh/affine operations; the C hashes match (gcc, clang, 32-bit SSE). Also: `pc_i32_sat_add/sub`, `pc_u32_as_i32` in num.h; `pc_fail`/`pc_fail_errno` became macros (analyser couldn't see through variadic calls; it had flagged impossible paths in warp.c). Tests: 17 geom tests / 226 checks; all gates green (check, sanitize, tsan, analyze 19 files, clang). Open: serde (de)serialisation of Warp/WarpStyle/Rect belongs to C5 (manifest); geom has no corpus tests.
+- 2026-10-09 · plan · Moved F2 (color) after F4: `crates/color/src/convert.rs` uses photocraft-cms (Transform, Profile, Builtin, synth::cmyk_profile), so cms must exist first. Order is now F1, F3, F4, F2, F5.

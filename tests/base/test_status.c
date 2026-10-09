@@ -24,7 +24,7 @@ static void test_fail_accepts_null(void)
 static void test_fail_errno_appends_strerror(void)
 {
     pc_error e;
-    pc_fail_errno(&e, PC_ERR_IO, ENOENT, "cannot open %s", "a.psd");
+    (void)pc_fail_errno(&e, PC_ERR_IO, ENOENT, "cannot open %s", "a.psd");
     CHECK_EQ_INT(e.sys_errno, ENOENT);
     CHECK_CONTAINS(e.msg, "cannot open a.psd: ");
     CHECK_CONTAINS(e.msg, strerror(ENOENT));
@@ -36,16 +36,16 @@ static void test_long_message_truncates(void)
     pc_error e;
     memset(big, 'x', sizeof big - 1);
     big[sizeof big - 1] = '\0';
-    pc_fail(&e, PC_ERR_INVALID, "%s", big);
+    (void)pc_fail(&e, PC_ERR_INVALID, "%s", big);
     CHECK_EQ_UINT(strlen(e.msg), PC_ERROR_MSG_MAX - 1);
-    pc_fail_errno(&e, PC_ERR_IO, EACCES, "%s", big);
+    (void)pc_fail_errno(&e, PC_ERR_IO, EACCES, "%s", big);
     CHECK_EQ_UINT(strlen(e.msg), PC_ERROR_MSG_MAX - 1);
 }
 
 static void test_clear_and_names(void)
 {
     pc_error e;
-    pc_fail(&e, PC_ERR_IO, "x");
+    (void)pc_fail(&e, PC_ERR_IO, "x");
     pc_error_clear(&e);
     CHECK_EQ_INT(e.code, PC_OK);
     CHECK_EQ_STR(e.msg, "");

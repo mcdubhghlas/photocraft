@@ -21,7 +21,7 @@ CFLAGS ?= -O2 -g
 ARFLAGS = rcs
 
 # Modules in layer order (REWRITE_PLAN.md §3). Each chunk appends its module here.
-MODULES = base
+MODULES = base geom
 # pkg-config packages the current modules need.
 PKGS = zlib libzstd libblake3
 # Vendored third-party C (REWRITE_PLAN.md D17), compiled without our strict warnings: it isn't

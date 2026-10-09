@@ -35,11 +35,17 @@ typedef struct pc_error {
     char msg[PC_ERROR_MSG_MAX];  /* NUL-terminated, truncated if longer */
 } pc_error;
 
-/* Set err (if non-NULL) to code + a printf-style message; return code. */
-pc_status pc_fail(pc_error *err, pc_status code, const char *fmt, ...);
+/* Fill err (if non-NULL) with code and a printf-style message. Use pc_fail instead. */
+void pc_fail_set(pc_error *err, pc_status code, const char *fmt, ...);
+/* As pc_fail_set, recording errnum and appending ": <strerror(errnum)>". */
+void pc_fail_errno_set(pc_error *err, pc_status code, int errnum, const char *fmt, ...);
 
-/* Like pc_fail, recording errnum and appending ": <strerror(errnum)>" to the message. */
-pc_status pc_fail_errno(pc_error *err, pc_status code, int errnum, const char *fmt, ...);
+/* pc_fail(err, code, fmt, ...): fill err, evaluate to code. pc_fail_errno(err, code, errnum,
+ * fmt, ...): the same with errno details. Macros so that callers (and static analysers, which
+ * don't follow variadic calls) see the result is exactly `code`; `code` is evaluated twice, so
+ * pass a constant or a plain variable. */
+#define pc_fail(err, code, ...) (pc_fail_set((err), (code), __VA_ARGS__), (pc_status)(code))
+#define pc_fail_errno(err, code, errnum, ...) (pc_fail_errno_set((err), (code), (errnum), __VA_ARGS__), (pc_status)(code))
 
 /* Reset err to PC_OK with an empty message. err may be NULL. */
 void pc_error_clear(pc_error *err);

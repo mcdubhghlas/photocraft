@@ -39,6 +39,17 @@ static void test_i64_checked(void)
     CHECK(!pc_i64_mul(-(INT64_MAX / 2) - 2, -2, &r));
 }
 
+static void test_i32_saturating(void)
+{
+    CHECK_EQ_INT(pc_i32_sat_add(INT32_MAX, 1), INT32_MAX);
+    CHECK_EQ_INT(pc_i32_sat_add(INT32_MIN, -1), INT32_MIN);
+    CHECK_EQ_INT(pc_i32_sat_add(-5, 3), -2);
+    CHECK_EQ_INT(pc_i32_sat_sub(INT32_MIN, 1), INT32_MIN);
+    CHECK_EQ_INT(pc_i32_sat_sub(INT32_MAX, -1), INT32_MAX);
+    CHECK_EQ_INT(pc_u32_as_i32(0xFFFFFFFFu), -1);
+    CHECK_EQ_INT(pc_u32_as_i32(5), 5);
+}
+
 static void test_i32_wrapping(void)
 {
     CHECK_EQ_INT(pc_i32_wrapping_add(INT32_MAX, 1), INT32_MIN);
@@ -97,6 +108,7 @@ int main(int argc, char **argv)
 {
     RUN(test_size_add_mul);
     RUN(test_i64_checked);
+    RUN(test_i32_saturating);
     RUN(test_i32_wrapping);
     RUN(test_float_casts_match_rust);
     RUN(test_clamp);

@@ -93,6 +93,26 @@ static inline int32_t pc_i32_wrapping_mul(int32_t a, int32_t b)
     return pc_i32_from_bits((uint32_t)a * (uint32_t)b);
 }
 
+/* ---- Rust `saturating_*` on i32 ---- */
+
+static inline int32_t pc_i32_sat_add(int32_t a, int32_t b)
+{
+    int64_t r = (int64_t)a + b;
+    return r > INT32_MAX ? INT32_MAX : (r < INT32_MIN ? INT32_MIN : (int32_t)r);
+}
+
+static inline int32_t pc_i32_sat_sub(int32_t a, int32_t b)
+{
+    int64_t r = (int64_t)a - b;
+    return r > INT32_MAX ? INT32_MAX : (r < INT32_MIN ? INT32_MIN : (int32_t)r);
+}
+
+/* Rust `u32 as i32` (two's-complement reinterpretation). */
+static inline int32_t pc_u32_as_i32(uint32_t u)
+{
+    return pc_i32_from_bits(u);
+}
+
 /* ---- Rust `as` from floats: truncate toward zero, saturate at the bounds, NaN -> 0 ---- */
 /* The f32 variants widen to double exactly, so one implementation serves both. */
 

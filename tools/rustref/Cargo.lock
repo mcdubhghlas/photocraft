@@ -1094,6 +1094,7 @@ dependencies = [
  "half",
  "photocraft-codecs",
  "photocraft-compose",
+ "photocraft-geom",
  "photocraft-io",
  "photocraft-psd",
  "serde_json",

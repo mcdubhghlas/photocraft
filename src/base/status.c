@@ -12,7 +12,7 @@ static void set_msg(pc_error *err, const char *fmt, va_list ap)
     }
 }
 
-pc_status pc_fail(pc_error *err, pc_status code, const char *fmt, ...)
+void pc_fail_set(pc_error *err, pc_status code, const char *fmt, ...)
 {
     if (err != NULL) {
         va_list ap;
@@ -22,10 +22,9 @@ pc_status pc_fail(pc_error *err, pc_status code, const char *fmt, ...)
         set_msg(err, fmt, ap);
         va_end(ap);
     }
-    return code;
 }
 
-pc_status pc_fail_errno(pc_error *err, pc_status code, int errnum, const char *fmt, ...)
+void pc_fail_errno_set(pc_error *err, pc_status code, int errnum, const char *fmt, ...)
 {
     if (err != NULL) {
         va_list ap;
@@ -42,7 +41,6 @@ pc_status pc_fail_errno(pc_error *err, pc_status code, int errnum, const char *f
             (void)snprintf(err->msg + len, sizeof err->msg - len, ": %s", strerror(errnum));
         }
     }
-    return code;
 }
 
 void pc_error_clear(pc_error *err)

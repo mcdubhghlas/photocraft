@@ -1,6 +1,7 @@
 //! TEMPORARY Rust reference dumper for the C17 rewrite (REWRITE_PLAN.md B4). Deleted in Z3.
 //!
 //!   rustref vectors                 serde_json / half / base64 vectors (tests/base/*)
+//!   rustref geom-vectors            FNV hashes of warp/mesh/affine outputs (tests/geom/test_warp.c)
 //!   rustref psd-info FILE           PSD/PSB structure as JSON (the F6-F9 parity contract)
 //!   rustref decode FILE OUT.raw     codecs::decode: JSON metadata on stdout, raw samples to OUT.raw
 //!   rustref composite FILE OUT.raw  io::import + compose::flatten: JSON on stdout, RGBA f32 LE to OUT.raw
@@ -116,11 +117,103 @@ fn composite(path: &str, raw: &str) {
     }));
 }
 
+/// The same sweep as tests/geom/test_warp.c; each hash covers the raw little-endian f64 bits.
+fn geom_vectors() {
+    use photocraft_geom::warp::{BezierMesh, Warp, WarpStyle};
+    use photocraft_geom::{Affine, Point};
+    let put = |h: &mut u64, v: f64| fnv(h, &v.to_bits().to_le_bytes());
+    let b = [10.0, 20.0, 110.0, 70.0];
+    // 1. Every style x bend x distortion x orientation over a grid reaching outside the box.
+    let mut hs = 0xcbf29ce484222325u64;
+    for style in WarpStyle::all() {
+        for bend in [-100.0, -37.5, 0.0, 25.0, 100.0] {
+            for (hd, vd) in [(0.0, 0.0), (30.0, -20.0)] {
+                for vertical in [false, true] {
+                    let w = Warp { style, bend, h_distort: hd, v_distort: vd, vertical, bounds: b, mesh: None };
+                    for j in -2..=12 {
+                        for i in -2..=12 {
+                            let x = 10.0 + 100.0 * i as f64 / 10.0;
+                            let y = 20.0 + 50.0 * j as f64 / 10.0;
+                            let (mx, my) = w.map(x, y);
+                            put(&mut hs, mx);
+                            put(&mut hs, my);
+                        }
+                    }
+                    fnv(&mut hs, &[w.is_identity() as u8]);
+                    for v in w.output_bounds() {
+                        put(&mut hs, v);
+                    }
+                }
+            }
+        }
+    }
+    println!("styles {hs:016x}");
+    // 2. Meshes: fit, eval, splits, param_at, merge, bounds, preset fit, affine composition.
+    let mut hm = 0xcbf29ce484222325u64;
+    let grid = |m: &BezierMesh, h: &mut u64| {
+        for j in 0..=20 {
+            for i in 0..=20 {
+                let p = m.eval(i as f64 / 20.0, j as f64 / 20.0);
+                put(h, p[0]);
+                put(h, p[1]);
+            }
+        }
+    };
+    let pts = |m: &BezierMesh, h: &mut u64| {
+        for p in &m.points {
+            put(h, p[0]);
+            put(h, p[1]);
+        }
+    };
+    let mut m = BezierMesh::identity(b, 1, 1);
+    m.points[5] = [50.0, 10.0];
+    m.points[10] = [70.0, 65.0];
+    grid(&m, &mut hm);
+    fnv(&mut hm, &[m.split_u(0.3) as u8, m.split_v(0.6) as u8, m.split_u(0.75) as u8, m.split_u(0.3) as u8]);
+    pts(&m, &mut hm);
+    grid(&m, &mut hm);
+    for (s, t) in [(0.42, 0.77), (0.05, 0.95), (0.5, 0.5), (0.9, 0.1), (0.3, 0.6)] {
+        let (ps, pt) = m.param_at(m.eval(s, t));
+        put(&mut hm, ps);
+        put(&mut hm, pt);
+    }
+    fnv(&mut hm, &[m.remove_split_u(1) as u8, m.remove_split_v(1) as u8, m.remove_split_u(9) as u8]);
+    pts(&m, &mut hm);
+    for v in m.control_bounds() {
+        put(&mut hm, v);
+    }
+    let bulge = Warp::preset(WarpStyle::Bulge, 40.0, b);
+    pts(&bulge.to_mesh(4, 4), &mut hm);
+    let t = bulge.then_affine([0.9, 0.1, -0.2, 1.1, 5.0, -3.0]);
+    for j in 0..=10 {
+        for i in 0..=10 {
+            let (x, y) = t.map(10.0 + 10.0 * i as f64, 20.0 + 5.0 * j as f64);
+            put(&mut hm, x);
+            put(&mut hm, y);
+        }
+    }
+    fnv(&mut hm, &[t.is_identity() as u8, Warp::custom(BezierMesh::identity(b, 3, 2), b).is_identity() as u8]);
+    println!("mesh {hm:016x}");
+    // 3. Affine.
+    let mut ha = 0xcbf29ce484222325u64;
+    let a = Affine::translate(5.0, -3.0).then(&Affine::rotate(0.7)).then(&Affine::scale(2.5));
+    let inv = a.inverse().unwrap_or(Affine::IDENTITY);
+    for v in a.m.iter().chain(inv.m.iter()) {
+        put(&mut ha, *v);
+    }
+    let q = inv.apply(a.apply(Point::new(12.0, -7.5)));
+    put(&mut ha, q.x);
+    put(&mut ha, q.y);
+    put(&mut ha, a.determinant());
+    println!("affine {ha:016x}");
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let a: Vec<&str> = args.iter().map(String::as_str).collect();
     match a.as_slice() {
         ["vectors"] => vectors(),
+        ["geom-vectors"] => geom_vectors(),
         ["psd-info", f] => psd_info(f),
         ["decode", f, out] => decode(f, out),
         ["composite", f, out] => composite(f, out),
