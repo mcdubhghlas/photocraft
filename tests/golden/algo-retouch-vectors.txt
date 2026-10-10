@@ -1,0 +1,604 @@
+stack Entropy/1 40 a3883661b6e3360a
+stack Kurtosis/1 40 4afa6d02866bcef6
+stack Maximum/1 40 ff72a13b57505bf4
+stack Mean/1 40 ff72a13b57505bf4
+stack Median/1 40 ff72a13b57505bf4
+stack Minimum/1 40 ff72a13b57505bf4
+stack Range/1 40 4afa6d02866bcef6
+stack Skewness/1 40 dea2d7ddbeb6f99e
+stack StandardDeviation/1 40 4afa6d02866bcef6
+stack Summation/1 40 ff72a13b57505bf4
+stack Variance/1 40 4afa6d02866bcef6
+stack Entropy/2 47 3de1535f58caef30
+stack Kurtosis/2 47 f3dd064c416e4d96
+stack Maximum/2 47 ea62693246cc9048
+stack Mean/2 47 fb8f55960df5e639
+stack Median/2 47 fb8f55960df5e639
+stack Minimum/2 47 4f5348140b6038e0
+stack Range/2 47 ddbb1b3644a5d57b
+stack Skewness/2 47 c885889277cf4342
+stack StandardDeviation/2 47 e86801100a8716a8
+stack Summation/2 47 5bcb3b2cb7770a7d
+stack Variance/2 47 70e25f4d18b143d2
+stack Entropy/3 47 e1c68407bd1504df
+stack Kurtosis/3 47 11196293345b3b00
+stack Maximum/3 47 03a9c4b2d87d73b8
+stack Mean/3 47 67e8b4965d0f1374
+stack Median/3 47 68820dd0253636db
+stack Minimum/3 47 7896badcbe56cfb2
+stack Range/3 47 ebbaab45bda684f6
+stack Skewness/3 47 6c6af36da22a01ca
+stack StandardDeviation/3 47 0504df47b677ed7c
+stack Summation/3 47 8a4242ca1a8adb63
+stack Variance/3 47 dfdff6660d5b65f2
+stack Entropy/5 48 8f8577d5c70fbc25
+stack Kurtosis/5 48 78f2d4c21c9fbca2
+stack Maximum/5 48 78af0d48d2ce1789
+stack Mean/5 48 4b6dcef2a93b2d5e
+stack Median/5 48 6f4eb9706743a6f3
+stack Minimum/5 48 0ffa5fbec6165d80
+stack Range/5 48 6660e7f501c2bb0f
+stack Skewness/5 48 55a71cc860a1c5f9
+stack StandardDeviation/5 48 c3d04b842eea9421
+stack Summation/5 48 5329609bc5ce5165
+stack Variance/5 48 48f90f220f5f8909
+stack Entropy/8 50 6d0397fc21e5d8a0
+stack Kurtosis/8 50 20d344e9b2c9caae
+stack Maximum/8 50 8ebe59d8a4bf6945
+stack Mean/8 50 0e22a99dbf424a61
+stack Median/8 50 c5ca9074189783e0
+stack Minimum/8 50 30127272a9934cef
+stack Range/8 50 c2243d41c8db521b
+stack Skewness/8 50 8c15ecd90733681d
+stack StandardDeviation/8 50 6387d680e5f8b515
+stack Summation/8 50 5885265554d816a5
+stack Variance/8 50 bc55bc75ab2b3d33
+poisson membrane/0 b71d36dcc8d5ea3e
+poisson clone/0/1 df131f240d428dc7
+poisson fill/0/1 910c0bd473fd964a
+poisson clone/0/3 4cfcba1495225b80
+poisson fill/0/3 b78302314c5bc30a
+poisson clone/0/4 66f6b729053ef034
+poisson fill/0/4 4d9e63e196297320
+poisson membrane/1 2a5d68cbe66f3b13
+poisson clone/1/1 a67f56ccc67baff0
+poisson fill/1/1 4e74c61e21d570c3
+poisson clone/1/3 d49f00ad4229b076
+poisson fill/1/3 1e6a13b57967a765
+poisson clone/1/4 111b4351e6495b07
+poisson fill/1/4 c6f3c1f7cbe66adc
+poisson membrane/2 31044cb96a12d394
+poisson reference/2 96a3872584c32780
+poisson clone/2/1 567764f2672c86b5
+poisson fill/2/1 2caf6631e75e75e6
+poisson clone/2/3 24518ca62da1e100
+poisson fill/2/3 39f977ec71c76f1e
+poisson clone/2/4 3770c63240582146
+poisson fill/2/4 2cab86851744141b
+poisson membrane/3 a049a937ba0f90b8
+poisson reference/3 faa740d2fbe9467d
+poisson clone/3/1 f7ddb976c5d603fe
+poisson fill/3/1 f4685204e07cf35e
+poisson clone/3/3 3f83799a0ba186d9
+poisson fill/3/3 23b08f5a4bf4fdda
+poisson clone/3/4 a8fb67ee98f58616
+poisson fill/3/4 ab13c0a935801ce5
+poisson membrane/4 8f1b2c2a80790bbe
+poisson reference/4 385c7b7e96238738
+poisson clone/4/1 c43232209bcfdd24
+poisson fill/4/1 dd2aab2f9a478aff
+poisson clone/4/3 babe13fd87636c00
+poisson fill/4/3 0f6bb4e29e0bb63f
+poisson clone/4/4 0c18b7e70218c083
+poisson fill/4/4 f48979047e40bc65
+poisson membrane/5 ff40dfed41878abc
+poisson clone/5/1 55a5426f72c98cf1
+poisson fill/5/1 9c1bda7f8c872325
+poisson clone/5/3 2c541350c1aa23b0
+poisson fill/5/3 68c00ea49d512325
+poisson clone/5/4 d730920f29fb4a07
+poisson fill/5/4 eb05052ea5b62325
+poisson fill/all a947e50590de8025
+poisson fill/none e2670539f5d72054
+inpaint complete/tex 295dc5283d751c30
+inpaint complete/tex/r1 e26e4cfbb6c7d62b
+inpaint complete/tex/r2 23016fbac2dbb6b8
+inpaint complete/stripes 8a35635e9e83c44b
+inpaint complete/edge 884118f7ef23e470
+inpaint complete/pyramid e7b41da7e5962ab4
+inpaint complete/pyramid-default 572a67992037a320
+inpaint complete/nohole 12c2236afdc1a9c8
+inpaint complete/allhole none
+inpaint complete/tiny none
+inpaint offset/0/-1 none none
+inpaint offset/0/0 none none
+inpaint offset/0/1 none none
+inpaint offset/0/5 none none
+inpaint offset/0/20 0,-20 8,-14
+inpaint offset/0/47 0,-25 8,-14
+inpaint offset/0/200 0,-24 8,-14
+inpaint offset/1/-1 none none
+inpaint offset/1/0 none none
+inpaint offset/1/1 none none
+inpaint offset/1/5 none none
+inpaint offset/1/20 0,-20 8,-14
+inpaint offset/1/47 0,-25 8,-14
+inpaint offset/1/200 0,-24 8,-14
+inpaint offset/3/-1 none none
+inpaint offset/3/0 none none
+inpaint offset/3/1 none none
+inpaint offset/3/5 none none
+inpaint offset/3/20 0,-20 -8,14
+inpaint offset/3/47 0,-23 -8,14
+inpaint offset/3/200 0,-16 -8,14
+inpaint offset/6/-1 none none
+inpaint offset/6/0 none none
+inpaint offset/6/1 none none
+inpaint offset/6/5 none none
+inpaint offset/6/20 0,-20 -9,16
+inpaint offset/6/47 0,-20 -9,16
+inpaint offset/6/200 0,-16 -9,16
+inpaint offset/nohole true
+inpaint synth/0/3 40c222b3b7ebe012
+inpaint synth/0/9 e8df64929b2b6462
+inpaint synth/4/3 40c222b3b7ebe012
+inpaint synth/4/9 e8df64929b2b6462
+inpaint synth/8/3 3d46eff28b145a88
+inpaint synth/8/9 8a5ec97be82ea4e8
+inpaint synth/13/3 26b2adf2b7280c06
+inpaint synth/13/9 d701d4a8491f04f6
+inpaint synth/fallback f5c2f34e6c2b18de
+ca rotation/none cbf29ce484222325
+ca rotation/low 3498da494010aa55
+ca rotation/medium 38d09654f6519655
+ca rotation/high 6408741959f4bd15
+ca rotation/full 3e96384099cc5034
+ca rotation/x cbf29ce484222325
+ca color/none 00000000
+ca color/default 3eb33333
+ca color/high 3f266666
+ca color/veryHigh 3f666666
+ca color/x 3eb33333
+ca fill/stripes 147562f4b6e5c3b2
+ca fill/stripes0 17ced1290def0b77
+ca fill/right b5fc38c424fc5205
+ca fill/nosource f247f10997d887b0
+ca fill/ramp 9b131552c1ed7573
+ca fill/adapt fb7fcea02ec711ea
+ca fill/full 96eb4355e7967f81
+ca fill/mirror 097a054212ddc196
+ca fill/scale fb3866bf692b92a8
+ca fill/nohole 8cea66057084a4c5
+seam carve/0 10x14x1->7x23 161 00bb1e4a6f53c277
+seam carve/1 19x6x3->3x1 9 bd67791242ba5a67
+seam carve/2 6x16x3->8x32 768 c12ed6914e8f5dc5
+seam carve/3 18x8x4->38x17 2584 16d5283395647a69
+seam carve/4 20x13x4->29x21 2436 2f4467fb9a1fd422
+seam carve/5 13x5x1->10x3 30 7b3e78b00e068485
+seam carve/6 20x10x1->15x6 90 8b90e09e48e6d0a8
+seam carve/7 14x16x3->25x9 675 cf0bb91735b632eb
+seam carve/8 5x3x3->7x1 21 014e710765c666db
+seam carve/9 8x13x1->8x9 72 eded431ff7e6e005
+seam carve/10 7x16x3->6x17 306 470e410eda7ab8b5
+seam carve/11 22x8x3->27x7 567 c34be56fc7a93a55
+seam carve/12 21x17x1->16x33 528 40623f339f907c13
+seam carve/13 6x18x3->2x10 60 8de37c140b880055
+seam carve/14 1x14x3->3x26 234 8c400992054e86ab
+seam carve/15 4x7x1->2x14 28 5f7562e75a5a59db
+seam carve/16 10x14x4->7x28 784 cb5682d1a3c92e82
+seam carve/17 15x1x4->29x3 348 5c579166c77b0248
+seam carve/18 11x14x3->6x29 522 7b307b5b76eaf9ee
+seam carve/19 5x7x4->11x5 220 aabe87d6a0c7d683
+seam carve/20 5x9x3->2x7 42 9a975b82e86da4b1
+seam carve/21 11x10x1->9x18 162 8a7aade084ea4671
+seam carve/22 17x7x3->26x9 702 b2f8964820cb1e66
+seam carve/23 19x17x4->39x15 2340 36deef16cd673654
+seam carve/24 8x14x3->5x30 450 a33fd05a119828e9
+seam carve/25 17x9x4->34x14 1904 fcecf0326ae0b606
+seam carve/26 12x18x1->13x32 416 a4783377d34155c1
+seam carve/27 16x4x3->3x3 27 177a39f3d845481b
+seam carve/28 20x3x1->27x2 54 7286f638c276dac1
+seam carve/29 14x3x4->9x7 252 fd33682b66682163
+seam carve/30 1x13x3->1x18 54 469ef020457e9978
+seam carve/31 23x1x3->8x4 96 b3814f77a6fe298d
+seam carve/32 9x17x4->18x34 2448 22a858c3fff6fcf7
+seam carve/33 9x14x1->12x28 336 3f2f88921c0c910f
+seam carve/34 1x13x1->3x28 84 f6b7ca168db1c988
+seam carve/35 6x15x3->7x8 168 9b0989565165f0be
+seam carve/36 4x9x1->5x19 95 305d03a19c883545
+seam carve/37 3x16x1->4x30 120 72884e53f2696846
+seam carve/38 7x9x3->11x4 132 36bfbc5ca95ee3cf
+seam carve/39 15x10x3->30x15 1350 410862e022b7a38b
+seam carve/40 21x8x3->1x11 33 265455d828be525a
+seam carve/41 9x11x1->5x17 85 c9b04e8f663023d8
+seam carve/42 8x5x4->5x7 140 2b5295b4d3a5cc19
+seam carve/43 10x15x1->3x12 36 760d4216baff0f81
+seam carve/44 23x17x3->36x27 2916 587affb18a8d9c7f
+seam carve/45 24x12x4->16x8 512 522029b3bb5e319b
+seam carve/46 13x2x3->5x3 45 ec8da4944b7b79ab
+seam carve/47 19x7x4->13x15 780 b160fc5bdf968b32
+seam carve/48 3x5x4->7x5 140 bf004847c5f83935
+seam carve/49 9x15x3->9x27 729 38463249a63aad24
+seam carve/50 2x15x3->1x23 69 4cf8c56a4ce3d1ee
+seam carve/51 21x18x3->30x12 1080 eac5cbac966530f0
+seam carve/52 14x3x3->13x5 195 95223ad552e4313e
+seam carve/53 19x16x3->8x15 360 dcf75c321277fefb
+seam carve/54 14x3x3->7x6 126 9ce7fb53fa2852f8
+seam carve/55 15x3x3->1x2 6 75e96ccae11ef278
+seam carve/56 9x1x4->16x1 64 b4e3e4b83c543dbc
+seam carve/57 19x13x4->31x24 2976 b4bb9c35573cf656
+seam carve/58 23x3x3->47x3 423 c0aeb4e2b4afb308
+seam carve/59 6x4x3->8x2 48 c40223374ffc3f47
+seam find/0 06f2cfe5f8476ee1
+seam energy/0 381a2ecfe99c4087
+seam find/1 60e3bd47744f2261
+seam energy/1 1e341469f0df06e7
+seam find/2 72031e5f270e5b81
+seam energy/2 b13dc2da14086cae
+seam find/3 7c6a0d7d49c638b8
+seam energy/3 7ca3184e3a83fd3e
+seam find/4 87e56c8a65d54c86
+seam energy/4 3f752656a8425dfa
+seam find/5 a098b2259cac6f85
+seam energy/5 1068bc86f75fd709
+seam find/6 7ae60e06058e89a4
+seam energy/6 e7b53b777077edab
+seam find/7 de097b0cea7b7f4b
+seam energy/7 1cda82d65742f457
+seam find/8 add7b0f36075882b
+seam energy/8 deb90288ff5ab248
+seam find/9 d25427d849854b20
+seam energy/9 ba4a197bce118ed3
+seam find/10 84019afde146ad05
+seam energy/10 c0626e12b81600fd
+seam find/11 963f3c5e20eb2f67
+seam energy/11 5b41d77ef7279141
+seam find/12 a667b4ca1c527984
+seam energy/12 6ace2088df143f41
+seam find/13 c26a9b642780a08c
+seam energy/13 3088ee568d2990d2
+seam find/14 a8c7f832281a39c5
+seam energy/14 fc92051e2307f10c
+seam find/15 c852488fe93938e8
+seam energy/15 3548a2066c378b30
+seam find/16 2dd106cd67fe9f85
+seam energy/16 95478ae1d7cb1734
+seam find/17 2e7906f1a25df841
+seam energy/17 3d36d312ee84002d
+seam find/18 198ac5440d8e9841
+seam energy/18 f23c93b522ab4d29
+seam find/19 41dc8a54094df104
+seam energy/19 a88e27610dae489c
+seam find/20 506e92cfdbb52684
+seam energy/20 f2d5d522e4d59050
+seam find/21 99c42eb485715984
+seam energy/21 c8cf59afa292de8b
+seam find/22 86dde4dc145d5405
+seam energy/22 e01bcc84dbdea5e3
+seam find/23 1cc87f176ac81b86
+seam energy/23 605edc5fe450f839
+seam find/24 bf64799472ac8d44
+seam energy/24 8b54261f0a0dfe04
+seam find/25 e93fcea8973e8b44
+seam energy/25 8aae3797c68a4514
+seam find/26 aaacd5418e756182
+seam energy/26 5d922ca426f9342b
+seam find/27 123c401e79325ae4
+seam energy/27 fd663e06291af825
+seam find/28 a4267c5daac72147
+seam energy/28 4cbb134e504f782e
+seam find/29 9028c3fae559fc0a
+seam energy/29 aed182938a6d2f4e
+seam smooth/20x23 350b5473f739c22b
+seam bilinear/20x23 ca726a5b7a444b37
+seam smooth/37x12 d0fd11db58b3b4d5
+seam bilinear/37x12 8f9155ba3d56ea0b
+seam smooth/60x30 82da14a3edcc8883
+seam bilinear/60x30 13287c4b0635787f
+seam smooth/1x1 df7d61efc987aec1
+seam bilinear/1x1 da039a96d8e87b19
+seam smooth/74x46 bff77d411c419113
+seam bilinear/74x46 8f193a942982d0a8
+seam skin bd2a0b0fff9e5425
+seam skin/2ch bced83c5240b2b75
+seam skin/tones 1de613bfff893b75
+retouch curve/s/false 6a063993f8f6b395
+retouch dodge/s/false/false 27e47f0492d92d2c
+retouch dodge/s/false/true f98a2b65bb48ccf6
+retouch curve/s/true d7641799d64ac0d0
+retouch dodge/s/true/false 484a5c8dcf5d0cbe
+retouch dodge/s/true/true 9e50b5a1e54c7b7d
+retouch curve/m/false 926aa0425664784b
+retouch dodge/m/false/false fe341900ecd314a8
+retouch dodge/m/false/true 71da82433402b894
+retouch curve/m/true 9797a539e69392cc
+retouch dodge/m/true/false 1a1b204fe8c6f3a1
+retouch dodge/m/true/true 5420c0a52696a5b4
+retouch curve/h/false 87c020a9badf5981
+retouch dodge/h/false/false c4cee55e95589731
+retouch dodge/h/false/true 137dd5518a431a14
+retouch curve/h/true 57cd0a5ef5bc30ea
+retouch dodge/h/true/false 8ae6310755dbeca4
+retouch dodge/h/true/true a7601044ab3f1b37
+retouch sponge/false/false d54dc0294ed07327
+retouch sponge/false/true 8888f5f29b164b2c
+retouch sponge/true/false f02fdd64c5c37dc1
+retouch sponge/true/true 07e7f8946118e4ac
+retouch sat c88c976eb850e4f3
+retouch blur/1/0/0 1225b64b48ce6cab
+retouch blur/1/0/1 673fcec6e64137f3
+retouch blur/1/0/2 478e36ac3007d33f
+retouch blur/1/0/3 76231d95bb46f10e
+retouch blur/1/0/4 205544defade4da7
+retouch sharpen/1/0/0 6b5460f856af126c
+retouch sharpen/1/0/1 d266a36f89fc8390
+retouch sharpen/1/0/2 f6db494960a0f228
+retouch blur/1/1/0 26af396af2cfc05c
+retouch blur/1/1/1 8e5ea88899103b54
+retouch blur/1/1/2 8767bb52aedb98b8
+retouch blur/1/1/3 f3291b784ecaac61
+retouch blur/1/1/4 5c3c504a44932619
+retouch sharpen/1/1/0 b472f149c967e0a6
+retouch sharpen/1/1/1 7b8c0fd7fc8800d0
+retouch sharpen/1/1/2 8960f0210352a133
+retouch blur/1/2/0 b8465d99f4d29262
+retouch blur/1/2/1 9671dbfd943cd621
+retouch blur/1/2/2 ed154a80ad508e9b
+retouch blur/1/2/3 92643bfc586763ce
+retouch blur/1/2/4 6e55b75e2b9c6123
+retouch sharpen/1/2/0 1b3092f3a9c24ef5
+retouch sharpen/1/2/1 44f86388d94d7f97
+retouch sharpen/1/2/2 2ca96c5f07f9d4f6
+retouch blur/1/3/0 cbf29ce484222325
+retouch blur/1/3/1 cbf29ce484222325
+retouch blur/1/3/2 cbf29ce484222325
+retouch blur/1/3/3 cbf29ce484222325
+retouch blur/1/3/4 cbf29ce484222325
+retouch sharpen/1/3/0 cbf29ce484222325
+retouch sharpen/1/3/1 cbf29ce484222325
+retouch sharpen/1/3/2 cbf29ce484222325
+retouch blur/3/0/0 24dc8f7781ca8bb2
+retouch blur/3/0/1 1a061274d38f12a8
+retouch blur/3/0/2 5ba02a773ba77cb5
+retouch blur/3/0/3 b3d118cc1ffb11d9
+retouch blur/3/0/4 655efb07b3324d5d
+retouch sharpen/3/0/0 7dfd5e7ac9da4658
+retouch sharpen/3/0/1 2c81a5063d76a87f
+retouch sharpen/3/0/2 4528ad3b8cf84ede
+retouch blur/3/1/0 5ce825dd5185d901
+retouch blur/3/1/1 e4d0e70aebfd8baf
+retouch blur/3/1/2 5ebc940888773745
+retouch blur/3/1/3 8cdf63665ff75a82
+retouch blur/3/1/4 eafcd768660ce0a3
+retouch sharpen/3/1/0 bd22cc5bbdec1d39
+retouch sharpen/3/1/1 f72de755346449fa
+retouch sharpen/3/1/2 89cb62ddee8140e6
+retouch blur/3/2/0 9d97aad34e7c01db
+retouch blur/3/2/1 d9576a6535190e90
+retouch blur/3/2/2 cd9dd5cc48ce6ad0
+retouch blur/3/2/3 cbe48e2e7414120e
+retouch blur/3/2/4 171679c771739db1
+retouch sharpen/3/2/0 7655a08db058ffaf
+retouch sharpen/3/2/1 c800e986917a2eeb
+retouch sharpen/3/2/2 b4ed19c8fdf2c833
+retouch blur/3/3/0 cbf29ce484222325
+retouch blur/3/3/1 cbf29ce484222325
+retouch blur/3/3/2 cbf29ce484222325
+retouch blur/3/3/3 cbf29ce484222325
+retouch blur/3/3/4 cbf29ce484222325
+retouch sharpen/3/3/0 cbf29ce484222325
+retouch sharpen/3/3/1 cbf29ce484222325
+retouch sharpen/3/3/2 cbf29ce484222325
+retouch blur/4/0/0 731a17791322a0da
+retouch blur/4/0/1 0fec5a30caa5d7b6
+retouch blur/4/0/2 76f4e18579127810
+retouch blur/4/0/3 c445fc89b30a8c14
+retouch blur/4/0/4 394042f8a2ba3f46
+retouch sharpen/4/0/0 8cdc3a405b146dee
+retouch sharpen/4/0/1 a0a87c29c2c7fc29
+retouch sharpen/4/0/2 64c682c15e18bede
+retouch blur/4/1/0 fecd2b067d5b78b3
+retouch blur/4/1/1 589e302a5f6eda7a
+retouch blur/4/1/2 f372a4a1d5ab2d6c
+retouch blur/4/1/3 8f65af9f75e6ac78
+retouch blur/4/1/4 f0440435c3556542
+retouch sharpen/4/1/0 6498c907f8b62dd1
+retouch sharpen/4/1/1 35c29e54223feb6a
+retouch sharpen/4/1/2 aae408d8f02950c2
+retouch blur/4/2/0 b78309f3c1b6a41d
+retouch blur/4/2/1 fa84c90366067143
+retouch blur/4/2/2 6110aa46c2a02731
+retouch blur/4/2/3 b921700f41441594
+retouch blur/4/2/4 63dec2561f241a23
+retouch sharpen/4/2/0 63898b762eddce9b
+retouch sharpen/4/2/1 5f5e6e8a6a17cf78
+retouch sharpen/4/2/2 64d40fb499b4c26e
+retouch blur/4/3/0 cbf29ce484222325
+retouch blur/4/3/1 cbf29ce484222325
+retouch blur/4/3/2 cbf29ce484222325
+retouch blur/4/3/3 cbf29ce484222325
+retouch blur/4/3/4 cbf29ce484222325
+retouch sharpen/4/3/0 cbf29ce484222325
+retouch sharpen/4/3/1 cbf29ce484222325
+retouch sharpen/4/3/2 cbf29ce484222325
+redeye halo 5
+redeye radius 2e72865d4e6abd58
+redeye side/0 -1
+redeye side/1 15
+redeye side/2 19
+redeye side/3 22
+redeye side/4 139
+redeye side/5 259
+redeye side/6 500
+redeye side/7 512
+redeye side/8 -1
+redeye side/9 -1
+redeye side/10 -1
+redeye portrait/0/0 432 51f61e23e4c94e21
+redeye portrait/0/1 432 51f61e23e4c94e21
+redeye portrait/0/2 432 51f61e23e4c94e21
+redeye portrait/0/3 247 ef5d6608090cb632
+redeye portrait/1/0 416 0fbd8a48fc2cf193
+redeye portrait/1/1 416 0fbd8a48fc2cf193
+redeye portrait/1/2 416 0fbd8a48fc2cf193
+redeye portrait/1/3 237 1a8ea6e75a41ff14
+redeye portrait/2/0 192 1dcb3ddce2d496b7
+redeye portrait/2/1 185 1d169c4c31fe72b7
+redeye portrait/2/2 192 1dcb3ddce2d496b7
+redeye portrait/2/3 0 ac645b8a04a7eedb
+redeye portrait/3/0 0 ac645b8a04a7eedb
+redeye portrait/3/1 0 ac645b8a04a7eedb
+redeye portrait/3/2 0 ac645b8a04a7eedb
+redeye portrait/3/3 0 ac645b8a04a7eedb
+redeye portrait/4/0 416 0fbd8a48fc2cf193
+redeye portrait/4/1 416 0fbd8a48fc2cf193
+redeye portrait/4/2 416 0fbd8a48fc2cf193
+redeye portrait/4/3 237 1a8ea6e75a41ff14
+redeye portrait/5/0 432 51f61e23e4c94e21
+redeye portrait/5/1 432 51f61e23e4c94e21
+redeye portrait/5/2 432 51f61e23e4c94e21
+redeye portrait/5/3 432 51f61e23e4c94e21
+redeye half 7029 91fbad7acadb10c6
+redeye noisy 240 aeb927a09531d6f1
+erase rgba8/0 456746e87ae3f554 b45873806e7ae266
+erase rgba8/1 456746e87ae3f554 082331cd3c9fabcc
+erase rgba8/2 456746e87ae3f554 24eb0168f00c7d8d
+erase rgba8/3 456746e87ae3f554 e80b28da911f0875
+erase rgba8/4 88201fb960ff6465 9f4f5ef0ec3f62aa
+erase rgba16/0 456746e87ae3f554 5b4015c4a48ebba1
+erase rgba16/1 456746e87ae3f554 356298061105bd0d
+erase rgba16/2 456746e87ae3f554 2b8640125935d7fe
+erase rgba16/3 456746e87ae3f554 9e1f7987d3362df6
+erase rgba16/4 88201fb960ff6465 7e11039882ae2ba5
+erase rgba32/0 456746e87ae3f554 f2d607647fcbf9be
+erase rgba32/1 456746e87ae3f554 e6bce4b002bfebf5
+erase rgba32/2 456746e87ae3f554 9886a6b969d20d82
+erase rgba32/3 456746e87ae3f554 9fc502ffa469182e
+erase rgba32/4 88201fb960ff6465 25b396446e65125f
+erase rgb8/0 88201fb960ff6465 48732e94917f0672
+erase rgb8/1 88201fb960ff6465 48732e94917f0672
+erase rgb8/2 88201fb960ff6465 48732e94917f0672
+erase rgb8/3 456746e87ae3f554 96fea5ff8d903ac1
+erase rgb8/4 88201fb960ff6465 48732e94917f0672
+erase gray8/0 88201fb960ff6465 241a6b6b0329d124
+erase gray8/1 88201fb960ff6465 241a6b6b0329d124
+erase gray8/2 88201fb960ff6465 241a6b6b0329d124
+erase gray8/3 456746e87ae3f554 f83a6120a3495bf7
+erase gray8/4 88201fb960ff6465 241a6b6b0329d124
+erase graya16/0 456746e87ae3f554 49062955c4d3c38d
+erase graya16/1 456746e87ae3f554 8226dc623d6afff3
+erase graya16/2 456746e87ae3f554 5f2a2d0855832c5c
+erase graya16/3 456746e87ae3f554 1b8851d24a44c5cc
+erase graya16/4 88201fb960ff6465 dd7ceffd3f7bfc12
+erase cmyka8/0 456746e87ae3f554 e3ccc4515fe2b3d9
+erase cmyka8/1 456746e87ae3f554 8e888fd96fe08087
+erase cmyka8/2 456746e87ae3f554 9e060a5f1a971cc8
+erase cmyka8/3 456746e87ae3f554 150efcd87f20249b
+erase cmyka8/4 88201fb960ff6465 bcb2b5aefb4712ab
+erase laba16/0 456746e87ae3f554 5b4015c4a48ebba1
+erase laba16/1 456746e87ae3f554 356298061105bd0d
+erase laba16/2 456746e87ae3f554 2b8640125935d7fe
+erase laba16/3 456746e87ae3f554 9e1f7987d3362df6
+erase laba16/4 88201fb960ff6465 7e11039882ae2ba5
+erase laba32/0 456746e87ae3f554 f2d607647fcbf9be
+erase laba32/1 456746e87ae3f554 e6bce4b002bfebf5
+erase laba32/2 456746e87ae3f554 9886a6b969d20d82
+erase laba32/3 456746e87ae3f554 9fc502ffa469182e
+erase laba32/4 88201fb960ff6465 25b396446e65125f
+erase mismatch true 38abf92963e2bc45
+paint t/linear 5b5eff6fd9258c9e
+paint t/radial 66d347dbebcda297
+paint t/angle 1a2ad6499250075b
+paint t/reflected aa896b44cc78cbeb
+paint t/diamond ad002d23936b036c
+paint stops 0a60645bfd51e1f5
+paint gradient/rgba8/a 3c746cf53c8f1079
+paint gradient/rgba8/b 1201f9b131fe845f
+paint gradient/rgba8/c 4b6b663adb9700c7
+paint gradient/rgba8/d da3893fae9029f28
+paint bucket/rgba8/0 true 5a90689b8b220911
+paint bucket/rgba8/1 true cf22de51855701ae
+paint bucket/rgba8/2 true cf78f6ea2a674c20
+paint bucketsrc/rgba8 true b5a6ef962d978551
+paint bucket/rgba8/outside false
+paint region/rgba8 8631f3bad991c845
+paint gradient/rgba16/a c743de26aa63776a
+paint gradient/rgba16/b 4b0cc807d6834f9a
+paint gradient/rgba16/c 3f22a1619b7d3479
+paint gradient/rgba16/d a9b53c34c5fe7185
+paint bucket/rgba16/0 true 6bab745bb01ec1b1
+paint bucket/rgba16/1 true c055b734dea495e3
+paint bucket/rgba16/2 true b3696ed1b2f33d83
+paint bucketsrc/rgba16 true e79a7531c1740bba
+paint bucket/rgba16/outside false
+paint region/rgba16 1c46b14e5f236549
+paint gradient/rgba32/a e16f27d765cadf3e
+paint gradient/rgba32/b 617339bdf95e0ad0
+paint gradient/rgba32/c c2bb1c588694414a
+paint gradient/rgba32/d f410cec822436ce5
+paint bucket/rgba32/0 true c25447d491db208b
+paint bucket/rgba32/1 true 7357d0cdda8969ba
+paint bucket/rgba32/2 true e77eb022c744dcef
+paint bucketsrc/rgba32 true 7515cc007a07d66f
+paint bucket/rgba32/outside false
+paint region/rgba32 cfb5e14a25edcd8c
+paint gradient/rgb8/a cf9cdcb2a61036ef
+paint gradient/rgb8/b b2e88a92c6eb24ac
+paint gradient/rgb8/c 9538801cce256603
+paint gradient/rgb8/d 331cbaeb1bc7e365
+paint bucket/rgb8/0 true 5e86f69acabfb959
+paint bucket/rgb8/1 true b2c42a29e818433e
+paint bucket/rgb8/2 true bd69f3b3d743be1c
+paint bucketsrc/rgb8 true aa96a52f90e76335
+paint bucket/rgb8/outside false
+paint region/rgb8 85fafb59b00f8ce5
+paint gradient/gray8/a 01cb43837facce1d
+paint gradient/gray8/b 264a0833c9f14def
+paint gradient/gray8/c 609928ed58b66ca1
+paint gradient/gray8/d e4858b8c70ecf3e4
+paint bucket/gray8/0 true bf4adc72fed96cb2
+paint bucket/gray8/1 true 0cea8a9ed2fae010
+paint bucket/gray8/2 true 534d576b85c7d574
+paint bucketsrc/gray8 true 33793c71bf0df623
+paint bucket/gray8/outside false
+paint region/gray8 e4c4590303a78369
+paint gradient/graya16/a a8e85d85efcfe36d
+paint gradient/graya16/b 2c18a301a2157ef6
+paint gradient/graya16/c 5cc53a65c09614bb
+paint gradient/graya16/d 61a2e96eab008875
+paint bucket/graya16/0 true 15ef91f0e38db0db
+paint bucket/graya16/1 true 1fc72cbe7816587a
+paint bucket/graya16/2 true 337f951e72d84966
+paint bucketsrc/graya16 true 94f9890d3bc67594
+paint bucket/graya16/outside false
+paint region/graya16 042c2a87fd6ec45b
+paint gradient/cmyka8/a 9260f26d3287e57a
+paint gradient/cmyka8/b 8db1cb4a8ab15547
+paint gradient/cmyka8/c b8e577f2d98c9590
+paint gradient/cmyka8/d 2c68ad44a871ecd1
+paint bucket/cmyka8/0 true afda45cbd403f4a8
+paint bucket/cmyka8/1 true a30ea4431be377d1
+paint bucket/cmyka8/2 true 9142198f951e0518
+paint bucketsrc/cmyka8 true b653021094be87b8
+paint bucket/cmyka8/outside false
+paint region/cmyka8 887c154ca1b8f54e
+paint gradient/laba16/a 1f810f9b6c286f45
+paint gradient/laba16/b 621b3b1c4f07626a
+paint gradient/laba16/c 89773f44d67f7766
+paint gradient/laba16/d 939ed968cd1a4d40
+paint bucket/laba16/0 true addda7269938556a
+paint bucket/laba16/1 true 9556af6a921300a1
+paint bucket/laba16/2 true 4284312cce0938ae
+paint bucketsrc/laba16 true 963cdb011f569ad8
+paint bucket/laba16/outside false
+paint region/laba16 4b4e80bb47ee0075
+paint gradient/laba32/a 8ce760c2b951e114
+paint gradient/laba32/b 3a809c88f7cb8fab
+paint gradient/laba32/c 96b163089427cdf8
+paint gradient/laba32/d 22d194c5a7718344
+paint bucket/laba32/0 true 10bd831db1bab5a4
+paint bucket/laba32/1 true 2074efaea7e833ba
+paint bucket/laba32/2 true d280d40bcb1aa3b3
+paint bucketsrc/laba32 true e844211e9a1b76a1
+paint bucket/laba32/outside false
+paint region/laba32 0957a16f920657f2

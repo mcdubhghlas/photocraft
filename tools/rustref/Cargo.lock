@@ -822,6 +822,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "photocraft-ops"
+version = "0.5.0"
+dependencies = [
+ "photocraft-doc",
+]
+
+[[package]]
 name = "photocraft-paint"
 version = "0.5.0"
 dependencies = [
@@ -1094,6 +1101,7 @@ dependencies = [
  "blake3",
  "half",
  "photocraft-affinity",
+ "photocraft-algo",
  "photocraft-cms",
  "photocraft-codecs",
  "photocraft-color",
@@ -1101,9 +1109,13 @@ dependencies = [
  "photocraft-doc",
  "photocraft-geom",
  "photocraft-io",
+ "photocraft-ops",
+ "photocraft-paint",
  "photocraft-psd",
  "photocraft-raster",
  "photocraft-raw",
+ "photocraft-text",
+ "photocraft-vector",
  "serde_json",
 ]
 

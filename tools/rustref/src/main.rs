@@ -4,6 +4,19 @@
 //!   rustref geom-vectors            FNV hashes of warp/mesh/affine outputs (tests/geom/test_warp.c)
 //!   rustref cms-vectors             FNV hashes of colour-management outputs (tests/cms/test_parity.c)
 //!   rustref doc-vectors             document-model serde and logic vectors (tests/doc/test_parity.c)
+//!   rustref ops-vectors             L1 ops vectors
+//!   rustref paint-vectors           L2 paint (1/2) vectors
+//!   rustref paint2-vectors          L3 paint (2/2) vectors
+//!   rustref algo-core-vectors       L4 algo core vectors
+//!   rustref algo-blur-vectors       L5 algo blurs vectors
+//!   rustref algo-fx-vectors         L6 algo filters vectors
+//!   rustref algo-select-vectors     L7 algo selection vectors
+//!   rustref algo-retouch-vectors    L8 algo retouch vectors
+//!   rustref algo-photo-vectors      L9 algo photo vectors
+//!   rustref algo-analysis-vectors   L10 algo analysis vectors
+//!   rustref algo-warp-vectors       L11 algo liquify/puppet vectors
+//!   rustref vector-vectors          L12 vector vectors
+//!   rustref text-vectors            L13-L15 text vectors
 //!   rustref unicode-alnum           char::is_alphanumeric ranges (src/base/unicode_alnum.c)
 //!   rustref icc-info FILE           one line describing a parsed ICC profile (tests/cms/test_parity.c)
 //!   rustref psd-info FILE           PSD/PSB structure as JSON (the F6-F9 parity contract)
@@ -14,6 +27,19 @@
 //! so differential tests can compare errors too.
 mod affinity_vectors;
 mod doc_vectors;
+mod ops_vectors;
+mod paint_vectors;
+mod paint2_vectors;
+mod algo_core_vectors;
+mod algo_blur_vectors;
+mod algo_fx_vectors;
+mod algo_select_vectors;
+mod algo_retouch_vectors;
+mod algo_photo_vectors;
+mod algo_analysis_vectors;
+mod algo_warp_vectors;
+mod vector_vectors;
+mod text_vectors;
 mod raw_vectors;
 use base64::Engine;
 use half::f16;
@@ -1394,6 +1420,19 @@ fn main() {
         ["affinity-mutations", f] => affinity_vectors::affinity_mutations(f),
         ["doc-vectors"] => doc_vectors::doc_vectors(),
         ["unicode-alnum"] => unicode_alnum(),
+        ["ops-vectors"] => ops_vectors::run(),
+        ["paint-vectors"] => paint_vectors::run(),
+        ["paint2-vectors"] => paint2_vectors::run(),
+        ["algo-core-vectors"] => algo_core_vectors::run(),
+        ["algo-blur-vectors"] => algo_blur_vectors::run(),
+        ["algo-fx-vectors"] => algo_fx_vectors::run(),
+        ["algo-select-vectors"] => algo_select_vectors::run(),
+        ["algo-retouch-vectors"] => algo_retouch_vectors::run(),
+        ["algo-photo-vectors"] => algo_photo_vectors::run(),
+        ["algo-analysis-vectors"] => algo_analysis_vectors::run(),
+        ["algo-warp-vectors"] => algo_warp_vectors::run(),
+        ["vector-vectors"] => vector_vectors::run(),
+        ["text-vectors"] => text_vectors::run(),
         ["icc-info", f] => icc_info(f),
         ["psd-info", f] => psd_info(f),
         ["decode", f, out] => decode(f, out),

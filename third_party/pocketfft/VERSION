@@ -1,0 +1,10 @@
+pocketfft (C version), commit 81d171a6d5562e3aaa2c73489b70f564c633ff81 (2019-05-10, "fix license file"),
+branch master of https://gitlab.mpcdf.mpg.de/mtr/pocketfft (mirrored at https://github.com/mreineck/pocketfft).
+Source: https://gitlab.mpcdf.mpg.de/mtr/pocketfft (files API, ref 81d171a6d5562e3aaa2c73489b70f564c633ff81);
+GitHub archive https://github.com/mreineck/pocketfft/archive/81d171a6d5562e3aaa2c73489b70f564c633ff81.tar.gz
+(byte-identical files) sha256(tarball): 70d1ac85b271a35a30e9bd709923170d5098413553b2380e33cb419282b8a35d
+sha256(pocketfft.c): 4f9f4095080fdba96d7112bcfe6ed66cb5c094077e92f7544602756eccd0f97c
+sha256(pocketfft.h): 8c12a7b2467a86c3f8818a5ab85cec2a8e90dfb2ff273cb8cf3ad937ea286ba3
+sha256(LICENSE.md, here LICENSE): c254b2b5fd30ae3c89d36ba061730563b9760fca04f1b746a1b2c3157da2c789
+Files: pocketfft.c, pocketfft.h, LICENSE.md (BSD-3-Clause) renamed LICENSE; unmodified.
+Why vendored: REWRITE_PLAN.md D11 (replaces rustfft for the FFT Motion Blur; FFTW is GPL).

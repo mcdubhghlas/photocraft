@@ -21,12 +21,12 @@ CFLAGS ?= -O2 -g
 ARFLAGS = rcs
 
 # Modules in layer order (REWRITE_PLAN.md §3). Each chunk appends its module here.
-MODULES = base geom cms color raster psd codecs raw affinity doc
+MODULES = base geom cms color raster psd codecs raw affinity doc ops paint algo vector text
 # pkg-config packages the current modules need.
-PKGS = zlib libzstd libblake3 libpng16 libjpeg libwebp libwebpmux libwebpdemux
+PKGS = zlib libzstd libblake3 libpng16 libjpeg libwebp libwebpmux libwebpdemux freetype2 harfbuzz fribidi
 # Vendored third-party C (REWRITE_PLAN.md D17), compiled without our strict warnings: it isn't
 # our code to fix, and upstream builds it warning-free with its own flags.
-THIRD_PARTY = yyjson nuklear
+THIRD_PARTY = yyjson nuklear pocketfft
 # Executables (src/cli, src/app) once they exist.
 PROGRAMS =
 # Libraries only the UI layer may use (REWRITE_PLAN.md D4). Their flags are applied to src/ui
@@ -75,7 +75,9 @@ ALL_LDLIBS = $(PKG_LIBS) $(EXR_LIBS) $(HEIF_LIBS) $(LDLIBS) -lm
 SRCS := $(foreach m,$(MODULES),$(wildcard src/$(m)/*.c))
 THIRD_SRCS := $(foreach t,$(THIRD_PARTY),$(wildcard third_party/$(t)/*.c))
 # Binary data compiled in (POSIX od + sed; no xxd): name = file under data/ (see GEN rules below).
-GEN_SRCS := $(BUILD)/gen/coated_cmyk_icc.c
+# Bundled fonts (src/text/bundled.h), embedded the same way (assets/fonts/<name>.ttf).
+FONT_GEN := Inter-Regular Inter-Medium Inter-SemiBold JetBrainsMono-Regular
+GEN_SRCS := $(BUILD)/gen/coated_cmyk_icc.c $(FONT_GEN:%=$(BUILD)/gen/font_%.c)
 OBJS := $(SRCS:%.c=$(BUILD)/obj/%.o) $(THIRD_SRCS:%.c=$(BUILD)/obj/%.o) $(GEN_SRCS:%.c=%.o)
 LIB := $(BUILD)/libphotocraft.a
 # B3 GUI stack spike (src/ui/spike): built when SDL3 and FreeType are installed.
@@ -108,6 +110,16 @@ $(BUILD)/gen/coated_cmyk_icc.c: data/profiles/photocraft-coated-cmyk.icc
 	  od -An -v -tu1 $< | sed -e 's/[[:space:]][[:space:]]*/,/g' -e 's/^,//' -e 's/,$$//' -e 's/$$/,/' -e '/^,$$/d'; \
 	  echo '};'; \
 	  echo "const size_t pc_coated_cmyk_icc_len = sizeof pc_coated_cmyk_icc;"; } > $@.tmp && mv $@.tmp $@
+
+# The bundled fonts (src/text/bundled.h: pc_font_<name with - as _>).
+$(BUILD)/gen/font_%.c: assets/fonts/%.ttf
+	@mkdir -p $(@D)
+	@{ echo '/* Generated from $< by the Makefile. */'; \
+	  echo '#include <stddef.h>'; \
+	  echo 'const unsigned char pc_font_$(subst -,_,$*)[] = {'; \
+	  od -An -v -tu1 $< | sed -e 's/[[:space:]][[:space:]]*/,/g' -e 's/^,//' -e 's/,$$//' -e 's/$$/,/' -e '/^,$$/d'; \
+	  echo '};'; \
+	  echo "const size_t pc_font_$(subst -,_,$*)_len = sizeof pc_font_$(subst -,_,$*);"; } > $@.tmp && mv $@.tmp $@
 
 $(BUILD)/gen/%.o: $(BUILD)/gen/%.c
 	$(CC) -std=c17 $(CFLAGS) $(EXTRA_CFLAGS) -c $< -o $@

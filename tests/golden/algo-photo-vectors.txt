@@ -1,0 +1,402 @@
+crlut [] ok d3bb1de42e9b63f3
+crlut [[0,0],[64,40],[192,220],[255,255]] ok 8e1796384782d774
+crlut [[255,255],[0,10],[128,90]] curve_inputs_must_increase_by_at_least_one_level 8c1a41695ea1363d
+crlut [[0,0],[0,255],[10,20],[10.0000001,30],[255,200]] curve_inputs_must_increase_by_at_least_one_level 8c784c589393360a
+crlut [[0,30],[255,255]] ok 6362992fe83f3a8c
+crlut [[50,50]] a_nonempty_curve_needs_at_least_two_points d3bb1de42e9b63f3
+crlut [[0,0],[100,100],[200,100],[255,0]] ok 7f39e06e960f80aa
+crlut [[-20,5],[300,400],[128,128]] curve_coordinates_must_be_finite_and_in_0..=255 38a1d18e9371ea42
+crband b1e67350edee8be2
+cr 37 23 0 {} 1ea851366f9c64cb
+cr 37 23 1 {} 1d9792a791206c42
+cr 37 23 0 {"temperature":50} 5045c6bb38a6991c
+cr 37 23 1 {"temperature":50} c9cd41639793874c
+cr 37 23 0 {"temperature":-30,"tint":40,"exposure":0.7} d604f6b063a90c3d
+cr 37 23 1 {"temperature":-30,"tint":40,"exposure":0.7} ed8fc467d14a1327
+cr 37 23 0 {"exposure":-1.5} 06f87b5c28d69e9d
+cr 37 23 1 {"exposure":-1.5} 036c47327c368318
+cr 37 23 0 {"contrast":100} 77a532d29b246b0e
+cr 37 23 1 {"contrast":100} 9d8947d17a5abaad
+cr 37 23 0 {"contrast":-60,"whites":50,"blacks":-50} 02cf3c4b506717e1
+cr 37 23 1 {"contrast":-60,"whites":50,"blacks":-50} 0867e5dfa3271e25
+cr 37 23 0 {"highlights":-100,"shadows":100} a0a007985e5c4ac2
+cr 37 23 1 {"highlights":-100,"shadows":100} 94a0612f1dbd1bd0
+cr 37 23 0 {"highlights":60} 8cce5c1932cc55d6
+cr 37 23 1 {"highlights":60} defab61bddfcd436
+cr 37 23 0 {"clarity":80} 774564b8897d417c
+cr 37 23 1 {"clarity":80} 31749c61d25464c1
+cr 37 23 0 {"clarity":-50,"texture":70} 8c735de05b5ec433
+cr 37 23 1 {"clarity":-50,"texture":70} 982e7e3075c16eda
+cr 37 23 0 {"texture":-80,"pixelScale":0.25} 5a0fe093a0ad4730
+cr 37 23 1 {"texture":-80,"pixelScale":0.25} dc26794190770c5b
+cr 37 23 0 {"dehaze":60} d8e305fdbaf9afdf
+cr 37 23 1 {"dehaze":60} 354fd149185e099b
+cr 37 23 0 {"dehaze":-60} 52d39a6d673396ee
+cr 37 23 1 {"dehaze":-60} d4998cb13a75385c
+cr 37 23 0 {"vibrance":100} 92156116c8f3ac5d
+cr 37 23 1 {"vibrance":100} d7745fe98fc44426
+cr 37 23 0 {"saturation":-100} ddc43aa8247e08b2
+cr 37 23 1 {"saturation":-100} dfd9d0f2b5f543d1
+cr 37 23 0 {"vibrance":-40,"saturation":30} ffb176cb45bd6c7f
+cr 37 23 1 {"vibrance":-40,"saturation":30} efc287ba2e1094a6
+cr 37 23 0 {"curveShadows":50,"curveHighlights":-40,"curveSplits":[10,60,80]} 2ca77f5200962ff9
+cr 37 23 1 {"curveShadows":50,"curveHighlights":-40,"curveSplits":[10,60,80]} a804161dfccb77df
+cr 37 23 0 {"curveLights":70,"curveDarks":-30,"curveSplits":[90,20,1]} a9a211176f138ba0
+cr 37 23 1 {"curveLights":70,"curveDarks":-30,"curveSplits":[90,20,1]} 1b4a5bb71a15796b
+cr 37 23 0 {"pointCurve":[[0,30],[255,255]],"curveShadows":50} 5eba1a1c35573b72
+cr 37 23 1 {"pointCurve":[[0,30],[255,255]],"curveShadows":50} 236bb0f395193cca
+cr 37 23 0 {"pointCurveRed":[[0,0],[128,160],[255,255]],"pointCurveBlue":[[0,20],[255,230]]} 00693ebad4b08826
+cr 37 23 1 {"pointCurveRed":[[0,0],[128,160],[255,255]],"pointCurveBlue":[[0,20],[255,230]]} 42cb00ea3e601534
+cr 37 23 0 {"hslHue":[30,0,-20,0,50,0,0,10],"hslSat":[-100,20,0,0,0,40,0,0],"hslLum":[0,0,30,-40,0,0,20,0]} e93adbb196c3028e
+cr 37 23 1 {"hslHue":[30,0,-20,0,50,0,0,10],"hslSat":[-100,20,0,0,0,40,0,0],"hslLum":[0,0,30,-40,0,0,20,0]} 9685bfccc30fba88
+cr 37 23 0 {"gradeShadows":{"hue":220,"sat":80},"gradeHighlights":{"hue":40,"sat":50,"lum":20}} 78b7db30eede243e
+cr 37 23 1 {"gradeShadows":{"hue":220,"sat":80},"gradeHighlights":{"hue":40,"sat":50,"lum":20}} 5416d785212a448d
+cr 37 23 0 {"gradeMidtones":{"hue":120,"sat":30,"lum":-30},"gradeGlobal":{"hue":300,"sat":20,"lum":10},"gradeBlending":80,"gradeBalance":-40} 4a614847edf1c6bf
+cr 37 23 1 {"gradeMidtones":{"hue":120,"sat":30,"lum":-30},"gradeGlobal":{"hue":300,"sat":20,"lum":10},"gradeBlending":80,"gradeBalance":-40} 19cda8075eabacac
+cr 37 23 0 {"sharpenAmount":100} 822c755c2c67fd14
+cr 37 23 1 {"sharpenAmount":100} 9652ebad89a68a3a
+cr 37 23 0 {"sharpenAmount":80,"sharpenRadius":2.5,"sharpenDetail":70,"sharpenMasking":40} f961f2bf4ebfa725
+cr 37 23 1 {"sharpenAmount":80,"sharpenRadius":2.5,"sharpenDetail":70,"sharpenMasking":40} fd19165b572af090
+cr 37 23 0 {"noiseLuminance":80} ba8118405ba199e5
+cr 37 23 1 {"noiseLuminance":80} 9f441ed347ae7c22
+cr 37 23 0 {"noiseLuminance":40,"noiseLuminanceDetail":10,"noiseColor":60,"noiseColorDetail":90} 64352040aa4c4f8e
+cr 37 23 1 {"noiseLuminance":40,"noiseLuminanceDetail":10,"noiseColor":60,"noiseColorDetail":90} 9c0f358a50e741a5
+cr 37 23 0 {"noiseColor":100,"pixelScale":0.5} 5f09f4ac5081cd0e
+cr 37 23 1 {"noiseColor":100,"pixelScale":0.5} 5bb66c421c13b843
+cr 37 23 0 {"grainAmount":50,"seed":4} afaca51d34fad6b4
+cr 37 23 1 {"grainAmount":50,"seed":4} e1add26cd1ecbec6
+cr 37 23 0 {"grainAmount":80,"grainSize":60,"grainRoughness":10,"seed":9,"pixelScale":0.3} 322a23557d38e25b
+cr 37 23 1 {"grainAmount":80,"grainSize":60,"grainRoughness":10,"seed":9,"pixelScale":0.3} 21e19935a8dd0056
+cr 37 23 0 {"vignetteAmount":-80} 4623c545e266b554
+cr 37 23 1 {"vignetteAmount":-80} 2c05b366ebd72f17
+cr 37 23 0 {"vignetteAmount":60,"vignetteMidpoint":20,"vignetteRoundness":-70,"vignetteFeather":90} 58dd425ddb073541
+cr 37 23 1 {"vignetteAmount":60,"vignetteMidpoint":20,"vignetteRoundness":-70,"vignetteFeather":90} d3565f328f11e489
+cr 37 23 0 {"vignetteAmount":-50,"vignetteHighlights":70,"vignetteRoundness":50,"vignetteStyle":"colorPriority"} 168ce4bc5983572c
+cr 37 23 1 {"vignetteAmount":-50,"vignetteHighlights":70,"vignetteRoundness":50,"vignetteStyle":"colorPriority"} 6627b2c607478e23
+cr 37 23 0 {"vignetteAmount":-50,"vignetteStyle":"paintOverlay"} f67029bc4101ab1e
+cr 37 23 1 {"vignetteAmount":-50,"vignetteStyle":"paintOverlay"} 667c6292ed5dd3ae
+cr 37 23 0 {"vignetteAmount":40,"vignetteStyle":"paintOverlay"} a7106634fcdd0f97
+cr 37 23 1 {"vignetteAmount":40,"vignetteStyle":"paintOverlay"} ac4cb90300442480
+cr 37 23 0 {"temperature":20,"exposure":0.3,"contrast":20,"highlights":-30,"shadows":30,"clarity":20,"dehaze":10,"vibrance":20,"curveLights":10,"hslSat":[10,0,0,0,0,0,0,0],"gradeGlobal":{"hue":30,"sat":10},"sharpenAmount":40,"noiseLuminance":20,"grainAmount":10,"vignetteAmount":-20} dad9df80f541fdc5
+cr 37 23 1 {"temperature":20,"exposure":0.3,"contrast":20,"highlights":-30,"shadows":30,"clarity":20,"dehaze":10,"vibrance":20,"curveLights":10,"hslSat":[10,0,0,0,0,0,0,0],"gradeGlobal":{"hue":30,"sat":10},"sharpenAmount":40,"noiseLuminance":20,"grainAmount":10,"vignetteAmount":-20} 5f856f8b5bbff37c
+cr 800 40 0 {} 2f44803f3f75ce45
+cr 800 40 0 {"temperature":50} 40116ab612a36d1b
+cr 800 40 0 {"temperature":-30,"tint":40,"exposure":0.7} 711b35c3c564622e
+cr 800 40 0 {"exposure":-1.5} 7a5f56f30f14cee1
+cr 800 40 0 {"contrast":100} 792e216ae4d0e984
+cr 800 40 0 {"contrast":-60,"whites":50,"blacks":-50} 4175f16b501d9ccb
+cr 800 40 0 {"highlights":-100,"shadows":100} 3bc9e535380e6bb3
+cr 800 40 0 {"highlights":60} 4e8f0a15eb17967c
+cr 800 40 0 {"clarity":80} 8d79e5b72a198b34
+cr 800 40 0 {"clarity":-50,"texture":70} 769d0a601716f38e
+cr 800 40 0 {"texture":-80,"pixelScale":0.25} a3e96303a522fab8
+cr 800 40 0 {"dehaze":60} e3a04d1bd5cddc36
+cr 800 40 0 {"dehaze":-60} a34c88b06592d86d
+cr 800 40 0 {"vibrance":100} b3385631f9b07d0d
+cr 800 40 0 {"saturation":-100} 5dff22f33b046d4c
+cr 800 40 0 {"vibrance":-40,"saturation":30} ff766172c9e2304b
+cr 800 40 0 {"curveShadows":50,"curveHighlights":-40,"curveSplits":[10,60,80]} 33e34a9bd3be32e2
+cr 800 40 0 {"curveLights":70,"curveDarks":-30,"curveSplits":[90,20,1]} 369ce1ac4743df11
+cr 800 40 0 {"pointCurve":[[0,30],[255,255]],"curveShadows":50} 560ec4b0415d2486
+cr 800 40 0 {"pointCurveRed":[[0,0],[128,160],[255,255]],"pointCurveBlue":[[0,20],[255,230]]} 1ed02539bb9820c9
+cr 800 40 0 {"hslHue":[30,0,-20,0,50,0,0,10],"hslSat":[-100,20,0,0,0,40,0,0],"hslLum":[0,0,30,-40,0,0,20,0]} 9421901c84b60e16
+cr 800 40 0 {"gradeShadows":{"hue":220,"sat":80},"gradeHighlights":{"hue":40,"sat":50,"lum":20}} 8bdccf0486f56b8c
+cr 800 40 0 {"gradeMidtones":{"hue":120,"sat":30,"lum":-30},"gradeGlobal":{"hue":300,"sat":20,"lum":10},"gradeBlending":80,"gradeBalance":-40} 0d4e6b3bf0e06eae
+cr 800 40 0 {"sharpenAmount":100} 3a930cff6cfb259e
+cr 800 40 0 {"sharpenAmount":80,"sharpenRadius":2.5,"sharpenDetail":70,"sharpenMasking":40} cb0fb9bb00670ef0
+cr 800 40 0 {"noiseLuminance":80} df5aaca5800576d2
+cr 800 40 0 {"noiseLuminance":40,"noiseLuminanceDetail":10,"noiseColor":60,"noiseColorDetail":90} 0cb24c8e4ec76230
+cr 800 40 0 {"noiseColor":100,"pixelScale":0.5} df546976e24aa2be
+cr 800 40 0 {"grainAmount":50,"seed":4} 0d9a2cc18a958d37
+cr 800 40 0 {"grainAmount":80,"grainSize":60,"grainRoughness":10,"seed":9,"pixelScale":0.3} 18d23fb5a31dacff
+cr 800 40 0 {"vignetteAmount":-80} afaff9bf6aa01917
+cr 800 40 0 {"vignetteAmount":60,"vignetteMidpoint":20,"vignetteRoundness":-70,"vignetteFeather":90} 2646673002997d39
+cr 800 40 0 {"vignetteAmount":-50,"vignetteHighlights":70,"vignetteRoundness":50,"vignetteStyle":"colorPriority"} 2c58f3b68e5ed31f
+cr 800 40 0 {"vignetteAmount":-50,"vignetteStyle":"paintOverlay"} e6ebd98e74bea32c
+cr 800 40 0 {"vignetteAmount":40,"vignetteStyle":"paintOverlay"} 251faaa1343914f1
+cr 800 40 0 {"temperature":20,"exposure":0.3,"contrast":20,"highlights":-30,"shadows":30,"clarity":20,"dehaze":10,"vibrance":20,"curveLights":10,"hslSat":[10,0,0,0,0,0,0,0],"gradeGlobal":{"hue":30,"sat":10},"sharpenAmount":40,"noiseLuminance":20,"grainAmount":10,"vignetteAmount":-20} 4a481c5d676804c7
+cr 5 3 0 {} 96cc2bdd28de048b
+cr 5 3 0 {"temperature":50} 95ac7ae7fda172ec
+cr 5 3 0 {"temperature":-30,"tint":40,"exposure":0.7} 6dfb41d528d69397
+cr 5 3 0 {"exposure":-1.5} 5089eb851edaa4df
+cr 5 3 0 {"contrast":100} f4daa367a8dd1320
+cr 5 3 0 {"contrast":-60,"whites":50,"blacks":-50} b6ea26a5fcc91bfa
+cr 5 3 0 {"highlights":-100,"shadows":100} 084107511fc47d1e
+cr 5 3 0 {"highlights":60} 43c6b164a12cc2cb
+cr 5 3 0 {"clarity":80} f440311b541f0887
+cr 5 3 0 {"clarity":-50,"texture":70} 5e9feaf85530ad10
+cr 5 3 0 {"texture":-80,"pixelScale":0.25} dd26539daf50b84b
+cr 5 3 0 {"dehaze":60} 69cabcff21d1a0db
+cr 5 3 0 {"dehaze":-60} 4ba04b5e09222774
+cr 5 3 0 {"vibrance":100} 2d85063067e8a12a
+cr 5 3 0 {"saturation":-100} 44b293bbd03a2e79
+cr 5 3 0 {"vibrance":-40,"saturation":30} d6803ff6e28f3919
+cr 5 3 0 {"curveShadows":50,"curveHighlights":-40,"curveSplits":[10,60,80]} f786781ae36563b1
+cr 5 3 0 {"curveLights":70,"curveDarks":-30,"curveSplits":[90,20,1]} 776334520f8436d7
+cr 5 3 0 {"pointCurve":[[0,30],[255,255]],"curveShadows":50} 57d4558bc110c728
+cr 5 3 0 {"pointCurveRed":[[0,0],[128,160],[255,255]],"pointCurveBlue":[[0,20],[255,230]]} 1fd6e7b61d5bfcb5
+cr 5 3 0 {"hslHue":[30,0,-20,0,50,0,0,10],"hslSat":[-100,20,0,0,0,40,0,0],"hslLum":[0,0,30,-40,0,0,20,0]} ad16d4e07047a66e
+cr 5 3 0 {"gradeShadows":{"hue":220,"sat":80},"gradeHighlights":{"hue":40,"sat":50,"lum":20}} af8f29509861b60a
+cr 5 3 0 {"gradeMidtones":{"hue":120,"sat":30,"lum":-30},"gradeGlobal":{"hue":300,"sat":20,"lum":10},"gradeBlending":80,"gradeBalance":-40} ca5ba1dd7de08279
+cr 5 3 0 {"sharpenAmount":100} 1091d6ddb936ace6
+cr 5 3 0 {"sharpenAmount":80,"sharpenRadius":2.5,"sharpenDetail":70,"sharpenMasking":40} b4cdb0997a51e026
+cr 5 3 0 {"noiseLuminance":80} c12d161b073853bd
+cr 5 3 0 {"noiseLuminance":40,"noiseLuminanceDetail":10,"noiseColor":60,"noiseColorDetail":90} 844d91016927b6e1
+cr 5 3 0 {"noiseColor":100,"pixelScale":0.5} bf5ea7130f094108
+cr 5 3 0 {"grainAmount":50,"seed":4} 04a0125b411b9302
+cr 5 3 0 {"grainAmount":80,"grainSize":60,"grainRoughness":10,"seed":9,"pixelScale":0.3} a9028af20d6dd104
+cr 5 3 0 {"vignetteAmount":-80} 5043e506ea8cbf55
+cr 5 3 0 {"vignetteAmount":60,"vignetteMidpoint":20,"vignetteRoundness":-70,"vignetteFeather":90} e14d9f34381845ea
+cr 5 3 0 {"vignetteAmount":-50,"vignetteHighlights":70,"vignetteRoundness":50,"vignetteStyle":"colorPriority"} 4f263abb09443694
+cr 5 3 0 {"vignetteAmount":-50,"vignetteStyle":"paintOverlay"} a8602138f007f144
+cr 5 3 0 {"vignetteAmount":40,"vignetteStyle":"paintOverlay"} 108b32b3d04b5a33
+cr 5 3 0 {"temperature":20,"exposure":0.3,"contrast":20,"highlights":-30,"shadows":30,"clarity":20,"dehaze":10,"vibrance":20,"curveLights":10,"hslSat":[10,0,0,0,0,0,0,0],"gradeGlobal":{"hue":30,"sat":10},"sharpenAmount":40,"noiseLuminance":20,"grainAmount":10,"vignetteAmount":-20} 3c3a0aaace2fcd59
+crjson {"temperature":0.0,"tint":0.0,"exposure":0.0,"contrast":0.0,"highlights":0.0,"shadows":0.0,"whites":0.0,"blacks":0.0,"texture":0.0,"clarity":0.0,"dehaze":0.0,"vibrance":0.0,"saturation":0.0,"curveHighlights":0.0,"curveLights":0.0,"curveDarks":0.0,"curveShadows":0.0,"curveSplits":[25.0,50.0,75.0],"pointCurve":[],"pointCurveRed":[],"pointCurveGreen":[],"pointCurveBlue":[],"hslHue":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"hslSat":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"hslLum":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"gradeShadows":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeMidtones":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeHighlights":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeGlobal":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeBlending":50.0,"gradeBalance":0.0,"sharpenAmount":0.0,"sharpenRadius":1.0,"sharpenDetail":25.0,"sharpenMasking":0.0,"noiseLuminance":0.0,"noiseLuminanceDetail":50.0,"noiseColor":0.0,"noiseColorDetail":50.0,"grainAmount":0.0,"grainSize":25.0,"grainRoughness":50.0,"vignetteAmount":0.0,"vignetteMidpoint":50.0,"vignetteRoundness":0.0,"vignetteFeather":50.0,"vignetteHighlights":0.0,"vignetteStyle":"highlightPriority","seed":0,"pixelScale":1.0}
+crjson {"temperature":0.0,"tint":0.0,"exposure":0.0,"contrast":0.0,"highlights":0.0,"shadows":0.0,"whites":0.0,"blacks":0.0,"texture":0.0,"clarity":0.0,"dehaze":0.0,"vibrance":0.0,"saturation":0.0,"curveHighlights":-40.0,"curveLights":0.0,"curveDarks":0.0,"curveShadows":50.0,"curveSplits":[10.0,60.0,80.0],"pointCurve":[],"pointCurveRed":[],"pointCurveGreen":[],"pointCurveBlue":[],"hslHue":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"hslSat":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"hslLum":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"gradeShadows":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeMidtones":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeHighlights":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeGlobal":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeBlending":50.0,"gradeBalance":0.0,"sharpenAmount":0.0,"sharpenRadius":1.0,"sharpenDetail":25.0,"sharpenMasking":0.0,"noiseLuminance":0.0,"noiseLuminanceDetail":50.0,"noiseColor":0.0,"noiseColorDetail":50.0,"grainAmount":0.0,"grainSize":25.0,"grainRoughness":50.0,"vignetteAmount":0.0,"vignetteMidpoint":50.0,"vignetteRoundness":0.0,"vignetteFeather":50.0,"vignetteHighlights":0.0,"vignetteStyle":"highlightPriority","seed":0,"pixelScale":1.0}
+crjson {"temperature":0.0,"tint":0.0,"exposure":0.0,"contrast":0.0,"highlights":0.0,"shadows":0.0,"whites":0.0,"blacks":0.0,"texture":0.0,"clarity":0.0,"dehaze":0.0,"vibrance":0.0,"saturation":0.0,"curveHighlights":0.0,"curveLights":0.0,"curveDarks":0.0,"curveShadows":0.0,"curveSplits":[25.0,50.0,75.0],"pointCurve":[],"pointCurveRed":[],"pointCurveGreen":[],"pointCurveBlue":[],"hslHue":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"hslSat":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"hslLum":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"gradeShadows":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeMidtones":{"hue":120.0,"sat":30.0,"lum":-30.0},"gradeHighlights":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeGlobal":{"hue":300.0,"sat":20.0,"lum":10.0},"gradeBlending":80.0,"gradeBalance":-40.0,"sharpenAmount":0.0,"sharpenRadius":1.0,"sharpenDetail":25.0,"sharpenMasking":0.0,"noiseLuminance":0.0,"noiseLuminanceDetail":50.0,"noiseColor":0.0,"noiseColorDetail":50.0,"grainAmount":0.0,"grainSize":25.0,"grainRoughness":50.0,"vignetteAmount":0.0,"vignetteMidpoint":50.0,"vignetteRoundness":0.0,"vignetteFeather":50.0,"vignetteHighlights":0.0,"vignetteStyle":"highlightPriority","seed":0,"pixelScale":1.0}
+crjson {"temperature":0.0,"tint":0.0,"exposure":0.0,"contrast":0.0,"highlights":0.0,"shadows":0.0,"whites":0.0,"blacks":0.0,"texture":0.0,"clarity":0.0,"dehaze":0.0,"vibrance":0.0,"saturation":0.0,"curveHighlights":0.0,"curveLights":0.0,"curveDarks":0.0,"curveShadows":0.0,"curveSplits":[25.0,50.0,75.0],"pointCurve":[],"pointCurveRed":[],"pointCurveGreen":[],"pointCurveBlue":[],"hslHue":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"hslSat":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"hslLum":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"gradeShadows":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeMidtones":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeHighlights":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeGlobal":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeBlending":50.0,"gradeBalance":0.0,"sharpenAmount":0.0,"sharpenRadius":1.0,"sharpenDetail":25.0,"sharpenMasking":0.0,"noiseLuminance":0.0,"noiseLuminanceDetail":50.0,"noiseColor":0.0,"noiseColorDetail":50.0,"grainAmount":0.0,"grainSize":25.0,"grainRoughness":50.0,"vignetteAmount":-50.0,"vignetteMidpoint":50.0,"vignetteRoundness":0.0,"vignetteFeather":50.0,"vignetteHighlights":0.0,"vignetteStyle":"paintOverlay","seed":0,"pixelScale":1.0}
+crjson {"temperature":0.0,"tint":0.0,"exposure":0.0,"contrast":0.0,"highlights":0.0,"shadows":0.0,"whites":0.0,"blacks":0.0,"texture":0.0,"clarity":0.0,"dehaze":0.0,"vibrance":0.0,"saturation":0.0,"curveHighlights":0.0,"curveLights":0.0,"curveDarks":0.0,"curveShadows":0.0,"curveSplits":[25.0,50.0,75.0],"pointCurve":[],"pointCurveRed":[],"pointCurveGreen":[],"pointCurveBlue":[],"hslHue":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"hslSat":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"hslLum":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"gradeShadows":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeMidtones":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeHighlights":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeGlobal":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeBlending":50.0,"gradeBalance":0.0,"sharpenAmount":0.0,"sharpenRadius":1.0,"sharpenDetail":25.0,"sharpenMasking":0.0,"noiseLuminance":0.0,"noiseLuminanceDetail":50.0,"noiseColor":0.0,"noiseColorDetail":50.0,"grainAmount":0.0,"grainSize":25.0,"grainRoughness":50.0,"vignetteAmount":0.0,"vignetteMidpoint":50.0,"vignetteRoundness":0.0,"vignetteFeather":50.0,"vignetteHighlights":0.0,"vignetteStyle":"x y","seed":4294967295,"pixelScale":1e-7}
+hdr_est e56bfa498dc5fbc4
+hdr_mtb 5 -3 0 0 0
+hdr_mtb 5 -3 2 3 -3
+hdr_mtb 5 -3 4 5 -3
+hdr_mtb 5 -3 6 5 -3
+hdr_mtb 0 0 0 0 0
+hdr_mtb 0 0 2 0 0
+hdr_mtb 0 0 4 0 0
+hdr_mtb 0 0 6 0 0
+hdr_mtb -7 6 0 0 0
+hdr_mtb -7 6 2 -3 3
+hdr_mtb -7 6 4 -7 6
+hdr_mtb -7 6 6 -7 6
+hdr_mtb 12 1 0 0 0
+hdr_mtb 12 1 2 3 -3
+hdr_mtb 12 1 4 7 -1
+hdr_mtb 12 1 6 7 -1
+hdr_samples 160 d9fc3a67c817ce3f
+hdr_samples7 7 16d07f910da55ef4
+hdr_resp 40 e443cdb1d215f7ca
+hdr_resp 1 7e34dcaeeb92a716
+hdr_resp 0 a63e342a158baa1e
+hdr_merge 0 -1 0 0 7cd044281b2ed3e5 ca3acd83d4ac4d41
+hdr_tone 0 b1985a78a97b3572
+hdr_tone 1 8e0002f0ecac2271
+hdr_tone 2 d1b853a19675b3d1
+hdr_tone 3 cade012d379cfbf3
+hdr_merge 1 1 0 1 52a200ff186889d3 4835df1906731bd1
+hdr_merge 1 -1 0 0 e174a2c1f0f67bca ccbbb4c4b51c0b60
+hdr_merge 1 9 1 0 802182d232a9fa28 cad92d4b1935c4e0
+hdr_merge 0 0 1 0 8254bcb836d4871c 42e029e39f3d49b0
+lens_prof 5 Generic_Lens_(5_mm_equivalent) 295071d89af98e85
+lens_prof 12 Generic_Lens_(12_mm_equivalent) 295071d89af98e85
+lens_prof 16 Generic_Lens_(16_mm_equivalent) fd0f57d8c289ea01
+lens_prof 30 Generic_Lens_(30_mm_equivalent) 3c1e5f36bf46f86c
+lens_prof 50 Generic_Lens_(50_mm_equivalent) 5b4952bad9a4b0df
+lens_prof 85 Generic_Lens_(85_mm_equivalent) 2cd9f69dc51b22ef
+lens_prof 135 Generic_Lens_(135_mm_equivalent) de0ed040affba7bd
+lens_prof 200 Generic_Lens_(200_mm_equivalent) 87b71a9dc91998a8
+lens_prof 999.5 Generic_Lens_(1000_mm_equivalent) 87b71a9dc91998a8
+lens_prof 2.5 Generic_Lens_(2_mm_equivalent) 295071d89af98e85
+lens_prof -0.4 Generic_Lens_(-0_mm_equivalent) 295071d89af98e85
+lens_map 0 00baec61d844e8a9 4059000000000000
+lens_map 1 d5b7699d3c329051 4059000000000000
+lens_map 2 4e1b41e8a094a0c5 405bd91e96830000
+lens_map 3 4e1b41e8a094a0c5 405bd91e96830000
+lens_map 4 baeb130b15924c27 405afa6b3ca70000
+lens_map 5 e90576a2bd1b0d98 4059000000000000
+lens_map 6 e8778dfbab4f724f 4059000000000000
+lens_map 7 8166e1c2f4f6a929 4059000000000000
+lens_map 8 3685da26d6ba3452 405f2d6102af0000
+lens_map 9 aa42783c9a42feea 405c765358710000
+lens_map 10 5614072f317236dd 4059000000000000
+lens_map 11 2e465d519b47c24c 405f3e9bb3670000
+lens_straight abff19e4da618bdb
+lens rgba8 0 825bddf375bc13a7
+lens rgba8 1 e17c525aeb1ebf97
+lens rgba8 2 eced712373041189
+lens rgba8 3 988f9e1da2f85b66
+lens rgba8 4 9d3cdfbcb4bd6c2d
+lens rgba8 5 fd2cd56a087467b8
+lens rgba8 6 76f6d43e3ac562dc
+lens rgba8 7 0c250bb3870061d4
+lens rgba8 8 fc64476739515bd5
+lens rgba8 9 a5fd0671fd87e996
+lens rgba8 10 c06bff3a4ac25ddd
+lens rgba8 11 0ea9f92ffdf1027b
+lens rgb8 0 d222925182f013ee
+lens rgb8 1 8d48aea5d6649c4b
+lens rgb8 2 f310713d9ad4311b
+lens rgb8 3 3d4ed77f274939f2
+lens rgb8 4 7c1127cc5d0b1dd6
+lens rgb8 5 91edec8d48571df4
+lens rgb8 6 a99cb05eab2c0bc5
+lens rgb8 7 5cfbfad807cad35f
+lens rgb8 8 0ae083977b693697
+lens rgb8 9 8b27d767bdb9bde9
+lens rgb8 10 5e1cd4d3aba8eddb
+lens rgb8 11 5823848230b79077
+lens rgba32 0 d86819a3f9d82b56
+lens rgba32 1 f5083a628b8088f7
+lens rgba32 2 a23854140bdbdd50
+lens rgba32 3 f669d3ee5e384a11
+lens rgba32 4 201068ea267fc74d
+lens rgba32 5 8f46b6978e133970
+lens rgba32 6 352e7f6511cbdf53
+lens rgba32 7 60e55c34e6b11e75
+lens rgba32 8 83284f0e0f36fed2
+lens rgba32 9 e98e0ad661990510
+lens rgba32 10 185a65e3cbd8ec2b
+lens rgba32 11 e6c6b1fab4ecaa29
+lens gray16 0 72c376431b40c31a
+lens gray16 1 85973c8875813bfd
+lens gray16 2 00ce80a557ee1aef
+lens gray16 3 fe3fa2a7f298a10a
+lens gray16 4 8347c1e82f90b777
+lens gray16 5 52ad976b035c0362
+lens gray16 6 6dacbc0c33f67e57
+lens gray16 7 72c376431b40c31a
+lens gray16 8 8e71b08455d096ed
+lens gray16 9 d307fb3d78da65b8
+lens gray16 10 4b65aaf8b9f089b2
+lens gray16 11 1fefe012e9a7fe47
+lens cmyka8 0 8f34deff902e5276
+lens cmyka8 1 d0b3926fa1596cc1
+lens cmyka8 2 8668a32180b59c60
+lens cmyka8 3 e0c598839263fac0
+lens cmyka8 4 79f1957573cde93a
+lens cmyka8 5 000758f8507a7691
+lens cmyka8 6 fdbd1a08aeb630bc
+lens cmyka8 7 8f34deff902e5276
+lens cmyka8 8 b18f809d4f142b99
+lens cmyka8 9 4eaa934b089971ee
+lens cmyka8 10 0f00dae985ebd569
+lens cmyka8 11 b8b9258396d1762d
+lens laba16 0 e006492f9738cf9b
+lens laba16 1 220961977016a9c7
+lens laba16 2 d28b664a297d4812
+lens laba16 3 99e2c52c8f8cc8d8
+lens laba16 4 88ca0b085355a5a4
+lens laba16 5 179ff9d14829c7bd
+lens laba16 6 165f296925ad171c
+lens laba16 7 e006492f9738cf9b
+lens laba16 8 a3869f7e99a154c6
+lens laba16 9 559ca73d99b63160
+lens laba16 10 0c0fd0e9337533ff
+lens laba16 11 87362ea6ddbfce4a
+persp_groups 0 4 db29af6aa7629191
+persp 0 1 2ec7825e4c494884
+persp_straight 0 h cd933ea504c3edb2
+persp_straight 0 v 0940ccea721e6b03
+persp_straight 0 auto 750b8c109b2dfeec
+persp_groups 1 4 db29af6aa7629191
+persp 1 0 bc136f35657ca1fa
+persp_straight 1 h 6aea4873965cac0f
+persp_straight 1 v ca9a211008ce475f
+persp_straight 1 auto ca9a211008ce475f
+persp_groups 2 6 a2a45ced51b3b1bb
+persp 2 0 4336b2494d571c31
+persp_straight 2 h 09670b0e02daed01
+persp_straight 2 v 0158fa7dbba5144c
+persp_straight 2 auto 33cc8c32e121e061
+persp_groups 3 8 3c65a1d502871fd3
+persp 3 0 1ce0e4f0557e3944
+persp_straight 3 h 068c32504df74806
+persp_straight 3 v da5a7219388222a6
+persp_straight 3 auto 30fe53eb6806b16c
+vp_plane 0 407f40000000000f 088faabc066610a2
+vp_tear 0 5 7930aca4324c4f7d
+vp_plane 1 407f400000000008 3c8c79af24df7252
+vp_tear 1 5 d2d6103880cfbb88
+vp_plane 2 bff0000000000000 c4f1f5796878daf5
+vp_tear 2 5 64348939ced48c3c
+vp_plane 3 407f400000000014 012b3fa489b54cbf
+vp_tear 3 5 1e7372268b246a0b
+vp_paste 0.25 0.25 0.5 930f27fd71b07f5b
+vp_paste 0 0 1 8ff42d2580a0f5cc
+vp_paste 0.6 0.1 0.3 82d72c6464a42f09
+vp_clone rgba8 5 31dfb875883fa275
+vp_clone rgba32 5 916107ea70dedee7
+wide_cam {"model":"fisheye","focalLength":8} 0e2b0201fa4bf6bd
+wide_cam {"model":"perspective"} ecbb0f1f00ed590b
+wide_cam {} 39cef790a070f2aa
+wide_cam {"model":"fullSpherical"} 8af3ce04f07e6190
+wide_cam {"focalLength":10,"cropFactor":1.5} 3352399f9f669d37
+wide 480 320 {} 48 32 7183b42f32269093
+wide 100 33 {} 48 16 2f2b976ce7ecf3f2
+widejson {"model":"auto","focalLength":0.0,"cropFactor":1.0,"scale":100.0,"constraints":[]}
+wide 480 320 {"scale":80} 48 32 60d812c9cc27bbb6
+wide 100 33 {"scale":80} 48 16 c81f94b5c3f2d95b
+widejson {"model":"auto","focalLength":0.0,"cropFactor":1.0,"scale":80.0,"constraints":[]}
+wide 480 320 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 48 32 faaabd874bd74af4
+wide 100 33 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 48 16 e8b30a2ffaff50e7
+widejson {"model":"fisheye","focalLength":8.0,"cropFactor":1.0,"scale":100.0,"constraints":[{"a":[60.0,70.0],"b":[420.0,70.0],"orientation":"horizontal"},{"a":[80.0,60.0],"b":[80.0,260.0],"orientation":"free"}]}
+wide 480 320 {"model":"fisheye","focalLength":12,"constraints":[{"a":[20,30],"b":[460,35],"orientation":"horizontal"}]} 48 32 978f395d5eb0a6aa
+wide 100 33 {"model":"fisheye","focalLength":12,"constraints":[{"a":[20,30],"b":[460,35],"orientation":"horizontal"}]} 48 16 48e5721996b58705
+widejson {"model":"fisheye","focalLength":12.0,"cropFactor":1.0,"scale":100.0,"constraints":[{"a":[20.0,30.0],"b":[460.0,35.0],"orientation":"horizontal"}]}
+wide 480 320 {"model":"perspective","constraints":[{"a":[100,20],"b":[110,300],"orientation":"vertical"},{"a":[30,250],"b":[400,280]}],"scale":110} 48 32 f5acbea81925585b
+wide 100 33 {"model":"perspective","constraints":[{"a":[100,20],"b":[110,300],"orientation":"vertical"},{"a":[30,250],"b":[400,280]}],"scale":110} 48 16 e9b54695a1a1eabd
+widejson {"model":"perspective","focalLength":0.0,"cropFactor":1.0,"scale":110.0,"constraints":[{"a":[100.0,20.0],"b":[110.0,300.0],"orientation":"vertical"},{"a":[30.0,250.0],"b":[400.0,280.0],"orientation":"free"}]}
+wide 480 320 {"model":"fullSpherical","constraints":[{"a":[10,100],"b":[300,120]}]} 48 32 b204b1eb53a6f210
+wide 100 33 {"model":"fullSpherical","constraints":[{"a":[10,100],"b":[300,120]}]} 48 16 4a8da0038e0862d4
+widejson {"model":"fullSpherical","focalLength":0.0,"cropFactor":1.0,"scale":100.0,"constraints":[{"a":[10.0,100.0],"b":[300.0,120.0],"orientation":"free"}]}
+relight rgba8 40 {"filter":"relight","angle":45,"elevation":40,"intensity":40,"ambient":55,"warmth":0,"softness":25} f10a566eed3eb3e5
+relight rgba8 300 {"filter":"relight","angle":45,"elevation":40,"intensity":40,"ambient":55,"warmth":0,"softness":25} 56211be404df82dd
+relight rgb8 40 {"filter":"relight","angle":45,"elevation":40,"intensity":40,"ambient":55,"warmth":0,"softness":25} bcc19f31daddb33e
+relight rgb8 300 {"filter":"relight","angle":45,"elevation":40,"intensity":40,"ambient":55,"warmth":0,"softness":25} 7b58bf32a681a12d
+relight rgba32 40 {"filter":"relight","angle":45,"elevation":40,"intensity":40,"ambient":55,"warmth":0,"softness":25} fbda7062e09934fb
+relight rgba32 300 {"filter":"relight","angle":45,"elevation":40,"intensity":40,"ambient":55,"warmth":0,"softness":25} 957be2d747a48bfb
+relight gray16 40 {"filter":"relight","angle":45,"elevation":40,"intensity":40,"ambient":55,"warmth":0,"softness":25} b23e43c5a2f4c256
+relight gray16 300 {"filter":"relight","angle":45,"elevation":40,"intensity":40,"ambient":55,"warmth":0,"softness":25} 61ce1e9f4f69213c
+relight cmyka8 40 {"filter":"relight","angle":45,"elevation":40,"intensity":40,"ambient":55,"warmth":0,"softness":25} 488d30147b847f95
+relight cmyka8 300 {"filter":"relight","angle":45,"elevation":40,"intensity":40,"ambient":55,"warmth":0,"softness":25} 20538134d21e63c3
+relight laba16 40 {"filter":"relight","angle":45,"elevation":40,"intensity":40,"ambient":55,"warmth":0,"softness":25} 1143ff7fde801ea2
+relight laba16 300 {"filter":"relight","angle":45,"elevation":40,"intensity":40,"ambient":55,"warmth":0,"softness":25} 2bbb3a79fbc3f9e7
+relight rgba8 40 {"filter":"relight","angle":180,"elevation":30,"intensity":90,"ambient":12,"warmth":0,"softness":15} ab56afb87b260d39
+relight rgba8 300 {"filter":"relight","angle":180,"elevation":30,"intensity":90,"ambient":12,"warmth":0,"softness":15} 44d7921ea4c34522
+relight rgb8 40 {"filter":"relight","angle":180,"elevation":30,"intensity":90,"ambient":12,"warmth":0,"softness":15} 936d412686138d37
+relight rgb8 300 {"filter":"relight","angle":180,"elevation":30,"intensity":90,"ambient":12,"warmth":0,"softness":15} d7b993066d634d4a
+relight rgba32 40 {"filter":"relight","angle":180,"elevation":30,"intensity":90,"ambient":12,"warmth":0,"softness":15} 7a5f6fa343de99cd
+relight rgba32 300 {"filter":"relight","angle":180,"elevation":30,"intensity":90,"ambient":12,"warmth":0,"softness":15} 8ba8f63fd20e8500
+relight gray16 40 {"filter":"relight","angle":180,"elevation":30,"intensity":90,"ambient":12,"warmth":0,"softness":15} 3824be6f22e0d1be
+relight gray16 300 {"filter":"relight","angle":180,"elevation":30,"intensity":90,"ambient":12,"warmth":0,"softness":15} 02509dda91385dfb
+relight cmyka8 40 {"filter":"relight","angle":180,"elevation":30,"intensity":90,"ambient":12,"warmth":0,"softness":15} 3a26e2fc425b31f2
+relight cmyka8 300 {"filter":"relight","angle":180,"elevation":30,"intensity":90,"ambient":12,"warmth":0,"softness":15} 0833e83a67275921
+relight laba16 40 {"filter":"relight","angle":180,"elevation":30,"intensity":90,"ambient":12,"warmth":0,"softness":15} 1524a6d265d2dfde
+relight laba16 300 {"filter":"relight","angle":180,"elevation":30,"intensity":90,"ambient":12,"warmth":0,"softness":15} e97a7bc554973900
+relight rgba8 40 {"filter":"relight","angle":-60,"elevation":80,"intensity":60,"ambient":30,"warmth":80,"softness":90} 55dffd9d565ff2eb
+relight rgba8 300 {"filter":"relight","angle":-60,"elevation":80,"intensity":60,"ambient":30,"warmth":80,"softness":90} 29d11a419ec6af5a
+relight rgb8 40 {"filter":"relight","angle":-60,"elevation":80,"intensity":60,"ambient":30,"warmth":80,"softness":90} 1f24c8229c89ffaa
+relight rgb8 300 {"filter":"relight","angle":-60,"elevation":80,"intensity":60,"ambient":30,"warmth":80,"softness":90} 1270b7be0c8543dc
+relight rgba32 40 {"filter":"relight","angle":-60,"elevation":80,"intensity":60,"ambient":30,"warmth":80,"softness":90} bce4ca4ac071cca9
+relight rgba32 300 {"filter":"relight","angle":-60,"elevation":80,"intensity":60,"ambient":30,"warmth":80,"softness":90} 41c16a9e04bab41a
+relight gray16 40 {"filter":"relight","angle":-60,"elevation":80,"intensity":60,"ambient":30,"warmth":80,"softness":90} 9c83efb76a2f30ea
+relight gray16 300 {"filter":"relight","angle":-60,"elevation":80,"intensity":60,"ambient":30,"warmth":80,"softness":90} 32bfdacf668dc9da
+relight cmyka8 40 {"filter":"relight","angle":-60,"elevation":80,"intensity":60,"ambient":30,"warmth":80,"softness":90} 12a19a97f43e1bbe
+relight cmyka8 300 {"filter":"relight","angle":-60,"elevation":80,"intensity":60,"ambient":30,"warmth":80,"softness":90} 64f2396a576d4c4a
+relight laba16 40 {"filter":"relight","angle":-60,"elevation":80,"intensity":60,"ambient":30,"warmth":80,"softness":90} 38ecd898d747b6aa
+relight laba16 300 {"filter":"relight","angle":-60,"elevation":80,"intensity":60,"ambient":30,"warmth":80,"softness":90} 35aac66483161e03
+relight rgba8 40 {"filter":"relight","angle":10,"elevation":0,"intensity":100,"ambient":100,"warmth":-70,"softness":1} 5648e2eea2882238
+relight rgba8 300 {"filter":"relight","angle":10,"elevation":0,"intensity":100,"ambient":100,"warmth":-70,"softness":1} 5648e2eea2882238
+relight rgb8 40 {"filter":"relight","angle":10,"elevation":0,"intensity":100,"ambient":100,"warmth":-70,"softness":1} 367e8eea158bd85d
+relight rgb8 300 {"filter":"relight","angle":10,"elevation":0,"intensity":100,"ambient":100,"warmth":-70,"softness":1} 367e8eea158bd85d
+relight rgba32 40 {"filter":"relight","angle":10,"elevation":0,"intensity":100,"ambient":100,"warmth":-70,"softness":1} 8dd7727afad981c8
+relight rgba32 300 {"filter":"relight","angle":10,"elevation":0,"intensity":100,"ambient":100,"warmth":-70,"softness":1} 8dd7727afad981c8
+relight gray16 40 {"filter":"relight","angle":10,"elevation":0,"intensity":100,"ambient":100,"warmth":-70,"softness":1} 96c31db2825094cf
+relight gray16 300 {"filter":"relight","angle":10,"elevation":0,"intensity":100,"ambient":100,"warmth":-70,"softness":1} 96c31db2825094cf
+relight cmyka8 40 {"filter":"relight","angle":10,"elevation":0,"intensity":100,"ambient":100,"warmth":-70,"softness":1} 2ea5cb7d3d76515b
+relight cmyka8 300 {"filter":"relight","angle":10,"elevation":0,"intensity":100,"ambient":100,"warmth":-70,"softness":1} 2ea5cb7d3d76515b
+relight laba16 40 {"filter":"relight","angle":10,"elevation":0,"intensity":100,"ambient":100,"warmth":-70,"softness":1} ed4fc6a9e06d8447
+relight laba16 300 {"filter":"relight","angle":10,"elevation":0,"intensity":100,"ambient":100,"warmth":-70,"softness":1} ed4fc6a9e06d8447
+relight rgba8 40 {"filter":"relight","angle":0,"elevation":40,"intensity":0,"ambient":55,"warmth":0,"softness":25} 0783c3c6a711432c
+relight rgba8 300 {"filter":"relight","angle":0,"elevation":40,"intensity":0,"ambient":55,"warmth":0,"softness":25} 0783c3c6a711432c
+relight rgb8 40 {"filter":"relight","angle":0,"elevation":40,"intensity":0,"ambient":55,"warmth":0,"softness":25} 27bf8749a4971edc
+relight rgb8 300 {"filter":"relight","angle":0,"elevation":40,"intensity":0,"ambient":55,"warmth":0,"softness":25} 27bf8749a4971edc
+relight rgba32 40 {"filter":"relight","angle":0,"elevation":40,"intensity":0,"ambient":55,"warmth":0,"softness":25} ea8cc0416222ad23
+relight rgba32 300 {"filter":"relight","angle":0,"elevation":40,"intensity":0,"ambient":55,"warmth":0,"softness":25} ea8cc0416222ad23
+relight gray16 40 {"filter":"relight","angle":0,"elevation":40,"intensity":0,"ambient":55,"warmth":0,"softness":25} 97284d4b04407b0f
+relight gray16 300 {"filter":"relight","angle":0,"elevation":40,"intensity":0,"ambient":55,"warmth":0,"softness":25} 97284d4b04407b0f
+relight cmyka8 40 {"filter":"relight","angle":0,"elevation":40,"intensity":0,"ambient":55,"warmth":0,"softness":25} 791b81e8cd14ec50
+relight cmyka8 300 {"filter":"relight","angle":0,"elevation":40,"intensity":0,"ambient":55,"warmth":0,"softness":25} 791b81e8cd14ec50
+relight laba16 40 {"filter":"relight","angle":0,"elevation":40,"intensity":0,"ambient":55,"warmth":0,"softness":25} e90bdb3d7d04832e
+relight laba16 300 {"filter":"relight","angle":0,"elevation":40,"intensity":0,"ambient":55,"warmth":0,"softness":25} e90bdb3d7d04832e
+relight_halo fad11f131dda1404

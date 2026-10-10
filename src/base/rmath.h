@@ -44,22 +44,24 @@ static inline double pc_rs_max(double a, double b)
 /* `a.min(K)` / `a.max(K)` where K is a literal constant (never NaN): LLVM then emits a single
  * minss/maxss computing `a < K ? a : K`, so on a tie the SECOND operand wins: (-0.0).max(0.0)
  * is +0.0 here but pc_rs_maxf(-0.0f, 0.0f) is -0.0. Use these when the Rust source has a
- * literal (or a constant that inlining makes literal) as the second argument. */
+ * literal (or a constant that inlining makes literal) as the second argument. A NaN `a` gives K, as
+ * in Rust; the explicit isnan keeps clang from swapping the minss operands (seen with clang 23 -O2
+ * after an inlined clamp: it returned the NaN). */
 static inline float pc_rs_minf_k(float a, float k)
 {
-    return a < k ? a : k;
+    return isnan(a) ? k : (a < k ? a : k);
 }
 static inline float pc_rs_maxf_k(float a, float k)
 {
-    return a > k ? a : k;
+    return isnan(a) ? k : (a > k ? a : k);
 }
 static inline double pc_rs_min_k(double a, double k)
 {
-    return a < k ? a : k;
+    return isnan(a) ? k : (a < k ? a : k);
 }
 static inline double pc_rs_max_k(double a, double k)
 {
-    return a > k ? a : k;
+    return isnan(a) ? k : (a > k ? a : k);
 }
 
 #endif

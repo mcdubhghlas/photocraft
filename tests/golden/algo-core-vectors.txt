@@ -1,0 +1,444 @@
+enum RadialMethod "spin","zoom" def="spin"
+enum RadialQuality "draft","good","best" def="good"
+enum Distribution "uniform","gaussian" def="uniform"
+enum UndefinedAreas "wrap","repeat","transparent" def="wrap"
+enum Preserve "squareness","roundness" def="squareness"
+enum SpherizeMode "normal","horizontalOnly","verticalOnly" def="normal"
+enum WaveType "sine","triangle","square" def="sine"
+enum RippleSize "small","medium","large" def="medium"
+enum PolarMode "rectangularToPolar","polarToRectangular" def="rectangularToPolar"
+enum MezzotintType "fineDots","mediumDots","grainyDots","coarseDots","shortLines","mediumLines","longLines","shortStrokes","mediumStrokes","longStrokes" def="fineDots"
+enum DiffuseMode "normal","darkenOnly","lightenOnly","anisotropic" def="normal"
+enum ExtrudeType "blocks","pyramids" def="blocks"
+enum TileFill "background","foreground","inverse","unaltered" def="background"
+enum WindMethod "wind","blast","stagger" def="wind"
+enum ZigZagStyle "aroundCenter","outFromCenter","pondRipples" def="pondRipples"
+enum LensType "zoom","prime35","prime105","moviePrime" def="zoom"
+enum LightKind "spot","point","infinite" def="spot"
+enum TextureChannel "none","red","green","blue","alpha","luminance" def="none"
+enum BlurQuality "low","medium","high" def="medium"
+enum SmartBlurMode "normal","edgeOnly","overlayEdge" def="normal"
+enum DepthSource "none","transparency","layerMask" def="none"
+enum BlurShape "circle","ring","square","diamond","triangle","hexagon","star","heart","cross" def="circle"
+enum HsbModel "rgb","hsb","hsl" def="rgb"
+enum Resample "nearest","bilinear","bicubic","lanczos","preserveDetails" def="bicubic"
+enum Interp "nearest","bilinear","bicubic" def="bicubic"
+interp_parse "nearest" "nearest"
+interp_parse "nearestNeighbor" "nearest"
+interp_parse "bilinear" "bilinear"
+interp_parse "bicubic" "bicubic"
+interp_parse "x" "bicubic"
+interp_parse "" "bicubic"
+light_default {"kind":"spot","x":0.25,"y":0.2,"z":0.6,"targetX":0.5,"targetY":0.55,"angle":135.0,"elevation":45.0,"color":[1.0,1.0,1.0],"intensity":75.0,"cone":45.0,"hotspot":50.0,"radius":0.8}
+iris_default {"x":0.5,"y":0.5,"radiusX":0.35,"radiusY":0.25,"angle":0.0,"roundness":0.0,"feather":0.5,"blur":15.0}
+field_default {"x":0.5,"y":0.5,"blur":15.0}
+spin_default {"x":0.5,"y":0.5,"radiusX":0.3,"radiusY":0.3,"angle":0.0,"blurAngle":15.0}
+path_default {"points":[[0.2,0.5],[0.8,0.5]],"speed":50.0,"taper":0.0}
+de {"filter":"gaussianBlur","radius":2.5}	{"filter":"gaussianBlur","radius":2.5}
+de {"filter":"gaussianBlur","radius":1e-7}	{"filter":"gaussianBlur","radius":1e-7}
+de {"filter":"gaussianBlur","radius":3}	{"filter":"gaussianBlur","radius":3.0}
+de {"filter":"gaussianBlur","radius":-0}	{"filter":"gaussianBlur","radius":-0.0}
+de {"filter":"gaussianBlur","radius":1e300}	{"filter":"gaussianBlur","radius":null}
+de {"filter":"gaussianBlur","radius":0.1,"extra":[1,2]}	{"filter":"gaussianBlur","radius":0.1}
+de {"filter":"gaussianBlur"}	ERR missing field `radius`
+de {"filter":"gaussianBlur","radius":"a"}	ERR invalid type: string "a", expected f32
+de {"filter":"gaussianBlur","radius":null}	ERR invalid type: null, expected f32
+de {"filter":"gaussianBlur","radius":true}	ERR invalid type: boolean `true`, expected f32
+de {"filter":"gaussianBlur","radius":[]}	ERR invalid type: sequence, expected f32
+de {"filter":"gaussianBlur","radius":{}}	ERR invalid type: map, expected f32
+de {"filter":"gaussianBlur","radius":1,"radius":2}	{"filter":"gaussianBlur","radius":2.0}
+de {"filter":"nope"}	ERR unknown variant `nope`, expected one of `gaussianBlur`, `boxBlur`, `motionBlur`, `radialBlur`, `surfaceBlur`, `unsharpMask`, `smartSharpen`, `highPass`, `addNoise`, `median`, `dustAndScratches`, `minimum`, `maximum`, `offset`, `mosaic`, `emboss`, `findEdges`, `solarize`, `invert`, `desaturate`, `twirl`, `pinch`, `spherize`, `wave`, `ripple`, `polarCoordinates`, `colorHalftone`, `crystallize`, `facet`, `fragment`, `mezzotint`, `pointillize`, `diffuse`, `extrude`, `oilPaint`, `tiles`, `traceContour`, `wind`, `displace`, `shear`, `zigZag`, `fibers`, `lensFlare`, `lightingEffects`, `relight`, `reduceNoise`, `smartBlur`, `lensBlur`, `shapeBlur`, `tiltShift`, `irisBlur`, `fieldBlur`, `spinBlur`, `pathBlur`, `custom`, `hsbHsl`, `deInterlace`, `ntscColors`, `filterGallery`
+de {"filter":0,"radius":4}	ERR invalid type: integer `0`, expected variant identifier
+de {"filter":58}	ERR invalid type: integer `58`, expected variant identifier
+de {"filter":59}	ERR invalid type: integer `59`, expected variant identifier
+de {"filter":-1}	ERR invalid type: integer `-1`, expected variant identifier
+de {"filter":1.5}	ERR invalid type: floating point `1.5`, expected variant identifier
+de {"filter":true}	ERR invalid type: boolean `true`, expected variant identifier
+de {"filter":null}	ERR invalid type: null, expected variant identifier
+de {"radius":1}	ERR missing field `filter`
+de {}	ERR missing field `filter`
+de [1]	ERR invalid type: integer `1`, expected variant identifier
+de "gaussianBlur"	ERR invalid type: string "gaussianBlur", expected internally tagged enum FilterParams
+de null	ERR invalid type: null, expected internally tagged enum FilterParams
+de 7	ERR invalid type: integer `7`, expected internally tagged enum FilterParams
+de {"filter":"minimum","radius":3}	{"filter":"minimum","radius":3.0,"preserve":"squareness"}
+de {"filter":"maximum","radius":2,"preserve":"roundness"}	{"filter":"maximum","radius":2.0,"preserve":"roundness"}
+de {"filter":"minimum","radius":3,"preserve":"round"}	ERR unknown variant `round`, expected `squareness` or `roundness`
+de {"filter":"minimum","radius":3,"preserve":{"roundness":null}}	{"filter":"minimum","radius":3.0,"preserve":"roundness"}
+de {"filter":"minimum","radius":3,"preserve":{"roundness":1}}	ERR invalid type: integer `1`, expected unit
+de {"filter":"minimum","radius":3,"preserve":{"a":null,"b":null}}	ERR invalid value: map, expected map with a single key
+de {"filter":"minimum","radius":3,"preserve":{}}	ERR invalid value: map, expected map with a single key
+de {"filter":"minimum","radius":3,"preserve":1}	ERR invalid type: integer `1`, expected string or map
+de {"filter":"radialBlur","amount":20.0,"method":"spin","centerX":0.5,"centerY":0.5}	{"filter":"radialBlur","amount":20.0,"method":"spin","quality":"good","centerX":0.5,"centerY":0.5}
+de {"filter":"radialBlur","amount":20.0,"method":"zoom","quality":"best","centerX":0.25,"centerY":0.75}	{"filter":"radialBlur","amount":20.0,"method":"zoom","quality":"best","centerX":0.25,"centerY":0.75}
+de {"filter":"radialBlur","amount":20.0,"method":"spiral","centerX":0.5,"centerY":0.5}	ERR unknown variant `spiral`, expected `spin` or `zoom`
+de {"filter":"addNoise","amount":25,"distribution":"gaussian","monochromatic":false,"seed":3}	{"filter":"addNoise","amount":25.0,"distribution":"gaussian","monochromatic":false,"seed":3}
+de {"filter":"addNoise","amount":25,"distribution":"gaussian","monochromatic":1,"seed":3}	ERR invalid type: integer `1`, expected a boolean
+de {"filter":"addNoise","amount":25,"distribution":"gaussian","monochromatic":true,"seed":-1}	ERR invalid value: integer `-1`, expected u32
+de {"filter":"addNoise","amount":25,"distribution":"gaussian","monochromatic":true,"seed":1.5}	ERR invalid type: floating point `1.5`, expected u32
+de {"filter":"addNoise","amount":25,"distribution":"gaussian","monochromatic":true,"seed":5000000000}	ERR invalid value: integer `5000000000`, expected u32
+de {"filter":"addNoise","amount":25,"distribution":"gaussian","monochromatic":true,"seed":4294967295}	{"filter":"addNoise","amount":25.0,"distribution":"gaussian","monochromatic":true,"seed":4294967295}
+de {"filter":"addNoise","amount":25,"distribution":"poisson","monochromatic":true,"seed":0}	ERR unknown variant `poisson`, expected `uniform` or `gaussian`
+de {"filter":"offset","horizontal":7,"vertical":-3,"undefined":"wrap"}	{"filter":"offset","horizontal":7,"vertical":-3,"undefined":"wrap"}
+de {"filter":"offset","horizontal":3000000000,"vertical":0,"undefined":"wrap"}	ERR invalid value: integer `3000000000`, expected i32
+de {"filter":"offset","horizontal":-3000000000,"vertical":0,"undefined":"wrap"}	ERR invalid value: integer `-3000000000`, expected i32
+de {"filter":"offset","horizontal":0.5,"vertical":0,"undefined":"wrap"}	ERR invalid type: floating point `0.5`, expected i32
+de {"filter":"offset","horizontal":1,"vertical":0}	ERR missing field `undefined`
+de {"filter":"colorHalftone","maxRadius":4,"angles":[108,162,90,45]}	{"filter":"colorHalftone","maxRadius":4.0,"angles":[108.0,162.0,90.0,45.0]}
+de {"filter":"colorHalftone","maxRadius":4,"angles":[108,162,90]}	ERR invalid length 3, expected an array of length 4
+de {"filter":"colorHalftone","maxRadius":4,"angles":[108,162,90,45,1]}	ERR invalid length 5, expected 4 elements in sequence
+de {"filter":"colorHalftone","maxRadius":4,"angles":[108,162,"x",45]}	ERR invalid type: string "x", expected f32
+de {"filter":"colorHalftone","maxRadius":4,"angles":5}	ERR invalid type: integer `5`, expected an array of length 4
+de {"filter":"lightingEffects","lights":[{}],"gloss":0,"metallic":0,"exposure":0,"ambience":10,"texture":"luminance","height":50,"whiteIsHigh":true}	{"filter":"lightingEffects","lights":[{"kind":"spot","x":0.25,"y":0.2,"z":0.6,"targetX":0.5,"targetY":0.55,"angle":135.0,"elevation":45.0,"color":[1.0,1.0,1.0],"intensity":75.0,"cone":45.0,"hotspot":50.0,"radius":0.8}],"gloss":0.0,"metallic":0.0,"exposure":0.0,"ambience":10.0,"texture":"luminance","height":50.0,"whiteIsHigh":true}
+de {"filter":"lightingEffects","lights":[{"kind":"point","x":0.1,"color":[0.5,0.25,1]},{"intensity":-20}],"gloss":1,"metallic":2,"exposure":3,"ambience":4,"texture":"none","height":5,"whiteIsHigh":false}	{"filter":"lightingEffects","lights":[{"kind":"point","x":0.1,"y":0.2,"z":0.6,"targetX":0.5,"targetY":0.55,"angle":135.0,"elevation":45.0,"color":[0.5,0.25,1.0],"intensity":75.0,"cone":45.0,"hotspot":50.0,"radius":0.8},{"kind":"spot","x":0.25,"y":0.2,"z":0.6,"targetX":0.5,"targetY":0.55,"angle":135.0,"elevation":45.0,"color":[1.0,1.0,1.0],"intensity":-20.0,"cone":45.0,"hotspot":50.0,"radius":0.8}],"gloss":1.0,"metallic":2.0,"exposure":3.0,"ambience":4.0,"texture":"none","height":5.0,"whiteIsHigh":false}
+de {"filter":"lightingEffects","lights":[{"x":"a"}],"gloss":0,"metallic":0,"exposure":0,"ambience":10,"texture":"luminance","height":50,"whiteIsHigh":true}	ERR invalid type: string "a", expected f32
+de {"filter":"lightingEffects","lights":[3],"gloss":0,"metallic":0,"exposure":0,"ambience":10,"texture":"luminance","height":50,"whiteIsHigh":true}	ERR invalid type: integer `3`, expected struct Light
+de {"filter":"lightingEffects","lights":{},"gloss":0,"metallic":0,"exposure":0,"ambience":10,"texture":"luminance","height":50,"whiteIsHigh":true}	ERR invalid type: map, expected a sequence
+de {"filter":"lightingEffects","lights":[{"color":[1,2]}],"gloss":0,"metallic":0,"exposure":0,"ambience":10,"texture":"luminance","height":50,"whiteIsHigh":true}	ERR invalid length 2, expected an array of length 3
+de {"filter":"shear","points":[[0,0],[0.5,0.3],[1,0]],"undefined":"repeat"}	{"filter":"shear","points":[[0.0,0.0],[0.5,0.3],[1.0,0.0]],"undefined":"repeat"}
+de {"filter":"shear","points":[],"undefined":"transparent"}	{"filter":"shear","points":[],"undefined":"transparent"}
+de {"filter":"shear","points":[[0,0],[1]],"undefined":"wrap"}	ERR invalid length 1, expected an array of length 2
+de {"filter":"shear","points":"x","undefined":"wrap"}	ERR invalid type: string "x", expected a sequence
+de {"filter":"irisBlur","pins":[{},{"x":0.1,"radiusX":0.2,"blur":3}]}	{"filter":"irisBlur","pins":[{"x":0.5,"y":0.5,"radiusX":0.35,"radiusY":0.25,"angle":0.0,"roundness":0.0,"feather":0.5,"blur":15.0},{"x":0.1,"y":0.5,"radiusX":0.2,"radiusY":0.25,"angle":0.0,"roundness":0.0,"feather":0.5,"blur":3.0}]}
+de {"filter":"fieldBlur","pins":[{"blur":40}]}	{"filter":"fieldBlur","pins":[{"x":0.5,"y":0.5,"blur":40.0}]}
+de {"filter":"spinBlur","pins":[{"blurAngle":30,"angle":5}]}	{"filter":"spinBlur","pins":[{"x":0.5,"y":0.5,"radiusX":0.3,"radiusY":0.3,"angle":5.0,"blurAngle":30.0}]}
+de {"filter":"pathBlur","paths":[{},{"points":[[0,0],[1,1],[0.5,0.25]],"speed":10,"taper":20}]}	{"filter":"pathBlur","paths":[{"points":[[0.2,0.5],[0.8,0.5]],"speed":50.0,"taper":0.0},{"points":[[0.0,0.0],[1.0,1.0],[0.5,0.25]],"speed":10.0,"taper":20.0}]}
+de {"filter":"pathBlur","paths":[{"points":[]}]}	{"filter":"pathBlur","paths":[{"points":[],"speed":50.0,"taper":0.0}]}
+de {"filter":"custom","kernel":[0,0,0,0,0,0,0,1,0,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0],"scale":1,"offset":0}	{"filter":"custom","kernel":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,2.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"scale":1.0,"offset":0.0}
+de {"filter":"custom","kernel":[1,"a"],"scale":1,"offset":0}	ERR invalid type: string "a", expected f32
+de {"filter":"findEdges"}	{"filter":"findEdges"}
+de {"filter":"findEdges","x":1}	{"filter":"findEdges"}
+de {"filter":"invert"}	{"filter":"invert"}
+de {"filter":"displace","horizontal":10,"vertical":10,"stretch":true,"undefined":"wrap"}	{"filter":"displace","horizontal":10.0,"vertical":10.0,"stretch":true,"undefined":"wrap"}
+de {"filter":"displace","horizontal":10,"vertical":10,"stretch":true,"undefined":"wrap","map":5}	{"filter":"displace","horizontal":10.0,"vertical":10.0,"stretch":true,"undefined":"wrap"}
+ser {"filter":"gaussianBlur","radius":0.1}
+ser {"filter":"gaussianBlur","radius":1e-7}
+ser {"filter":"gaussianBlur","radius":1e+20}
+ser {"filter":"gaussianBlur","radius":3.4028235e+38}
+ser {"filter":"gaussianBlur","radius":-0.0}
+ser {"filter":"gaussianBlur","radius":16777216.0}
+ser {"filter":"gaussianBlur","radius":null}
+ser {"filter":"gaussianBlur","radius":null}
+ser {"filter":"gaussianBlur","radius":0.33333334}
+ser {"filter":"offset","horizontal":-2147483648,"vertical":2147483647,"undefined":"transparent"}
+ser {"filter":"addNoise","amount":1.5,"distribution":"uniform","monochromatic":true,"seed":4294967295}
+halo {"filter":"gaussianBlur","radius":2.0} Gaussian Blur r7 5db0347622833155
+halo {"filter":"gaussianBlur","radius":-1.0} Gaussian Blur r1 322eb7197b400635
+halo {"filter":"gaussianBlur","radius":null} Gaussian Blur r1 322eb7197b400635
+halo {"filter":"gaussianBlur","radius":1e+30} Gaussian Blur r-2147483648 c0e5ebe14fec9ffd
+halo {"filter":"boxBlur","radius":2.5} Box Blur r4 0b109e0de6556e85
+halo {"filter":"motionBlur","angle":0.0,"distance":-7.0} Motion Blur r6 5af0a30b25604365
+halo {"filter":"mosaic","cellSize":0.2} Mosaic r2 7bb0851bab1f4625
+halo {"filter":"emboss","angle":1.0,"height":-3.5,"amount":1.0} Emboss r6 5af0a30b25604365
+halo {"filter":"findEdges"} Find Edges r1 322eb7197b400635
+halo {"filter":"invert"} Invert r0 2bd0801e6c147145
+halo {"filter":"twirl","angle":1.0} Twirl bounds 1dcde5e1b355b9a5
+image_read rgba8 fa19df5dda4b0682
+image_read rgba16 7e835dee18aa6008
+image_read rgba32 70ec46d406438261
+image_read rgb8 29ee737115853374
+image_read gray8 84315f1ea50ccf49
+image_read graya16 9ff7ce8908661836
+image_read cmyka8 682722e060b45248
+image_read laba16 7e835dee18aa6008
+image_read laba32 70ec46d406438261
+get_edge 0 e16c9f8a9dd8cf10
+sample 0 dc1a0a208a9deb9d
+get_edge 1 2384882ea977cc3c
+sample 1 d88db5213e3e915e
+get_edge 2 f1393779b9f2e63d
+sample 2 458054daa4d11211
+crop afc3d2d2bd6d8816 05e2c0874d3f6b22
+premul 4f5457e2ee9e51a4 46e2faf996df4358
+hash01 aebd318bfa5e703f
+cell_point d7b2a935150c082b
+gauss_box_radii 0:1,0,0 0.2:1,0,0 0.3:1,0,0 0.5:1,0,0 0.577:1,0,0 0.6:0,0,1 1:0,0,1 1.5:1,1,1 2.5:2,2,2 7.3:6,7,7 30:29,29,30 1000:999,999,1000 1000000000:1000000000,1000000000,1000000000 NaN:1,1,1 -5:4,4,5
+box_gauss 17x11x1 2fb3ed408a83e10f
+box_gauss 9x23x3 ad799a8b3078b68c
+box_gauss 1x7x4 12376e6039cde50c
+box_gauss 7x1x2 d3504c8e8ae40bb6
+box_gauss 40x30x5 5d5fe566da81ed9e
+smoothstep d49c7ea58b0ff321
+add_sample_premul 212a88beab5a80f5
+premul_window a504fddd12d302c8
+ctx_colour Rgb false 5ec62e747bf4ad93
+ctx_colour Rgb true d4c6bfcb4877bbc5
+ctx_colour Grayscale false 4d924ecdb8ae74f5
+ctx_colour Grayscale true 6290dcfa25e81126
+ctx_colour Cmyk false 30a7cce056ca02c9
+ctx_colour Cmyk true b169d8600157016d
+ctx_colour Lab false 2312c128222c9ab3
+ctx_colour Lab true ec10ca4799eaaba5
+ctx_colour Bitmap false 4d924ecdb8ae74f5
+ctx_colour Bitmap true 6290dcfa25e81126
+ctx_colour Duotone false 4d924ecdb8ae74f5
+ctx_colour Duotone true 6290dcfa25e81126
+ctx_colour Indexed false 5ec62e747bf4ad93
+ctx_colour Indexed true d4c6bfcb4877bbc5
+ctx_colour Multichannel false 5ec62e747bf4ad93
+ctx_colour Multichannel true d4c6bfcb4877bbc5
+hsl 3abbf0556be63402
+color_range e1e060778af08efa
+histogram 0 76f4b4ef60ac0a85 0 0 0
+histogram 1 cfdaefcac79a0ee4 0 0 1
+histogram 50 3d9fae530e740e07 34 8 8
+histogram 500 a1d6151e2bb58d6c 353 87 60
+clipping 8791850731c1c0d4
+shadows_highlights 0 ceae1cdeeccfdc1a dbfcce58f82ef2a5
+shadows_highlights 1 f9eebe8c4a0caf1b 06cc18308301d2d5
+shadows_highlights 2 e4a80e916b4e5ebb e45cb16f66a627f5
+shadows_highlights 3 fe8b03ddf7ad523a f833e09d09823415
+shadows_highlights 4 9ad852657447e91a 6ad434642dd6c325
+replace_color 0 bd95d301042ea680 37a9b9857c5bfd95
+replace_color 1 c5a55d737efb6d45 1dfe125fdce7e61e
+replace_color 2 2b7b10ec64320b32 2a320b5981fbff0e
+lab_stats 5a5c7c300bdd6686 1088297f5e8c6285 none none
+match_color 0 c00816b1f0419166 7dc9bc5e4405d0ed
+match_color 1 1257973e50e75a2c e11553092482be99
+match_color 2 b844356234610926 e5b9d955fdcb7338
+match_color 3 70c71a84a0289ea6 fd41a3c0b7857c3d
+hdr_toning 0 8366cfca12ea49a7 b259ae0b8083f115
+hdr_toning 1 06cd87d0ccba2ac7 2f977cf6abaa7825
+hdr_toning 2 04a4844634321e11 a206016cf76b48ed
+hdr_toning 3 0d162b84e2d49408 36bc519e1bc3c98d
+hdr_toning 4 95fb93bd4707b6b2 e5378a7d0be4fd05
+resize rgba8 0 960b34bdfd877ddf
+resize rgba8 1 e44c090bdb63d18f
+resize rgba8 2 9fed7af051516e8c
+resize rgba8 3 d8272c1256cad02e
+resize rgba8 4 f5bfc8378ade3249
+resize_pd rgba8 522c6df142244fcf
+resize rgba16 0 075394cf21957e6f
+resize rgba16 1 76ac6b438b4d5e44
+resize rgba16 2 3068cbc6c5c00832
+resize rgba16 3 304fbc57edecb33d
+resize rgba16 4 e4384759386ce23b
+resize_pd rgba16 5ddcd46262c1d1fd
+resize rgba32 0 b5aee0bdb513083e
+resize rgba32 1 d3fd8852f3c74658
+resize rgba32 2 c6da86a6636edbd8
+resize rgba32 3 997e43a45d4388c2
+resize rgba32 4 0803b6c4a0651c68
+resize_pd rgba32 dd1eabde649347bd
+resize rgb8 0 fed0f109a45b8e88
+resize rgb8 1 51653d928695171b
+resize rgb8 2 9ed744e1212dd641
+resize rgb8 3 71054b776509699b
+resize rgb8 4 8a6bfdb6d6730733
+resize_pd rgb8 b9a527cc9da2407a
+resize gray8 0 65f51ac5dae621b9
+resize gray8 1 ba3a0c94584f6a6d
+resize gray8 2 fd93f14b8705c09a
+resize gray8 3 c450d3bb83e7a4c3
+resize gray8 4 9c297547479d6429
+resize_pd gray8 1f547591280e6e6b
+resize graya16 0 a28ffa7fecd96778
+resize graya16 1 e8c0f5eaa47f376b
+resize graya16 2 e85250ed6be8f89d
+resize graya16 3 30ed2e486dd56b45
+resize graya16 4 b60118c18f508a77
+resize_pd graya16 bd06c769cbb77a80
+resize cmyka8 0 3623e1d77d9111aa
+resize cmyka8 1 d589c33daed38656
+resize cmyka8 2 3ebb28c7ee8ab6df
+resize cmyka8 3 75a733acbee40e26
+resize cmyka8 4 765715c069628f58
+resize_pd cmyka8 dd36af45d72c4ebe
+resize laba16 0 075394cf21957e6f
+resize laba16 1 76ac6b438b4d5e44
+resize laba16 2 3068cbc6c5c00832
+resize laba16 3 304fbc57edecb33d
+resize laba16 4 e4384759386ce23b
+resize_pd laba16 5ddcd46262c1d1fd
+resize laba32 0 b5aee0bdb513083e
+resize laba32 1 d3fd8852f3c74658
+resize laba32 2 c6da86a6636edbd8
+resize laba32 3 997e43a45d4388c2
+resize laba32 4 0803b6c4a0651c68
+resize_pd laba32 dd1eabde649347bd
+resize_canvas rgba8 0 d91eb2ad4f59bc77
+resize_canvas rgba8 1 86326a35165bb4c7
+resize_canvas rgba8 2 96a44338d237cd74
+resize_canvas rgba8 3 2f1b62495b2e86b5
+resize_canvas rgba16 0 77fd049ab51a5d2f
+resize_canvas rgba16 1 523769b1f4eb5f8e
+resize_canvas rgba16 2 1a6c8ddbe2f8ccef
+resize_canvas rgba16 3 8bb1a1fcf597fe13
+resize_canvas rgba32 0 7a8c79f77bd29c60
+resize_canvas rgba32 1 5189a27fbd9f0569
+resize_canvas rgba32 2 ffb3f6f0d9c63510
+resize_canvas rgba32 3 42cb6500fb74182b
+resize_canvas rgb8 0 908df3ec8e761545
+resize_canvas rgb8 1 af0b188996a01196
+resize_canvas rgb8 2 04ab594d3144394f
+resize_canvas rgb8 3 b1d24403081f25f6
+resize_canvas gray8 0 a11b41f4b9c703c9
+resize_canvas gray8 1 d57d605dbecb9267
+resize_canvas gray8 2 24a4c83f974dd713
+resize_canvas gray8 3 3ed4c51ca4ea9d71
+resize_canvas graya16 0 c5e11e57cf7493b4
+resize_canvas graya16 1 4acfc858a3ce4ab0
+resize_canvas graya16 2 6fb9b160743c0afe
+resize_canvas graya16 3 1fe039800d19b833
+resize_canvas cmyka8 0 1e578dcd847ac0fa
+resize_canvas cmyka8 1 8e1843bc245c0f3a
+resize_canvas cmyka8 2 459b4215df30748c
+resize_canvas cmyka8 3 deff76ced346fcd1
+resize_canvas laba16 0 77fd049ab51a5d2f
+resize_canvas laba16 1 523769b1f4eb5f8e
+resize_canvas laba16 2 1a6c8ddbe2f8ccef
+resize_canvas laba16 3 8bb1a1fcf597fe13
+resize_canvas laba32 0 7a8c79f77bd29c60
+resize_canvas laba32 1 5189a27fbd9f0569
+resize_canvas laba32 2 ffb3f6f0d9c63510
+resize_canvas laba32 3 42cb6500fb74182b
+resize_sparse 0 f1ebc4213971d3ac
+resize_sparse 1 ff42a57140b40a05
+resize_sparse 2 8c72a117249d92b1
+resize_sparse 3 5836aa1e3b074a30
+resize_degenerate NaN 1 5e80b18f58df014b
+resize_degenerate 0 1 5e80b18f58df014b
+resize_degenerate -1 -1 5e80b18f58df014b
+resize_degenerate 1 -0.5 5e80b18f58df014b
+scaled_rect 90b54b0091bbb319
+translate_crop 0265924edc6a2b76
+homography 3cc7dc9a78afa350
+warp rgba8 identity b9d7648d0f77c74e
+warp rgba8 translate 60a0b4d05d458f3f
+warp rgba8 subpixel 09564463a5ca5fa7
+warp rgba8 scale2 1cbd610e6d41a38f
+warp rgba8 rotate 50816ab4c9efa29a
+warp rgba8 perspective 2f0af4453310378e
+warp rgba8 shrink8 66f222d1c20cd956
+warp rgba8 shrink3 c0eccd0cfd565ed5
+warp rgba8 flip 82afe95547fb3ab5
+warp rgba8 singular 88348fe55e17330b
+warp rgba8 infinite 88348fe55e17330b
+warp rgba8 far 88348fe55e17330b
+warp rgba16 identity 8a60dcfafe26f2d5
+warp rgba16 translate d863a02bd51fba45
+warp rgba16 subpixel 7355d045bdd4e7b7
+warp rgba16 scale2 2095ef0d90b54aea
+warp rgba16 rotate b7aaf76967b0722a
+warp rgba16 perspective 924611d57cb44262
+warp rgba16 shrink8 b49ee39081ccd72c
+warp rgba16 shrink3 9096c78478bb0a0f
+warp rgba16 flip 95ce77b2e2f8360e
+warp rgba16 singular 88348fe55e17330b
+warp rgba16 infinite 88348fe55e17330b
+warp rgba16 far 88348fe55e17330b
+warp rgba32 identity ffbdaae13ad46fc6
+warp rgba32 translate cf4d3211baf3afd3
+warp rgba32 subpixel 229cf41c479610db
+warp rgba32 scale2 37eac53fcaee234c
+warp rgba32 rotate 4f5ed885611e1d4f
+warp rgba32 perspective 293e5af96a0ab41e
+warp rgba32 shrink8 2673ed22e8706328
+warp rgba32 shrink3 d1808003c7a1cb8c
+warp rgba32 flip 16236bdb39159186
+warp rgba32 singular 88348fe55e17330b
+warp rgba32 infinite 88348fe55e17330b
+warp rgba32 far 88348fe55e17330b
+warp rgb8 identity 4fa662268e774315
+warp rgb8 translate a5a7bcaebd741fed
+warp rgb8 subpixel d82c083dede7a55a
+warp rgb8 scale2 4c0ab1c05fe67a46
+warp rgb8 rotate 8efadcf5e0515055
+warp rgb8 perspective 3016a803804aec65
+warp rgb8 shrink8 d53700c61dbf95a7
+warp rgb8 shrink3 459480fbbf892775
+warp rgb8 flip 7fcd0996afe52093
+warp rgb8 singular 88348fe55e17330b
+warp rgb8 infinite 88348fe55e17330b
+warp rgb8 far 88348fe55e17330b
+warp gray8 identity 22da91737e1f4a26
+warp gray8 translate 04bbca4156c49577
+warp gray8 subpixel b8a97b9e13f11b09
+warp gray8 scale2 c68c0401c6817f72
+warp gray8 rotate a494e8d7a89381a6
+warp gray8 perspective 1d99eca5b64a3ec6
+warp gray8 shrink8 42b6e8598ea28abc
+warp gray8 shrink3 508f75416d0f3750
+warp gray8 flip 9342d7358a2738f3
+warp gray8 singular 621e460a322561f1
+warp gray8 infinite 621e460a322561f1
+warp gray8 far 621e460a322561f1
+warp cmyka8 identity f8dddd4ea5886436
+warp cmyka8 translate d0eb79c474e7aad6
+warp cmyka8 subpixel ad4ccaa0ccf8e09b
+warp cmyka8 scale2 4cae623d9152520b
+warp cmyka8 rotate e22001373df9c546
+warp cmyka8 perspective 79edf9ab9f9b9e87
+warp cmyka8 shrink8 96fcd6b46c3b66d9
+warp cmyka8 shrink3 2208c719ced31ffe
+warp cmyka8 flip 47037b77800cc06b
+warp cmyka8 singular 26c3e847f14a7ae0
+warp cmyka8 infinite 26c3e847f14a7ae0
+warp cmyka8 far 26c3e847f14a7ae0
+pyramid 37x23x2 5 860366085bbc7ce8
+pyramid 1x1x3 1 ac6556f27ba0f6dd
+pyramid 1x9x1 5 7620a6a675edfcc2
+pyramid 16x1x4 5 c8353f1907db8c3b
+pyramid 64x32x1 5 81dcda02e72e4165
+pyramid 5x5x0 4 8e6ffd36ce72ef03
+auto_levels 1 1 2 2 10 10
+blend 1 c6bab2d0e37826bd
+blend 3 d6a97665b091c493
+weights 48x48 a730f6cef10076e5
+weights 200x130 a1f8564a4cc7bee5
+weights 3x2 3dbf7c25758154c5
+weights 1x1 337c9a5427b85e95
+apply rgba8 invert a4d6167d50ab5c3d
+apply rgba8 solarize 764f17ba1b34d1ff
+apply rgba8 findEdges e1c0a60e4e062097
+apply rgba8 offsetWrap 4253ea1834ff0ee1
+apply rgba8 offsetRepeat fc2c907c1ae4c2ca
+apply rgba8 offsetTransparent 18866f7e5a917e16
+apply rgba16 invert 020ea69ef6c3f71e
+apply rgba16 solarize d71e95ed0cdbffe4
+apply rgba16 findEdges 502494050f7d7b39
+apply rgba16 offsetWrap 737a2e47dd8029f1
+apply rgba16 offsetRepeat 4d31f9ce524faea8
+apply rgba16 offsetTransparent 7a975720722ceed2
+apply rgba32 invert e80c7646bd77b953
+apply rgba32 solarize 22c2b70366a07a2d
+apply rgba32 findEdges 3a03ee88e887c435
+apply rgba32 offsetWrap 251c7543fb95d83a
+apply rgba32 offsetRepeat a44625d50192e5f9
+apply rgba32 offsetTransparent dd05c24815c51792
+apply rgb8 invert 68545ad95602a047
+apply rgb8 solarize 54e258a838d5c2a0
+apply rgb8 findEdges 581b143b205fbfd2
+apply rgb8 offsetWrap acca040687723294
+apply rgb8 offsetRepeat cce8d030bfc78465
+apply rgb8 offsetTransparent 4561d9a3b066bab6
+apply gray8 invert 0c3d1583fd46d385
+apply gray8 solarize b8ab14fb691c6374
+apply gray8 findEdges 699aaf10472a2d37
+apply gray8 offsetWrap dd7283c1ca927904
+apply gray8 offsetRepeat 785814a239ef5f4c
+apply gray8 offsetTransparent 101635d64aaffe04
+apply graya16 invert 02ea756e5ca5752c
+apply graya16 solarize 29bc4babc59d39b1
+apply graya16 findEdges 0d44e7586bcb80dd
+apply graya16 offsetWrap d614edebac2bf6dd
+apply graya16 offsetRepeat 71837d2a5e85d76b
+apply graya16 offsetTransparent a6404e1f2f711bc0
+apply cmyka8 invert c6965c2abe2fefc6
+apply cmyka8 solarize 01d6640effdbc52f
+apply cmyka8 findEdges 2e74dca75fedf5b9
+apply cmyka8 offsetWrap 7c9b7c87b91fff48
+apply cmyka8 offsetRepeat d26b8b67276f45ad
+apply cmyka8 offsetTransparent 8a89b779aa313e1e
+apply laba16 invert 020ea69ef6c3f71e
+apply laba16 solarize d71e95ed0cdbffe4
+apply laba16 findEdges 502494050f7d7b39
+apply laba16 offsetWrap 737a2e47dd8029f1
+apply laba16 offsetRepeat 4d31f9ce524faea8
+apply laba16 offsetTransparent 7a975720722ceed2
+apply laba32 invert e80c7646bd77b953
+apply laba32 solarize 22c2b70366a07a2d
+apply laba32 findEdges 3a03ee88e887c435
+apply laba32 offsetWrap 251c7543fb95d83a
+apply laba32 offsetRepeat a44625d50192e5f9
+apply laba32 offsetTransparent dd05c24815c51792
