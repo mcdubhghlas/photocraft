@@ -951,10 +951,10 @@ static pc_status read_metadata(const tiff_file *f, const tiff_dir *d, pc_cimage 
     size_t rl;
     size_t ll;
     b = tiff_tag_bytes(f, d, TAG_ICC, &len);
-    if (b != NULL && len > 0 && (st = pc_blob_set(&img->icc, b, len, err)) != PC_OK) {
+    if (b != NULL && len > 0 && (st = pc_meta_blob_set(&img->icc, b, len, err)) != PC_OK) {
         return st;
     }
-    if (text_tag(f, d, TAG_XMP, &s, &sn) && (st = pc_blob_set(&img->meta.xmp, s, sn, err)) != PC_OK) {
+    if (text_tag(f, d, TAG_XMP, &s, &sn) && (st = pc_meta_blob_set(&img->meta.xmp, s, sn, err)) != PC_OK) {
         return st;
     }
     (void)tiff_tag_uint(f, d, 296, &unit);
@@ -984,10 +984,10 @@ static pc_status read_metadata(const tiff_file *f, const tiff_dir *d, pc_cimage 
         res = tiff_tag_bytes(f, d, TAG_PHOTOSHOP, &rl);
         lyr = tiff_tag_bytes(f, d, TAG_IMAGE_SOURCE_DATA, &ll);
     }
-    if (res != NULL && (st = pc_blob_set(&img->meta.photoshop_resources, res, rl, err)) != PC_OK) {
+    if (res != NULL && (st = pc_meta_blob_set(&img->meta.photoshop_resources, res, rl, err)) != PC_OK) {
         return st;
     }
-    if (lyr != NULL && (st = pc_blob_set(&img->meta.photoshop_layers, lyr, ll, err)) != PC_OK) {
+    if (lyr != NULL && (st = pc_meta_blob_set(&img->meta.photoshop_layers, lyr, ll, err)) != PC_OK) {
         return st;
     }
     return PC_OK;

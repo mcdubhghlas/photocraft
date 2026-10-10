@@ -187,7 +187,7 @@ static const char SAMPLE_XMP[] =
     "<?xpacket begin=\"\xef\xbb\xbf\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?><x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF "
     "xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"/></x:xmpmeta><?xpacket end=\"w\"?>";
 
-static inline void set_blob(pc_blob *b, const void *d, size_t n) { (void)pc_blob_set(b, d, n, NULL); }
+static inline void set_blob(pc_meta_blob *b, const void *d, size_t n) { (void)pc_meta_blob_set(b, d, n, NULL); }
 
 /* Encode with default options (empty buffer on failure, which a CHECK reports). */
 static inline pc_buf enc(const pc_cimage *img, pc_cformat f, const pc_cencode_opts *o)

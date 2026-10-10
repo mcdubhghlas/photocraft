@@ -880,6 +880,59 @@ void pc_warp_fini(pc_warp *w)
     }
 }
 
+pc_status pc_warp_clone(const pc_warp *w, pc_warp *out, pc_error *err)
+{
+    pc_warp c = *w;
+    memset(&c.mesh, 0, sizeof c.mesh);
+    if (w->has_mesh) {
+        pc_status s = pc_mesh_clone(&w->mesh, &c.mesh, err);
+        if (s != PC_OK) {
+            return s;
+        }
+    }
+    *out = c;
+    return PC_OK;
+}
+
+static bool doubles_eq(const double *a, size_t na, const double *b, size_t nb)
+{
+    size_t i;
+    if (na != nb) {
+        return false;
+    }
+    for (i = 0; i < na; i++) {
+        if (!(a[i] == b[i])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/* The reference's derived PartialEq: every field, floats with == (NaN never equal); the mesh
+ * only counts when present (Option<BezierMesh>). */
+bool pc_warp_eq(const pc_warp *a, const pc_warp *b)
+{
+    size_t i;
+    if (a->style != b->style || !(a->bend == b->bend) || !(a->h_distort == b->h_distort) ||
+        !(a->v_distort == b->v_distort) || a->vertical != b->vertical ||
+        !doubles_eq(a->bounds, 4, b->bounds, 4) || a->has_mesh != b->has_mesh) {
+        return false;
+    }
+    if (!a->has_mesh) {
+        return true;
+    }
+    if (!doubles_eq(a->mesh.us, a->mesh.nus, b->mesh.us, b->mesh.nus) ||
+        !doubles_eq(a->mesh.vs, a->mesh.nvs, b->mesh.vs, b->mesh.nvs) || a->mesh.npoints != b->mesh.npoints) {
+        return false;
+    }
+    for (i = 0; i < a->mesh.npoints; i++) {
+        if (!(a->mesh.points[i].x == b->mesh.points[i].x) || !(a->mesh.points[i].y == b->mesh.points[i].y)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static bool style_warp(const pc_warp *w, pc_style_warp *out)
 {
     return pc_style_warp_init(out, w->style, w->bend, w->h_distort, w->v_distort, w->vertical, w->bounds);

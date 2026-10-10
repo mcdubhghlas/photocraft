@@ -117,6 +117,18 @@ pc_status pc_json_parse(const char *text, size_t len, yyjson_doc **out, pc_error
         return pc_fail(err, PC_ERR_FORMAT, "%s at line %zu column %zu", serde_phrase(rerr.code, rerr.msg), line,
                        col);
     }
+    /* serde_json reads the integer text "-0" as the float -0.0; yyjson as a signed 0. An
+     * immutable yyjson document keeps every value in one contiguous array from the root. */
+    {
+        yyjson_val *v = yyjson_doc_get_root(doc);
+        size_t i;
+        size_t n = yyjson_doc_get_val_count(doc);
+        for (i = 0; v != NULL && i < n; i++) {
+            if (yyjson_is_sint(&v[i]) && yyjson_get_sint(&v[i]) == 0) {
+                (void)yyjson_set_real(&v[i], -0.0);
+            }
+        }
+    }
     *out = doc;
     return PC_OK;
 }
@@ -601,4 +613,292 @@ pc_status pc_json_write_val(yyjson_val *root, unsigned flags, pc_buf *out, pc_er
     s = pc_json_write(copy, flags, out, err);
     yyjson_mut_doc_free(md);
     return s;
+}
+
+/* ---- owned, normalised values (serde_json::Value) ---- */
+
+enum { MAX_VALUE_DEPTH = 1024 };
+
+typedef struct norm_member {
+    const char *key;
+    size_t klen;
+    size_t index;
+    yyjson_mut_val *mval; /* one of mval / ival is set */
+    yyjson_val *ival;
+} norm_member;
+
+static int norm_member_cmp(const void *a, const void *b)
+{
+    const norm_member *x = a;
+    const norm_member *y = b;
+    size_t n = x->klen < y->klen ? x->klen : y->klen;
+    int c = n == 0 ? 0 : memcmp(x->key, y->key, n);
+    if (c != 0) {
+        return c;
+    }
+    if (x->klen != y->klen) {
+        return x->klen < y->klen ? -1 : 1;
+    }
+    return x->index < y->index ? -1 : (x->index > y->index ? 1 : 0);
+}
+
+static yyjson_mut_val *norm_copy(yyjson_mut_doc *doc, const yyjson_mut_val *m, yyjson_val *iv, size_t depth);
+
+/* Sorted, de-duplicated (last wins) object from collected members. */
+static yyjson_mut_val *norm_obj(yyjson_mut_doc *doc, norm_member *mem, size_t n, size_t depth)
+{
+    yyjson_mut_val *obj = yyjson_mut_obj(doc);
+    size_t i;
+    if (obj == NULL) {
+        return NULL;
+    }
+    qsort(mem, n, sizeof *mem, norm_member_cmp);
+    for (i = 0; i < n; i++) {
+        yyjson_mut_val *k;
+        yyjson_mut_val *v;
+        if (i + 1 < n && mem[i].klen == mem[i + 1].klen &&
+            (mem[i].klen == 0 || memcmp(mem[i].key, mem[i + 1].key, mem[i].klen) == 0)) {
+            continue;
+        }
+        k = yyjson_mut_strncpy(doc, mem[i].key, mem[i].klen);
+        v = norm_copy(doc, mem[i].mval, mem[i].ival, depth + 1);
+        if (k == NULL || v == NULL || !yyjson_mut_obj_add(obj, k, v)) {
+            return NULL;
+        }
+    }
+    return obj;
+}
+
+static yyjson_mut_val *norm_copy(yyjson_mut_doc *doc, const yyjson_mut_val *mc, yyjson_val *iv, size_t depth)
+{
+    /* yyjson's read-only accessors take non-const pointers. */
+    yyjson_mut_val *m = (yyjson_mut_val *)(uintptr_t)mc;
+    yyjson_type t;
+    if (depth > MAX_VALUE_DEPTH) {
+        return NULL;
+    }
+    if (m == NULL && iv == NULL) {
+        return yyjson_mut_null(doc);
+    }
+    t = m != NULL ? yyjson_mut_get_type(m) : yyjson_get_type(iv);
+    switch (t) {
+    case YYJSON_TYPE_NULL: return yyjson_mut_null(doc);
+    case YYJSON_TYPE_BOOL: return yyjson_mut_bool(doc, m != NULL ? yyjson_mut_get_bool(m) : yyjson_get_bool(iv));
+    case YYJSON_TYPE_STR:
+        return m != NULL ? yyjson_mut_strncpy(doc, yyjson_mut_get_str(m), yyjson_mut_get_len(m))
+                         : yyjson_mut_strncpy(doc, yyjson_get_str(iv), yyjson_get_len(iv));
+    case YYJSON_TYPE_NUM:
+        if (m != NULL ? yyjson_mut_is_uint(m) : yyjson_is_uint(iv)) {
+            return yyjson_mut_uint(doc, m != NULL ? yyjson_mut_get_uint(m) : yyjson_get_uint(iv));
+        }
+        if (m != NULL ? yyjson_mut_is_sint(m) : yyjson_is_sint(iv)) {
+            int64_t v = m != NULL ? yyjson_mut_get_sint(m) : yyjson_get_sint(iv);
+            return v >= 0 ? yyjson_mut_uint(doc, (uint64_t)v) : yyjson_mut_sint(doc, v);
+        }
+        return yyjson_mut_real(doc, m != NULL ? yyjson_mut_get_real(m) : yyjson_get_real(iv));
+    case YYJSON_TYPE_ARR: {
+        yyjson_mut_val *arr = yyjson_mut_arr(doc);
+        if (arr == NULL) {
+            return NULL;
+        }
+        if (m != NULL) {
+            yyjson_mut_arr_iter it;
+            yyjson_mut_val *e;
+            if (!yyjson_mut_arr_iter_init(m, &it)) {
+                return NULL;
+            }
+            while ((e = yyjson_mut_arr_iter_next(&it)) != NULL) {
+                yyjson_mut_val *c = norm_copy(doc, e, NULL, depth + 1);
+                if (c == NULL || !yyjson_mut_arr_append(arr, c)) {
+                    return NULL;
+                }
+            }
+        } else {
+            yyjson_arr_iter it;
+            yyjson_val *e;
+            if (!yyjson_arr_iter_init(iv, &it)) {
+                return NULL;
+            }
+            while ((e = yyjson_arr_iter_next(&it)) != NULL) {
+                yyjson_mut_val *c = norm_copy(doc, NULL, e, depth + 1);
+                if (c == NULL || !yyjson_mut_arr_append(arr, c)) {
+                    return NULL;
+                }
+            }
+        }
+        return arr;
+    }
+    case YYJSON_TYPE_OBJ: {
+        size_t count = m != NULL ? yyjson_mut_obj_size(m) : yyjson_obj_size(iv);
+        size_t n = 0;
+        norm_member *mem = pc_malloc_array(count, sizeof *mem);
+        yyjson_mut_val *out = NULL;
+        if (mem == NULL) {
+            return NULL;
+        }
+        if (m != NULL) {
+            yyjson_mut_obj_iter it;
+            yyjson_mut_val *k;
+            if (yyjson_mut_obj_iter_init(m, &it)) {
+                while (n < count && (k = yyjson_mut_obj_iter_next(&it)) != NULL) {
+                    mem[n].key = yyjson_mut_get_str(k);
+                    mem[n].klen = yyjson_mut_get_len(k);
+                    mem[n].index = n;
+                    mem[n].mval = yyjson_mut_obj_iter_get_val(k);
+                    mem[n].ival = NULL;
+                    n++;
+                }
+                out = norm_obj(doc, mem, n, depth);
+            }
+        } else {
+            yyjson_obj_iter it;
+            yyjson_val *k;
+            if (yyjson_obj_iter_init(iv, &it)) {
+                while (n < count && (k = yyjson_obj_iter_next(&it)) != NULL) {
+                    mem[n].key = yyjson_get_str(k);
+                    mem[n].klen = yyjson_get_len(k);
+                    mem[n].index = n;
+                    mem[n].mval = NULL;
+                    mem[n].ival = yyjson_obj_iter_get_val(k);
+                    n++;
+                }
+                out = norm_obj(doc, mem, n, depth);
+            }
+        }
+        free(mem);
+        return out;
+    }
+    case YYJSON_TYPE_RAW:
+    case YYJSON_TYPE_NONE:
+    default: break;
+    }
+    return NULL;
+}
+
+yyjson_mut_val *pc_json_normalized_copy(yyjson_mut_doc *doc, const yyjson_mut_val *src)
+{
+    return norm_copy(doc, src, NULL, 0);
+}
+
+yyjson_mut_val *pc_json_normalized_copy_val(yyjson_mut_doc *doc, yyjson_val *src)
+{
+    return norm_copy(doc, NULL, src, 0);
+}
+
+yyjson_mut_val *pc_json_value_root(const pc_json_value *v)
+{
+    return v->doc != NULL ? yyjson_mut_doc_get_root(v->doc) : NULL;
+}
+
+void pc_json_value_fini(pc_json_value *v)
+{
+    if (v != NULL) {
+        yyjson_mut_doc_free(v->doc);
+        v->doc = NULL;
+    }
+}
+
+static pc_status value_from(const yyjson_mut_val *m, yyjson_val *iv, pc_json_value *out, pc_error *err)
+{
+    yyjson_mut_doc *d = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *root = d != NULL ? norm_copy(d, m, iv, 0) : NULL;
+    if (root == NULL) {
+        yyjson_mut_doc_free(d);
+        return pc_fail(err, PC_ERR_NOMEM, "out of memory copying JSON");
+    }
+    yyjson_mut_doc_set_root(d, root);
+    out->doc = d;
+    return PC_OK;
+}
+
+pc_status pc_json_value_from_val(yyjson_val *src, pc_json_value *out, pc_error *err)
+{
+    return value_from(NULL, src, out, err);
+}
+
+pc_status pc_json_value_from_mut(const yyjson_mut_val *src, pc_json_value *out, pc_error *err)
+{
+    return value_from(src, NULL, out, err);
+}
+
+pc_status pc_json_value_clone(const pc_json_value *v, pc_json_value *out, pc_error *err)
+{
+    if (v->doc == NULL) {
+        out->doc = NULL;
+        return PC_OK;
+    }
+    return value_from(pc_json_value_root(v), NULL, out, err);
+}
+
+bool pc_json_mut_equal(const yyjson_mut_val *ac, const yyjson_mut_val *bc)
+{
+    yyjson_mut_val *a = (yyjson_mut_val *)(uintptr_t)ac;
+    yyjson_mut_val *b = (yyjson_mut_val *)(uintptr_t)bc;
+    bool an = a == NULL || yyjson_mut_is_null(a);
+    bool bn = b == NULL || yyjson_mut_is_null(b);
+    if (an || bn) {
+        return an && bn;
+    }
+    if (yyjson_mut_get_type(a) != yyjson_mut_get_type(b)) {
+        return false;
+    }
+    switch (yyjson_mut_get_type(a)) {
+    case YYJSON_TYPE_BOOL: return yyjson_mut_get_bool(a) == yyjson_mut_get_bool(b);
+    case YYJSON_TYPE_STR:
+        return yyjson_mut_get_len(a) == yyjson_mut_get_len(b) &&
+               memcmp(yyjson_mut_get_str(a), yyjson_mut_get_str(b), yyjson_mut_get_len(a)) == 0;
+    case YYJSON_TYPE_NUM:
+        if (yyjson_mut_is_uint(a) && yyjson_mut_is_uint(b)) {
+            return yyjson_mut_get_uint(a) == yyjson_mut_get_uint(b);
+        }
+        if (yyjson_mut_is_sint(a) && yyjson_mut_is_sint(b)) {
+            return yyjson_mut_get_sint(a) == yyjson_mut_get_sint(b);
+        }
+        if (yyjson_mut_is_real(a) && yyjson_mut_is_real(b)) {
+            return yyjson_mut_get_real(a) == yyjson_mut_get_real(b);
+        }
+        return false;
+    case YYJSON_TYPE_ARR: {
+        yyjson_mut_arr_iter ia;
+        yyjson_mut_arr_iter ib;
+        yyjson_mut_val *x;
+        if (yyjson_mut_arr_size(a) != yyjson_mut_arr_size(b) || !yyjson_mut_arr_iter_init(a, &ia) ||
+            !yyjson_mut_arr_iter_init(b, &ib)) {
+            return false;
+        }
+        while ((x = yyjson_mut_arr_iter_next(&ia)) != NULL) {
+            if (!pc_json_mut_equal(x, yyjson_mut_arr_iter_next(&ib))) {
+                return false;
+            }
+        }
+        return true;
+    }
+    case YYJSON_TYPE_OBJ: {
+        yyjson_mut_obj_iter ia;
+        yyjson_mut_obj_iter ib;
+        yyjson_mut_val *ka;
+        if (yyjson_mut_obj_size(a) != yyjson_mut_obj_size(b) || !yyjson_mut_obj_iter_init(a, &ia) ||
+            !yyjson_mut_obj_iter_init(b, &ib)) {
+            return false;
+        }
+        while ((ka = yyjson_mut_obj_iter_next(&ia)) != NULL) {
+            yyjson_mut_val *kb = yyjson_mut_obj_iter_next(&ib);
+            if (kb == NULL || !pc_json_mut_equal(ka, kb) ||
+                !pc_json_mut_equal(yyjson_mut_obj_iter_get_val(ka), yyjson_mut_obj_iter_get_val(kb))) {
+                return false;
+            }
+        }
+        return true;
+    }
+    case YYJSON_TYPE_NULL:
+    case YYJSON_TYPE_RAW:
+    case YYJSON_TYPE_NONE:
+    default: break;
+    }
+    return false;
+}
+
+bool pc_json_value_eq(const pc_json_value *a, const pc_json_value *b)
+{
+    return pc_json_mut_equal(pc_json_value_root(a), pc_json_value_root(b));
 }

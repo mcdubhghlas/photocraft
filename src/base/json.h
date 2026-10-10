@@ -54,4 +54,31 @@ pc_status pc_json_write_val(yyjson_val *root, unsigned flags, pc_buf *out, pc_er
 size_t pc_json_format_f64(double v, char out[PC_JSON_NUM_MAX]);
 size_t pc_json_format_f32(float v, char out[PC_JSON_NUM_MAX]);
 
+/* An owned serde_json::Value (doc NULL, or a doc without a root, is JSON null).
+ *
+ * Values are kept normalised the way serde_json::Value holds them: object keys sorted bytewise
+ * with the last duplicate kept (BTreeMap), non-negative integers unsigned, and f32-flagged reals
+ * widened to plain f64 (serde_json::to_value of an f32). Writing a normalised value without
+ * PC_JSON_SORT_KEYS therefore prints what serde_json prints for that Value. */
+typedef struct pc_json_value {
+    yyjson_mut_doc *doc;
+} pc_json_value;
+
+#define PC_JSON_VALUE_INIT {NULL}
+
+/* The root, or NULL for null. Borrowed. */
+yyjson_mut_val *pc_json_value_root(const pc_json_value *v);
+void pc_json_value_fini(pc_json_value *v); /* NULL-safe; leaves v null */
+pc_status pc_json_value_clone(const pc_json_value *v, pc_json_value *out, pc_error *err);
+/* serde_json::Value equality (1 != 1.0; objects compare as maps). */
+bool pc_json_value_eq(const pc_json_value *a, const pc_json_value *b);
+/* *out = a normalised copy of src (NULL src = null). out is overwritten, not finalised. */
+pc_status pc_json_value_from_val(yyjson_val *src, pc_json_value *out, pc_error *err);
+pc_status pc_json_value_from_mut(const yyjson_mut_val *src, pc_json_value *out, pc_error *err);
+/* A normalised copy of src (NULL = null) owned by doc; NULL on NOMEM or nesting past 1024. */
+yyjson_mut_val *pc_json_normalized_copy(yyjson_mut_doc *doc, const yyjson_mut_val *src);
+yyjson_mut_val *pc_json_normalized_copy_val(yyjson_mut_doc *doc, yyjson_val *src);
+/* Equality of two normalised values (NULL = null). */
+bool pc_json_mut_equal(const yyjson_mut_val *a, const yyjson_mut_val *b);
+
 #endif

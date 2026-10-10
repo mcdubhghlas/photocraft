@@ -116,7 +116,7 @@ static void test_alpha_is_kept_exactly_and_metadata_travels(void)
     }
     CHECK(back.len == img.len && alpha_same); /* alpha is stored losslessly */
     CHECK(psnr(&img, &back) > 30.0);
-    CHECK(pc_blob_eq(&back.icc, &img.icc));
+    CHECK(pc_meta_blob_eq(&back.icc, &img.icc));
     CHECK(back.meta.xmp.has);
     CHECK(back.meta.exif.has);
     pc_cimage_fini(&back);

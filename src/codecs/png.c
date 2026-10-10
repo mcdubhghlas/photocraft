@@ -347,8 +347,8 @@ static pc_status read_text_metadata(const uint8_t *b, size_t n, size_t remaining
         }
         if (kind == 2 && key_len == sizeof XMP_KEYWORD - 1 && memcmp(key, XMP_KEYWORD, key_len) == 0) {
             pc_buf_fini(&k);
-            pc_blob_fini(&meta->xmp);
-            st = pc_blob_set(&meta->xmp, text.data != NULL ? text.data : (const uint8_t *)"", text.len, err);
+            pc_meta_blob_fini(&meta->xmp);
+            st = pc_meta_blob_set(&meta->xmp, text.data != NULL ? text.data : (const uint8_t *)"", text.len, err);
             pc_buf_fini(&text);
         } else {
             st = kvlist_push(kind == 0 ? &plain : kind == 1 ? &comp : &intl, &k, &text, err);
@@ -404,7 +404,7 @@ static pc_status read_meta_chunks(const uint8_t *b, size_t n, size_t alloc, pc_c
                 size_t off = (size_t)(z - c.data) + 2;
                 if (pc_inflate(PC_Z_ZLIB, c.data + off, c.len - off, alloc, &prof, &info, NULL) == PC_OK &&
                     info.stream_end) {
-                    pc_status st = pc_blob_set(&img->icc, prof.data != NULL ? prof.data : (const uint8_t *)"",
+                    pc_status st = pc_meta_blob_set(&img->icc, prof.data != NULL ? prof.data : (const uint8_t *)"",
                                                prof.len, err);
                     pc_buf_fini(&prof);
                     if (st != PC_OK) {
@@ -414,7 +414,7 @@ static pc_status read_meta_chunks(const uint8_t *b, size_t n, size_t alloc, pc_c
                 pc_buf_fini(&prof);
             }
         } else if (memcmp(c.type, "eXIf", 4) == 0 && !img->meta.exif.has) {
-            pc_status st = pc_blob_set(&img->meta.exif, c.data, c.len, err);
+            pc_status st = pc_meta_blob_set(&img->meta.exif, c.data, c.len, err);
             if (st != PC_OK) {
                 return st;
             }

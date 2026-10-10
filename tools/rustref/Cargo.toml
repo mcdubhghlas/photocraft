@@ -23,5 +23,6 @@ photocraft-io = { path = "../../crates/io" }
 photocraft-compose = { path = "../../crates/compose" }
 photocraft-raw = { path = "../../crates/raw", features = ["testgen"] }
 photocraft-affinity = { path = "../../crates/affinity" }
+photocraft-doc = { path = "../../crates/doc" }
 
 [workspace]

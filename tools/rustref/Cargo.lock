@@ -1098,6 +1098,7 @@ dependencies = [
  "photocraft-codecs",
  "photocraft-color",
  "photocraft-compose",
+ "photocraft-doc",
  "photocraft-geom",
  "photocraft-io",
  "photocraft-psd",

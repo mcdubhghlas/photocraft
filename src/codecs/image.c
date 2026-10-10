@@ -70,7 +70,7 @@ const char *pc_csample_name(pc_csample s)
 
 /* ---- blobs, text, metadata ---- */
 
-void pc_blob_fini(pc_blob *b)
+void pc_meta_blob_fini(pc_meta_blob *b)
 {
     if (b != NULL) {
         free(b->data);
@@ -80,7 +80,7 @@ void pc_blob_fini(pc_blob *b)
     }
 }
 
-pc_status pc_blob_set(pc_blob *b, const void *data, size_t len, pc_error *err)
+pc_status pc_meta_blob_set(pc_meta_blob *b, const void *data, size_t len, pc_error *err)
 {
     uint8_t *p = malloc(len > 0 ? len : 1);
     if (p == NULL) {
@@ -96,11 +96,11 @@ pc_status pc_blob_set(pc_blob *b, const void *data, size_t len, pc_error *err)
     return PC_OK;
 }
 
-pc_status pc_blob_clone(const pc_blob *b, pc_blob *out, pc_error *err)
+pc_status pc_meta_blob_clone(const pc_meta_blob *b, pc_meta_blob *out, pc_error *err)
 {
-    pc_blob c = {false, NULL, 0};
+    pc_meta_blob c = {false, NULL, 0};
     if (b->has) {
-        pc_status st = pc_blob_set(&c, b->data, b->len, err);
+        pc_status st = pc_meta_blob_set(&c, b->data, b->len, err);
         if (st != PC_OK) {
             return st;
         }
@@ -109,7 +109,7 @@ pc_status pc_blob_clone(const pc_blob *b, pc_blob *out, pc_error *err)
     return PC_OK;
 }
 
-bool pc_blob_eq(const pc_blob *a, const pc_blob *b)
+bool pc_meta_blob_eq(const pc_meta_blob *a, const pc_meta_blob *b)
 {
     return a->has == b->has && (!a->has || (a->len == b->len && (a->len == 0 || memcmp(a->data, b->data, a->len) == 0)));
 }
@@ -132,10 +132,10 @@ void pc_cmeta_fini(pc_cmeta *m)
     if (m == NULL) {
         return;
     }
-    pc_blob_fini(&m->exif);
-    pc_blob_fini(&m->xmp);
-    pc_blob_fini(&m->photoshop_resources);
-    pc_blob_fini(&m->photoshop_layers);
+    pc_meta_blob_fini(&m->exif);
+    pc_meta_blob_fini(&m->xmp);
+    pc_meta_blob_fini(&m->photoshop_resources);
+    pc_meta_blob_fini(&m->photoshop_layers);
     for (i = 0; i < m->ntext; i++) {
         free(m->text[i].key);
         free(m->text[i].value);
@@ -176,10 +176,10 @@ pc_status pc_cmeta_clone(const pc_cmeta *m, pc_cmeta *out, pc_error *err)
     c.has_dpi = m->has_dpi;
     c.dpi_x = m->dpi_x;
     c.dpi_y = m->dpi_y;
-    CK(pc_blob_clone(&m->exif, &c.exif, err));
-    CK(pc_blob_clone(&m->xmp, &c.xmp, err));
-    CK(pc_blob_clone(&m->photoshop_resources, &c.photoshop_resources, err));
-    CK(pc_blob_clone(&m->photoshop_layers, &c.photoshop_layers, err));
+    CK(pc_meta_blob_clone(&m->exif, &c.exif, err));
+    CK(pc_meta_blob_clone(&m->xmp, &c.xmp, err));
+    CK(pc_meta_blob_clone(&m->photoshop_resources, &c.photoshop_resources, err));
+    CK(pc_meta_blob_clone(&m->photoshop_layers, &c.photoshop_layers, err));
     for (i = 0; i < m->ntext; i++) {
         CK(pc_cmeta_add_text(&c, m->text[i].key, m->text[i].key_len, m->text[i].value, m->text[i].value_len, err));
     }
@@ -199,10 +199,10 @@ static bool text_eq(const pc_ctext *a, const pc_ctext *b)
 bool pc_cmeta_eq(const pc_cmeta *a, const pc_cmeta *b)
 {
     size_t i;
-    if (!pc_blob_eq(&a->exif, &b->exif) || !pc_blob_eq(&a->xmp, &b->xmp) || a->has_dpi != b->has_dpi ||
+    if (!pc_meta_blob_eq(&a->exif, &b->exif) || !pc_meta_blob_eq(&a->xmp, &b->xmp) || a->has_dpi != b->has_dpi ||
         (a->has_dpi && !(a->dpi_x == b->dpi_x && a->dpi_y == b->dpi_y)) || a->ntext != b->ntext ||
-        !pc_blob_eq(&a->photoshop_resources, &b->photoshop_resources) ||
-        !pc_blob_eq(&a->photoshop_layers, &b->photoshop_layers)) {
+        !pc_meta_blob_eq(&a->photoshop_resources, &b->photoshop_resources) ||
+        !pc_meta_blob_eq(&a->photoshop_layers, &b->photoshop_layers)) {
         return false;
     }
     for (i = 0; i < a->ntext; i++) {
@@ -285,7 +285,7 @@ void pc_cimage_fini(pc_cimage *img)
         return;
     }
     free(img->data);
-    pc_blob_fini(&img->icc);
+    pc_meta_blob_fini(&img->icc);
     pc_cmeta_fini(&img->meta);
     free(img->warnings);
     pc_cimage_init(img);
@@ -378,7 +378,7 @@ pc_status pc_cimage_clone(const pc_cimage *img, pc_cimage *out, pc_error *err)
     pc_status st;
     pc_cimage_init(&c);
     CK(pc_cimage_from_copy(img->width, img->height, img->layout, img->sample, img->data, img->len, &c, err));
-    CK(pc_blob_clone(&img->icc, &c.icc, err));
+    CK(pc_meta_blob_clone(&img->icc, &c.icc, err));
     CK(pc_cmeta_clone(&img->meta, &c.meta, err));
     if (img->nwarnings > 0) {
         c.warnings = pc_malloc_array(img->nwarnings, sizeof *c.warnings);
@@ -400,7 +400,7 @@ bool pc_cimage_eq(const pc_cimage *a, const pc_cimage *b)
 {
     size_t i;
     if (a->width != b->width || a->height != b->height || a->layout != b->layout || a->sample != b->sample ||
-        a->len != b->len || (a->len > 0 && memcmp(a->data, b->data, a->len) != 0) || !pc_blob_eq(&a->icc, &b->icc) ||
+        a->len != b->len || (a->len > 0 && memcmp(a->data, b->data, a->len) != 0) || !pc_meta_blob_eq(&a->icc, &b->icc) ||
         !pc_cmeta_eq(&a->meta, &b->meta) || a->nwarnings != b->nwarnings) {
         return false;
     }
@@ -673,7 +673,7 @@ pc_status pc_cimage_convert(const pc_cimage *img, pc_clayout l, pc_csample s, pc
     c.len = len;
     data = NULL;
     if (pc_clayout_same_model(l, img->layout)) {
-        CK(pc_blob_clone(&img->icc, &c.icc, err));
+        CK(pc_meta_blob_clone(&img->icc, &c.icc, err));
     }
     CK(pc_cmeta_clone(&img->meta, &c.meta, err));
     if (img->nwarnings > 0) {

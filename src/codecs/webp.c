@@ -17,7 +17,7 @@
 #define F PC_CF_WEBP
 #define MAX_DIMENSION 16383u
 
-static pc_status chunk_blob(WebPDemuxer *dmx, const char *id, pc_blob *out, bool utf8, pc_error *err)
+static pc_status chunk_blob(WebPDemuxer *dmx, const char *id, pc_meta_blob *out, bool utf8, pc_error *err)
 {
     WebPChunkIterator it;
     pc_status st = PC_OK;
@@ -34,7 +34,7 @@ static pc_status chunk_blob(WebPDemuxer *dmx, const char *id, pc_blob *out, bool
             }
         }
         if (ok) {
-            st = pc_blob_set(out, it.chunk.bytes, it.chunk.size, err);
+            st = pc_meta_blob_set(out, it.chunk.bytes, it.chunk.size, err);
         }
         WebPDemuxReleaseChunkIterator(&it);
     }

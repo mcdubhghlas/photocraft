@@ -98,7 +98,7 @@ static pc_status read_metadata(const struct heif_image_handle *h, pc_cimage *img
             return cx_nomem(err);
         }
         if (heif_image_handle_get_raw_color_profile(h, p).code == heif_error_Ok) {
-            st = pc_blob_set(&img->icc, p, sz, err);
+            st = pc_meta_blob_set(&img->icc, p, sz, err);
         }
         free(p);
         if (st != PC_OK) {
@@ -121,7 +121,7 @@ static pc_status read_metadata(const struct heif_image_handle *h, pc_cimage *img
                     st = pc_upright_exif(t, tn, &up, &un, err);
                 }
                 if (st == PC_OK) {
-                    st = pc_blob_set(&img->meta.exif, up != NULL ? up : t, up != NULL ? un : tn, err);
+                    st = pc_meta_blob_set(&img->meta.exif, up != NULL ? up : t, up != NULL ? un : tn, err);
                 }
                 free(up);
             }
@@ -160,7 +160,7 @@ static pc_status read_metadata(const struct heif_image_handle *h, pc_cimage *img
                     st = pc_upright_xmp((const char *)p, len, &up, &un, err);
                 }
                 if (st == PC_OK) {
-                    st = pc_blob_set(&img->meta.xmp, up != NULL ? (const uint8_t *)up : p, up != NULL ? un : len, err);
+                    st = pc_meta_blob_set(&img->meta.xmp, up != NULL ? (const uint8_t *)up : p, up != NULL ? un : len, err);
                 }
                 free(up);
             }

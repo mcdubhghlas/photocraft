@@ -3,6 +3,8 @@
 //!   rustref vectors                 serde_json / half / base64 vectors (tests/base/*)
 //!   rustref geom-vectors            FNV hashes of warp/mesh/affine outputs (tests/geom/test_warp.c)
 //!   rustref cms-vectors             FNV hashes of colour-management outputs (tests/cms/test_parity.c)
+//!   rustref doc-vectors             document-model serde and logic vectors (tests/doc/test_parity.c)
+//!   rustref unicode-alnum           char::is_alphanumeric ranges (src/base/unicode_alnum.c)
 //!   rustref icc-info FILE           one line describing a parsed ICC profile (tests/cms/test_parity.c)
 //!   rustref psd-info FILE           PSD/PSB structure as JSON (the F6-F9 parity contract)
 //!   rustref decode FILE OUT.raw     codecs::decode: JSON metadata on stdout, raw samples to OUT.raw
@@ -11,6 +13,7 @@
 //! JSON objects are serde_json::Value (keys sorted). Failures print {"error": "..."} and exit 1,
 //! so differential tests can compare errors too.
 mod affinity_vectors;
+mod doc_vectors;
 mod raw_vectors;
 use base64::Engine;
 use half::f16;
@@ -1361,6 +1364,19 @@ fn icc_info(path: &str) {
     );
 }
 
+/// Ranges of char::is_alphanumeric as "LO HI" hex lines (src/base/unicode_alnum.c).
+fn unicode_alnum() {
+    let mut start: Option<u32> = None;
+    for cp in 0..=0x11_0000u32 {
+        let yes = char::from_u32(cp).is_some_and(char::is_alphanumeric);
+        match (yes, start) {
+            (true, None) => start = Some(cp),
+            (false, Some(s)) => { println!("{s:X} {:X}", cp - 1); start = None; }
+            _ => {}
+        }
+    }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let a: Vec<&str> = args.iter().map(String::as_str).collect();
@@ -1376,6 +1392,8 @@ fn main() {
         ["raw-vectors"] => raw_vectors::raw_vectors(),
         ["affinity-vectors", d] => affinity_vectors::affinity_vectors(d),
         ["affinity-mutations", f] => affinity_vectors::affinity_mutations(f),
+        ["doc-vectors"] => doc_vectors::doc_vectors(),
+        ["unicode-alnum"] => unicode_alnum(),
         ["icc-info", f] => icc_info(f),
         ["psd-info", f] => psd_info(f),
         ["decode", f, out] => decode(f, out),

@@ -16,6 +16,9 @@ bool pc_utf8_next(const uint8_t *s, size_t len, size_t *i, uint32_t *cp);
 /* Append cp as UTF-8 (cp must be a scalar value; others become U+FFFD). */
 pc_status pc_utf8_put(pc_buf *out, uint32_t cp, pc_error *err);
 
+/* Rust's char::is_alphanumeric (Alphabetic or Numeric, Rust 1.95's Unicode version). */
+bool pc_unicode_is_alphanumeric(uint32_t cp);
+
 /* Unicode White_Space (Rust's char::is_whitespace). */
 bool pc_unicode_is_space(uint32_t cp);
 

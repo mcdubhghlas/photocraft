@@ -40,7 +40,7 @@ static bool fw_too_large(const pc_cimage *img, pc_cformat f, const char *what, s
     return false;
 }
 
-static void set_buf(pc_blob *b, pc_buf *v)
+static void set_buf(pc_meta_blob *b, pc_buf *v)
 {
     set_blob(b, v->data, v->len);
     pc_buf_fini(v);
@@ -63,7 +63,7 @@ static void add_text(pc_cmeta *m, const char *k, const char *v)
     (void)pc_cmeta_add_text(m, k, strlen(k), v, strlen(v), NULL);
 }
 
-static bool blob_is(const pc_blob *b, const char *s)
+static bool blob_is(const pc_meta_blob *b, const char *s)
 {
     return b->has && b->len == strlen(s) && memcmp(b->data, s, b->len) == 0;
 }
@@ -107,17 +107,17 @@ static void check_format(pc_cformat f)
 
     CHECK(back.icc.has == c.icc);
     if (c.icc) {
-        CHECK(pc_blob_eq(&back.icc, &img.icc));
+        CHECK(pc_meta_blob_eq(&back.icc, &img.icc));
     } else {
         CHECK(fw_has(&img, f, NULL, PC_FW_ICC_DROPPED));
     }
     if (c.exif) {
-        CHECK(pc_blob_eq(&back.meta.exif, &img.meta.exif));
+        CHECK(pc_meta_blob_eq(&back.meta.exif, &img.meta.exif));
     } else {
         CHECK(fw_has(&img, f, NULL, PC_FW_EXIF_DROPPED));
     }
     if (c.xmp) {
-        CHECK(pc_blob_eq(&back.meta.xmp, &img.meta.xmp));
+        CHECK(pc_meta_blob_eq(&back.meta.xmp, &img.meta.xmp));
     } else {
         CHECK(!back.meta.xmp.has);
         CHECK(fw_has(&img, f, NULL, PC_FW_XMP_DROPPED));
@@ -174,7 +174,7 @@ static void test_metadata_on_16bit_png_and_tiff(void)
         img.meta.dpi_y = 72.0f;
         b = enc(&img, FS[i], NULL);
         back = dec(b.data, b.len);
-        CHECK(pc_blob_eq(&back.icc, &img.icc));
+        CHECK(pc_meta_blob_eq(&back.icc, &img.icc));
         CHECK(back.sample == PC_CS_U16);
         pc_cimage_fini(&back);
         pc_buf_fini(&b);
@@ -195,7 +195,7 @@ static void test_icc_on_cmyk_tiff_and_jpeg(void)
         b = enc(&img, FS[i], NULL);
         back = dec(b.data, b.len);
         CHECK(back.layout == PC_CL_CMYK);
-        CHECK(pc_blob_eq(&back.icc, &img.icc));
+        CHECK(pc_meta_blob_eq(&back.icc, &img.icc));
         pc_cimage_fini(&back);
         pc_buf_fini(&b);
         pc_cimage_fini(&img);
@@ -304,13 +304,13 @@ static void test_jpeg_multi_segment_icc(void)
     }
 }
 
-static bool ends_with(const pc_blob *b, const char *s)
+static bool ends_with(const pc_meta_blob *b, const char *s)
 {
     size_t n = strlen(s);
     return b->has && b->len >= n && memcmp(b->data + b->len - n, s, n) == 0;
 }
 
-static bool blob_contains(const pc_blob *b, const char *s)
+static bool blob_contains(const pc_meta_blob *b, const char *s)
 {
     return b->has && find_bytes(b->data, b->len, s, strlen(s));
 }
@@ -368,7 +368,7 @@ static void test_jpeg_with_oversized_metadata_still_encodes(void)
         /* Formats without a segment limit keep the packet whole. */
         pb = enc(&img, PC_CF_PNG, NULL);
         pback = dec(pb.data, pb.len);
-        CHECK(pc_blob_eq(&pback.meta.xmp, &img.meta.xmp));
+        CHECK(pc_meta_blob_eq(&pback.meta.xmp, &img.meta.xmp));
         pc_cimage_fini(&pback);
         pc_buf_fini(&pb);
         pc_cimage_fini(&back);
@@ -522,7 +522,7 @@ static void test_tiff_icc_readable_by_oracle(void)
     b = enc(&img, PC_CF_TIFF, NULL);
     /* No libtiff here: our own decoder stands in for the image crate's TiffDecoder. */
     back = dec(b.data, b.len);
-    CHECK(pc_blob_eq(&back.icc, &img.icc));
+    CHECK(pc_meta_blob_eq(&back.icc, &img.icc));
     pc_cimage_fini(&back);
     pc_buf_fini(&b);
     pc_cimage_fini(&img);
@@ -622,8 +622,8 @@ static void test_metadata_survives_depth_conversion(void)
     set_blob(&img.meta.xmp, SAMPLE_XMP, strlen(SAMPLE_XMP));
     b = enc(&img, PC_CF_PNG, NULL);
     back = dec(b.data, b.len);
-    CHECK(pc_blob_eq(&back.icc, &img.icc));
-    CHECK(pc_blob_eq(&back.meta.xmp, &img.meta.xmp));
+    CHECK(pc_meta_blob_eq(&back.icc, &img.icc));
+    CHECK(pc_meta_blob_eq(&back.meta.xmp, &img.meta.xmp));
     pc_cimage_fini(&back);
     pc_buf_fini(&b);
     pc_cimage_fini(&img);

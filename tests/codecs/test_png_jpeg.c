@@ -254,7 +254,7 @@ static void test_adam7_with_metadata(void)
     (void)pc_cmeta_add_text(&img.meta, "Comment", 7, "interlaced", 10, NULL);
     b = interlaced(&img);
     back = dec(b.data, b.len);
-    CHECK(pc_blob_eq(&back.icc, &img.icc));
+    CHECK(pc_meta_blob_eq(&back.icc, &img.icc));
     CHECK(back.meta.ntext == 1 && back.meta.text[0].key_len == 7 && memcmp(back.meta.text[0].key, "Comment", 7) == 0 &&
           back.meta.text[0].value_len == 10 && memcmp(back.meta.text[0].value, "interlaced", 10) == 0);
     pc_cimage_fini(&back);

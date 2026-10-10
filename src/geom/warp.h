@@ -150,6 +150,10 @@ void pc_warp_none(pc_warp *w, const double bounds[4]);
 void pc_warp_preset(pc_warp *w, pc_warp_style style, double bend, const double bounds[4]);
 void pc_warp_custom(pc_warp *w, pc_mesh *mesh, const double bounds[4]);
 void pc_warp_fini(pc_warp *w);
+/* Deep copy (out written only on success). */
+pc_status pc_warp_clone(const pc_warp *w, pc_warp *out, pc_error *err);
+/* The reference's derived PartialEq (floats compare with ==; the mesh only when has_mesh). */
+bool pc_warp_eq(const pc_warp *a, const pc_warp *b);
 
 /* Whether every point of the box maps onto itself (within 1e-9 px). */
 bool pc_warp_is_identity(const pc_warp *w);

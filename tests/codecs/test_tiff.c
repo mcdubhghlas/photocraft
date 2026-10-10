@@ -1085,8 +1085,8 @@ static void test_bigtiff_is_written_on_request_and_reads_back(void)
         pc_tiff_info_fini(&info);
         back = dec(big.data, big.len);
         CHECK(back.len == img.len && memcmp(back.data, img.data, img.len) == 0);
-        CHECK(pc_blob_eq(&back.meta.photoshop_layers, &img.meta.photoshop_layers));
-        CHECK(pc_blob_eq(&back.meta.photoshop_resources, &img.meta.photoshop_resources));
+        CHECK(pc_meta_blob_eq(&back.meta.photoshop_layers, &img.meta.photoshop_layers));
+        CHECK(pc_meta_blob_eq(&back.meta.photoshop_resources, &img.meta.photoshop_resources));
         pc_ctiff_photoshop_tags(big.data, big.len, &r, &rl, &l, &ll);
         CHECK(r != NULL && rl == sizeof res - 1 && memcmp(r, res, rl) == 0);
         CHECK(l != NULL && ll == sizeof layers - 1 && memcmp(l, layers, ll) == 0);
@@ -1254,8 +1254,8 @@ static void test_tags_round_trip_through_the_encoder(void)
                   memcmp(r, img.meta.photoshop_resources.data, rl) == 0);
             CHECK(l != NULL && ll == img.meta.photoshop_layers.len && memcmp(l, img.meta.photoshop_layers.data, ll) == 0);
             back = dec(b.data, b.len);
-            CHECK(pc_blob_eq(&back.meta.photoshop_resources, &img.meta.photoshop_resources));
-            CHECK(pc_blob_eq(&back.meta.photoshop_layers, &img.meta.photoshop_layers));
+            CHECK(pc_meta_blob_eq(&back.meta.photoshop_resources, &img.meta.photoshop_resources));
+            CHECK(pc_meta_blob_eq(&back.meta.photoshop_layers, &img.meta.photoshop_layers));
             CHECK(back.len == img.len && memcmp(back.data, img.data, img.len) == 0);
             pc_cimage_fini(&back);
             pc_buf_fini(&b);

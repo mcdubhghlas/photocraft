@@ -39,16 +39,16 @@ bool pc_csample_is_float(pc_csample s);
 const char *pc_csample_name(pc_csample s); /* "U8", "U16", "F16", "F32" */
 
 /* Optional owned bytes (Option<Vec<u8>> / Option<String>; text is UTF-8, may hold NUL). */
-typedef struct pc_blob {
+typedef struct pc_meta_blob {
     bool has;
     uint8_t *data;
     size_t len;
-} pc_blob;
+} pc_meta_blob;
 
-void pc_blob_fini(pc_blob *b);
-pc_status pc_blob_set(pc_blob *b, const void *data, size_t len, pc_error *err); /* has = true; replaces */
-pc_status pc_blob_clone(const pc_blob *b, pc_blob *out, pc_error *err);
-bool pc_blob_eq(const pc_blob *a, const pc_blob *b);
+void pc_meta_blob_fini(pc_meta_blob *b);
+pc_status pc_meta_blob_set(pc_meta_blob *b, const void *data, size_t len, pc_error *err); /* has = true; replaces */
+pc_status pc_meta_blob_clone(const pc_meta_blob *b, pc_meta_blob *out, pc_error *err);
+bool pc_meta_blob_eq(const pc_meta_blob *a, const pc_meta_blob *b);
 
 /* One key/value text entry (UTF-8, each NUL-terminated after its length). */
 typedef struct pc_ctext {
@@ -60,15 +60,15 @@ typedef struct pc_ctext {
 
 /* Basic, format-independent metadata. */
 typedef struct pc_cmeta {
-    pc_blob exif;  /* TIFF-structured EXIF (II*\0 / MM\0*), without JPEG's Exif\0\0 prefix */
-    pc_blob xmp;   /* XMP packet, UTF-8 */
+    pc_meta_blob exif;  /* TIFF-structured EXIF (II*\0 / MM\0*), without JPEG's Exif\0\0 prefix */
+    pc_meta_blob xmp;   /* XMP packet, UTF-8 */
     bool has_dpi;
     float dpi_x;
     float dpi_y;
     pc_ctext *text; /* free-form key/value text (PNG tEXt/iTXt, TIFF ASCII tags) */
     size_t ntext;
-    pc_blob photoshop_resources; /* TIFF tag 34377, opaque */
-    pc_blob photoshop_layers;    /* TIFF tag 37724 (ImageSourceData), opaque */
+    pc_meta_blob photoshop_resources; /* TIFF tag 34377, opaque */
+    pc_meta_blob photoshop_layers;    /* TIFF tag 37724 (ImageSourceData), opaque */
 } pc_cmeta;
 
 void pc_cmeta_fini(pc_cmeta *m);
@@ -107,7 +107,7 @@ typedef struct pc_cimage {
     pc_csample sample;
     uint8_t *data; /* interleaved native-endian bytes, len = w * h * channels * bytes */
     size_t len;
-    pc_blob icc; /* embedded ICC profile (describes the layout's colour model) */
+    pc_meta_blob icc; /* embedded ICC profile (describes the layout's colour model) */
     pc_cmeta meta;
     pc_cwarning *warnings; /* empty for complete single images and images built in memory */
     size_t nwarnings;

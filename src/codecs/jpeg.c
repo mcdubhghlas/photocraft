@@ -35,9 +35,9 @@ typedef struct icc_part {
 } icc_part;
 
 typedef struct jmeta {
-    pc_blob icc;
-    pc_blob exif;
-    pc_blob xmp;
+    pc_meta_blob icc;
+    pc_meta_blob exif;
+    pc_meta_blob xmp;
     bool has_dpi;
     float dpi_x;
     float dpi_y;
@@ -49,9 +49,9 @@ typedef struct jmeta {
 
 static void jmeta_fini(jmeta *m)
 {
-    pc_blob_fini(&m->icc);
-    pc_blob_fini(&m->exif);
-    pc_blob_fini(&m->xmp);
+    pc_meta_blob_fini(&m->icc);
+    pc_meta_blob_fini(&m->exif);
+    pc_meta_blob_fini(&m->xmp);
 }
 
 static bool valid_utf8(const uint8_t *b, size_t n)
@@ -111,7 +111,7 @@ static pc_status scan_metadata(const uint8_t *b, size_t n, jmeta *m, pc_error *e
             }
         } else if (marker == 0xE1 && sl >= EXIF_HEADER_LEN && memcmp(seg, EXIF_HEADER, EXIF_HEADER_LEN) == 0 &&
                    !m->exif.has) {
-            st = pc_blob_set(&m->exif, seg + EXIF_HEADER_LEN, sl - EXIF_HEADER_LEN, err);
+            st = pc_meta_blob_set(&m->exif, seg + EXIF_HEADER_LEN, sl - EXIF_HEADER_LEN, err);
         } else if (marker == 0xE1 && sl >= XMP_HEADER_LEN && memcmp(seg, XMP_HEADER, XMP_HEADER_LEN) == 0 &&
                    !m->xmp.has) {
             const uint8_t *x = seg + XMP_HEADER_LEN;
@@ -120,7 +120,7 @@ static pc_status scan_metadata(const uint8_t *b, size_t n, jmeta *m, pc_error *e
                 while (xn > 0 && x[xn - 1] == 0) {
                     xn--;
                 }
-                st = pc_blob_set(&m->xmp, x, xn, err);
+                st = pc_meta_blob_set(&m->xmp, x, xn, err);
             }
         } else if (marker == 0xE2 && sl >= 14 && memcmp(seg, ICC_HEADER, 12) == 0) {
             icc_part *g = pc_grow_array(parts, &cap, np + 1, sizeof *g);
@@ -167,7 +167,7 @@ static pc_status scan_metadata(const uint8_t *b, size_t n, jmeta *m, pc_error *e
                 st = pc_buf_append(&all, parts[k].data, parts[k].len, err);
             }
             if (st == PC_OK) {
-                st = pc_blob_set(&m->icc, all.data != NULL ? all.data : (const uint8_t *)"", all.len, err);
+                st = pc_meta_blob_set(&m->icc, all.data != NULL ? all.data : (const uint8_t *)"", all.len, err);
             }
             pc_buf_fini(&all);
         }
