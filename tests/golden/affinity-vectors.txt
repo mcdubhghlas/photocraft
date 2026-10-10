@@ -1,0 +1,84 @@
+doc afdesignload/color.afdesign 156dfdd5c573d237 spreads 1 nodes 5 warnings 0
+preview afdesignload/color.afdesign 512x512 2232
+truncate afdesignload/color.afdesign 280952b590b24eb0
+mutate afdesignload/color.afdesign c1fd582b86dc45db
+doc afdesignload/layer_mode.afdesign 783feac59e45d1b5 spreads 1 nodes 30 warnings 0
+preview afdesignload/layer_mode.afdesign 512x512 2219
+truncate afdesignload/layer_mode.afdesign 13f5caf748f155df
+mutate afdesignload/layer_mode.afdesign 430918f3ec8a9576
+doc afdesignload/layer_test.afdesign c2f7b112db08f27f spreads 1 nodes 50 warnings 0
+preview afdesignload/layer_test.afdesign 512x512 2219
+truncate afdesignload/layer_test.afdesign 2f61d0e8d6804bf5
+mutate afdesignload/layer_test.afdesign 1e7b9890486b1e62
+doc afdesignload/margins.afdesign e34fe774c6717a1c spreads 1 nodes 1 warnings 0
+preview afdesignload/margins.afdesign 512x512 2219
+truncate afdesignload/margins.afdesign 28db2017dcec0587
+mutate afdesignload/margins.afdesign b1ce4a38a5dbe3a5
+doc afdesignload/raster_test.afdesign ec1f7f826999d27f spreads 1 nodes 2 warnings 0
+preview afdesignload/raster_test.afdesign 512x512 16003
+truncate afdesignload/raster_test.afdesign 09e1fdd90bae14be
+mutate afdesignload/raster_test.afdesign 01bff8b27cd955ab
+doc afdesignload/revision_test.afdesign 4a5c7237b378ea8b spreads 1 nodes 2 warnings 0
+preview afdesignload/revision_test.afdesign 512x512 2282
+truncate afdesignload/revision_test.afdesign facd2215e13adace
+mutate afdesignload/revision_test.afdesign 4b0fa27901dc7406
+doc afdesignload/shape_test.afdesign fd9eef6e5c25f992 spreads 1 nodes 8 warnings 1
+preview afdesignload/shape_test.afdesign 512x512 46364
+truncate afdesignload/shape_test.afdesign ab00e89a4b77fe67
+mutate afdesignload/shape_test.afdesign 586d40d7113e7fb2
+doc afdesignload/slice_test.afdesign 29eca177840d2f17 spreads 1 nodes 2 warnings 0
+preview afdesignload/slice_test.afdesign 512x512 2282
+truncate afdesignload/slice_test.afdesign 0cf6f20ce01c8f85
+mutate afdesignload/slice_test.afdesign 28816e562b4be458
+doc afdesignload/test_path.afdesign e72295f508544ee2 spreads 1 nodes 9 warnings 1
+preview afdesignload/test_path.afdesign 512x512 29548
+truncate afdesignload/test_path.afdesign 76d98ba10c302064
+mutate afdesignload/test_path.afdesign 355dad5ec59bf3fd
+doc asset-store-template/AssetStore.aftemplate 1de2b2cb46fac398 spreads 1 nodes 5 warnings 0
+preview asset-store-template/AssetStore.aftemplate 512x424 2032
+truncate asset-store-template/AssetStore.aftemplate b8ae77c26ac249c0
+mutate asset-store-template/AssetStore.aftemplate ca7771116be01c71
+doc jac21/SimpleLogo.afdesign 5d9fc10b42039bb7 spreads 1 nodes 7 warnings 0
+preview jac21/SimpleLogo.afdesign 512x512 29066
+truncate jac21/SimpleLogo.afdesign 44630ad236a53ccb
+mutate jac21/SimpleLogo.afdesign c360794a77216e2b
+doc jac21/SimpleLogoBanner.afdesign e6d7a519d5e82bc7 spreads 1 nodes 8 warnings 0
+preview jac21/SimpleLogoBanner.afdesign 512x73 35797
+truncate jac21/SimpleLogoBanner.afdesign 6a26fde85dae523f
+mutate jac21/SimpleLogoBanner.afdesign 44d12cf7a4b06cf4
+doc vector-art/beer.afdesign 7573a2e6ec45946d spreads 1 nodes 79 warnings 1
+preview vector-art/beer.afdesign 362x512 47908
+truncate vector-art/beer.afdesign 61507526beefefe5
+mutate vector-art/beer.afdesign 56d923cd7c73de25
+doc vector-art/cactus.afdesign 8ce8bffcd722f788 spreads 1 nodes 125 warnings 2
+preview vector-art/cactus.afdesign 362x512 29281
+truncate vector-art/cactus.afdesign afe1d36d513cc937
+mutate vector-art/cactus.afdesign 0ee1d5f3e5604ff3
+doc vector-art/car.afdesign ea2ed14554f629f0 spreads 1 nodes 98 warnings 0
+preview vector-art/car.afdesign 362x512 16035
+truncate vector-art/car.afdesign cf79f770baed52ba
+mutate vector-art/car.afdesign e208efb16a63a389
+doc vector-art/flowers.afdesign 3e8070b6b18d81aa spreads 1 nodes 96 warnings 2
+preview vector-art/flowers.afdesign 362x512 12579
+truncate vector-art/flowers.afdesign 3442ab462f85bb87
+mutate vector-art/flowers.afdesign 9d4d6f101713d312
+doc vector-art/lion-track.afdesign fc15147a5d85e634 spreads 1 nodes 10 warnings 1
+preview vector-art/lion-track.afdesign 362x512 12392
+truncate vector-art/lion-track.afdesign 34190a50b39b648e
+mutate vector-art/lion-track.afdesign c6b313ec9435772c
+doc vector-art/mexican-guy.af a406fd7ae8f61e4a spreads 1 nodes 283 warnings 2
+preview vector-art/mexican-guy.af 512x362 67776
+truncate vector-art/mexican-guy.af 538e71cdc6acb7f0
+mutate vector-art/mexican-guy.af e9b8a63593e0b469
+doc vector-art/mexican-man.af e17c511270231194 spreads 1 nodes 903 warnings 2
+preview vector-art/mexican-man.af 512x360 55399
+truncate vector-art/mexican-man.af 770afe9f83ea4a5b
+mutate vector-art/mexican-man.af fa1950638ccad646
+doc vector-art/mexican-woman.af c98946c81402e2e3 spreads 1 nodes 595 warnings 2
+preview vector-art/mexican-woman.af 512x362 84534
+truncate vector-art/mexican-woman.af be1cee33c86ac586
+mutate vector-art/mexican-woman.af 3c4322c51fb0c581
+doc vector-art/playing-cards.af ff1559f7101aa8f4 spreads 1 nodes 1350 warnings 2
+preview vector-art/playing-cards.af 512x362 55138
+truncate vector-art/playing-cards.af 2c02eb70811f0633
+mutate vector-art/playing-cards.af 02f225750a93efc3

@@ -10,6 +10,7 @@
 //!
 //! JSON objects are serde_json::Value (keys sorted). Failures print {"error": "..."} and exit 1,
 //! so differential tests can compare errors too.
+mod affinity_vectors;
 mod raw_vectors;
 use base64::Engine;
 use half::f16;
@@ -1373,6 +1374,8 @@ fn main() {
         ["f9-vectors"] => f9_vectors(),
         ["raster-vectors"] => raster_vectors(),
         ["raw-vectors"] => raw_vectors::raw_vectors(),
+        ["affinity-vectors", d] => affinity_vectors::affinity_vectors(d),
+        ["affinity-mutations", f] => affinity_vectors::affinity_mutations(f),
         ["icc-info", f] => icc_info(f),
         ["psd-info", f] => psd_info(f),
         ["decode", f, out] => decode(f, out),

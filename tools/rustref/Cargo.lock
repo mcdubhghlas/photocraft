@@ -1093,6 +1093,7 @@ dependencies = [
  "base64",
  "blake3",
  "half",
+ "photocraft-affinity",
  "photocraft-cms",
  "photocraft-codecs",
  "photocraft-color",
