@@ -12,7 +12,7 @@
 
 /* Byte offset of the first '[' or '{' nested deeper than PC_JSON_MAX_DEPTH, or SIZE_MAX. Run
  * before parsing so yyjson never sees (and our recursive walkers never get) deeper input. */
-static size_t too_deep_at(const char *t, size_t len)
+static size_t too_deep_at(const char *t, size_t len, size_t max_depth)
 {
     size_t depth = 0;
     bool in_str = false;
@@ -31,7 +31,7 @@ static size_t too_deep_at(const char *t, size_t len)
         } else if (c == '"') {
             in_str = true;
         } else if (c == '[' || c == '{') {
-            if (++depth > PC_JSON_MAX_DEPTH) {
+            if (++depth > max_depth) {
                 return i;
             }
         } else if ((c == ']' || c == '}') && depth > 0) {
@@ -81,13 +81,143 @@ static const char *serde_phrase(yyjson_read_code code, const char *fallback)
     return fallback;
 }
 
+static bool is_ws(char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r'; }
+
+/* serde_json words some errors from context yyjson's codes don't carry. The text before `pos`
+ * parsed, so a light scan of it (strings skipped, containers stacked) tells whether `pos` is
+ * where an object key or a ':' was due. Returns the serde phrase, or NULL to keep yyjson's;
+ * *at gets the byte serde points at (serde reports the last byte it read). */
+static const char *serde_context(const char *t, size_t len, size_t pos, const char *phrase, size_t *at)
+{
+    char stack[PC_JSON_MAX_DEPTH + 1];
+    size_t depth = 0;
+    char last = 0;           /* last significant byte before pos: '{' '[' ',' ':' or 'v' (a value) */
+    bool last_was_key = false;
+    bool in_str = false;
+    bool esc = false;
+    size_t i;
+    if (pos > len) {
+        return NULL;
+    }
+    for (i = 0; i < pos; i++) {
+        char c = t[i];
+        if (in_str) {
+            if (esc) {
+                esc = false;
+            } else if (c == '\\') {
+                esc = true;
+            } else if (c == '"') {
+                in_str = false;
+            }
+            continue;
+        }
+        if (is_ws(c)) {
+            continue;
+        }
+        if (c == '"') {
+            in_str = true;
+            last_was_key = depth > 0 && stack[depth - 1] == '{' && (last == '{' || last == ',');
+            last = 'v';
+        } else if (c == '{' || c == '[') {
+            if (depth < sizeof stack) {
+                stack[depth++] = c;
+            }
+            last = c;
+            last_was_key = false;
+        } else if (c == '}' || c == ']') {
+            if (depth > 0) {
+                depth--;
+            }
+            last = 'v';
+            last_was_key = false;
+        } else if (c == ',' || c == ':') {
+            last = c;
+            last_was_key = false;
+        } else if (last != 'v' || last_was_key) {
+            last = 'v'; /* first byte of a number or literal */
+            last_was_key = false;
+        }
+    }
+    if (strcmp(phrase, "expected value") == 0 && depth > 0 && stack[depth - 1] == '{') {
+        if (last == '{' || last == ',') {
+            *at = pos;
+            return "key must be a string";
+        }
+        if (last == 'v' && last_was_key) {
+            *at = pos;
+            return "expected `:`";
+        }
+    }
+    if (strcmp(phrase, "trailing comma is not allowed") == 0) {
+        /* yyjson points at the comma, serde at the closing bracket after it. */
+        size_t j = pos + 1;
+        while (j < len && is_ws(t[j])) {
+            j++;
+        }
+        *at = j < len ? j : pos;
+        return "trailing comma";
+    }
+    if (strcmp(phrase, "invalid number") == 0) {
+        /* A number token starting at pos: digits that overflow f64 are "number out of range" at
+         * its last byte; a leading zero followed by a digit is invalid at that digit. */
+        size_t j = pos;
+        size_t int_start;
+        if (j < len && t[j] == '-') {
+            j++;
+        }
+        int_start = j;
+        if (j + 1 < len && t[j] == '0' && t[j + 1] >= '0' && t[j + 1] <= '9') {
+            *at = j + 1;
+            return "invalid number";
+        }
+        while (j < len && t[j] >= '0' && t[j] <= '9') {
+            j++;
+        }
+        if (j == int_start) {
+            return NULL;
+        }
+        if (j < len && t[j] == '.') {
+            size_t k = ++j;
+            while (j < len && t[j] >= '0' && t[j] <= '9') {
+                j++;
+            }
+            if (j == k) {
+                return NULL;
+            }
+        }
+        if (j < len && (t[j] == 'e' || t[j] == 'E')) {
+            size_t k;
+            j++;
+            if (j < len && (t[j] == '+' || t[j] == '-')) {
+                j++;
+            }
+            k = j;
+            while (j < len && t[j] >= '0' && t[j] <= '9') {
+                j++;
+            }
+            if (j == k) {
+                return NULL;
+            }
+        }
+        *at = j - 1;
+        return "number out of range";
+    }
+    return NULL;
+}
+
 pc_status pc_json_parse(const char *text, size_t len, yyjson_doc **out, pc_error *err)
+{
+    return pc_json_parse_depth(text, len, PC_JSON_MAX_DEPTH, out, err);
+}
+
+pc_status pc_json_parse_depth(const char *text, size_t len, size_t max_depth, yyjson_doc **out, pc_error *err)
 {
     yyjson_read_err rerr;
     yyjson_doc *doc;
     size_t line;
     size_t col;
     size_t deep;
+    const char *phrase;
 
     if (text == NULL && len > 0) {
         return pc_fail(err, PC_ERR_INVALID, "no JSON text");
@@ -95,7 +225,7 @@ pc_status pc_json_parse(const char *text, size_t len, yyjson_doc **out, pc_error
     if (len == 0) { /* yyjson calls this a bad parameter; serde_json an empty document */
         return pc_fail(err, PC_ERR_FORMAT, "EOF while parsing a value at line 1 column 0");
     }
-    deep = too_deep_at(text, len);
+    deep = max_depth == 0 ? SIZE_MAX : too_deep_at(text, len, max_depth);
     if (deep != SIZE_MAX) {
         line_col(text, len, deep, &line, &col);
         return pc_fail(err, PC_ERR_FORMAT, "recursion limit exceeded at line %zu column %zu", line, col);
@@ -111,11 +241,18 @@ pc_status pc_json_parse(const char *text, size_t len, yyjson_doc **out, pc_error
         if (rerr.code == YYJSON_READ_ERROR_EMPTY_CONTENT || rerr.code == YYJSON_READ_ERROR_UNEXPECTED_END) {
             line_col(text, len, len, &line, &col);
             col--;
+            phrase = serde_phrase(rerr.code, rerr.msg);
         } else {
-            line_col(text, len, rerr.pos, &line, &col);
+            const char *ctx;
+            size_t at = rerr.pos;
+            phrase = serde_phrase(rerr.code, rerr.msg);
+            ctx = serde_context(text, len, rerr.pos, phrase, &at);
+            if (ctx != NULL) {
+                phrase = ctx;
+            }
+            line_col(text, len, at, &line, &col);
         }
-        return pc_fail(err, PC_ERR_FORMAT, "%s at line %zu column %zu", serde_phrase(rerr.code, rerr.msg), line,
-                       col);
+        return pc_fail(err, PC_ERR_FORMAT, "%s at line %zu column %zu", phrase, line, col);
     }
     /* serde_json reads the integer text "-0" as the float -0.0; yyjson as a signed 0. An
      * immutable yyjson document keeps every value in one contiguous array from the root. */

@@ -4,6 +4,12 @@
  * synthetic PNGs, each .ref.png being Apple's decode of the .heic beside it), the 10-bit one from
  * pillow-heif with its source PNG. Corpus tests skip when corpus/ is absent (the reference fails).
  *
+ * Parity: every decoded sample equals the reference's. The corpus files are checked against
+ * tests/golden/decode/heif/ (the reference's decode: size, layout, SHA-256 of the samples), plus
+ * container-rotated copies; tests/codecs/heif_synth.h holds small synthetic files covering 4:2:0 /
+ * 4:2:2 / 4:4:4 / monochrome, 8-12 bits, every nclx matrix and range, alpha, an odd-sized grid
+ * and irot / imir / clap, each with the reference's hashes as coded and transformed.
+ *
  * Decoding needs libheif with an HEVC decoder plugin. Without it (PC_NO_HEIF, or a libheif that
  * has no HEVC decoder, where HEIF is not readable) the reference's no-`heif`-feature test runs. */
 #include "common.h"
@@ -33,6 +39,8 @@ static void test_without_the_feature_heif_is_a_clear_unsupported_error(void)
 }
 
 #ifndef PC_NO_HEIF
+
+#include "codecs/heif_synth.h"
 
 static pc_buf files[4];
 static bool have_corpus;
@@ -71,7 +79,10 @@ static bool load_files(void)
 #define WITH_EXIF (&files[3])
 
 /* The test needs the corpus and an HEVC decoder. */
-static bool ready(void) { return have_corpus && pc_cformat_caps(F).read; }
+static bool ready(void)
+{
+    return have_corpus && pc_cformat_caps(F).read;
+}
 
 static pc_cimage reference(const char *rel)
 {
@@ -180,34 +191,10 @@ static void test_detect_heif_brands(void)
     }
 }
 
-/* Max abs difference (normalised) and PSNR of two RGB U8 images, skipping columns 31 and 63. */
-static float strips_max_diff(const pc_cimage *a, const pc_cimage *b, double *psnr_out)
-{
-    size_t i;
-    size_t n = 0;
-    double mse = 0.0;
-    unsigned m = 0;
-    for (i = 0; i < a->len && i < b->len; i++) {
-        size_t x = (i / 3) % a->width;
-        unsigned d;
-        if (x == 31 || x == 63) {
-            continue;
-        }
-        d = (unsigned)abs((int)a->data[i] - (int)b->data[i]);
-        m = d > m ? d : m;
-        mse += ((double)d / 255.0) * ((double)d / 255.0);
-        n++;
-    }
-    mse /= (double)(n > 0 ? n : 1);
-    *psnr_out = mse == 0.0 ? INFINITY : 10.0 * log10(1.0 / mse);
-    return (float)m / 255.0f;
-}
-
 static void test_single_picture_matches_apple_decode(void)
 {
     static const char *const refs[2] = {"heic-rs/checker-64.ref.png", "heic-rs/rgb-strips-96.ref.png"};
     size_t i;
-    double p_strips = 0.0;
     if (!ready()) {
         return;
     }
@@ -217,11 +204,8 @@ static void test_single_picture_matches_apple_decode(void)
         CHECK(img.layout == PC_CL_RGB && img.sample == PC_CS_U8);
         CHECK(img.width == want.width && img.height == want.height);
         if (img.layout == PC_CL_RGB && img.width == want.width && img.height == want.height) {
-            /* Deviation: libheif upsamples 4:2:0 chroma nearest-neighbour, Apple (and heic-rs)
-             * interpolate it, so the one column before each strip edge (x 31, 63) differs by up
-             * to 186; the strips are compared without those columns. */
-            float d = i == 1 ? strips_max_diff(&img, &want, &p_strips) : max_abs_diff(&img, &want);
-            double p = i == 1 ? p_strips : psnr(&img, &want);
+            float d = max_abs_diff(&img, &want);
+            double p = psnr(&img, &want);
             pc_t_checks += 2;
             if (d > 3.0f / 255.0f) {
                 PC_T_FAIL("%s: max diff %g", refs[i], (double)d * 255.0);
@@ -293,8 +277,9 @@ static void test_container_rotation_is_applied_once(void)
     CHECK_EQ_UINT(img.width, 32);
     CHECK_EQ_UINT(img.height, 96);
     if (img.width == 32 && img.height == 96 && img.layout == PC_CL_RGB) {
-        CHECK(pc_cimage_get(&img, 16, 8, 2) > 0.9f && pc_cimage_get(&img, 16, 8, 0) < 0.1f);   /* blue on top */
-        CHECK(pc_cimage_get(&img, 16, 88, 0) > 0.9f && pc_cimage_get(&img, 16, 88, 2) < 0.1f); /* red at the bottom */
+        CHECK(pc_cimage_get(&img, 16, 8, 2) > 0.9f && pc_cimage_get(&img, 16, 8, 0) < 0.1f); /* blue on top */
+        CHECK(pc_cimage_get(&img, 16, 88, 0) > 0.9f &&
+              pc_cimage_get(&img, 16, 88, 2) < 0.1f); /* red at the bottom */
     }
     pc_cimage_fini(&img);
     /* keep_orientation hands back the pixels as coded. */
@@ -450,7 +435,8 @@ static void test_ten_bit_with_alpha_decodes_to_16_bit_rgba(void)
         /* The alpha plane is coded on its own and comes back almost exactly. */
         for (y = 0; y < 100; y++) {
             for (x = 0; x < 29; x++) {
-                if (!(fabsf(pc_cimage_get(&img, x, y, 3) - pc_cimage_get(&src, x, y, 3)) < 0.002f) && bad++ == 0) {
+                if (!(fabsf(pc_cimage_get(&img, x, y, 3) - pc_cimage_get(&src, x, y, 3)) < 0.002f) &&
+                    bad++ == 0) {
                     PC_T_FAIL("alpha at %u,%u", (unsigned)x, (unsigned)y);
                 }
             }
@@ -476,6 +462,319 @@ static void test_ten_bit_with_alpha_decodes_to_16_bit_rgba(void)
     pc_buf_fini(&png);
 }
 
+/* ---- parity with the reference's decoded samples ---- */
+
+/* SHA-256 (FIPS 180-4) as lower-case hex: the goldens' raw_sha256. */
+static void sha256_hex(const uint8_t *d, size_t n, char out[65])
+{
+    static const uint32_t k[64] = {
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+        0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+        0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+        0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+        0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+        0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+        0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2};
+    uint32_t h[8] = {0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+                     0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19};
+    uint64_t bits = (uint64_t)n * 8;
+    size_t total = (n + 9 + 63) / 64 * 64;
+    size_t off;
+    int i;
+    for (off = 0; off < total; off += 64) {
+        uint8_t blk[64];
+        uint32_t w[64];
+        uint32_t a[8];
+        for (i = 0; i < 64; i++) {
+            size_t at = off + (size_t)i;
+            uint64_t v = at < n            ? d[at]
+                         : at == n         ? 0x80
+                         : at >= total - 8 ? bits >> (8 * (total - 1 - at))
+                                           : 0;
+            blk[i] = (uint8_t)v;
+        }
+        for (i = 0; i < 16; i++) {
+            w[i] = ((uint32_t)blk[4 * i] << 24) | ((uint32_t)blk[4 * i + 1] << 16) |
+                   ((uint32_t)blk[4 * i + 2] << 8) | blk[4 * i + 3];
+        }
+        for (i = 16; i < 64; i++) {
+            uint32_t s0 = ((w[i - 15] >> 7) | (w[i - 15] << 25)) ^ ((w[i - 15] >> 18) | (w[i - 15] << 14)) ^
+                          (w[i - 15] >> 3);
+            uint32_t s1 = ((w[i - 2] >> 17) | (w[i - 2] << 15)) ^ ((w[i - 2] >> 19) | (w[i - 2] << 13)) ^
+                          (w[i - 2] >> 10);
+            w[i] = w[i - 16] + s0 + w[i - 7] + s1;
+        }
+        memcpy(a, h, sizeof a);
+        for (i = 0; i < 64; i++) {
+            uint32_t S1 =
+                ((a[4] >> 6) | (a[4] << 26)) ^ ((a[4] >> 11) | (a[4] << 21)) ^ ((a[4] >> 25) | (a[4] << 7));
+            uint32_t t1 = a[7] + S1 + ((a[4] & a[5]) ^ (~a[4] & a[6])) + k[i] + w[i];
+            uint32_t S0 =
+                ((a[0] >> 2) | (a[0] << 30)) ^ ((a[0] >> 13) | (a[0] << 19)) ^ ((a[0] >> 22) | (a[0] << 10));
+            uint32_t t2 = S0 + ((a[0] & a[1]) ^ (a[0] & a[2]) ^ (a[1] & a[2]));
+            memmove(a + 1, a, 7 * sizeof a[0]);
+            a[4] += t1;
+            a[0] = t1 + t2;
+        }
+        for (i = 0; i < 8; i++) {
+            h[i] += a[i];
+        }
+    }
+    for (i = 0; i < 8; i++) {
+        (void)snprintf(out + 8 * i, 9, "%08x", (unsigned)h[i]);
+    }
+}
+
+/* Decodes b (transforms applied unless keep) and checks the size, layout and sample hash. */
+static void check_decode(const char *what, const uint8_t *b, size_t n, bool keep_orientation, uint32_t w,
+                         uint32_t h, bool alpha, bool sixteen, const char *sha)
+{
+    pc_cdecode_opts o = pc_cdecode_opts_default();
+    pc_cimage img;
+    pc_error e;
+    char got[65];
+    o.keep_orientation = keep_orientation;
+    pc_t_checks++;
+    if (pc_cdecode_with(b, n, &o, &img, &e) != PC_OK) {
+        PC_T_FAIL("%s%s: %s", what, keep_orientation ? " (keep)" : "", e.msg);
+        return;
+    }
+    sha256_hex(img.data, img.len, got);
+    if (img.width != w || img.height != h || img.layout != (alpha ? PC_CL_RGBA : PC_CL_RGB) ||
+        img.sample != (sixteen ? PC_CS_U16 : PC_CS_U8) || strcmp(got, sha) != 0) {
+        PC_T_FAIL("%s%s: %ux%u layout %d sample %d sha %s, want %ux%u %s", what,
+                  keep_orientation ? " (keep)" : "", (unsigned)img.width, (unsigned)img.height,
+                  (int)img.layout, (int)img.sample, got, (unsigned)w, (unsigned)h, sha);
+    }
+    pc_cimage_fini(&img);
+}
+
+/* A golden of tools/golden.sh decode: {"bytes":..,"height":..,"icc_len":..,"layout":"Rgb",..}. */
+typedef struct golden {
+    unsigned w, h;
+    bool alpha, sixteen, icc;
+    char sha[65];
+} golden;
+
+static bool read_golden(const char *rel, golden *g)
+{
+    char path[512];
+    char layout[16];
+    char sample[16];
+    pc_buf b = PC_BUF_INIT;
+    char *t;
+    const char *at;
+    bool ok;
+    (void)snprintf(path, sizeof path, "tests/golden/decode/heif/%s.json", rel);
+    if (pc_file_read(path, 1 << 16, &b, NULL) != PC_OK || pc_buf_append(&b, "", 1, NULL) != PC_OK) {
+        pc_buf_fini(&b);
+        return false;
+    }
+    t = (char *)b.data;
+    ok = (at = strstr(t, "\"height\":")) != NULL && sscanf(at, "\"height\":%u", &g->h) == 1 &&
+         (at = strstr(t, "\"width\":")) != NULL && sscanf(at, "\"width\":%u", &g->w) == 1 &&
+         (at = strstr(t, "\"layout\":\"")) != NULL && sscanf(at, "\"layout\":\"%15[A-Za-z]", layout) == 1 &&
+         (at = strstr(t, "\"sample\":\"")) != NULL &&
+         sscanf(at, "\"sample\":\"%15[A-Za-z0-9]", sample) == 1 &&
+         (at = strstr(t, "\"raw_sha256\":\"")) != NULL &&
+         sscanf(at, "\"raw_sha256\":\"%64[0-9a-f]", g->sha) == 1;
+    g->alpha = strcmp(layout, "Rgba") == 0;
+    g->sixteen = strcmp(sample, "U16") == 0;
+    g->icc = strstr(t, "\"icc_len\":null") == NULL;
+    pc_buf_fini(&b);
+    return ok;
+}
+
+static void test_corpus_decodes_match_the_reference_exactly(void)
+{
+    static const char *const names[5] = {"heic-rs/checker-64.heic", "heic-rs/rgb-strips-96.heic",
+                                         "heic-rs/checker-1024.heic", "heic-rs/with-exif.heic",
+                                         "pillow-heif/heif/RGBA_10__29x100.heif"};
+    size_t i;
+    if (!ready()) {
+        return;
+    }
+    for (i = 0; i < 5; i++) {
+        golden g;
+        pc_buf b = corpus(names[i]);
+        pc_cimage img;
+        pc_error e;
+        if (!read_golden(names[i], &g)) {
+            PC_T_FAIL("%s: no golden", names[i]);
+        } else if (b.len == 0) {
+            PC_T_FAIL("%s missing", names[i]);
+        } else {
+            /* none of them has a container transform */
+            check_decode(names[i], b.data, b.len, false, g.w, g.h, g.alpha, g.sixteen, g.sha);
+            check_decode(names[i], b.data, b.len, true, g.w, g.h, g.alpha, g.sixteen, g.sha);
+            if (pc_cdecode(b.data, b.len, &img, &e) == PC_OK) {
+                CHECK(img.icc.has == g.icc);
+                pc_cimage_fini(&img);
+            }
+        }
+        pc_buf_fini(&b);
+    }
+}
+
+static void test_container_rotations_match_the_reference_exactly(void)
+{
+    /* The reference's decodes of the corpus files with their irot set to 1, 2 and 3. */
+    static const struct {
+        size_t file;
+        uint8_t angle;
+        uint32_t w, h;
+        const char *sha;
+    } cases[4] = {
+        {1, 1, 32, 96, "c4234fc63081847c3e9fcf15d84ec19696e8c9d8faf52953f6376697cca32c02"},
+        {1, 2, 96, 32, "3129056e62352bb07069e4b55c6f5e9b80f6e15cea15aa679964d8ad4fa668f2"},
+        {1, 3, 32, 96, "552d03b0e2cd3f36f7955d6d795b25b77ada4362de2de2ae1132e7965ec9604d"},
+        {2, 1, 1024, 1024, "e90e6c1f04ac0a9e347cce51c2c96f01d7d0ea8fc387663e7f6ef6fb9744d09a"},
+    };
+    static const char *const unrotated[3] = {
+        "ce810a56212fd98b4f3b4fcb233bda78d4a9d37d2db0e3063b211fece39b8c28",
+        "2f7a4aeecc5c9d2da1c0ed53e0738027a75472e5491e6f3641758b0769e7bae4",
+        "3651a34d5686e9203428c5ce4333df19f7b0e14b9ebcc829f41e490369b8aeb7"};
+    size_t i;
+    if (!ready()) {
+        return;
+    }
+    for (i = 0; i < 4; i++) {
+        pc_buf r = with_irot(&files[cases[i].file], cases[i].angle);
+        check_decode("rotated", r.data, r.len, false, cases[i].w, cases[i].h, false, false, cases[i].sha);
+        check_decode("rotated", r.data, r.len, true, cases[i].file == 1 ? 96 : 1024,
+                     cases[i].file == 1 ? 32 : 1024, false, false, unrotated[cases[i].file]);
+        pc_buf_fini(&r);
+    }
+}
+
+/* Every chroma format, depth, matrix, range, alpha, a grid and the transforms. */
+static void test_synthetic_files_match_the_reference_exactly(void)
+{
+    size_t i;
+    if (!pc_cformat_caps(F).read) {
+        return;
+    }
+    for (i = 0; i < sizeof HEIF_SYNTH / sizeof HEIF_SYNTH[0]; i++) {
+        const heif_fixture *f = &HEIF_SYNTH[i];
+        check_decode(f->name, f->data, f->len, false, f->w, f->h, f->alpha, f->sixteen, f->sha);
+        check_decode(f->name, f->data, f->len, true, f->kw, f->kh, f->alpha, f->sixteen, f->keep_sha);
+    }
+}
+
+static const heif_fixture *synth_named(const char *name)
+{
+    size_t i;
+    for (i = 0; i < sizeof HEIF_SYNTH / sizeof HEIF_SYNTH[0]; i++) {
+        if (strcmp(HEIF_SYNTH[i].name, name) == 0) {
+            return &HEIF_SYNTH[i];
+        }
+    }
+    PC_T_FAIL("no fixture %s", name);
+    return &HEIF_SYNTH[0];
+}
+
+/* The reference refuses a broken clap with these messages, before decoding (also when the
+ * pixels would come back as coded); a crop outside the image only fails once applied. */
+static void test_broken_clap_is_refused_like_the_reference(void)
+{
+    static const struct {
+        size_t at; /* byte offset in the clap payload */
+        int32_t v;
+        bool keep_fails;
+        const char *msg;
+    } cases[5] = {
+        {4, 0, true, "malformed file: clap has a zero denominator"},
+        {28, 0, true, "malformed file: clap has a zero denominator"},
+        {0, 38, true, "malformed file: clap declares an impossible cropped size"},
+        {0, 0, true, "malformed file: clap declares an impossible cropped size"},
+        {16, -40, false, "malformed file: clap selects a rectangle outside the image"},
+    };
+    const heif_fixture *f;
+    size_t c;
+    if (!pc_cformat_caps(F).read) {
+        return;
+    }
+    f = synth_named("yuv444-odd-240m-clap");
+    for (c = 0; c < 5; c++) {
+        pc_buf b = PC_BUF_INIT;
+        size_t i;
+        int k;
+        (void)pc_buf_append(&b, f->data, f->len, NULL);
+        for (i = 0; i + 40 < b.len && memcmp(b.data + i, "clap", 4) != 0; i++) {
+        }
+        CHECK(i + 40 < b.len);
+        if (i + 40 >= b.len) {
+            pc_buf_fini(&b);
+            return;
+        }
+        b.data[i + 4 + cases[c].at] = (uint8_t)((uint32_t)cases[c].v >> 24);
+        b.data[i + 5 + cases[c].at] = (uint8_t)((uint32_t)cases[c].v >> 16);
+        b.data[i + 6 + cases[c].at] = (uint8_t)((uint32_t)cases[c].v >> 8);
+        b.data[i + 7 + cases[c].at] = (uint8_t)cases[c].v;
+        for (k = 0; k < 2; k++) {
+            pc_cdecode_opts o = pc_cdecode_opts_default();
+            pc_cimage img;
+            pc_error e;
+            pc_status st;
+            o.keep_orientation = k == 1;
+            st = pc_cdecode_with(b.data, b.len, &o, &img, &e);
+            if (k == 1 && !cases[c].keep_fails) {
+                CHECK_EQ_INT(st, PC_OK);
+                if (st == PC_OK) {
+                    CHECK(img.width == f->kw && img.height == f->kh);
+                    pc_cimage_fini(&img);
+                }
+                continue;
+            }
+            CHECK_EQ_INT(st, PC_ERR_FORMAT);
+            if (st == PC_OK) {
+                pc_cimage_fini(&img);
+            } else {
+                CHECK_CONTAINS(e.msg, cases[c].msg);
+            }
+        }
+        pc_buf_fini(&b);
+    }
+}
+
+/* Truncations and byte flips of every synthetic file: an error or an image, never a crash. */
+static void test_damaged_synthetic_files_never_crash(void)
+{
+    rng r = {0x4845494655ull};
+    size_t i;
+    if (!pc_cformat_caps(F).read) {
+        return;
+    }
+    for (i = 0; i < sizeof HEIF_SYNTH / sizeof HEIF_SYNTH[0]; i++) {
+        const heif_fixture *f = &HEIF_SYNTH[i];
+        pc_buf b = PC_BUF_INIT;
+        size_t cut;
+        int m;
+        for (cut = 0; cut < f->len; cut += 1 + cut / 64) {
+            pc_cimage img;
+            if (pc_cdecode_as(F, f->data, cut, &img, NULL) == PC_OK) {
+                pc_cimage_fini(&img);
+            }
+        }
+        (void)pc_buf_append(&b, f->data, f->len, NULL);
+        for (m = 0; m < 64; m++) {
+            pc_cdecode_opts o = pc_cdecode_opts_default();
+            pc_cimage img;
+            size_t at = (size_t)(rng_next(&r) % f->len);
+            uint8_t old = b.data[at];
+            b.data[at] = (uint8_t)rng_next(&r);
+            o.keep_orientation = (m & 1) != 0;
+            if (pc_cdecode_with(b.data, b.len, &o, &img, NULL) == PC_OK) {
+                pc_cimage_fini(&img);
+            }
+            b.data[at] = old;
+        }
+        pc_buf_fini(&b);
+    }
+    CHECK(true); /* reaching here is the test */
+}
+
 /* ---- unit tests of crates/codecs/src/codecs/heif.rs (with the feature) ---- */
 
 static void test_with_the_feature_heif_is_readable_and_errors_map(void)
@@ -496,10 +795,11 @@ static void test_with_the_feature_heif_is_readable_and_errors_map(void)
 /* Found by the decode_heif fuzz target: a malformed box made heic-rs 0.1.1 slice out of range. It
  * must be an error, not a crash. */
 static const uint8_t HEIC_RS_BOX_PANIC[72] = {
-    0x00, 0x00, 0x00, 0x24, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63, 0x00, 0x00, 0x00, 0x00, 0x6d, 0x69,
-    0x66, 0x31, 0x4d, 0x69, 0x50, 0x72, 0x6d, 0x69, 0x61, 0x66, 0x4d, 0x69, 0x48, 0x42, 0x72, 0x02, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x6d, 0x65, 0x74, 0x61, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x75, 0x75,
-    0x69, 0x64, 0x00, 0x00, 0x00, 0x00, 0x03, 0x08, 0x08, 0x08, 0x00, 0x03, 0x01, 0x03, 0x70, 0x00, 0xa8, 0x00,
+    0x00, 0x00, 0x00, 0x24, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63, 0x00, 0x00, 0x00,
+    0x00, 0x6d, 0x69, 0x66, 0x31, 0x4d, 0x69, 0x50, 0x72, 0x6d, 0x69, 0x61, 0x66, 0x4d, 0x69,
+    0x48, 0x42, 0x72, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x6d, 0x65, 0x74, 0x61, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10, 0x75, 0x75, 0x69, 0x64, 0x00, 0x00, 0x00, 0x00,
+    0x03, 0x08, 0x08, 0x08, 0x00, 0x03, 0x01, 0x03, 0x70, 0x00, 0xa8, 0x00,
 };
 
 static void test_a_heic_rs_panic_is_a_malformed_file_error(void)
@@ -516,7 +816,8 @@ static void test_a_heic_rs_panic_is_a_malformed_file_error(void)
     for (i = 0; i < 2; i++) {
         pc_cimage img;
         pc_error e;
-        CHECK_EQ_INT(pc_cdecode_with(HEIC_RS_BOX_PANIC, sizeof HEIC_RS_BOX_PANIC, &opts[i], &img, &e), PC_ERR_FORMAT);
+        CHECK_EQ_INT(pc_cdecode_with(HEIC_RS_BOX_PANIC, sizeof HEIC_RS_BOX_PANIC, &opts[i], &img, &e),
+                     PC_ERR_FORMAT);
         CHECK_CONTAINS(e.msg, "Heif: malformed data: ");
     }
 }
@@ -542,6 +843,11 @@ int main(int argc, char **argv)
     RUN(test_unsupported_and_broken_files_are_clear_errors);
     RUN(test_every_truncation_errors_or_decodes_never_panics);
     RUN(test_ten_bit_with_alpha_decodes_to_16_bit_rgba);
+    RUN(test_corpus_decodes_match_the_reference_exactly);
+    RUN(test_container_rotations_match_the_reference_exactly);
+    RUN(test_synthetic_files_match_the_reference_exactly);
+    RUN(test_broken_clap_is_refused_like_the_reference);
+    RUN(test_damaged_synthetic_files_never_crash);
     RUN(test_with_the_feature_heif_is_readable_and_errors_map);
     RUN(test_a_heic_rs_panic_is_a_malformed_file_error);
     if (!pc_cformat_caps(F).read) {

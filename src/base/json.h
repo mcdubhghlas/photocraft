@@ -28,6 +28,11 @@ enum { PC_JSON_MAX_DEPTH = 127, PC_JSON_NUM_MAX = 40 };
 /* Parse text into a new document (caller frees with yyjson_doc_free). */
 pc_status pc_json_parse(const char *text, size_t len, yyjson_doc **out, pc_error *err);
 
+/* As pc_json_parse with another nesting limit: max_depth arrays/objects (0 = no limit, like
+ * serde_json's disable_recursion_limit; yyjson itself never recurses, so any depth is safe).
+ * Deeper input fails with the same "recursion limit exceeded at line L column C" text. */
+pc_status pc_json_parse_depth(const char *text, size_t len, size_t max_depth, yyjson_doc **out, pc_error *err);
+
 /* obj[key] for an object (last duplicate wins); NULL if obj isn't an object or lacks key. */
 yyjson_val *pc_json_get(yyjson_val *obj, const char *key);
 

@@ -193,6 +193,8 @@ typedef struct pc_doc_psd_block {
     pc_blob *data;
 } pc_doc_psd_block;
 
+/* Adding a field here (or to the structs it holds)? The .pcraft manifest must save it:
+ * src/format/convert_save.c pins these structs' sizes and fails to compile until it does. */
 struct pc_layer {
     pc_layer_id id;
     pc_str name;
@@ -305,6 +307,7 @@ void pc_metadata_fini(pc_metadata *m);
 pc_status pc_metadata_clone(const pc_metadata *m, pc_metadata *out, pc_error *err);
 bool pc_metadata_eq(const pc_metadata *a, const pc_metadata *b);
 
+/* Adding a field? See the note above struct pc_layer (src/format/convert_save.c). */
 struct pc_document {
     pc_doc_id id;
     pc_str name;

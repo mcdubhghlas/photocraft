@@ -132,6 +132,56 @@ static void test_value_widens_f32(void)
     yyjson_mut_doc_free(d);
 }
 
+static void test_parse_depth_limit(void)
+{
+    char deep[400];
+    yyjson_doc *d = NULL;
+    pc_error err;
+    memset(deep, '[', 200);
+    memset(deep + 200, ']', 200);
+    CHECK(pc_json_parse(deep, 400, &d, &err) == PC_ERR_FORMAT);
+    CHECK_CONTAINS(err.msg, "recursion limit exceeded at line 1 column 128");
+    CHECK(pc_json_parse_depth(deep, 400, 150, &d, &err) == PC_ERR_FORMAT);
+    CHECK_CONTAINS(err.msg, "column 151");
+    CHECK(pc_json_parse_depth(deep, 400, 200, &d, NULL) == PC_OK);
+    yyjson_doc_free(d);
+    d = NULL;
+    CHECK(pc_json_parse_depth(deep, 400, 0, &d, NULL) == PC_OK);
+    yyjson_doc_free(d);
+}
+
+/* Messages and columns from serde_json 1.0.149 (scratch probe of from_str::<Value>). */
+static void test_parse_errors_worded_like_serde(void)
+{
+    static const char *const cases[][2] = {
+        {"{not json", "key must be a string at line 1 column 2"},
+        {"{\"a\":1,b}", "key must be a string at line 1 column 8"},
+        {"{ ,}", "key must be a string at line 1 column 3"},
+        {"[1,{x:1}]", "key must be a string at line 1 column 5"},
+        {"{\"a\":{1:2}}", "key must be a string at line 1 column 7"},
+        {"1e999", "number out of range at line 1 column 5"},
+        {"-1e999", "number out of range at line 1 column 6"},
+        {"[1e400]", "number out of range at line 1 column 6"},
+        {"{\"a\": 1.5e309 }", "number out of range at line 1 column 13"},
+        {"[1e999,2]", "number out of range at line 1 column 6"},
+        {"123456789012345678901234567890e300", "number out of range at line 1 column 34"},
+        {"01", "invalid number at line 1 column 2"},
+        {"1.", "EOF while parsing a value at line 1 column 2"},
+        {"{\"k\":}", "expected value at line 1 column 6"},
+        {"{\"k\" 1}", "expected `:` at line 1 column 6"},
+        {"[,1]", "expected value at line 1 column 2"},
+        {"{\"a\":1,}", "trailing comma at line 1 column 8"},
+        {"[1,]", "trailing comma at line 1 column 4"},
+    };
+    size_t i;
+    for (i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+        yyjson_doc *d = NULL;
+        pc_error err;
+        CHECK(pc_json_parse(cases[i][0], strlen(cases[i][0]), &d, &err) == PC_ERR_FORMAT);
+        CHECK_EQ_STR(err.msg, cases[i][1]);
+    }
+}
+
 static void test_alphanumeric(void)
 {
     CHECK(pc_unicode_is_alphanumeric('a'));
@@ -155,6 +205,8 @@ int main(int argc, char **argv)
     RUN(test_blob_sharing);
     RUN(test_value_normalises_like_serde);
     RUN(test_value_widens_f32);
+    RUN(test_parse_depth_limit);
+    RUN(test_parse_errors_worded_like_serde);
     RUN(test_alphanumeric);
     return pc_t_finish();
 }

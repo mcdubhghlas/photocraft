@@ -10,12 +10,25 @@
  * first element of a sequence) as a variant identifier, then deserialises the variant from what
  * is left (JR_CONTENT). Unit variants accept any remainder. */
 
-static pc_status internal_tag(const jinternal *in, yyjson_val *tag, unsigned *idx, pc_error *err)
+pc_status pc_jinternal_tag(const jenum *e, yyjson_val *tag, unsigned mode, unsigned *idx, pc_error *err)
 {
+    /* Nested in another tagged enum the tag comes out of serde's Content buffer, whose
+     * identifier deserializer also takes an unsigned integer as the variant index. */
+    bool index = yyjson_is_uint(tag) || (yyjson_is_sint(tag) && yyjson_get_sint(tag) >= 0);
+    if ((mode & JR_CONTENT) != 0 && index) {
+        uint64_t i = yyjson_is_uint(tag) ? yyjson_get_uint(tag) : (uint64_t)yyjson_get_sint(tag);
+        if (i >= e->n) {
+            return pc_fail(err, PC_ERR_INVALID,
+                           "invalid value: integer `%llu`, expected variant index 0 <= i < %zu",
+                           (unsigned long long)i, e->n);
+        }
+        *idx = (unsigned)i;
+        return PC_OK;
+    }
     if (!yyjson_is_str(tag)) {
         return pc_jfail_type(tag, "variant identifier", err);
     }
-    return pc_jenum_find(in->e, yyjson_get_str(tag), yyjson_get_len(tag), idx, err);
+    return pc_jenum_find(e, yyjson_get_str(tag), yyjson_get_len(tag), idx, err);
 }
 
 pc_status pc_jt_internal_read(const jtype *t, yyjson_val *v, void *out, unsigned mode, pc_error *err)
@@ -26,7 +39,6 @@ pc_status pc_jt_internal_read(const jtype *t, yyjson_val *v, void *out, unsigned
     unsigned idx = 0;
     pc_status st;
     const jvariant *var;
-    (void)mode;
     if (yyjson_is_obj(v)) {
         tag = pc_json_get(v, in->tag);
         if (tag == NULL) {
@@ -41,7 +53,7 @@ pc_status pc_jt_internal_read(const jtype *t, yyjson_val *v, void *out, unsigned
     } else {
         return pc_jfail_type(v, in->expecting, err);
     }
-    st = internal_tag(in, tag, &idx, err);
+    st = pc_jinternal_tag(in->e, tag, mode, &idx, err);
     if (st != PC_OK) {
         return st;
     }

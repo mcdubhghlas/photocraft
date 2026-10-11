@@ -10,6 +10,7 @@ use photocraft_algo::perspective::{self, PerspectiveMap, Plane, Straighten};
 use photocraft_algo::tone::HdrToning;
 use photocraft_algo::vanishing::{self, Edge, Scene, VpPlane};
 use photocraft_algo::wideangle::{self, Camera, WideAngle};
+use photocraft_algo::transform::Interp;
 use photocraft_algo::{FilterParams, apply, output_area};
 use photocraft_color::{ColorMode, PixelFormat, SampleType};
 use photocraft_geom::Rect;
@@ -576,6 +577,85 @@ fn relight_vectors() {
     println!("relight_halo {h:016x}");
 }
 
+// ---------------------------------------------------------------------------------------------
+
+/// Adaptive Wide Angle `apply` (solved mesh rendered with warp_triangles): camera models, focal
+/// lengths, constraint sets and scale on rgba8; every interpolation over a wider format list;
+/// frame/source region variants (inner, larger and multi-tile, partial overlap, empty, sparse).
+fn wide_apply_vectors() {
+    let wide_formats = || {
+        let mut v = formats();
+        v.push(("rgba16", PixelFormat::new(ColorMode::Rgb, SampleType::U16, true)));
+        v.push(("rgb32", PixelFormat::new(ColorMode::Rgb, SampleType::F32, false)));
+        v.push(("gray8", PixelFormat::new(ColorMode::Grayscale, SampleType::U8, false)));
+        v.push(("graya32", PixelFormat::new(ColorMode::Grayscale, SampleType::F32, true)));
+        v.push(("cmyk16", PixelFormat::new(ColorMode::Cmyk, SampleType::U16, false)));
+        v
+    };
+    let frame_of = |id: &str| match id {
+        "f0" => Rect::new(0, 0, 480, 320),
+        "f1" => Rect::new(40, 30, 440, 290),
+        "f2" => Rect::new(-10, 5, 790, 405),
+        "f3" => Rect::new(3, 4, 103, 37),
+        "f4" => Rect::new(300, 200, 900, 640),
+        _ => Rect::new(5, 5, 5, 9),
+    };
+    let interps = [("nearest", Interp::Nearest), ("bilinear", Interp::Bilinear), ("bicubic", Interp::Bicubic)];
+    let src_of = |id: &str, fmt: PixelFormat| match id {
+        "a" => surf(fmt, Rect::new(0, 0, 480, 320), 5, false),
+        "o" => surf(fmt, Rect::new(0, 0, 480, 320), 5, true),
+        "s" => surf(fmt, Rect::new(100, 50, 380, 300), 6, false),
+        _ => Surface::new(fmt),
+    };
+    let run = |fname: &str, fmt: PixelFormat, iname: &str, interp: Interp, sid: &str, fid: &str, js: &str| {
+        let p: WideAngle = serde_json::from_str(js).unwrap();
+        let s = src_of(sid, fmt);
+        let out = wideangle::apply(&s, frame_of(fid), &p, interp);
+        println!("wide_apply {fname} {iname} {sid} {fid} {js} {:016x}", hs(&out));
+    };
+    let rgba8 = PixelFormat::new(ColorMode::Rgb, SampleType::U8, true);
+    let settings = [
+        r#"{"model":"fisheye","focalLength":8}"#,
+        r#"{"model":"fisheye","focalLength":15,"scale":125}"#,
+        r#"{"model":"perspective"}"#,
+        r#"{"model":"perspective","focalLength":24,"cropFactor":1.6}"#,
+        "{}",
+        r#"{"model":"fullSpherical"}"#,
+        r#"{"focalLength":10,"cropFactor":1.5}"#,
+        r#"{"scale":80}"#,
+        r#"{"scale":50}"#,
+        r#"{"scale":150}"#,
+        r#"{"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]}"#,
+        r#"{"model":"fisheye","focalLength":12,"constraints":[{"a":[20,30],"b":[460,35],"orientation":"horizontal"}]}"#,
+        r#"{"model":"perspective","constraints":[{"a":[100,20],"b":[110,300],"orientation":"vertical"},{"a":[30,250],"b":[400,280]}],"scale":110}"#,
+        r#"{"model":"fullSpherical","constraints":[{"a":[10,100],"b":[300,120]}]}"#,
+        r#"{"model":"fisheye","focalLength":10,"constraints":[{"a":[30,300],"b":[450,290],"orientation":"horizontal"},{"a":[400,40],"b":[410,280],"orientation":"vertical"},{"a":[50,50],"b":[200,150]}],"scale":90}"#,
+    ];
+    for js in settings {
+        for fid in ["f0", "f3"] {
+            run("rgba8", rgba8, "bicubic", Interp::Bicubic, "a", fid, js);
+        }
+    }
+    let sweep = [settings[10], settings[12]];
+    for js in sweep {
+        for (fname, fmt) in wide_formats() {
+            for (iname, interp) in interps {
+                run(fname, fmt, iname, interp, "a", "f0", js);
+            }
+        }
+    }
+    let rgba32 = PixelFormat::new(ColorMode::Rgb, SampleType::F32, true);
+    for (fname, fmt) in [("rgba8", rgba8), ("rgba32", rgba32)] {
+        for (iname, interp) in [interps[0], interps[2]] {
+            for sid in ["a", "o", "s", "e"] {
+                for fid in ["f0", "f1", "f2", "f4", "fe"] {
+                    run(fname, fmt, iname, interp, sid, fid, settings[10]);
+                }
+            }
+        }
+    }
+}
+
 pub fn run() {
     camera_raw_vectors();
     hdr_vectors();
@@ -584,4 +664,5 @@ pub fn run() {
     vp_vectors();
     wide_vectors();
     relight_vectors();
+    wide_apply_vectors();
 }

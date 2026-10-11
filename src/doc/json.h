@@ -26,11 +26,19 @@
 #include "base/json.h"
 #include "doc/doc.h"
 
-enum { PC_DOC_JSON_VALUE = 1u };
+/* Writer flags. PC_DOC_JSON_NONFINITE keeps NaN and the infinities as real numbers instead of
+ * serde_json's null, so a caller can find them before writing (the .pcraft save refuses them,
+ * naming the value); pc_json_write still prints them as null. */
+enum { PC_DOC_JSON_VALUE = 1u, PC_DOC_JSON_NONFINITE = 2u };
+
+/* T_jtype() returns the type's serde descriptor (doc/json_util.h), for modules that embed doc
+ * types in serde models of their own (the .pcraft manifest). */
+struct jtype;
 
 #define PC_DOC_JSON_DECL(T)                                                                                          \
     yyjson_mut_val *T##_to_json(yyjson_mut_doc *d, const T *v, unsigned flags);                                     \
-    pc_status T##_from_json(yyjson_val *v, T *out, pc_error *err);
+    pc_status T##_from_json(yyjson_val *v, T *out, pc_error *err);                                                  \
+    const struct jtype *T##_jtype(void);
 
 /* geom / color */
 PC_DOC_JSON_DECL(pc_size)

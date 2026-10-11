@@ -1,4 +1,5 @@
-/* realpath() is an XSI interface in POSIX.1-2008 (base only since POSIX.1-2024). */
+/* realpath() is an XSI interface in POSIX.1-2008 (base only since POSIX.1-2024): symlink targets
+ * are written through (D21). */
 #define _XOPEN_SOURCE 700
 
 #include "file.h"
@@ -13,6 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "mem.h"
@@ -196,6 +198,121 @@ static size_t utf8_prefix(const char *s, size_t max_chars)
     return i;
 }
 
+/* ---- the real file system ---- */
+
+static int real_write_new(void *ctx, const char *tmp, const void *data, size_t len)
+{
+    pc_error e;
+    int fd;
+    int r = 0;
+    (void)ctx;
+    do {
+        fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0666);
+    } while (fd < 0 && errno == EINTR);
+    if (fd < 0) {
+        return errno;
+    }
+    if (pc_fd_write(fd, data, len, &e) != PC_OK) {
+        r = e.sys_errno != 0 ? e.sys_errno : EIO;
+    } else if (fsync(fd) != 0) {
+        r = errno;
+    }
+    if (close(fd) != 0 && r == 0 && errno != EINTR) {
+        r = errno;
+    }
+    return r;
+}
+
+static int real_rename(void *ctx, const char *from, const char *to)
+{
+    (void)ctx;
+    return rename(from, to) == 0 ? 0 : errno;
+}
+
+static int real_remove(void *ctx, const char *path)
+{
+    (void)ctx;
+    return unlink(path) == 0 ? 0 : errno;
+}
+
+static int real_sync_dir(void *ctx, const char *dir)
+{
+    int fd;
+    int r = 0;
+    (void)ctx;
+    fd = open(dir, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+    if (fd < 0) {
+        return errno;
+    }
+    if (fsync(fd) != 0) {
+        r = errno;
+    }
+    (void)close(fd);
+    return r;
+}
+
+static int real_copy_permissions(void *ctx, const char *from, const char *to)
+{
+    struct stat st;
+    (void)ctx;
+    if (stat(from, &st) != 0) {
+        return errno;
+    }
+    return chmod(to, st.st_mode & 07777) == 0 ? 0 : errno;
+}
+
+const pc_atomic_fs pc_atomic_real_fs = {NULL,        real_write_new, real_rename,
+                                        real_remove, real_sync_dir,  real_copy_permissions};
+
+pc_rename_retry pc_rename_retry_platform(void)
+{
+    pc_rename_retry r = {0, 0};
+    return r;
+}
+
+static void sleep_ms(uint64_t ms)
+{
+    struct timespec ts;
+    ts.tv_sec = (time_t)(ms / 1000u);
+    ts.tv_nsec = (long)(ms % 1000u) * 1000000L;
+    while (nanosleep(&ts, &ts) != 0 && errno == EINTR) {
+    }
+}
+
+int pc_atomic_retry_rename(pc_rename_retry retry, int (*rename_fn)(void *ctx), void *ctx)
+{
+    uint64_t delay = retry.first_delay_ms;
+    uint32_t left = retry.attempts;
+    for (;;) {
+        int r = rename_fn(ctx);
+        if ((r == EACCES || r == EPERM) && left > 0) {
+            left--;
+            sleep_ms(delay);
+            delay = delay > UINT64_MAX / 2 ? UINT64_MAX : delay * 2;
+            continue;
+        }
+        return r;
+    }
+}
+
+pc_status pc_atomic_temp_name(const char *file, pc_buf *out, pc_error *err)
+{
+    static atomic_ulong counter;
+    unsigned long n = atomic_fetch_add(&counter, 1ul);
+    pc_buf b = PC_BUF_INIT;
+    /* Keep the name short: a long file name plus the suffix must stay under NAME_MAX. */
+    pc_status s = pc_buf_appendf(&b, err, ".%.*s.%ld-%lu.pcsave.tmp", (int)utf8_prefix(file, 64), file,
+                                 (long)getpid(), n);
+    if (s != PC_OK) {
+        return s;
+    }
+    pc_buf_fini(out);
+    *out = b;
+    return PC_OK;
+}
+
+/* ---- the algorithm ---- */
+
 static pc_status save_fail(pc_error *err, int e, const char *path, const char *what)
 {
     pc_status s = pc_fail(err, PC_ERR_IO, "cannot save %s: %s (%s); %s", path, what, strerror(e), UNCHANGED);
@@ -233,52 +350,34 @@ static pc_status rename_error(pc_error *err, int e, const char *path)
     return save_fail(err, e, path, "rename failed");
 }
 
-/* Create `tmp` exclusively and write + fsync data into it. Returns 0 or an errno value. */
-static int write_new(const char *tmp, const void *data, size_t len, const struct stat *mode_from)
-{
-    int fd;
-    int e = 0;
-    pc_error ignored;
+typedef struct rename_ctx {
+    const pc_atomic_fs *fs;
+    const char *from;
+    const char *to;
+} rename_ctx;
 
-    do {
-        fd = open(tmp, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0666);
-    } while (fd < 0 && errno == EINTR);
-    if (fd < 0) {
-        return errno;
-    }
-    if (pc_fd_write(fd, data, len, &ignored) != PC_OK) {
-        e = ignored.sys_errno;
-    } else if (fsync(fd) != 0) {
-        e = errno;
-    }
-    if (e == 0 && mode_from != NULL) {
-        /* Keep the replaced file's mode (e.g. 0600). Best effort, like the reference. */
-        (void)fchmod(fd, mode_from->st_mode & 07777);
-    }
-    if (close(fd) != 0 && e == 0 && errno != EINTR) {
-        e = errno;
-    }
-    return e;
+static int do_rename(void *ctx)
+{
+    const rename_ctx *c = ctx;
+    return c->fs->rename(c->fs->ctx, c->from, c->to);
 }
 
-pc_status pc_file_write_atomic(const char *path, const void *data, size_t len, pc_error *err)
+pc_status pc_atomic_write_with(const pc_atomic_fs *fs, pc_rename_retry retry, const char *path,
+                               const void *data, size_t len, pc_error *err)
 {
-    static atomic_ulong counter;
     char *resolved = NULL;
     char *dir = NULL;
-    char *tmp = NULL;
     const char *target = path;
     const char *name;
     const char *slash;
+    pc_buf tmp = PC_BUF_INIT;
+    pc_buf leaf = PC_BUF_INIT;
     struct stat st;
-    struct stat old;
-    bool have_old;
-    size_t dir_len;
-    size_t tmp_cap;
     pc_status s = PC_OK;
     int attempt;
     int e = EEXIST;
 
+    /* Write through a symlink to the file it points at, instead of replacing the link. */
     if (lstat(path, &st) == 0 && S_ISLNK(st.st_mode)) {
         resolved = realpath(path, NULL);
         if (resolved != NULL) {
@@ -294,7 +393,7 @@ pc_status pc_file_write_atomic(const char *path, const void *data, size_t len, p
     if (slash == NULL) {
         dir = pc_strndup(".", 1);
     } else {
-        dir_len = (size_t)(slash - target);
+        size_t dir_len = (size_t)(slash - target);
         dir = pc_strndup(dir_len == 0 ? "/" : target, dir_len == 0 ? 1 : dir_len);
     }
     if (dir == NULL) {
@@ -305,54 +404,59 @@ pc_status pc_file_write_atomic(const char *path, const void *data, size_t len, p
     if (s != PC_OK) {
         goto cleanup;
     }
-    have_old = stat(target, &old) == 0;
 
-    /* ".<name, at most 64 chars>.<pid>-<n>.pcsave.tmp" beside the target (same device). */
-    if (!pc_size_add(strlen(dir), strlen(name), &tmp_cap) || !pc_size_add(tmp_cap, 64, &tmp_cap)) {
-        s = pc_fail(err, PC_ERR_LIMIT, "path too long");
-        goto cleanup;
-    }
-    tmp = pc_malloc(tmp_cap);
-    if (tmp == NULL) {
-        s = pc_fail(err, PC_ERR_NOMEM, "out of memory");
-        goto cleanup;
-    }
+    /* A fresh temporary file beside the target (same directory: the rename never crosses a
+     * device). The name is unique per process and call; retry a few on collisions. */
     for (attempt = 0; attempt < 8 && e == EEXIST; attempt++) {
-        unsigned long n = atomic_fetch_add(&counter, 1ul);
-        int w = snprintf(tmp, tmp_cap, "%s/.%.*s.%ld-%lu.pcsave.tmp", dir, (int)utf8_prefix(name, 64), name,
-                         (long)getpid(), n);
-        if (w < 0 || (size_t)w >= tmp_cap) {
-            s = pc_fail(err, PC_ERR_LIMIT, "path too long");
+        pc_buf_truncate(&tmp, 0);
+        if ((s = pc_atomic_temp_name(name, &leaf, err)) != PC_OK ||
+            (s = pc_buf_appendf(&tmp, err, "%s/%s", dir, pc_buf_cstr(&leaf))) != PC_OK) {
             goto cleanup;
         }
-        e = write_new(tmp, data, len, have_old ? &old : NULL);
+        e = fs->write_new(fs->ctx, pc_buf_cstr(&tmp), data, len);
         if (e != 0 && e != EEXIST) {
-            (void)unlink(tmp);
+            /* A partial temporary file may exist; the destination was never touched. */
+            (void)fs->remove(fs->ctx, pc_buf_cstr(&tmp));
             s = write_error(err, e, path, dir);
             goto cleanup;
         }
     }
     if (e != 0) {
         s = pc_fail(err, PC_ERR_IO, "%s: could not create a temporary file", dir);
+        if (err != NULL) {
+            err->sys_errno = EEXIST;
+        }
         goto cleanup;
     }
-    if (rename(tmp, target) != 0) {
-        e = errno;
-        (void)unlink(tmp);
+    /* Keep the existing file's mode (e.g. 0600) instead of the process default. */
+    if (stat(target, &st) == 0) {
+        (void)fs->copy_permissions(fs->ctx, target, pc_buf_cstr(&tmp));
+    }
+    {
+        rename_ctx rc = {fs, pc_buf_cstr(&tmp), target};
+        e = pc_atomic_retry_rename(retry, do_rename, &rc);
+    }
+    if (e != 0) {
+        (void)fs->remove(fs->ctx, pc_buf_cstr(&tmp));
         s = rename_error(err, e, path);
         goto cleanup;
     }
-    {
-        /* The new bytes are in place; a failed directory fsync can't be undone, so best effort. */
-        int dfd = open(dir, O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-        if (dfd >= 0) {
-            (void)fsync(dfd);
-            (void)close(dfd);
-        }
-    }
+    /* The new bytes are in place; a failed directory fsync can't be undone, so best effort. */
+    (void)fs->sync_dir(fs->ctx, dir);
 cleanup:
-    free(tmp);
+    pc_buf_fini(&tmp);
+    pc_buf_fini(&leaf);
     free(dir);
     free(resolved);
     return s;
+}
+
+pc_status pc_file_write_atomic(const char *path, const void *data, size_t len, pc_error *err)
+{
+    return pc_atomic_write_with(&pc_atomic_real_fs, pc_rename_retry_platform(), path, data, len, err);
+}
+
+pc_status pc_atomic_write(const char *path, const void *data, size_t len, pc_error *err)
+{
+    return pc_file_write_atomic(path, data, len, err);
 }

@@ -1107,6 +1107,7 @@ dependencies = [
  "photocraft-color",
  "photocraft-compose",
  "photocraft-doc",
+ "photocraft-format",
  "photocraft-geom",
  "photocraft-io",
  "photocraft-ops",

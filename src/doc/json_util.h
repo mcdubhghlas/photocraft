@@ -157,6 +157,9 @@ typedef struct jinternal {
 } jinternal;
 
 pc_status pc_jt_internal_read(const jtype *t, yyjson_val *v, void *out, unsigned mode, pc_error *err);
+/* The variant an internally tagged enum's tag names: a variant name, or (JR_CONTENT only) an
+ * unsigned variant index, with serde's errors. */
+pc_status pc_jinternal_tag(const jenum *e, yyjson_val *tag, unsigned mode, unsigned *idx, pc_error *err);
 yyjson_mut_val *pc_jt_internal_write(const jtype *t, yyjson_mut_doc *d, const void *v, unsigned flags);
 void pc_jt_internal_fini(const jtype *t, void *v);
 #define JT_INTERNAL(T, in)                                                                                   \
@@ -237,7 +240,7 @@ yyjson_mut_val *pc_jwrite(const jtype *t, yyjson_mut_doc *d, const void *v, unsi
 void pc_jfini(const jtype *t, void *v);
 
 yyjson_mut_val *pc_jw_f32(yyjson_mut_doc *d, float v, unsigned flags);
-yyjson_mut_val *pc_jw_f64(yyjson_mut_doc *d, double v);
+yyjson_mut_val *pc_jw_f64(yyjson_mut_doc *d, double v, unsigned flags);
 yyjson_mut_val *pc_jw_str(yyjson_mut_doc *d, const pc_str *s);
 
 /* Public wrappers for a type T with descriptor J. */
@@ -249,6 +252,10 @@ yyjson_mut_val *pc_jw_str(yyjson_mut_doc *d, const pc_str *s);
     pc_status T##_from_json(yyjson_val *v, T *out, pc_error *err)                                            \
     {                                                                                                        \
         return pc_jread_into(&(J), v, out, err);                                                             \
+    }                                                                                                        \
+    const jtype *T##_jtype(void)                                                                             \
+    {                                                                                                        \
+        return &(J);                                                                                         \
     }
 
 #endif

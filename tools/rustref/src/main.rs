@@ -18,6 +18,11 @@
 //!   rustref vector-vectors          L12 vector vectors
 //!   rustref text-vectors            L13-L15 text vectors
 //!   rustref text-psd-vectors        L15 PSD type layers / EngineData vectors
+//!   rustref compose-core-vectors    C1 compose core vectors
+//!   rustref compose2-vectors        C2 compose adjustments/fills vectors
+//!   rustref compose-fx-vectors      C3 compose layer effects vectors
+//!   rustref format-vectors          C4 format container/store vectors
+//!   rustref format2-vectors         C5 format manifest/convert vectors
 //!   rustref unicode-alnum           char::is_alphanumeric ranges (src/base/unicode_alnum.c)
 //!   rustref icc-info FILE           one line describing a parsed ICC profile (tests/cms/test_parity.c)
 //!   rustref psd-info FILE           PSD/PSB structure as JSON (the F6-F9 parity contract)
@@ -42,6 +47,11 @@ mod algo_warp_vectors;
 mod vector_vectors;
 mod text_vectors;
 mod text_psd_vectors;
+mod compose_core_vectors;
+mod compose2_vectors;
+mod compose_fx_vectors;
+mod format_vectors;
+mod format2_vectors;
 mod raw_vectors;
 use base64::Engine;
 use half::f16;
@@ -1436,6 +1446,11 @@ fn main() {
         ["vector-vectors"] => vector_vectors::run(),
         ["text-vectors"] => text_vectors::run(),
         ["text-psd-vectors"] => text_psd_vectors::run(),
+        ["compose-core-vectors"] => compose_core_vectors::run(),
+        ["compose2-vectors"] => compose2_vectors::run(),
+        ["compose-fx-vectors"] => compose_fx_vectors::run(),
+        ["format-vectors"] => format_vectors::run(),
+        ["format2-vectors"] => format2_vectors::run(),
         ["icc-info", f] => icc_info(f),
         ["psd-info", f] => psd_info(f),
         ["decode", f, out] => decode(f, out),

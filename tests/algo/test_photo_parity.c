@@ -1,5 +1,5 @@
 /* Bit-exact parity with the L9 part of crates/algo (Camera Raw, HDR, lens, perspective warp,
- * vanishing point, adaptive wide angle, Relight): replays `rustref algo-photo-vectors`
+ * vanishing point, adaptive wide angle incl. apply, Relight): replays `rustref algo-photo-vectors`
  * (tools/rustref/src/algo_photo_vectors.rs) and compares every line of
  * tests/golden/algo-photo-vectors.txt. Settings with serde (Camera Raw, WideAngle, FilterParams)
  * are read back from the golden lines themselves; the other tables are mirrored here. */
@@ -938,6 +938,71 @@ static void relight_vectors(void)
 
 /* ---------------------------------------------------------------------------------------------- */
 
+/* Adaptive Wide Angle apply: `wide_apply <fmt> <interp> <src> <frame> <json> <hash>`. */
+static void wide_apply_vectors(void)
+{
+    static const struct {
+        const char *name;
+        pc_pixel_format f;
+    } extra[5] = {
+        {"rgba16", {PC_COLOR_MODE_RGB, PC_SAMPLE_TYPE_U16, true}},
+        {"rgb32", {PC_COLOR_MODE_RGB, PC_SAMPLE_TYPE_F32, false}},
+        {"gray8", {PC_COLOR_MODE_GRAYSCALE, PC_SAMPLE_TYPE_U8, false}},
+        {"graya32", {PC_COLOR_MODE_GRAYSCALE, PC_SAMPLE_TYPE_F32, true}},
+        {"cmyk16", {PC_COLOR_MODE_CMYK, PC_SAMPLE_TYPE_U16, false}},
+    };
+    size_t gi;
+    for (gi = 0; gi < NG; gi++) {
+        char buf[4096], *t[8];
+        yyjson_doc *d;
+        pc_algo_wide_angle p;
+        pc_pixel_format fmt;
+        pc_algo_interp interp;
+        pc_rect fr;
+        pc_surface s, out;
+        uint64_t hv = 0xbad;
+        size_t i;
+        if (!is_key(G[gi], "wide_apply")) {
+            continue;
+        }
+        CHECK(tokens(G[gi], buf, sizeof buf, t, 8) == 7);
+        fmt = format_named(t[1]);
+        for (i = 0; i < 5; i++) {
+            if (strcmp(extra[i].name, t[1]) == 0) {
+                fmt = extra[i].f;
+            }
+        }
+        interp = strcmp(t[2], "nearest") == 0    ? PC_ALGO_INTERP_NEAREST
+                 : strcmp(t[2], "bilinear") == 0 ? PC_ALGO_INTERP_BILINEAR
+                                                 : PC_ALGO_INTERP_BICUBIC;
+        if (strcmp(t[3], "a") == 0 || strcmp(t[3], "o") == 0) {
+            surf(&s, fmt, pc_rect_make(0, 0, 480, 320), 5, strcmp(t[3], "o") == 0);
+        } else if (strcmp(t[3], "s") == 0) {
+            surf(&s, fmt, pc_rect_make(100, 50, 380, 300), 6, false);
+        } else {
+            pc_surface_init(&s, fmt);
+        }
+        fr = strcmp(t[4], "f0") == 0   ? pc_rect_make(0, 0, 480, 320)
+             : strcmp(t[4], "f1") == 0 ? pc_rect_make(40, 30, 440, 290)
+             : strcmp(t[4], "f2") == 0 ? pc_rect_make(-10, 5, 790, 405)
+             : strcmp(t[4], "f3") == 0 ? pc_rect_make(3, 4, 103, 37)
+             : strcmp(t[4], "f4") == 0 ? pc_rect_make(300, 200, 900, 640)
+                                       : pc_rect_make(5, 5, 5, 9);
+        d = jparse(t[5]);
+        CHECK(pc_algo_wide_angle_from_json(yyjson_doc_get_root(d), &p, NULL) == PC_OK);
+        if (pc_algo_wide_apply(&s, fr, &p, interp, &out, NULL) == PC_OK) {
+            hv = hs(&out);
+            pc_surface_fini(&out);
+        }
+        line("wide_apply %s %s %s %s %s %016llx", t[1], t[2], t[3], t[4], t[5], (unsigned long long)hv);
+        pc_algo_wide_angle_fini(&p);
+        yyjson_doc_free(d);
+        pc_surface_fini(&s);
+    }
+}
+
+/* ---------------------------------------------------------------------------------------------- */
+
 static char *read_file(const char *path, size_t *len)
 {
     FILE *f = fopen(path, "rb");
@@ -979,6 +1044,7 @@ static void test_photo_parity(void)
     vp_vectors();
     wide_vectors();
     relight_vectors();
+    wide_apply_vectors();
     (void)pc_buf_append_byte(&OUT, '\0', NULL);
     got = strtok_r((char *)OUT.data, "\n", &gsave);
     for (i = 0; i < NG || got != NULL; i++) {

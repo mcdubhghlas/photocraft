@@ -121,16 +121,16 @@ yyjson_mut_val *pc_jwrite(const jtype *t, yyjson_mut_doc *d, const void *v, unsi
 
 yyjson_mut_val *pc_jw_f32(yyjson_mut_doc *d, float v, unsigned flags)
 {
-    if (!isfinite(v)) {
+    if (!isfinite(v) && (flags & PC_DOC_JSON_NONFINITE) == 0) {
         return yyjson_mut_null(d); /* serde_json writes non-finite floats as null */
     }
     /* serde_json::to_value widens an f32 to f64 (Number::from_f64(f64::from(v))). */
     return (flags & PC_DOC_JSON_VALUE) != 0 ? yyjson_mut_real(d, (double)v) : yyjson_mut_float(d, v);
 }
 
-yyjson_mut_val *pc_jw_f64(yyjson_mut_doc *d, double v)
+yyjson_mut_val *pc_jw_f64(yyjson_mut_doc *d, double v, unsigned flags)
 {
-    return isfinite(v) ? yyjson_mut_real(d, v) : yyjson_mut_null(d);
+    return isfinite(v) || (flags & PC_DOC_JSON_NONFINITE) != 0 ? yyjson_mut_real(d, v) : yyjson_mut_null(d);
 }
 
 yyjson_mut_val *pc_jw_str(yyjson_mut_doc *d, const pc_str *s)
@@ -193,9 +193,8 @@ static yyjson_mut_val *write_f64(const jtype *t, yyjson_mut_doc *d, const void *
 {
     double f;
     (void)t;
-    (void)flags;
     memcpy(&f, v, sizeof f);
-    return pc_jw_f64(d, f);
+    return pc_jw_f64(d, f, flags);
 }
 
 /* An unsigned integer of at most `max` (serde's primitive visitors: floats are the wrong type,
