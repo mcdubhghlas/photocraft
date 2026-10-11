@@ -596,7 +596,7 @@ static bool content_eq_shallow(const pc_layer_content *a, const pc_layer_content
     }
 }
 
-static void psd_blocks_free(pc_psd_block *b, size_t n)
+static void psd_blocks_free(pc_doc_psd_block *b, size_t n)
 {
     size_t i;
     if (b == NULL) {

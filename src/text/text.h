@@ -21,14 +21,19 @@
 
 #include "text/cjk.h"
 #include "text/craft_fonts.h"
+#include "text/engine.h"
 #include "text/font.h"
 #include "text/fonts.h"
 #include "text/glyphs.h"
+#include "text/layout.h"
 #include "text/layout_data.h"
 #include "text/optical.h"
+#include "text/psd.h"
 #include "text/raster.h"
 #include "text/render.h"
 #include "text/sfnt.h"
+#include "text/spell.h"
 #include "text/unicode.h"
+#include "text/warp.h"
 
 #endif

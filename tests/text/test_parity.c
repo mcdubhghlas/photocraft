@@ -513,6 +513,10 @@ static void test_golden(void)
         pc_buf got = PC_BUF_INIT;
         const char *k = l.n > 0 ? l.tok[0] : "";
         lines++;
+        if (l.n > 1 && strcmp(k, "#") == 0 && strcmp(l.tok[1], "l13") != 0) {
+            free(l.buf);
+            break; /* later chunks' sections: tests/text/test_layout_parity.c (L14) */
+        }
         if (l.n == 0 || strcmp(k, "#") == 0) {
             free(l.buf);
             continue;

@@ -188,10 +188,10 @@ const char *pc_layer_content_kind_name(const pc_layer_content *c); /* "Pixel", "
 const char *pc_layer_content_article(const pc_layer_content *c);   /* "an" for Adjustment, else "a" */
 
 /* A preserved PSD additional-layer-info block. */
-typedef struct pc_psd_block {
+typedef struct pc_doc_psd_block {
     uint8_t key[4];
     pc_blob *data;
-} pc_psd_block;
+} pc_doc_psd_block;
 
 struct pc_layer {
     pc_layer_id id;
@@ -209,7 +209,7 @@ struct pc_layer {
     pc_effects effects;
     pc_label_color label;
     pc_layer_content content;
-    pc_psd_block *psd_blocks;
+    pc_doc_psd_block *psd_blocks;
     size_t npsd_blocks;
     bool has_psd_id; /* PSD lyid, cleared by duplicate */
     uint32_t psd_id;
@@ -279,25 +279,25 @@ pc_status pc_alpha_channel_clone(const pc_alpha_channel *c, pc_alpha_channel *ou
 bool pc_alpha_channel_eq(const pc_alpha_channel *a, const pc_alpha_channel *b);
 float pc_alpha_channel_overlay_coverage(const pc_alpha_channel *c, float v);
 
-typedef struct pc_psd_resource {
+typedef struct pc_doc_psd_resource {
     uint16_t id;
     pc_str name;
     pc_blob *data;
-} pc_psd_resource;
+} pc_doc_psd_resource;
 
-typedef struct pc_psd_global_block {
+typedef struct pc_doc_psd_global_block {
     uint8_t signature[4];
     uint8_t key[4];
     pc_blob *data;
-} pc_psd_global_block;
+} pc_doc_psd_global_block;
 
 typedef struct pc_metadata {
     bool has_xmp;
     pc_str xmp;
     pc_blob *exif; /* NULL = None */
-    pc_psd_resource *psd_resources;
+    pc_doc_psd_resource *psd_resources;
     size_t npsd_resources;
-    pc_psd_global_block *psd_global_blocks;
+    pc_doc_psd_global_block *psd_global_blocks;
     size_t npsd_global_blocks;
 } pc_metadata;
 

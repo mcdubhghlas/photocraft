@@ -126,16 +126,16 @@ float pc_alpha_channel_overlay_coverage(const pc_alpha_channel *c, float v)
     return (c->has_spot || c->indicates == PC_INDICATES_SELECTED_AREAS) ? v : 1.0f - v;
 }
 
-static void psd_resource_fini(pc_psd_resource *r)
+static void psd_resource_fini(pc_doc_psd_resource *r)
 {
     pc_str_fini(&r->name);
     pc_blob_release(r->data);
     r->data = NULL;
 }
 
-static pc_status psd_resource_clone(const pc_psd_resource *r, pc_psd_resource *out, pc_error *err)
+static pc_status psd_resource_clone(const pc_doc_psd_resource *r, pc_doc_psd_resource *out, pc_error *err)
 {
-    pc_psd_resource c = *r;
+    pc_doc_psd_resource c = *r;
     pc_status s = pc_str_clone(&r->name, &c.name, err);
     if (s != PC_OK) {
         return s;
@@ -145,18 +145,18 @@ static pc_status psd_resource_clone(const pc_psd_resource *r, pc_psd_resource *o
     return PC_OK;
 }
 
-static bool psd_resource_eq(const pc_psd_resource *a, const pc_psd_resource *b)
+static bool psd_resource_eq(const pc_doc_psd_resource *a, const pc_doc_psd_resource *b)
 {
     return a->id == b->id && pc_str_eq(&a->name, &b->name) && pc_blob_eq(a->data, b->data);
 }
 
-static void global_block_fini(pc_psd_global_block *g)
+static void global_block_fini(pc_doc_psd_global_block *g)
 {
     pc_blob_release(g->data);
     g->data = NULL;
 }
 
-static pc_status global_block_clone(const pc_psd_global_block *g, pc_psd_global_block *out, pc_error *err)
+static pc_status global_block_clone(const pc_doc_psd_global_block *g, pc_doc_psd_global_block *out, pc_error *err)
 {
     (void)err;
     *out = *g;
@@ -164,7 +164,7 @@ static pc_status global_block_clone(const pc_psd_global_block *g, pc_psd_global_
     return PC_OK;
 }
 
-static bool global_block_eq(const pc_psd_global_block *a, const pc_psd_global_block *b)
+static bool global_block_eq(const pc_doc_psd_global_block *a, const pc_doc_psd_global_block *b)
 {
     return memcmp(a->signature, b->signature, 4) == 0 && memcmp(a->key, b->key, 4) == 0 &&
            pc_blob_eq(a->data, b->data);

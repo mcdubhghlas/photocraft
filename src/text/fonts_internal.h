@@ -39,6 +39,9 @@ pc_fontdb_family *pc_fontdb_find_family(const pc_fontdb *db, const char *name, s
 /* fontique's match_font over a family's faces: index into faces, or -1 when empty. */
 long pc_fontdb_match_index(const pc_fontdb_family *fam, const pc_font_query *q, bool synthesize_style);
 
+/* FontInfo::synthesis of face f for query q: fills m's embolden, skew_deg and vars only. */
+void pc_fontdb_face_synthesis(const pc_fontdb_face *f, const pc_font_query *q, pc_font_match *m);
+
 /* fontique's NameKey of a name (appended to out). */
 pc_status pc_fontdb_name_key(const char *s, size_t len, pc_buf *out, pc_error *err);
 

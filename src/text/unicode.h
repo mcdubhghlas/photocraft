@@ -22,6 +22,10 @@ bool pc_text_is_uppercase(uint32_t cp);
 bool pc_text_is_control(uint32_t cp);
 /* The one-to-one part of char::to_lowercase (U+0130 maps to two chars; see pc_text_lower). */
 uint32_t pc_text_to_lower1(uint32_t cp);
+/* char::is_alphabetic (derived Alphabetic property; unicode_upper.c, chunk L14). */
+bool pc_text_is_alphabetic(uint32_t cp);
+/* char::to_uppercase: writes the 1 to 3 chars of the full mapping to out, returns the count. */
+size_t pc_text_to_upper(uint32_t cp, uint32_t out[3]);
 
 /* str::to_lowercase (full mapping; U+0130 becomes "i̇"; final sigma handled as Rust does)
  * appended to `out`. */

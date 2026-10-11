@@ -17,6 +17,7 @@
 //!   rustref algo-warp-vectors       L11 algo liquify/puppet vectors
 //!   rustref vector-vectors          L12 vector vectors
 //!   rustref text-vectors            L13-L15 text vectors
+//!   rustref text-psd-vectors        L15 PSD type layers / EngineData vectors
 //!   rustref unicode-alnum           char::is_alphanumeric ranges (src/base/unicode_alnum.c)
 //!   rustref icc-info FILE           one line describing a parsed ICC profile (tests/cms/test_parity.c)
 //!   rustref psd-info FILE           PSD/PSB structure as JSON (the F6-F9 parity contract)
@@ -40,6 +41,7 @@ mod algo_analysis_vectors;
 mod algo_warp_vectors;
 mod vector_vectors;
 mod text_vectors;
+mod text_psd_vectors;
 mod raw_vectors;
 use base64::Engine;
 use half::f16;
@@ -1433,6 +1435,7 @@ fn main() {
         ["algo-warp-vectors"] => algo_warp_vectors::run(),
         ["vector-vectors"] => vector_vectors::run(),
         ["text-vectors"] => text_vectors::run(),
+        ["text-psd-vectors"] => text_psd_vectors::run(),
         ["icc-info", f] => icc_info(f),
         ["psd-info", f] => psd_info(f),
         ["decode", f, out] => decode(f, out),

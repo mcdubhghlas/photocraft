@@ -382,6 +382,11 @@ static void synthesis(const pc_fontdb_face *f, const pc_font_query *q, pc_font_m
     }
 }
 
+void pc_fontdb_face_synthesis(const pc_fontdb_face *f, const pc_font_query *q, pc_font_match *m)
+{
+    synthesis(f, q, m);
+}
+
 pc_status pc_fontdb_match(pc_fontdb *db, const char *family, size_t len, const pc_font_query *q,
                           bool synthesize_style, pc_font_match *out, pc_error *err)
 {
