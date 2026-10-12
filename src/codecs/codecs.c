@@ -349,6 +349,11 @@ size_t pc_cfidelity_warnings_with(const pc_cimage *img, pc_cformat f, const pc_c
     wlist l = {out, cap, 0};
     uint32_t mw;
     uint32_t mh;
+    pc_cencode_opts defaults;
+    if (o == NULL) {
+        defaults = pc_cencode_opts_default();
+        o = &defaults;
+    }
     cx_plan p;
     pc_clayout sl = img->layout;
     pc_csample ss = img->sample;
@@ -583,6 +588,11 @@ pc_status pc_cencode(const pc_cimage *img, pc_cformat f, const pc_cencode_opts *
     cx_plan p;
     pc_buf b = PC_BUF_INIT;
     pc_status st;
+    pc_cencode_opts defaults;
+    if (o == NULL) {
+        defaults = pc_cencode_opts_default();
+        o = &defaults;
+    }
     if (!pc_cformat_caps(f).write) {
         return cx_unsupported(err, f, "encoding is not available in this build");
     }

@@ -1,0 +1,111 @@
+WAMR (WebAssembly Micro Runtime) WAMR-2.4.5 (released 2026-06-29), https://github.com/wasm-micro-runtime/wasm-micro-runtime
+(the project moved there from bytecodealliance/wasm-micro-runtime; GitHub redirects the old URLs).
+Commit: 25bd7eb63e828e4bd242cc9b38d260b4b31c6605 (tag WAMR-2.4.5)
+Source: https://github.com/wasm-micro-runtime/wasm-micro-runtime/archive/refs/tags/WAMR-2.4.5.tar.gz
+sha256(tarball): 1ab09d51099f276ca4a1d6629f6b589aab2bd0caa01445e05031a4bed22c199b
+License: Apache-2.0 WITH LLVM-exception (LICENSE, copied from the tarball root).
+Why vendored: REWRITE_PLAN.md D13 (plug-in runtime replacing wasmi) and D17 (not packaged widely).
+
+How the files were selected: exactly the sources WAMR's CMake (build-scripts/runtime_lib.cmake)
+compiles for an interpreter-only build (WAMR_BUILD_INTERP=1, WAMR_BUILD_FAST_INTERP=1, no AOT/JIT,
+no libc-builtin/WASI, WAMR_BUILD_INVOKE_NATIVE_GENERAL=1 instead of the per-CPU assembly, the
+thread manager for wasm_runtime_terminate) on POSIX: core/iwasm/common/*.c (+ arch/
+invokeNative_general.c), core/iwasm/interpreter/{wasm_loader,wasm_runtime,wasm_interp_fast}.c,
+core/iwasm/libraries/thread-mgr, core/shared/utils/*.c, core/shared/mem-alloc (ems), the POSIX
+platform files the platform cmake keeps without WASI (posix_{malloc,memmap,sleep,thread,time,
+blocking_op}.c, plus common/memory/mremap.c where mremap is missing) for linux, darwin and
+freebsd, and every header those include (core/config.h, core/version.h, core/iwasm/include/*.h
+used, aot/aot_runtime.h and compilation/aot.h which common code includes unconditionally).
+Nothing else from the tarball (no samples, tests, product-mini, language bindings, AOT, JIT,
+libraries, WASI). The configuration (-D flags) lives in the Makefile (WAMR_CPPFLAGS).
+
+Local changes (Apache-2.0 section 4(b); each is marked "PhotoCraft local change" in the file):
+  core/iwasm/interpreter/wasm_loader.c, destroy_const_expr_stack(): skip stack entries whose
+  `expr` is NULL. With WASM_ENABLE_EXTENDED_CONST_EXPR, plain constants are pushed with
+  expr == NULL, so a malformed constant expression (e.g. a data segment offset of the wrong type)
+  dereferenced NULL while cleaning up: found by tests/plugins/test_abi.c (byte-flipped modules).
+
+Files (sha256 of the unmodified ones equals the tarball's):
+  core/config.h
+  core/iwasm/aot/aot_runtime.h
+  core/iwasm/common/arch/invokeNative_general.c
+  core/iwasm/common/wasm_blocking_op.c
+  core/iwasm/common/wasm_c_api.c
+  core/iwasm/common/wasm_c_api_internal.h
+  core/iwasm/common/wasm_exec_env.c
+  core/iwasm/common/wasm_exec_env.h
+  core/iwasm/common/wasm_loader_common.c
+  core/iwasm/common/wasm_loader_common.h
+  core/iwasm/common/wasm_memory.c
+  core/iwasm/common/wasm_memory.h
+  core/iwasm/common/wasm_native.c
+  core/iwasm/common/wasm_native.h
+  core/iwasm/common/wasm_runtime_common.c
+  core/iwasm/common/wasm_runtime_common.h
+  core/iwasm/common/wasm_shared_memory.h
+  core/iwasm/common/wasm_suspend_flags.h
+  core/iwasm/compilation/aot.h
+  core/iwasm/include/gc_export.h
+  core/iwasm/include/lib_export.h
+  core/iwasm/include/wasm_c_api.h
+  core/iwasm/include/wasm_export.h
+  core/iwasm/interpreter/wasm.h
+  core/iwasm/interpreter/wasm_interp_fast.c
+  core/iwasm/interpreter/wasm_interp.h
+  core/iwasm/interpreter/wasm_loader.c
+  core/iwasm/interpreter/wasm_loader.h
+  core/iwasm/interpreter/wasm_opcode.h
+  core/iwasm/interpreter/wasm_runtime.c
+  core/iwasm/interpreter/wasm_runtime.h
+  core/iwasm/libraries/thread-mgr/thread_manager.c
+  core/iwasm/libraries/thread-mgr/thread_manager.h
+  core/shared/mem-alloc/ems/ems_alloc.c
+  core/shared/mem-alloc/ems/ems_gc.c
+  core/shared/mem-alloc/ems/ems_gc.h
+  core/shared/mem-alloc/ems/ems_gc_internal.h
+  core/shared/mem-alloc/ems/ems_hmu.c
+  core/shared/mem-alloc/ems/ems_kfc.c
+  core/shared/mem-alloc/mem_alloc.c
+  core/shared/mem-alloc/mem_alloc.h
+  core/shared/platform/common/memory/mremap.c
+  core/shared/platform/common/posix/posix_blocking_op.c
+  core/shared/platform/common/posix/posix_malloc.c
+  core/shared/platform/common/posix/posix_memmap.c
+  core/shared/platform/common/posix/posix_sleep.c
+  core/shared/platform/common/posix/posix_thread.c
+  core/shared/platform/common/posix/posix_time.c
+  core/shared/platform/darwin/platform_init.c
+  core/shared/platform/darwin/platform_internal.h
+  core/shared/platform/freebsd/platform_init.c
+  core/shared/platform/freebsd/platform_internal.h
+  core/shared/platform/include/platform_api_extension.h
+  core/shared/platform/include/platform_api_vmcore.h
+  core/shared/platform/include/platform_common.h
+  core/shared/platform/include/platform_wasi_types.h
+  core/shared/platform/linux/platform_init.c
+  core/shared/platform/linux/platform_internal.h
+  core/shared/utils/bh_assert.c
+  core/shared/utils/bh_assert.h
+  core/shared/utils/bh_atomic.h
+  core/shared/utils/bh_bitmap.c
+  core/shared/utils/bh_bitmap.h
+  core/shared/utils/bh_common.c
+  core/shared/utils/bh_common.h
+  core/shared/utils/bh_hashmap.c
+  core/shared/utils/bh_hashmap.h
+  core/shared/utils/bh_leb128.c
+  core/shared/utils/bh_leb128.h
+  core/shared/utils/bh_list.c
+  core/shared/utils/bh_list.h
+  core/shared/utils/bh_log.c
+  core/shared/utils/bh_log.h
+  core/shared/utils/bh_platform.h
+  core/shared/utils/bh_queue.c
+  core/shared/utils/bh_queue.h
+  core/shared/utils/bh_vector.c
+  core/shared/utils/bh_vector.h
+  core/shared/utils/gnuc.h
+  core/shared/utils/runtime_timer.c
+  core/shared/utils/runtime_timer.h
+  core/version.h
+  LICENSE

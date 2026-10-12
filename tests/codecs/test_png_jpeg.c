@@ -833,6 +833,25 @@ static void test_large_images_roundtrip_through_the_parallel_encoder(void)
     }
 }
 
+/* A NULL options pointer means the defaults (it used to be dereferenced). */
+static void test_encode_null_options_are_defaults(void)
+{
+    pc_cimage img;
+    pc_cencode_opts o = pc_cencode_opts_default();
+    pc_buf a = PC_BUF_INIT;
+    pc_buf b = PC_BUF_INIT;
+    pc_cfidelity w[8];
+    CHECK(pc_cimage_new(3, 2, PC_CL_RGBA, PC_CS_U8, &img, NULL) == PC_OK);
+    CHECK(pc_cencode(&img, PC_CF_PNG, NULL, &a, NULL) == PC_OK);
+    CHECK(pc_cencode(&img, PC_CF_PNG, &o, &b, NULL) == PC_OK);
+    CHECK(a.len == b.len && a.len > 0 && memcmp(a.data, b.data, a.len) == 0);
+    CHECK_EQ_UINT(pc_cfidelity_warnings_with(&img, PC_CF_JPEG, NULL, w, 8),
+                  pc_cfidelity_warnings_with(&img, PC_CF_JPEG, &o, w, 8));
+    pc_buf_fini(&a);
+    pc_buf_fini(&b);
+    pc_cimage_fini(&img);
+}
+
 int main(int argc, char **argv)
 {
     RUN(test_adam7_small_sizes_all_layouts);
@@ -854,5 +873,6 @@ int main(int argc, char **argv)
     RUN(test_adler_combine_matches_one_pass);
     RUN(test_bands_that_end_just_past_a_block_keep_all_their_data);
     RUN(test_large_images_roundtrip_through_the_parallel_encoder);
+    RUN(test_encode_null_options_are_defaults);
     return pc_t_finish();
 }

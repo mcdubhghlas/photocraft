@@ -1,0 +1,1 @@
+{"error":"codec: Png: malformed data: CRC error: expected 0x4353554d have 0xd02f14c9 while decoding ChunkType { type: IDAT, critical: true, private: false, reserved: false, safecopy: false } chunk.","kind":"Codec"}

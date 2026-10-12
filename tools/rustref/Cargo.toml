@@ -30,5 +30,6 @@ photocraft-algo = { path = "../../crates/algo" }
 photocraft-vector = { path = "../../crates/vector" }
 photocraft-text = { path = "../../crates/text" }
 photocraft-format = { path = "../../crates/format" }
+photocraft-plugins = { path = "../../crates/plugins" }
 
 [workspace]

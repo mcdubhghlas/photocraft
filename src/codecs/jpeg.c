@@ -678,6 +678,9 @@ static void run_encode(enc_job *j)
     }
     c.optimize_coding = j->optimize ? TRUE : FALSE;
     if (j->has_density) {
+        /* libjpeg writes JFIF only for gray and YCbCr; the reference's encoder writes it (and so
+         * the resolution) for CMYK too, next to the Adobe marker. */
+        c.write_JFIF_header = TRUE;
         c.density_unit = 1;
         c.X_density = j->dx;
         c.Y_density = j->dy;

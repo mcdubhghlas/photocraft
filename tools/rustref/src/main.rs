@@ -23,6 +23,12 @@
 //!   rustref compose-fx-vectors      C3 compose layer effects vectors
 //!   rustref format-vectors          C4 format container/store vectors
 //!   rustref format2-vectors         C5 format manifest/convert vectors
+//!   rustref io-core-vectors         I1 io flat/pixels/raw/linked/TIFF layers/channels vectors
+//!   rustref io-psd-vectors          I2 PSD import vectors
+//!   rustref io-export-vectors       I3 PSD export / smart objects vectors
+//!   rustref io-maps-vectors         I4 vector/text/comps/slices/annotations/patterns/brushes/gradients maps vectors
+//!   rustref io-extra-vectors        I5 Camera Raw settings / Affinity / SVG vectors
+//!   rustref plugins-vectors         I6 plug-ins vectors
 //!   rustref unicode-alnum           char::is_alphanumeric ranges (src/base/unicode_alnum.c)
 //!   rustref icc-info FILE           one line describing a parsed ICC profile (tests/cms/test_parity.c)
 //!   rustref psd-info FILE           PSD/PSB structure as JSON (the F6-F9 parity contract)
@@ -47,6 +53,12 @@ mod algo_warp_vectors;
 mod vector_vectors;
 mod text_vectors;
 mod text_psd_vectors;
+mod io_core_vectors;
+mod io_psd_vectors;
+mod io_export_vectors;
+mod io_maps_vectors;
+mod io_extra_vectors;
+mod plugins_vectors;
 mod compose_core_vectors;
 mod compose2_vectors;
 mod compose_fx_vectors;
@@ -1446,6 +1458,12 @@ fn main() {
         ["vector-vectors"] => vector_vectors::run(),
         ["text-vectors"] => text_vectors::run(),
         ["text-psd-vectors"] => text_psd_vectors::run(),
+        ["io-core-vectors"] => io_core_vectors::run(),
+        ["io-psd-vectors"] => io_psd_vectors::run(),
+        ["io-export-vectors"] => io_export_vectors::run(),
+        ["io-maps-vectors"] => io_maps_vectors::run(),
+        ["io-extra-vectors"] => io_extra_vectors::run(),
+        ["plugins-vectors"] => plugins_vectors::run(),
         ["compose-core-vectors"] => compose_core_vectors::run(),
         ["compose2-vectors"] => compose2_vectors::run(),
         ["compose-fx-vectors"] => compose_fx_vectors::run(),

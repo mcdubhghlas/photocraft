@@ -79,7 +79,8 @@ pc_status pc_cdecode_with(const uint8_t *b, size_t n, const pc_cdecode_opts *o, 
 pc_status pc_cdecode_as(pc_cformat f, const uint8_t *b, size_t n, pc_cimage *out, pc_error *err);
 pc_status pc_cdecode_as_with(pc_cformat f, const uint8_t *b, size_t n, const pc_cdecode_opts *o, pc_cimage *out,
                              pc_error *err);
-/* Encodes (conversions follow the plan pc_cfidelity_warnings_with reports); *out replaced. */
+/* Encodes (conversions follow the plan pc_cfidelity_warnings_with reports); *out replaced. o may be
+ * NULL for pc_cencode_opts_default(). */
 pc_status pc_cencode(const pc_cimage *img, pc_cformat f, const pc_cencode_opts *o, pc_buf *out, pc_error *err);
 
 /* Deep OpenEXR samples of the first deep part (PC_ERR_UNSUPPORTED when there is none). */
@@ -121,7 +122,8 @@ typedef struct pc_cfidelity {
 bool pc_cfidelity_is_fatal(const pc_cfidelity *w);
 bool pc_cfidelity_eq(const pc_cfidelity *a, const pc_cfidelity *b);
 void pc_cfidelity_text(const pc_cfidelity *w, char *out, size_t cap);
-/* Fills up to cap warnings into out (in the reference's order) and returns how many there are. */
+/* Fills up to cap warnings into out (in the reference's order) and returns how many there are.
+ * The _with form's o may be NULL for the default options. */
 size_t pc_cfidelity_warnings(const pc_cimage *img, pc_cformat f, pc_cfidelity *out, size_t cap);
 size_t pc_cfidelity_warnings_with(const pc_cimage *img, pc_cformat f, const pc_cencode_opts *o, pc_cfidelity *out,
                                   size_t cap);

@@ -21,7 +21,7 @@ CFLAGS ?= -O2 -g
 ARFLAGS = rcs
 
 # Modules in layer order (REWRITE_PLAN.md §3). Each chunk appends its module here.
-MODULES = base geom cms color raster psd codecs raw affinity doc ops paint algo vector text compose format
+MODULES = base geom cms color raster psd codecs raw affinity doc ops paint algo vector text compose format io plugins
 # pkg-config packages the current modules need.
 PKGS = zlib libzstd libblake3 libpng16 libjpeg libwebp libwebpmux libwebpdemux freetype2 harfbuzz fribidi libunibreak
 # Vendored third-party C (REWRITE_PLAN.md D17), compiled without our strict warnings: it isn't
@@ -63,6 +63,57 @@ HEIF_CFLAGS := $(if $(filter 1,$(WITH_HEIF)),$(shell $(PKG_CONFIG) --cflags libh
 HEIF_LIBS := $(if $(filter 1,$(WITH_HEIF)),$(shell $(PKG_CONFIG) --libs libheif))
 CODEC_CFLAGS = $(EXR_CFLAGS) $(HEIF_CFLAGS)
 
+# WebAssembly plug-ins (REWRITE_PLAN.md D13): vendored WAMR (third_party/wamr), fast interpreter
+# only: no AOT/JIT, no WASI or libc imports, no SIMD/shared memory; software bounds checks (no
+# SIGSEGV handlers); instruction metering (the plug-in fuel budget) and the thread manager, whose
+# suspend flags let wasm_runtime_terminate stop a running plug-in (wall-clock budget, sibling
+# failure). On by default where WAMR has a port (Linux, macOS, FreeBSD on x86-64/AArch64/x86/
+# RISC-V 64); WITH_PLUGINS=0 builds src/plugins without it (loading reports "unavailable").
+# Override WAMR_OS / WAMR_TARGET for cross builds (e.g. WAMR_TARGET=X86_32 with -m32).
+WAMR_OS ?= $(patsubst Linux,LINUX,$(patsubst Darwin,DARWIN,$(patsubst FreeBSD,FREEBSD,$(filter Linux Darwin FreeBSD,$(shell uname -s)))))
+CC_MACHINE := $(shell $(CC) -dumpmachine 2>/dev/null)
+WAMR_TARGET ?= $(if $(filter x86_64-% amd64-%,$(CC_MACHINE)),X86_64,$(if $(filter aarch64-% arm64-%,$(CC_MACHINE)),AARCH64,$(if $(filter i386-% i486-% i586-% i686-%,$(CC_MACHINE)),X86_32,$(if $(filter riscv64-%,$(CC_MACHINE)),RISCV64_LP64D))))
+WITH_PLUGINS ?= $(if $(and $(WAMR_OS),$(WAMR_TARGET)),1,0)
+WAMR_DIR = third_party/wamr/core
+WAMR_PLATFORM = $(if $(filter DARWIN,$(WAMR_OS)),darwin,$(if $(filter FREEBSD,$(WAMR_OS)),freebsd,linux))
+# Exactly the sources WAMR's CMake (build-scripts/runtime_lib.cmake) compiles for this
+# configuration: common, interpreter (fast), thread manager, utils, mem-alloc, POSIX platform.
+WAMR_SRCS = $(addprefix $(WAMR_DIR)/, \
+    iwasm/common/wasm_runtime_common.c iwasm/common/wasm_exec_env.c iwasm/common/wasm_memory.c \
+    iwasm/common/wasm_native.c iwasm/common/wasm_loader_common.c iwasm/common/wasm_blocking_op.c \
+    iwasm/common/wasm_c_api.c \
+    iwasm/common/arch/invokeNative_general.c \
+    iwasm/interpreter/wasm_loader.c iwasm/interpreter/wasm_runtime.c iwasm/interpreter/wasm_interp_fast.c \
+    iwasm/libraries/thread-mgr/thread_manager.c \
+    shared/utils/bh_assert.c shared/utils/bh_bitmap.c shared/utils/bh_common.c shared/utils/bh_hashmap.c \
+    shared/utils/bh_leb128.c shared/utils/bh_list.c shared/utils/bh_log.c shared/utils/bh_queue.c \
+    shared/utils/bh_vector.c shared/utils/runtime_timer.c \
+    shared/mem-alloc/mem_alloc.c shared/mem-alloc/ems/ems_alloc.c shared/mem-alloc/ems/ems_gc.c \
+    shared/mem-alloc/ems/ems_hmu.c shared/mem-alloc/ems/ems_kfc.c \
+    shared/platform/$(WAMR_PLATFORM)/platform_init.c \
+    shared/platform/common/posix/posix_malloc.c shared/platform/common/posix/posix_memmap.c \
+    shared/platform/common/posix/posix_sleep.c shared/platform/common/posix/posix_thread.c \
+    shared/platform/common/posix/posix_time.c shared/platform/common/posix/posix_blocking_op.c \
+    $(if $(filter LINUX,$(WAMR_OS)),,shared/platform/common/memory/mremap.c))
+# The definitions WAMR's CMake would pass (config_common.cmake, iwasm_common.cmake, the platform
+# file); everything not listed keeps core/config.h's default (off). invokeNative_general.c stands
+# in for the per-architecture assembly: plug-ins have no host imports, so it is never called.
+WAMR_CPPFLAGS = -DBH_PLATFORM_$(WAMR_OS) -DBUILD_TARGET_$(WAMR_TARGET) -DBUILD_TARGET=\"$(WAMR_TARGET)\" \
+    -DWASM_ENABLE_INTERP=1 -DWASM_ENABLE_FAST_INTERP=1 -DWASM_ENABLE_AOT=0 -DWASM_ENABLE_JIT=0 \
+    -DWASM_ENABLE_FAST_JIT=0 -DWASM_ENABLE_BULK_MEMORY=1 -DWASM_ENABLE_REF_TYPES=1 \
+    -DWASM_ENABLE_TAIL_CALL=1 -DWASM_ENABLE_EXTENDED_CONST_EXPR=1 -DWASM_ENABLE_SIMD=0 \
+    -DWASM_ENABLE_SHARED_MEMORY=0 -DWASM_ENABLE_MULTI_MODULE=0 -DWASM_ENABLE_MINI_LOADER=0 \
+    -DWASM_ENABLE_THREAD_MGR=1 -DWASM_ENABLE_INSTRUCTION_METERING=1 -DWASM_ENABLE_LIBC_BUILTIN=0 \
+    -DWASM_ENABLE_LIBC_WASI=0 -DWASM_DISABLE_HW_BOUND_CHECK=1 -DWASM_DISABLE_STACK_HW_BOUND_CHECK=1 \
+    -DWASM_DISABLE_WAKEUP_BLOCKING_OP=1 -DWASM_DISABLE_WRITE_GS_BASE=1 \
+    -DBH_MALLOC=wasm_runtime_malloc -DBH_FREE=wasm_runtime_free \
+    $(if $(filter LINUX,$(WAMR_OS)),-DWASM_HAVE_MREMAP=1 -D_GNU_SOURCE,-DWASM_HAVE_MREMAP=0) \
+    -I$(WAMR_DIR) -I$(WAMR_DIR)/iwasm/include -I$(WAMR_DIR)/iwasm/common -I$(WAMR_DIR)/iwasm/interpreter \
+    -I$(WAMR_DIR)/iwasm/libraries/thread-mgr -I$(WAMR_DIR)/shared/utils -I$(WAMR_DIR)/shared/mem-alloc \
+    -I$(WAMR_DIR)/shared/platform/include -I$(WAMR_DIR)/shared/platform/$(WAMR_PLATFORM)
+PLUGINS_CFLAGS := $(if $(filter 1,$(WITH_PLUGINS)),-DPC_HAVE_WAMR -I$(WAMR_DIR)/iwasm/include)
+WAMR_OBJS := $(if $(filter 1,$(WITH_PLUGINS)),$(WAMR_SRCS:%.c=$(BUILD)/obj/%.o))
+
 HAVE_GUI := $(shell $(PKG_CONFIG) --exists $(GUI_PKGS) 2>/dev/null && echo y)
 GUI_CFLAGS := $(if $(HAVE_GUI),$(shell $(PKG_CONFIG) --cflags $(GUI_PKGS)))
 GUI_LIBS := $(if $(HAVE_GUI),$(shell $(PKG_CONFIG) --libs $(GUI_PKGS)))
@@ -78,7 +129,7 @@ THIRD_SRCS := $(foreach t,$(THIRD_PARTY),$(wildcard third_party/$(t)/*.c))
 # Bundled fonts (src/text/bundled.h), embedded the same way (assets/fonts/<name>.ttf).
 FONT_GEN := Inter-Regular Inter-Medium Inter-SemiBold JetBrainsMono-Regular
 GEN_SRCS := $(BUILD)/gen/coated_cmyk_icc.c $(FONT_GEN:%=$(BUILD)/gen/font_%.c) $(BUILD)/gen/dict_scowl.c
-OBJS := $(SRCS:%.c=$(BUILD)/obj/%.o) $(THIRD_SRCS:%.c=$(BUILD)/obj/%.o) $(GEN_SRCS:%.c=%.o)
+OBJS := $(SRCS:%.c=$(BUILD)/obj/%.o) $(THIRD_SRCS:%.c=$(BUILD)/obj/%.o) $(GEN_SRCS:%.c=%.o) $(WAMR_OBJS)
 LIB := $(BUILD)/libphotocraft.a
 # B3 GUI stack spike (src/ui/spike): built when SDL3 and FreeType are installed.
 SPIKE_SRCS := $(wildcard src/ui/spike/*.c)
@@ -95,7 +146,7 @@ all: $(LIB) $(PROGRAMS:%=$(BUILD)/bin/%) $(if $(HAVE_GUI),$(SPIKE))
 # Listed first: GNU make 3.81 takes the first matching pattern rule, not the most specific.
 $(BUILD)/obj/third_party/%.o: third_party/%.c
 	@mkdir -p $(@D)
-	$(CC) -std=c17 $(PTHREAD) $(CFLAGS) $(EXTRA_CFLAGS) $(DEPFLAGS) -c $< -o $@
+	$(CC) $(THIRD_CPPFLAGS) -std=c17 $(PTHREAD) $(CFLAGS) $(EXTRA_CFLAGS) $(THIRD_CFLAGS) $(DEPFLAGS) -c $< -o $@
 
 $(BUILD)/obj/%.o: %.c
 	@mkdir -p $(@D)
@@ -144,6 +195,18 @@ $(SPIKE_OBJS): EXTRA_CPPFLAGS = $(GUI_CFLAGS)
 # Only the codecs see the optional libraries' headers.
 $(filter $(BUILD)/obj/src/codecs/%,$(OBJS)): EXTRA_CPPFLAGS = $(CODEC_CFLAGS)
 $(BUILD)/tests/codecs/%: EXTRA_CPPFLAGS = $(CODEC_CFLAGS)
+# Only src/plugins sees WAMR's API header (and PC_HAVE_WAMR); WAMR itself gets its configuration
+# and no FMA contraction (wasm float operations are IEEE single operations).
+$(filter $(BUILD)/obj/src/plugins/%,$(OBJS)): EXTRA_CPPFLAGS = $(PLUGINS_CFLAGS)
+$(WAMR_OBJS): THIRD_CPPFLAGS = $(WAMR_CPPFLAGS)
+# Sanitizer builds, WAMR objects only: its fast interpreter stores operands and code pointers
+# unaligned on purpose (x86-64/AArch64), so UBSan's alignment check is off; and it detects native
+# stack overflow by comparing a local's address with the thread's stack bounds, which ASan's
+# "fake stack" (detect_stack_use_after_return, on by default in recent compilers) breaks.
+SAN_FLAGS_SEEN = $(CFLAGS) $(EXTRA_CFLAGS)
+WAMR_ASAN_STACK := $(if $(call cc_accepts,-fsanitize=address -fsanitize-address-use-after-return=never),-fsanitize-address-use-after-return=never,$(if $(call cc_accepts,-fsanitize=address --param=asan-use-after-return=0),--param=asan-use-after-return=0))
+WAMR_SAN = $(if $(findstring undefined,$(SAN_FLAGS_SEEN)),-fno-sanitize=alignment) $(if $(findstring address,$(SAN_FLAGS_SEEN)),$(WAMR_ASAN_STACK))
+$(WAMR_OBJS): THIRD_CFLAGS = $(FP_STRICT) $(WAMR_SAN)
 
 $(SPIKE): $(SPIKE_OBJS) $(LIB)
 	@mkdir -p $(@D)
@@ -186,7 +249,7 @@ analyze:
 	@if command -v clang >/dev/null 2>&1; then \
 		for f in $(SRCS); do \
 			clang --analyze -Xclang -analyzer-werror -std=c17 -D_POSIX_C_SOURCE=200809L -Isrc $(THIRD_PARTY:%=-Ithird_party/%) $(PKG_CFLAGS) \
-				$(CODEC_CFLAGS) -o /dev/null $$f || exit 1; \
+				$(CODEC_CFLAGS) $(PLUGINS_CFLAGS) -o /dev/null $$f || exit 1; \
 		done; \
 		for f in $(if $(HAVE_GUI),$(SPIKE_SRCS)); do \
 			clang --analyze -Xclang -analyzer-werror -std=c17 -D_POSIX_C_SOURCE=200809L -Isrc $(THIRD_PARTY:%=-Ithird_party/%) $(PKG_CFLAGS) \
