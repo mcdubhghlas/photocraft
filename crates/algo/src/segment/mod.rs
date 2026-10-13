@@ -288,6 +288,9 @@ fn grid_cut_impl<const OPTIMIZED: bool>(
     if count == 0 {
         return Some(out);
     }
+    if cancel() {
+        return None;
+    }
     let mut g = Graph::with_capacity(count as usize, count as usize * 4);
     for i in 0..n {
         if idx[i] != u32::MAX {
@@ -329,6 +332,9 @@ fn grid_cut_impl<const OPTIMIZED: bool>(
                 visit((y as usize) * img.w + x as usize, x, y)
             }
         }
+    }
+    if cancel() {
+        return None;
     }
     if OPTIMIZED {
         g.maxflow_with(cancel)?;

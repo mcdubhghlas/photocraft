@@ -257,7 +257,8 @@ pub fn dispatch_pressed(app: &mut PhotocraftApp, ctx: &egui::Context, focus: Foc
 /// type or shape layer the key did nothing. A selection, a single channel or Quick Mask keeps Clear.
 /// With the active layer's mask targeted the key edits the mask, never the layer's pixels: a
 /// selection is filled with the background colour in the mask (Photoshop's Delete on a mask), and
-/// with no selection the mask itself is deleted, as Layer › Layer Mask › Delete.
+/// with no selection the mask itself is deleted, as Layer › Layer Mask › Delete, unless several
+/// layers are selected: then they are deleted.
 fn delete_key_command(app: &PhotocraftApp, id: String) -> String {
     if id != "edit.clear" {
         return id;
@@ -270,7 +271,10 @@ fn delete_key_command(app: &PhotocraftApp, id: String) -> String {
     let solo_mask = colors_off && has_mask && !alpha_on && st.doc.quick_mask.is_none();
     let layer_mask = st.channel_view.target == photocraft_engine::channel_cmds::ChannelTarget::LayerMask;
     let mask = (app.ui.mask_target || solo_mask || layer_mask) && has_mask;
-    if mask && (composite || layer_mask) {
+    // Several selected layers outrank the active one's targeted mask (#4025): a new adjustment
+    // layer targets its mask, so the first press used to delete only that mask.
+    let several = st.selected_layers().len() > 1;
+    if mask && (composite || layer_mask) && !(several && composite && st.doc.selection.is_none()) {
         let cmd = if st.doc.selection.is_some() { "edit.fillBackground" } else { "layer.layerMask.delete" };
         return cmd.into();
     }
@@ -298,6 +302,7 @@ fn label(id: &str) -> String {
         .map(|c| c.1)
         .or_else(|| crate::menus::UI_COMMANDS.iter().find(|c| c.0 == id).map(|c| c.1))
         .or_else(|| photocraft_engine::commands::find(id).map(|c| c.label))
+        .or_else(|| crate::tool_shortcuts::tool(id).map(|tool| tool.label()))
         .unwrap_or(id)
         .trim_end_matches('…')
         .to_string()

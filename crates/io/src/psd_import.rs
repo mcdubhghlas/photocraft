@@ -59,6 +59,8 @@ pub(crate) struct Ctx<'a> {
     pub filter_effects: Vec<photocraft_psd::filter_effects::FilterEffectsItem>,
     /// Placed layers naming the same source share editable contents, not their placement.
     pub smart_contents: std::collections::HashMap<String, SmartContentsId>,
+    /// Source sizes of `PlLd`-only placed layers, by source id (read once per embedded file).
+    pub plld_sizes: std::collections::HashMap<String, Option<(f64, f64)>>,
     /// Cancellation and progress for background opens (checked per layer record).
     pub ctl: photocraft_raster::Interrupt<'a>,
     /// Layer records decoded so far, out of `total` (progress).
@@ -105,9 +107,49 @@ fn soft_shape_fill(rec: &LayerRecord, has_vector: bool, fill_key: Option<&[u8; 4
     (soft || pattern).then_some((fill, soft))
 }
 
+/// Where a placed layer's source goes: read from `SoLd`/`SoLE`, or from a CS2 `PlLd` record.
+/// An empty `id` leaves the contents unavailable (the stored pixels stay the rendering).
+#[derive(Default)]
+struct Placement {
+    id: String,
+    transform: photocraft_geom::Affine,
+    perspective: Option<[f64; 9]>,
+    warp: Option<photocraft_geom::warp::Warp>,
+}
+
 impl Ctx<'_> {
     fn warn(&mut self, s: impl Into<String>) {
         self.warnings.push(s.into());
+    }
+
+    /// Source id, transform, (Distort/Perspective) projective placement and warp of a placed
+    /// layer that has only a `PlLd` block, as Photoshop CS2 and older write it (#2465). `PlLd`
+    /// stores the placed corners but not the source size, which comes from the embedded file.
+    fn plld_placement(&mut self, data: &[u8], name: &str) -> Placement {
+        let Some((id, p)) = blocks::parse_plld(data) else {
+            self.warn(format!("layer \"{name}\": its placed-layer data (PlLd) could not be read; the smart object's contents are unavailable"));
+            return Placement::default();
+        };
+        let warp = match blocks::parse_plld_warp(data) {
+            blocks::PlldWarp::None => None,
+            blocks::PlldWarp::Warp(w) => Some(w),
+            blocks::PlldWarp::Unreadable => {
+                // Re-rendering from the source would unwarp the layer: keep it as saved (its
+                // warped pixels), as before PlLd was read.
+                self.warn(format!(
+                    "layer \"{name}\": its smart object warp (PlLd) could not be read; the layer keeps its warped pixels but its contents are unavailable"
+                ));
+                return Placement::default();
+            }
+        };
+        let (file, ctl) = (self.file, self.ctl);
+        let size = *self
+            .plld_sizes
+            .entry(id.clone())
+            .or_insert_with(|| crate::linked::source_size_in_blocks(file.global_blocks.iter().map(|b| (&b.key, b.data.as_slice())), &id, &ctl));
+        // Without the source (missing or unreadable), it is taken as placed at 100 %.
+        let (transform, perspective) = blocks::plld_transform(&p, size, warp.as_ref());
+        Placement { id, transform, perspective, warp }
     }
 
     fn channel_plane(&mut self, rec: &LayerRecord, id: i16, name: &str) -> Option<Vec<u8>> {
@@ -267,7 +309,8 @@ impl Ctx<'_> {
         let fill_key = [b"SoCo", b"GdFl", b"PtFl"].into_iter().find(|k| rec.block(k).is_some());
         let vector_key = [b"vsms", b"vmsk"].into_iter().find(|k| rec.block(k).is_some());
         let adj_key = ADJUSTMENT_KEYS.into_iter().find(|k| rec.block(k).is_some());
-        let smart_key = [b"SoLd", b"PlLd", b"SoLE"].into_iter().find(|k| rec.block(k).is_some());
+        // `SoLE` (a linked smart object) before `PlLd`: a `PlLd` alone is Photoshop CS2's record.
+        let smart_key = [b"SoLd", b"SoLE", b"PlLd"].into_iter().find(|k| rec.block(k).is_some());
         let blocks = preserved_blocks(rec);
         // `psd_raw` shares the Arc of the matching `psd_blocks` entry.
         let principal = |k: &[u8; 4]| blocks.iter().find(|(bk, _)| bk == k).map(|(_, d)| d.clone());
@@ -321,7 +364,16 @@ impl Ctx<'_> {
             t.psd_raw = principal(b"TySh");
             LayerContent::Text(t)
         } else if let Some(k) = smart_key {
-            let (id, transform) = rec.block(k).map(|b| blocks::parse_smart(k, &b.data)).unwrap_or_default();
+            let Placement { id, transform, perspective, warp } = match rec.block(k) {
+                Some(b) if k == b"PlLd" => self.plld_placement(&b.data, &name),
+                Some(b) => {
+                    let (id, transform) = blocks::parse_smart(k, &b.data);
+                    // Distort / Perspective: the fourth corner (the affine `transform` drops it).
+                    let perspective = blocks::parse_smart_perspective(k, &b.data);
+                    Placement { id, transform, perspective, warp: blocks::parse_placed_warp(k, &b.data) }
+                }
+                None => Placement::default(),
+            };
             let contents_id =
                 if id.is_empty() { SmartContentsId::fresh() } else { *self.smart_contents.entry(id.clone()).or_insert_with(SmartContentsId::fresh) };
             // Smart filters (`filterFX` in the placed-layer data) and their mask (`FEid`).
@@ -340,10 +392,9 @@ impl Ctx<'_> {
                 psd_raw: principal(k),
                 filters_enabled: stack.enabled,
                 filter_mask,
-                warp: rec.block(k).and_then(|b| blocks::parse_placed_warp(k, &b.data)),
+                warp,
                 stack_mode: None,
-                // Distort / Perspective: the fourth corner (the affine `transform` drops it).
-                perspective: rec.block(k).and_then(|b| blocks::parse_smart_perspective(k, &b.data)),
+                perspective,
             })
         } else if let Some((f, soft)) = soft_shape_fill(rec, vector_key.is_some(), fill_key) {
             // A shape whose vector mask has a density or feather is a fill layer seen through a
@@ -650,6 +701,7 @@ pub fn psd_to_document_with(file: &PsdFile, ctl: &photocraft_raster::Interrupt) 
         txt2: file.global_blocks.iter().find(|b| &b.key == b"Txt2").and_then(|b| photocraft_text::psd::parse_txt2(&b.data)),
         filter_effects: Vec::new(),
         smart_contents: Default::default(),
+        plld_sizes: Default::default(),
         ctl: *ctl,
         done: 0,
         total: file.layers().len(),

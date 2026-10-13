@@ -9,6 +9,8 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 fn fresh() -> Session {
+    // Belt and braces with the EXTERNAL skip below: nothing in this process may reach a printer.
+    photocraft_engine::print_cmds::disable_printing();
     let mut s = Session::new();
     s.execute("file.new", json!({"width": 24, "height": 16})).unwrap();
     s.execute("layer.new.layer", json!({})).unwrap();
@@ -58,8 +60,12 @@ fn no_command_panics_or_hangs_on_adversarial_params() {
         json!({"x": 1e5, "y": -1e5, "radius": 300, "amount": 300, "angle": 1e5, "opacity": -100, "scale": -5, "gamma": -1}),
         json!({"points": [], "from": [0, 0], "to": [0, 0], "stops": [], "matrix": [0, 0, 0, 0, 0, 0], "colors": [], "name": "", "mode": "", "style": ""}),
     ];
+    // Commands whose success reaches outside the process: `file.print` and `file.printOneCopy`
+    // spool to CUPS, so a fuzz run with `{}` printed a blank page on the default printer. Their
+    // params are validated like everyone else's; the spooling itself is not fuzzed.
+    const EXTERNAL: &[&str] = &["file.print", "file.printOneCopy"];
     let mut bad: Vec<String> = Vec::new();
-    for spec in command_specs() {
+    for spec in command_specs().iter().filter(|spec| !EXTERNAL.contains(&spec.id)) {
         for p in &params {
             if let Err(why) = run_guarded(spec.id, p) {
                 bad.push(format!("{} [{why}] <- {p}", spec.id));

@@ -46,6 +46,28 @@ pub fn is_sizing(command: &str) -> bool {
     matches!(command, "image.imageSize" | "image.canvasSize")
 }
 
+/// Alt+Cancel (Reset): restore the dimensions and options from when the dialog opened.
+pub fn reset(f: &mut Map<String, Value>) {
+    if !f.contains_key("__sizing") {
+        return;
+    }
+    let w = num(f, "__origW");
+    let h = num(f, "__origH");
+    f.insert("width".into(), json!(w));
+    f.insert("height".into(), json!(h));
+    if f.get("__command").and_then(Value::as_str) == Some("image.imageSize") {
+        f.insert("resolution".into(), json!(num(f, "__origRes")));
+        f.insert("__constrain".into(), json!(true));
+        if let Some(r) = f.get("__resample").cloned() {
+            f.insert("resample".into(), r);
+        }
+    } else {
+        f.insert("relative".into(), json!(false));
+        f.insert("anchor".into(), json!("center"));
+        f.insert("extensionColor".into(), json!("background"));
+    }
+}
+
 pub fn open(app: &mut PhotocraftApp, command: &str) -> Option<u64> {
     let unit = pref_unit(app.session.prefs().units_and_rulers.rulers);
     let resample = pref_resample(app.session.prefs().general.image_interpolation);
@@ -144,7 +166,11 @@ fn dim_field(ui: &mut egui::Ui, f: &mut Map<String, Value>, key: &str, orig_key:
     let orig = num(f, orig_key);
     let px = num(f, key);
     let mut v = to_unit(px, &unit, orig, res) as f32;
-    let range = if unit == "px" { -300000.0..=300000.0 } else { -30000.0..=30000.0 };
+    // The engine's 300000 px limit in this unit (never below 30000), so a large document's size
+    // isn't clamped when the field is drawn: egui clamps the shown value to the range, and the
+    // field reports that as an edit (#4162).
+    let lim = if unit == "px" { 300000.0 } else { to_unit(300000.0, &unit, orig, res).max(30000.0) as f32 };
+    let range = -lim..=lim;
     // Each unit keeps its own precision: whole pixels, 3 places for inches, 2 for cm/mm/picas (#2434).
     // A typed unit (`2in` while in pixels) converts at the dialog's resolution.
     let units = crate::widgets::FieldUnits { unit: crate::widgets::unit_of_key(&unit), dpi: res, ppi: 72.0 };
@@ -443,6 +469,22 @@ mod tests {
         assert_eq!(app.session.active().unwrap().doc.size, photocraft_doc::Size::new(120, 50));
     }
 
+    #[test]
+    fn alt_reset_restores_open_dimensions() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.session.execute("file.new", json!({"width": 200, "height": 100, "resolution": 72})).unwrap();
+        let id = open(&mut app, "image.imageSize").unwrap();
+        let d = app.ui.dialog_mut(id).unwrap();
+        d.fields.insert("width".into(), json!(50));
+        d.fields.insert("height".into(), json!(25));
+        d.fields.insert("resolution".into(), json!(300));
+        d.fields.insert("__constrain".into(), json!(false));
+        reset(&mut d.fields);
+        assert_eq!((num(&d.fields, "width"), num(&d.fields, "height"), num(&d.fields, "resolution")), (200.0, 100.0, 72.0));
+        assert_eq!(d.fields.get("__constrain"), Some(&json!(true)));
+        assert!(app.ui.dialogs.iter().any(|x| x.id == id), "reset leaves the dialog open");
+    }
+
     /// The dialog starts on Preferences › General › Image Interpolation: Bicubic Automatic opens
     /// as Automatic and the others as themselves (Bicubic Sharper used to open as Lanczos).
     #[test]
@@ -556,6 +598,32 @@ mod tests {
         let doc = &h.state().session.active().unwrap().doc;
         assert_eq!(doc.size, photocraft_doc::Size::new(100, 50));
         assert!((doc.resolution_dpi - 50.0).abs() < 1e-3, "{}", doc.resolution_dpi);
+    }
+
+    /// #4162: a document wider than 30000 units in a physical unit (40000 px at 72 ppi is 40000 pt)
+    /// kept its size in the fields and on OK; the fields clamped it to 30000 on open, so OK with
+    /// no edit resized (Image Size) or cropped (Canvas Size) it.
+    #[test]
+    fn large_documents_in_physical_units_open_unchanged() {
+        use egui_kittest::Harness;
+        let mut wrong = Vec::new();
+        for command in ["image.imageSize", "image.canvasSize"] {
+            let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+            app.session.execute("file.new", json!({"width": 40000, "height": 4, "resolution": 72})).unwrap();
+            let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_ui_state(|ui, app| crate::dialogs::show(app, ui.ctx()), app);
+            PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
+            let id = open(h.state_mut(), command).unwrap();
+            h.state_mut().ui.dialog_mut(id).unwrap().fields.insert("__unit".into(), json!("pt"));
+            h.run_steps(3);
+            let f = fields(&h);
+            let shown = (num(&f, "width"), num(&f, "height"));
+            crate::dialogs::confirm(h.state_mut(), id).unwrap();
+            let size = h.state().session.active().unwrap().doc.size;
+            if shown != (40000.0, 4.0) || size != photocraft_doc::Size::new(40000, 4) {
+                wrong.push(format!("{command}: fields {shown:?}, document {size:?}"));
+            }
+        }
+        assert!(wrong.is_empty(), "{wrong:#?}");
     }
 
     /// #2329: Image Size and Canvas Size open on Width with its value selected, as in Photoshop:

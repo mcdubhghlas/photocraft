@@ -79,6 +79,22 @@ fn a_job_applies_as_one_undo_step_and_matches_the_inline_result() {
 }
 
 #[test]
+fn free_transform_runs_as_a_job_with_the_inline_result() {
+    let quad = json!({"quad": [[20, 10], [280, 30], [260, 190], [40, 170]]});
+    let mut inline = session(300, 200);
+    inline.execute("edit.transform", quad.clone()).unwrap();
+
+    let mut s = session(300, 200);
+    let steps = s.active().unwrap().history.past_len();
+    let id = job(s.start("edit.transform", quad).unwrap());
+    let e = wait_event(&mut s, id);
+    assert!(matches!(e.outcome, JobOutcome::Done(_)), "{e:?}");
+    assert_eq!(e.label, "Free Transform");
+    assert_eq!(s.active().unwrap().history.past_len(), steps + 1, "one undo step");
+    assert_eq!(pixels(&s), pixels(&inline), "same pixels as the synchronous command");
+}
+
+#[test]
 fn cancel_leaves_the_document_byte_identical() {
     let mut s = session(1600, 1200);
     let doc_before = s.active().unwrap().doc.clone();

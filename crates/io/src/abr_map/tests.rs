@@ -189,6 +189,28 @@ fn missing_pattern_and_tip_are_reported() {
 }
 
 #[test]
+fn disabled_smoothing_tool_options_keep_the_amount_and_mode() {
+    let preset = Descriptor::new("brushPreset")
+        .with("Nm  ", t("Smoothing off"))
+        .with("Brsh", Value::Descriptor(Descriptor::new("computedBrush").with("Dmtr", u(b"#Pxl", 19.0))))
+        .with(
+            "toolOptions",
+            Value::Descriptor(
+                Descriptor::new("currentToolOptions")
+                    .with("smoothing", Value::Boolean(false))
+                    .with("smoothingValue", Value::Integer(40))
+                    .with("smoothingRadiusMode", Value::Boolean(true)),
+            ),
+        );
+    for sub in [1, 2] {
+        let bytes = write_v6(sub, &[], &[], std::slice::from_ref(&preset), true).unwrap();
+        let imported = read_abr(&bytes, "Test").unwrap();
+        let smoothing = &imported.presets[0].brush.smoothing;
+        assert!(!smoothing.enabled && smoothing.amount == 0.4 && smoothing.pulled_string);
+    }
+}
+
+#[test]
 fn file_folders_nest_inside_the_import_group() {
     let named = |n: &str| Descriptor::new("brushPreset").with("Nm  ", t(n));
     let orphan = Descriptor::new("brushPreset").with("Nm  ", t("Orphan")).with("Brsh", Value::Descriptor(sampled_tip("$nowhere")));

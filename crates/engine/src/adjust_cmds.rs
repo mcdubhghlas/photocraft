@@ -11,7 +11,7 @@
 
 use photocraft_algo::tone::{self, HdrToning, MatchColor, ShadowsHighlights};
 use photocraft_doc::{Adjustment, Document, Layer, LayerContent, Rect};
-use photocraft_raster::{Surface, from_rgba_into, to_rgba};
+use photocraft_raster::{Surface, to_rgba};
 use serde_json::{Value, json};
 
 use crate::commands::CommandSpec;
@@ -202,17 +202,8 @@ fn process_surface(surf: &mut Surface, selection: Option<&Surface>, f: &mut dyn 
     let raw = surf.read_region(r);
     let mut px: Vec<[f32; 4]> = raw.chunks_exact(n).map(|q| to_rgba(&fmt, q)).collect();
     let orig = px.clone();
-    let w = r.width() as usize;
     f(&mut px, r);
-    let mut out = Vec::with_capacity(raw.len());
-    for (i, (a, o)) in px.iter().zip(&orig).enumerate() {
-        let k = selection.map_or(1.0, |sel| sel.sample_channel(r.x0 + (i % w) as i32, r.y0 + (i / w) as i32, 0));
-        let mixed: [f32; 4] = std::array::from_fn(|c| o[c] + (a[c] - o[c]) * k);
-        let mut enc = [0.0f32; 8];
-        let m = from_rgba_into(&fmt, mixed, &mut enc);
-        out.extend_from_slice(&enc[..m]);
-    }
-    surf.write_region(r, &out);
+    surf.write_region(r, &crate::pixels::mix_through_selection(&fmt, r, &orig, &px, selection));
 }
 
 /// One history step running `f` on the active pixel layer (or targeted channel or layer mask).
@@ -463,7 +454,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "image.adjustments.replaceColor",
             "Replace Color…",
             ["Image", "Adjustments"],
-            r##"{"color":json,"fuzziness":0..200=40,"hue":-180..180=0,"saturation":-100..100=0,"lightness":-100..100=0} (color: "#rrggbb", default the foreground colour)"##,
+            r##"{"color":color,"fuzziness":0..200=40,"hue":-180..180=0,"saturation":-100..100=0,"lightness":-100..100=0} (color: "#rrggbb", default the foreground colour)"##,
             has_pixels,
             replace_color
         ),

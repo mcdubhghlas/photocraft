@@ -776,3 +776,87 @@ fn a_set_of_background_opens_keeps_its_order_however_they_finish() {
     jobs_ui::finish_open_tab(&mut app, &late, &json!({"document": index})).unwrap();
     assert_eq!(doc_names(&app), ["dropped.psd", "existing.psd", "f0.psd", "f1.psd", "f2.psd", "f3.psd", "late.psd"]);
 }
+
+/// #4373: Save a Copy is recorded in an action, like Save and Save As, and played back as a copy:
+/// the document keeps its own file and unsaved changes.
+#[test]
+fn save_a_copy_is_recorded_and_replayed_as_a_copy() {
+    let (mut app, written) = app_with(vec![Some(FileDialogAnswer::SaveTo("/pics/copy.png".into()))]);
+    let ctx = egui::Context::default();
+    app.open_file("/pics/work.pcraft", b"x").unwrap();
+    app.run("layer.new.layer", json!({})).unwrap();
+    app.run("actions.record", json!({})).unwrap();
+    app.run("edit.fill", json!({"color": "#ff0000"})).unwrap();
+    menus::invoke(&mut app, &ctx, "file.saveACopy", json!({})).unwrap();
+    answer(&mut app);
+    app.run("actions.stop", json!({})).unwrap();
+    assert_eq!(app.session.actions.list[0].steps.last(), Some(&("file.saveACopy".to_string(), json!({"path": "/pics/copy.png"}))));
+    assert_eq!(crate::actions::label_of("file.saveACopy"), "Save a Copy");
+    written.borrow_mut().clear();
+    let played = app.run("actions.play", json!({"action": 0})).unwrap();
+    assert!(played.get("failed").is_none(), "{played}");
+    assert_eq!(written.borrow().iter().map(|(p, _)| p.as_str()).collect::<Vec<_>>(), ["/pics/copy.png"]);
+    let st = app.session.active().unwrap();
+    assert_eq!(st.path.as_deref(), Some("/pics/work.pcraft"), "the document keeps its file");
+    assert!(st.is_dirty(), "and its unsaved changes");
+}
+
+/// #4400: a new document saved under a name is listed in Open Recent (and on the Home screen),
+/// as opening it is; a Save a Copy isn't, since the document doesn't live there.
+#[test]
+fn saving_a_new_document_lists_it_in_recent_files() {
+    let (mut app, _written) = app_with(vec![Some(FileDialogAnswer::SaveTo("/pics/new.psd".into())), Some(FileDialogAnswer::SaveTo("/pics/copy.png".into()))]);
+    let ctx = egui::Context::default();
+    app.run("file.new", json!({"width": 4, "height": 4})).unwrap();
+    assert!(app.ui.recent_files.is_empty());
+    menus::invoke(&mut app, &ctx, "file.saveAs", json!({})).unwrap();
+    answer(&mut app);
+    assert_eq!(app.ui.recent_files, ["/pics/new.psd"]);
+    assert_eq!(app.session.prefs().file_handling.recent_files, ["/pics/new.psd"], "kept for the next launch");
+    menus::invoke(&mut app, &ctx, "file.saveACopy", json!({})).unwrap();
+    answer(&mut app);
+    assert_eq!(app.ui.recent_files, ["/pics/new.psd"], "a copy isn't the document's file");
+}
+
+/// #4559: a file whose type uses a font that isn't installed opens with a notice naming it, as
+/// Photoshop warns on open (the CLI and automation already did); the file still opens. Type in
+/// an installed face adds nothing, and a font the importer already warned about isn't repeated.
+#[test]
+fn opening_type_in_a_missing_font_warns() {
+    fn doc_with_type(font: Option<&str>) -> Document {
+        let mut s = photocraft_engine::Session::new();
+        s.execute("file.new", json!({"width": 40, "height": 20})).unwrap();
+        let mut p = json!({"text": "Hi", "x": 2, "y": 12, "size": 10});
+        if let Some(f) = font {
+            p["font"] = json!(f);
+        }
+        s.execute("type.create", p).unwrap();
+        (*s.active().unwrap().doc).clone()
+    }
+    const MISSING: &str = "NoSuchFamily4559";
+    let warning = format!("font '{MISSING}' is not installed; text may render using a fallback face");
+    let (with_missing, installed) = (doc_with_type(Some(MISSING)), doc_with_type(None));
+    let already = warning.clone();
+    let services = Services {
+        import: Some(Box::new(move |name: &str, _bytes: &[u8], _depth: usize| {
+            Ok(match name {
+                "installed.psd" => (installed.clone(), Vec::new()),
+                "warned.psd" => (with_missing.clone(), vec![already.clone()]),
+                _ => (with_missing.clone(), Vec::new()),
+            })
+        })),
+        ..Default::default()
+    };
+    let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), services);
+    let warnings = app.open_bytes("poster.psd", b"x").unwrap();
+    assert_eq!(warnings, vec![warning.clone()]);
+    assert!(app.ui.status.contains(MISSING), "{}", app.ui.status);
+    assert_eq!(app.ui.notices.len(), 1);
+    assert_eq!(app.ui.notices[0].lines, vec![warning.clone()]);
+    assert_eq!(app.session.documents().len(), 1, "the file still opens");
+    // Type in an installed face: no notice.
+    assert!(app.open_bytes("installed.psd", b"x").unwrap().is_empty());
+    assert_eq!(app.ui.notices.len(), 1);
+    // The importer's own warning for the same font isn't doubled.
+    assert_eq!(app.open_bytes("warned.psd", b"x").unwrap(), vec![warning]);
+}

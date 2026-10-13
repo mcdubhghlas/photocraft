@@ -11,7 +11,8 @@
 //! [`configure`] makes egui fold ⌘/Ctrl + wheel into a sideways scroll as it does ⇧ + wheel, so
 //! only a real pinch (egui's `Event::Zoom`, or a touch screen) reaches `zoom_delta`. macOS and
 //! browsers deliver a pinch as its own event, but Windows hands a precision touchpad pinch to apps
-//! as Ctrl + wheel in fractions of a notch: [`fold_legacy_pinch`] turns those back into a pinch
+//! as Ctrl + wheel in fractions of a notch (also on some Linux Wayland systems):
+//! [`fold_legacy_pinch`] turns those back into a pinch
 //! before egui sees them, so Ctrl + a notched mouse wheel scrolls sideways and the pinch still
 //! zooms.
 //!
@@ -89,24 +90,28 @@ pub fn configure(ctx: &Context) {
     });
 }
 
-/// Turn a Windows touchpad pinch, which arrives as Ctrl + wheel in fractions of a notch, into
+/// Turn a Windows or Linux touchpad pinch, which arrives as Ctrl + wheel in fractions of a notch or points, into
 /// pinch events (`Event::Zoom`) at egui's Ctrl-scroll zoom speed (`notch` points per line,
 /// `speed` per point). Ctrl + wheel in whole notches (a mouse wheel) is left to scroll sideways,
 /// unless it comes within [`PINCH_GAP`] of a pinch step. `last` is the time of the previous pinch
 /// step; returns the time of the latest one.
 pub fn legacy_pinch_to_zoom(events: &mut [Event], now: f64, last: Option<f64>, notch: f32, speed: f32) -> Option<f64> {
     let ctrl_wheel = |e: &Event| match e {
-        Event::MouseWheel { unit: MouseWheelUnit::Line, delta, modifiers, .. } if modifiers.ctrl => Some(*delta),
+        Event::MouseWheel { unit: MouseWheelUnit::Line, delta, modifiers, .. } if modifiers.ctrl => Some((*delta, false)),
+        // Wayland precision touchpads can use point units. These are already actual
+        // screen points, not line notches; normalize before the exponential below.
+        Event::MouseWheel { unit: MouseWheelUnit::Point, delta, modifiers, .. } if modifiers.ctrl => Some((*delta / notch.max(1.0), true)),
         _ => None,
     };
     let fraction = |d: Vec2| d.x.fract() != 0.0 || d.y.fract() != 0.0;
-    let pinching = last.is_some_and(|t| (0.0..PINCH_GAP).contains(&(now - t))) || events.iter().filter_map(ctrl_wheel).any(fraction);
+    let pinching =
+        last.is_some_and(|t| (0.0..PINCH_GAP).contains(&(now - t))) || events.iter().filter_map(ctrl_wheel).any(|(d, high_res)| high_res || fraction(d));
     if !pinching {
         return last;
     }
     let mut latest = last;
     for e in events.iter_mut() {
-        if let Some(d) = ctrl_wheel(e) {
+        if let Some((d, _)) = ctrl_wheel(e) {
             let f = (speed * notch * (d.x + d.y)).exp();
             *e = Event::Zoom(if f.is_finite() && f > 0.0 { f } else { 1.0 });
             latest = Some(now);
@@ -119,7 +124,7 @@ fn pinch_id() -> Id {
     Id::new("pc-wheel-legacy-pinch")
 }
 
-/// [`legacy_pinch_to_zoom`] for one frame's raw input (`raw_input_hook`, on Windows).
+/// [`legacy_pinch_to_zoom`] for one frame's raw input (`raw_input_hook`, Windows and Linux).
 pub fn fold_legacy_pinch(ctx: &Context, raw: &mut RawInput) {
     let (notch, speed) = ctx.options(|o| (o.input_options.line_scroll_speed, o.input_options.scroll_zoom_speed));
     let now = raw.time.unwrap_or_else(|| ctx.input(|i| i.time));
@@ -340,6 +345,18 @@ mod tests {
         assert!(pan == Vec2::ZERO && (zoom - (speed * 40.0 * 0.75).exp()).abs() < 1e-4, "the pinch zooms: {pan:?} {zoom}");
         let (pan, zoom) = gesture(vec![vec![wheel(Vec2::new(0.0, 1.0), CTRL)]], false, true);
         assert!(near(pan, Vec2::new(40.0, 0.0)) && zoom == 1.0, "Ctrl + mouse wheel scrolls sideways: {pan:?} {zoom}");
+    }
+
+    #[test]
+    fn linux_wayland_point_unit_pinch_keeps_mouse_notches_for_sideways_scroll() {
+        // Some Wayland compositors report fractional Ctrl-wheel pinch steps in points
+        // rather than line units. The delta must not be multiplied by notch twice.
+        let mut point = [Event::MouseWheel { unit: MouseWheelUnit::Point, delta: Vec2::new(0.0, 8.0), phase: TouchPhase::Move, modifiers: CTRL }];
+        assert_eq!(legacy_pinch_to_zoom(&mut point, 1.0, None, 40.0, 0.005), Some(1.0));
+        assert!(matches!(point[0], Event::Zoom(f) if (f - (8.0f32 * 0.005).exp()).abs() < 1e-5));
+        let mut wheel_only = [wheel(Vec2::new(0.0, 1.0), CTRL)];
+        assert_eq!(legacy_pinch_to_zoom(&mut wheel_only, 2.0, Some(1.0), 40.0, 0.005), Some(1.0));
+        assert!(matches!(wheel_only[0], Event::MouseWheel { .. }), "whole mouse notch is not a pinch");
     }
 
     #[test]

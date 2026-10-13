@@ -348,7 +348,7 @@ fn finish_save(app: &mut PhotocraftApp, ctx: &egui::Context, save: SaveJob, labe
 /// no save worker is left.
 fn close_after_saves(app: &mut PhotocraftApp, ctx: &egui::Context) {
     app.jobs.saves.retain(|s| !(s.ended && s.state.finished()));
-    if !app.saving() && std::mem::take(&mut app.jobs.close_after_saves) {
+    if !app.saving() && !app.printing() && std::mem::take(&mut app.jobs.close_after_saves) {
         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
     }
 }
@@ -363,8 +363,8 @@ pub fn tick(app: &mut PhotocraftApp, ctx: &egui::Context) {
     if app.jobs.focus.is_some_and(|j| !app.jobs.opens.iter().any(|o| o.job == j)) {
         app.jobs.focus = app.jobs.opens.last().map(|o| o.job);
     }
-    if app.saving() {
-        close_after_saves(app, ctx);
+    close_after_saves(app, ctx);
+    if app.saving() || app.printing() {
         // Keep checking on a cancelled save's worker until it returns.
         ctx.request_repaint_after(std::time::Duration::from_millis(50));
     }
@@ -404,7 +404,7 @@ pub fn job_in_view(app: &PhotocraftApp) -> Option<JobInfo> {
 }
 
 /// Cancel job `id` (the status bar's ×, the dialog's Cancel, Esc, closing an opening tab).
-pub fn cancel(app: &mut PhotocraftApp, id: JobId) {
+pub fn cancel(app: &mut PhotocraftApp, id: JobId) -> bool {
     let label = app.session.job(id).map(|j| j.label);
     // A save that has started replacing the file runs to the end: cancelling it now would leave
     // the file written but the document marked unsaved.
@@ -413,15 +413,17 @@ pub fn cancel(app: &mut PhotocraftApp, id: JobId) {
     {
         app.ui.status = crate::i18n::fmt(tl!("{label} is writing the file and can no longer be cancelled"), &[("label", label.as_deref().unwrap_or_default())]);
         app.ui.status_error = false;
-        return;
+        return false;
     }
-    if app.session.cancel_job(id) {
+    let cancelled = app.session.cancel_job(id);
+    if cancelled {
         // The event (and its status text) arrives with the next poll; say so now as well.
         if let Some(l) = label {
             app.ui.status = crate::i18n::fmt(tl!("Cancelled {label}"), &[("label", &l)]);
             app.ui.status_error = false;
         }
     }
+    cancelled
 }
 
 fn on_event(app: &mut PhotocraftApp, ctx: &egui::Context, e: JobEvent) {
@@ -447,6 +449,8 @@ fn on_event(app: &mut PhotocraftApp, ctx: &egui::Context, e: JobEvent) {
             true
         }
     });
+    // A Free Transform commit's session ends with its job (then reported like any job).
+    crate::transform_tool::on_job_event(app, &e);
     if crate::prefs_ui::on_recovery_event(app, &e) {
         return;
     }
@@ -497,12 +501,19 @@ fn on_event(app: &mut PhotocraftApp, ctx: &egui::Context, e: JobEvent) {
             app.ui.panels.brush_settings = true;
             app.ui.brush_tab = 1;
         }
+        JobOutcome::Done(ref result) if matches!(e.command.as_str(), "file.print" | "file.printOneCopy") => {
+            app.sync_views();
+            crate::file_ui::print_status(app, result);
+        }
         JobOutcome::Done(_) => {
             app.sync_views();
             app.ui.status = e.label;
             app.ui.status_error = false;
         }
         JobOutcome::Failed(err) => {
+            if matches!(e.command.as_str(), "file.print" | "file.printOneCopy") {
+                app.jobs.close_after_saves = false;
+            }
             app.sync_views();
             notices::error(app, format!("{}: {err}", e.label));
         }
@@ -529,6 +540,7 @@ fn finish_open(app: &mut PhotocraftApp, name: &str, path: Option<&str>, v: &Valu
         app.opened_from(p);
     }
     app.sync_views();
+    let warnings = crate::file_open::with_missing_fonts(app, warnings);
     app.ui.status = crate::i18n::fmt(tl!("Opened {name}"), &[("name", name)]);
     app.ui.status_error = false;
     // A raw opens in Camera Raw first; the dialog says how it was developed.
@@ -572,6 +584,24 @@ pub fn bar(ui: &egui::Ui, rect: Rect, frac: Option<f32>, t: &Tokens) {
     }
 }
 
+/// A print job has already reached the spool worker; cancellation belongs to the system queue.
+fn print_status_progress(app: &PhotocraftApp, ui: &mut egui::Ui, j: &JobInfo) {
+    let t = Tokens::get(ui.ctx());
+    let (bar_w, bar_h) = if t.pro { (120.0, 6.0) } else { (140.0, 6.0) };
+    let more = app.session.jobs().len().saturating_sub(1);
+    let (xr, xresp) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
+    if xresp.hovered() {
+        ui.painter().rect_filled(xr, t.radius_sm, t.hover);
+    }
+    crate::icons::paint(ui, xr, "x", 11.0, if xresp.hovered() { t.text } else { t.text_dim });
+    xresp.on_hover_text(tl!("Manage submitted jobs in the system print queue"));
+    ui.label(RichText::new(percent(j)).color(t.text_dim).size(11.5).monospace());
+    let (br, _) = ui.allocate_exact_size(vec2(bar_w, bar_h), Sense::hover());
+    bar(ui, br, shown_fraction(j), &t);
+    let label = if more > 0 { format!("{} (+{more})", tl!(&j.label)) } else { tl!(&j.label).to_owned() };
+    ui.label(RichText::new(label).color(t.text_dim).size(12.0));
+}
+
 /// Progress that has been reported, or `None` (indeterminate) while it's still 0.
 fn shown_fraction(j: &JobInfo) -> Option<f32> {
     (j.progress > 0.0).then_some(j.progress)
@@ -607,6 +637,10 @@ pub fn status_progress(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
     let t = Tokens::get(ui.ctx());
     let (bar_w, bar_h) = if t.pro { (120.0, 6.0) } else { (140.0, 6.0) };
     let more = app.session.jobs().len().saturating_sub(1);
+    if matches!(j.command.as_str(), "file.print" | "file.printOneCopy") {
+        print_status_progress(app, ui, &j);
+        return;
+    }
     // Right to left: ×, percentage, bar, label.
     let (xr, xresp) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::click());
     if xresp.hovered() {

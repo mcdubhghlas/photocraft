@@ -1706,4 +1706,26 @@ mod tests {
             }
         }
     }
+    #[test]
+    fn destructive_levels_match_independent_signed_hdr_endpoints() {
+        // Input 15..230, gamma 1.3, output 10..245: black and white land on the output range in
+        // integer documents. Float32 keeps HDR values outside 0..1, as the compositor's real-file
+        // Levels oracle does. These independently calculated endpoints use the signed-power
+        // curve at black and white, not display-clipped values.
+        let params = json!({"inBlack": 15, "inWhite": 230, "gamma": 1.3, "outBlack": 10, "outWhite": 245});
+        for (depth, low, high, tolerance) in [(8, 10.0, 245.0, 0.6), (16, 10.0, 245.0, 0.6), (32, -20.308_89, 265.750_3, 0.01)] {
+            let mut s = crate::Session::new();
+            s.execute("file.new", json!({"width": 16, "height": 16, "depth": depth, "background": "white"})).unwrap();
+            s.execute("select.rect", json!({"x": 0, "y": 0, "width": 8, "height": 16})).unwrap();
+            s.execute("edit.fill", json!({"color": "#000000"})).unwrap();
+            s.execute("select.deselect", json!({})).unwrap();
+            s.execute("image.adjustments.levels", params.clone()).unwrap();
+            let px = pixels(&s);
+            assert!((px[0][0] * 255.0 - low).abs() < tolerance, "black @{depth}: {:?}", px[0]);
+            assert!((px[1][0] * 255.0 - high).abs() < tolerance, "white @{depth}: {:?}", px[1]);
+            if depth == 32 {
+                assert!(px[0][0] < 0.0 && px[1][0] > 1.0, "HDR endpoints must remain unclipped");
+            }
+        }
+    }
 }

@@ -719,8 +719,58 @@ fn export_as_with_several_artboards_selected_writes_one_file_each() {
     assert!(!app.ui.status_error, "{}", app.ui.status);
     assert_eq!(written.borrow().len(), 2);
     assert_eq!(written.borrow()[0], "/out/boards.jpg");
-    assert!(written.borrow()[1].starts_with("/out/boards-2-") && written.borrow()[1].ends_with(".jpg"), "{:?}", written.borrow());
+    // The sibling path is joined with the platform separator (`/out\boards-2-…` on Windows).
+    let second = written.borrow()[1].replace('\\', "/");
+    assert!(second.starts_with("/out/boards-2-") && second.ends_with(".jpg"), "{:?}", written.borrow());
     let mut got = sizes.borrow().iter().map(|(_, w, h)| (*w, *h)).collect::<Vec<_>>();
     got.sort_unstable();
     assert_eq!(got, [(10, 25), (20, 15)], "each board at its own size, scaled to 50 %");
+}
+
+/// #3806: File › Save on an OpenRaster file that can't hold the document (here an adjustment
+/// layer) doesn't overwrite it: Save As opens on a PSD with a notice saying what the .ora would
+/// drop, and the PSD becomes the document's file. A plain document still saves back to its .ora.
+#[test]
+fn openraster_save_never_overwrites_what_it_cannot_hold() {
+    let (mut app, open, written) = app();
+    app.run("layer.new.layer", json!({})).unwrap();
+    app.session.active_mut().unwrap().path = Some("/pics/art.ora".into());
+    let ctx = egui::Context::default();
+    menus::invoke(&mut app, &ctx, "file.save", json!({})).unwrap();
+    assert_eq!(*written.borrow(), ["/pics/art.ora"], "a plain document saves in place");
+    app.run("layer.newAdjustmentLayer.invert", json!({})).unwrap();
+    let notices = app.ui.notices.len();
+    menus::invoke(&mut app, &ctx, "file.save", json!({})).unwrap();
+    app.poll_file_dialog(&ctx, None);
+    assert_eq!(written.borrow().len(), 1, "the .ora is not overwritten");
+    assert!(matches!(open.borrow().as_slice(), [(FileDialogRequest::Save { suggested }, _)] if suggested == "/pics/art.psd"), "Save As offers PSD");
+    assert_eq!(app.ui.notices.len(), notices + 1);
+    assert!(app.ui.notices.last().unwrap().lines.iter().any(|l| l.contains("adjustment layers")), "{:?}", app.ui.notices.last().unwrap().lines);
+    assert!(app.session.active().unwrap().is_dirty(), "the edits are still unsaved");
+    answer(&open, Some(FileDialogAnswer::SaveTo("/pics/art.psd".into())));
+    app.poll_file_dialog(&ctx, None);
+    assert_eq!(written.borrow().last().map(String::as_str), Some("/pics/art.psd"));
+    let st = app.session.active().unwrap();
+    assert_eq!(st.path.as_deref(), Some("/pics/art.psd"));
+    assert!(!st.is_dirty());
+}
+
+/// Save As to OpenRaster of a document it can't hold writes a copy, as Photoshop does for formats
+/// that can't keep everything: the document keeps its file and its unsaved state. An automation
+/// save without a path won't overwrite such an .ora either.
+#[test]
+fn save_as_openraster_of_what_it_cannot_hold_is_a_copy() {
+    let (mut app, _open, written) = app();
+    app.run("layer.newAdjustmentLayer.invert", json!({})).unwrap();
+    app.session.active_mut().unwrap().path = Some("/pics/art.psd".into());
+    let ctx = egui::Context::default();
+    menus::invoke(&mut app, &ctx, "file.saveAs", json!({"path": "/pics/copy.ora"})).unwrap();
+    assert_eq!(*written.borrow(), ["/pics/copy.ora"]);
+    let st = app.session.active().unwrap();
+    assert_eq!(st.path.as_deref(), Some("/pics/art.psd"), "the document keeps its file");
+    assert!(st.is_dirty());
+    app.session.active_mut().unwrap().path = Some("/pics/art.ora".into());
+    let err = app.save_automation(None).unwrap_err();
+    assert!(err.contains("OpenRaster"), "{err}");
+    assert_eq!(written.borrow().len(), 1);
 }

@@ -30,6 +30,9 @@ pub(crate) fn surfaces(doc: &Document, mut visit: impl FnMut(&Surface)) {
     for channel in doc.channels.iter().chain(&doc.quick_mask) {
         visit(&channel.surface);
     }
+    if let Some(selection) = &doc.selection {
+        visit(selection);
+    }
 }
 
 impl Tiles {

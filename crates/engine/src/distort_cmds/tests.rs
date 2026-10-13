@@ -352,3 +352,62 @@ fn liquify_with_a_far_off_stroke_point_returns() {
         assert_eq!(active_surface(&s).read_region(Rect::new(0, 0, 80, 60)), before.read_region(Rect::new(0, 0, 80, 60)), "{depth}: off-canvas only");
     }
 }
+
+/// The three distortions on the active smart object, each with a visible change.
+fn smart_distortions() -> [(&'static str, Value); 3] {
+    let q = [[10.0, 10.0], [60.0, 10.0], [60.0, 40.0], [10.0, 40.0]];
+    [
+        (LIQUIFY, json!({"strokes": [{"tool": "twirlCw", "size": 40, "points": [[35, 25], [35, 25], [35, 25]]}]})),
+        (PUPPET_SMART, json!({"pins": [{"src": [30, 25], "dst": [34, 25]}], "mode": "rigid"})),
+        (PERSPECTIVE_SMART, json!({"planes": [{"src": q, "dst": [[12.0, 10.0], [58.0, 10.0], [60.0, 40.0], [10.0, 40.0]]}]})),
+    ]
+}
+
+#[test]
+fn locked_smart_objects_refuse_distortions() {
+    // As filters do: a pixel or full lock (the layer's own or its group's) refuses the smart
+    // filter, leaving the layer and the history as they were.
+    for lock in [json!({"all": true}), json!({"pixels": true})] {
+        for on_group in [false, true] {
+            for (cmd, p) in smart_distortions() {
+                let mut s = session(8);
+                s.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap();
+                let layer = s.active().unwrap().active_layer.unwrap();
+                if on_group {
+                    s.execute("layer.new.groupFromLayers", json!({})).unwrap();
+                }
+                s.execute("layer.lockLayers", lock.clone()).unwrap();
+                s.execute("layer.select", json!({"layer": layer.0})).unwrap();
+                let locks = s.active().unwrap().doc.effective_locks(layer);
+                assert!(locks.all || locks.pixels, "the lock reaches the smart object ({lock}, group: {on_group})");
+                let steps = s.active().unwrap().history.past_len();
+                let before = s.active().unwrap().doc.layer(layer).unwrap().clone();
+                let r = s.execute(cmd, p);
+                assert!(r.is_err(), "{cmd} edited a smart object locked with {lock} (group: {on_group}): {r:?}");
+                let st = s.active().unwrap();
+                let LayerContent::Smart(sm) = &st.doc.layer(layer).unwrap().content else { panic!("not smart") };
+                assert!(sm.smart_filters.is_empty(), "{cmd} {lock} group: {on_group}");
+                assert_eq!(st.doc.layer(layer).unwrap().surface(), before.surface(), "{cmd} {lock} group: {on_group}");
+                assert_eq!(st.history.past_len(), steps, "{cmd} {lock} group: {on_group}: no history step");
+            }
+        }
+    }
+}
+
+#[test]
+fn unlocked_or_position_locked_smart_objects_take_distortions() {
+    // Filters don't check the position lock, so neither do the smart-filter distortions.
+    for lock in [None, Some(json!({"position": true})), Some(json!({"transparency": true}))] {
+        for (cmd, p) in smart_distortions() {
+            let mut s = session(8);
+            s.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap();
+            if let Some(lock) = &lock {
+                s.execute("layer.lockLayers", lock.clone()).unwrap();
+            }
+            let steps = s.active().unwrap().history.past_len();
+            s.execute(cmd, p).unwrap();
+            assert_eq!(smart(&s).smart_filters.len(), 1, "{cmd} {lock:?}");
+            assert_eq!(s.active().unwrap().history.past_len(), steps + 1, "{cmd} {lock:?}");
+        }
+    }
+}

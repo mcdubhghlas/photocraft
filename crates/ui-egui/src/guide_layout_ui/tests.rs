@@ -84,6 +84,23 @@ fn app() -> PhotocraftApp {
     PhotocraftApp::new(session, crate::Services::default())
 }
 
+#[test]
+fn alt_reset_restores_factory_layout() {
+    let mut app = app();
+    let id = open(&mut app);
+    let mut fields = app.ui.dialog_mut(id).unwrap().fields.clone();
+    fields.insert("columns".into(), json!(3));
+    fields.insert("gutter".into(), json!(99));
+    fields.insert("__preset".into(), json!("twoColumn"));
+    reset(&app, &mut fields);
+    app.ui.dialog_mut(id).unwrap().fields = fields;
+    let f = &app.ui.dialog_mut(id).unwrap().fields;
+    assert_eq!(f["columns"], json!(8));
+    assert_eq!(f["gutter"], json!(20));
+    assert_eq!(f["__preset"], json!("custom"));
+    assert!(app.ui.dialogs.iter().any(|d| d.id == id));
+}
+
 fn draw(app: &mut PhotocraftApp, id: u64) {
     let mut f = app.ui.dialog_mut(id).unwrap().fields.clone();
     let ctx = egui::Context::default();

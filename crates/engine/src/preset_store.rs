@@ -44,7 +44,7 @@ use std::io::Read;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use photocraft_paint::tile::PREVIEW_SIDE;
-use photocraft_paint::{BrushPreset, BrushSettings, GrayTile, Pattern, StoredTile, TipShape};
+use photocraft_paint::{BrushPreset, BrushSettings, GrayTile, Pattern, PresetCaptures, StoredTile, TipShape};
 use serde::{Deserialize, Serialize};
 
 use crate::Session;
@@ -333,6 +333,9 @@ struct StoredPreset {
     /// before #1851, which load with every preset directly in its group.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     folder: Vec<String>,
+    /// [`BrushPreset::captures`]; missing for presets saved without the New Brush Preset dialog.
+    #[serde(default, skip_serializing_if = "PresetCaptures::is_default")]
+    captures: PresetCaptures,
 }
 
 /// What a group file records about each tip it references, so loading needs only the preview.
@@ -669,7 +672,14 @@ pub fn open(backend: Box<dyn PresetBackend>) -> Opened {
                             hashes.push(i.preview.clone());
                         }
                     }
-                    items.push(BrushPreset { name: sp.name, brush, builtin: false, group: g.group.clone(), folder: sanitize_folder(sp.folder) });
+                    items.push(BrushPreset {
+                        name: sp.name,
+                        brush,
+                        builtin: false,
+                        group: g.group.clone(),
+                        folder: sanitize_folder(sp.folder),
+                        captures: sp.captures,
+                    });
                 }
                 None => missing += 1,
             }
@@ -1006,7 +1016,13 @@ impl PresetStore {
             }
             let key = |r: &Option<StoredTile>| r.as_ref().map(|t| t.key.clone());
             let tips = TipRefs { tip: key(&refs[0]), dual_tip: key(&refs[1]), texture: key(&refs[2]) };
-            stored.push(StoredPreset { name: p.name.clone(), brush: settings_only(&mut p.brush), tips, folder: p.folder.clone() });
+            stored.push(StoredPreset {
+                name: p.name.clone(),
+                brush: settings_only(&mut p.brush),
+                tips,
+                folder: p.folder.clone(),
+                captures: p.captures.clone(),
+            });
             tiles.push(refs);
         }
         let gf = GroupFile { format: GROUP_FORMAT.into(), version: 1, group: group.to_string(), presets: stored, tips: infos };

@@ -48,14 +48,17 @@ fn precise_and_tip_centre_crosshairs_have_distinct_hotspots() {
     assert!(alpha(&solid, solid.hotspot[0], solid.hotspot[1]) > 230);
 }
 
-/// Off Windows a tip stays within what X servers and hardware cursor planes take (256 px); a
-/// larger one falls back to the painted outline. Windows takes far larger cursors.
+/// On Linux a tip stays within what X servers and hardware cursor planes take (256 px); a larger
+/// one falls back to the painted outline. Windows and macOS take far larger cursors.
 #[test]
 fn cursor_bitmaps_stay_within_the_platform_limit() {
     let fits = |radius: f32| rasterize(&Shape::Circle { radius, centre: false }, 1.0).map(|i| i.size[0]);
+    let large = cfg!(any(target_os = "windows", target_os = "macos"));
     assert!(fits(100.0).is_some_and(|side| side <= 255));
-    assert_eq!(fits(200.0).is_some(), cfg!(target_os = "windows"));
+    assert_eq!(fits(200.0).is_some(), large);
+    assert_eq!(fits(1000.0).is_some(), large, "a 2000 px brush at 100 % still has a native outline");
     assert!(fits(200.0).is_none_or(|side| side <= 2048));
+    assert!(fits(1100.0).is_none(), "nothing past 2048 px");
 }
 
 #[test]
@@ -339,4 +342,39 @@ fn painting_preference_and_zoom_change_the_native_cursor_without_changing_pointe
     h.event(Event::PointerButton { pos: pos + vec2(20.0, 0.0), button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
     h.run_steps(2);
     assert!(h.output().platform_output.cursor_image.as_ref().unwrap().size[0] > cross_size);
+}
+
+/// #4596: the close-path pointer is the centre cross with a ring below right.
+#[test]
+fn close_path_bitmap_has_the_centre_cross_and_a_ring_beside_it() {
+    for scale in [1.0, 2.0] {
+        let image = rasterize(&Shape::Outline { rings: vec![close_ring()].into(), centre: true }, scale).unwrap();
+        let [x, y] = image.hotspot;
+        let at = |dx: f32, dy: f32| alpha(&image, x + (dx * scale) as u16, y + (dy * scale) as u16);
+        assert!(at(0.0, 0.0) > 230 && at(2.0, 0.0) > 0, "the centre cross");
+        assert!(at(12.5, 9.0) > 0 && at(9.0, 12.5) > 0, "the ring around (9, 9)");
+        assert_eq!(at(9.0, 9.0), 0, "open in the middle");
+        assert_eq!(at(0.0, 9.0), 0, "and apart from the cross");
+    }
+}
+
+/// A big tip's outline is a thin ring in a large square: only the ring (and the centre mark) is
+/// evaluated, and the bitmap is exactly what evaluating every pixel gives.
+#[test]
+fn circle_bitmaps_evaluate_only_the_ring_and_match_every_pixel() {
+    let [dark, light] = crate::theme::Tokens::cursor_outline();
+    for (radius, scale, centre) in [(0.4, 1.0, true), (3.0, 1.0, false), (20.0, 1.25, true), (57.3, 2.0, false), (90.0, 1.0, true)] {
+        let shape = Shape::Circle { radius, centre };
+        let image = rasterize(&shape, scale).unwrap();
+        let [hot, _] = image.hotspot;
+        let side = usize::from(image.size[0]);
+        for row in 0..side {
+            for col in 0..side {
+                let (dx, dy) = (col as f32 - f32::from(hot), row as f32 - f32::from(hot));
+                let want = stroke_pixel(coverage(&shape, dx, dy, scale), dark, light);
+                let i = (row * side + col) * 4;
+                assert_eq!(image.rgba[i..i + 4], want, "radius {radius} at {scale}×, pixel ({col}, {row})");
+            }
+        }
+    }
 }

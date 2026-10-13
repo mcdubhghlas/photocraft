@@ -83,6 +83,32 @@ fn near(r: Rect, x0: i32, y0: i32, x1: i32, y1: i32) -> bool {
 }
 
 #[test]
+fn switching_tools_discards_unfinished_polygon_without_changing_selection() {
+    let mut app = polygon_app();
+    app.run("select.rect", json!({"x": 200, "y": 150, "width": 50, "height": 50})).unwrap();
+    let before = app.session.active().unwrap().doc.selection.as_ref().unwrap().content_bounds();
+    let history = app.session.active().unwrap().history.past_len();
+
+    ev(&mut app, "down", 20.0, 20.0, Modifiers::NONE);
+    ev(&mut app, "up", 20.0, 20.0, Modifiers::NONE);
+    assert_eq!(app.ui.polygon.len(), 1);
+    assert_eq!(app.ui.polygon_mode, "replace");
+    assert!(crate::canvas::polygon_replaces_selection(&app));
+
+    app.ui.tool = Tool::QuickSelection;
+    app.sync_views();
+    assert!(app.ui.polygon.is_empty());
+    assert!(app.ui.polygon_mode.is_empty());
+    assert!(!crate::canvas::polygon_replaces_selection(&app));
+    assert_eq!(app.session.active().unwrap().doc.selection.as_ref().unwrap().content_bounds(), before);
+    assert_eq!(app.session.active().unwrap().history.past_len(), history);
+
+    app.ui.tool = Tool::PolygonLasso;
+    app.sync_views();
+    assert!(app.ui.polygon.is_empty(), "returning to the tool must start a fresh outline");
+}
+
+#[test]
 fn double_click_closes_the_polygon_at_the_last_point() {
     let mut h = harness();
     click(&mut h, 50.0, 50.0, Modifiers::NONE);

@@ -31,6 +31,33 @@ pub fn owns(f: &Map<String, Value>) -> bool {
     f.contains_key(MARK)
 }
 
+/// Alt+Cancel (Reset): factory New Guide Layout values, not the last-used remembered layout.
+pub fn reset(app: &PhotocraftApp, f: &mut Map<String, Value>) {
+    if !owns(f) {
+        return;
+    }
+    let Value::Object(defaults) = crate::view_cmds::default_guide_layout() else { return };
+    // Drop layout params and interactive toggles; keep dialog chrome (`__command`, …).
+    f.retain(|k, _| {
+        k.starts_with("__")
+            && !matches!(
+                k.as_str(),
+                "__preset" | "__columnsEnabled" | "__rowsEnabled" | "__marginEnabled" | "__previewGuides" | "__previewParams" | "__previewSource"
+            )
+    });
+    f.extend(defaults);
+    f.insert("color".into(), json!(app.session.prefs().guides_grid_and_slices.guide_color));
+    f.insert("target".into(), json!("document"));
+    f.insert("__preset".into(), json!("custom"));
+    f.insert("width".into(), Value::Null);
+    f.insert("height".into(), Value::Null);
+    let margin = f.get("margin").cloned().unwrap_or(json!(0));
+    if !margin.is_array() {
+        f.insert("margin".into(), json!([margin.clone(), margin.clone(), margin.clone(), margin]));
+    }
+    f.insert("__preview".into(), json!(true));
+}
+
 fn on(f: &Map<String, Value>, key: &str, fallback: bool) -> bool {
     f.get(key).and_then(Value::as_bool).unwrap_or(fallback)
 }

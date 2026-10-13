@@ -17,9 +17,7 @@ use egui::{Color32, RichText, Sense, Stroke, pos2, vec2};
 use photocraft_engine::paint::{BrushPreset, MAX_BRUSH_SIZE};
 use serde_json::json;
 
-use crate::brush_panel::{
-    BrushesPanelState, BrushesView, Renaming, UNGROUPED, WIDTH, commit_gesture, full_uv, grouped_presets, new_preset_name, run_or_status,
-};
+use crate::brush_panel::{BrushesPanelState, BrushesView, Renaming, UNGROUPED, WIDTH, commit_gesture, full_uv, grouped_presets, run_or_status};
 use crate::brush_preview;
 use crate::theme::{self, Tokens};
 use crate::{PhotocraftApp, icons, widgets};
@@ -975,9 +973,9 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             {
                 run_or_status(app, "brush.presets.delete", json!({ "name": name }));
             }
-            if icons::button(ui, "square-plus", 24.0, false, "Create new brush from the current settings").clicked() {
-                let name = new_preset_name(&app.session.tools.presets);
-                run_or_status(app, "brush.presets.save", json!({ "name": name }));
+            let new = icons::button(ui, "square-plus", 24.0, false, "Create new brush from the current settings");
+            if crate::brush_picker::named(new, "Create new brush from the current settings").clicked() {
+                crate::brush_preset_dialog::open(app, None);
             }
             if icons::button(ui, "folder-open", 24.0, false, "Import Brushes… (.abr)").clicked() {
                 let _ = app.open_dialog_file();

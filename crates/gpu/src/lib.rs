@@ -510,6 +510,31 @@ fn grid_rects(r: Rect, step: u32) -> Vec<Rect> {
     out
 }
 
+/// Number of rectangles `grid_rects` would produce, without allocating them during preflight.
+fn grid_rect_count(r: Rect, step: u32) -> Result<usize, Unsupported> {
+    if r.is_empty() {
+        return Ok(0);
+    }
+    let s = i64::from(step.max(1));
+    let axis = |lo: i32, hi: i32| usize::try_from((i64::from(hi) - 1).div_euclid(s) - i64::from(lo).div_euclid(s) + 1).ok();
+    axis(r.x0, r.x1).and_then(|x| axis(r.y0, r.y1).and_then(|y| x.checked_mul(y))).ok_or_else(|| Unsupported("GPU compositor chunk count is too large".into()))
+}
+
+/// Host length and GPU capacity for the chunk/pass uniform records, including their u32
+/// dynamic binding offsets. Decline unsupported stacks before an invalid buffer faults the device.
+fn uniform_buffer_len(chunks: usize, passes: usize, limit: u64) -> Result<usize, Unsupported> {
+    let too_large = || Unsupported("GPU compositor uniform buffer is too large".into());
+    let records = chunks.checked_add(passes).and_then(|n| u64::try_from(n).ok()).ok_or_else(too_large)?;
+    let bytes = records.checked_mul(STRIDE).ok_or_else(too_large)?;
+    if bytes > limit {
+        return Err(Unsupported(format!("GPU compositor uniform buffer requires {bytes} bytes; device limit is {limit}")));
+    }
+    if bytes.saturating_sub(STRIDE) > u64::from(u32::MAX) {
+        return Err(Unsupported("GPU compositor uniform offsets exceed u32".into()));
+    }
+    usize::try_from(bytes).map_err(|_| too_large())
+}
+
 /// The reach up to which each distance field must be exact (the largest any program asks for).
 fn field_reaches(progs: &[fx::MapProgram]) -> HashMap<FieldKind, i32> {
     let mut want: HashMap<FieldKind, i32> = HashMap::new();
@@ -915,6 +940,14 @@ impl Compositor {
         if region.is_empty() {
             return Ok(stats);
         }
+        let page = self.page;
+        let mut cells = grid_rects(region, page);
+        // Check every actual page cell before uploads, submissions or sink output. A later
+        // cell can need more chunk records than the first; a failure must leave the device healthy.
+        let buffer_limit = device.limits().max_buffer_size;
+        for part in &cells {
+            uniform_buffer_len(grid_rect_count(*part, self.chunk)?, plan.passes.len(), buffer_limit)?;
+        }
         if self.frame == 0 {
             // The first submission after device creation is dropped on some drivers (RADV),
             // which would render the first frame black; land it on an empty buffer instead.
@@ -942,8 +975,6 @@ impl Compositor {
 
         // Page cells; every other frame in reverse, so a repeated full refresh of a document
         // larger than the budget starts with the pages still resident.
-        let page = self.page;
-        let mut cells = grid_rects(region, page);
         if self.frame.is_multiple_of(2) {
             cells.reverse();
         }
@@ -1168,7 +1199,8 @@ impl Compositor {
             self.pool.push((t, v));
         }
 
-        // Uniforms: chunk records, then one record per pass.
+        // Uniforms: chunk records, then one record per pass. encode_scoped preflight checked
+        // the length, device capacity and dynamic offsets before any GPU work for this frame.
         let op_base = chunks.len() as u64 * STRIDE;
         let mut data = vec![0u8; (op_base + plan.passes.len() as u64 * STRIDE) as usize];
         for (i, c) in chunks.iter().enumerate() {
@@ -2256,6 +2288,17 @@ pub fn render_to_vec_stats(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn uniform_buffer_sizes_are_checked_before_allocation() {
+        assert_eq!(uniform_buffer_len(1, 255, 65_536).unwrap(), 65_536);
+        assert!(uniform_buffer_len(1, 255, 65_535).is_err());
+        assert!(uniform_buffer_len(usize::MAX, 1, u64::MAX).is_err());
+        assert!(uniform_buffer_len(usize::MAX, 0, u64::MAX).is_err());
+        assert!(uniform_buffer_len(1, 16_777_216, u64::MAX).is_err(), "the last record offset cannot be represented by u32");
+        #[cfg(target_pointer_width = "64")]
+        assert_eq!(uniform_buffer_len(1, 16_777_215, u64::MAX).unwrap(), 4_294_967_296, "the last valid u32 dynamic offset is accepted");
+    }
 
     #[test]
     fn half_roundtrip() {

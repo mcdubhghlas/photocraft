@@ -156,6 +156,32 @@ pub enum DecodeWarning {
     /// Deep image data (per-pixel sample lists) was composited into the flat image; the samples
     /// themselves (Z and other deep channels) are not part of the flat result.
     DeepFlattened { format: Format, max_samples_per_pixel: u32 },
+    /// Only the first image element of a DPX file was decoded; `total` counts them all.
+    MoreElements { total: u32 },
+    /// A DPX element's transfer characteristic and colorimetric specification (SMPTE 268M codes,
+    /// 255 when undefined). The code values are imported as stored, without a colour transform.
+    DpxEncoding { transfer: u8, colorimetric: u8 },
+}
+
+/// The SMPTE 268M name of a transfer characteristic or colorimetric code.
+fn dpx_code_name(code: u8) -> &'static str {
+    match code {
+        0 => "user-defined",
+        1 => "printing density",
+        2 => "linear",
+        3 => "logarithmic",
+        4 => "unspecified video",
+        5 => "SMPTE 274M",
+        6 => "ITU-R BT.709",
+        7 => "ITU-R BT.601 625-line",
+        8 => "ITU-R BT.601 525-line",
+        9 => "NTSC composite video",
+        10 => "PAL composite video",
+        11 => "Z linear",
+        12 => "Z homogeneous",
+        255 => "undefined",
+        _ => "unknown",
+    }
 }
 
 impl fmt::Display for DecodeWarning {
@@ -174,6 +200,13 @@ impl fmt::Display for DecodeWarning {
                 f,
                 "{format} deep data was composited into a flat image (up to {max_samples_per_pixel} samples per pixel); per-pixel depth is not kept",
                 format = format.name()
+            ),
+            DecodeWarning::MoreElements { total } => write!(f, "only the first of {total} image elements was imported"),
+            DecodeWarning::DpxEncoding { transfer, colorimetric } => write!(
+                f,
+                "DPX transfer characteristic: {} ({transfer}), colorimetric: {} ({colorimetric}); the code values were imported as stored, without a colour transform",
+                dpx_code_name(*transfer),
+                dpx_code_name(*colorimetric)
             ),
         }
     }

@@ -672,7 +672,7 @@ mod tests {
         } else {
             s.finish();
         }
-        let (prev, _s) = Sentinel::begin(&dir);
+        let (prev, _s) = begin_when_unlocked(&dir);
         assert_eq!(prev, Previous::Clean);
         assert_eq!(plan(Auto, prev.crashed(), None, false, Os::Other).backend, Auto);
         let _ = std::fs::remove_dir_all(&dir);
@@ -682,6 +682,22 @@ mod tests {
         let d = std::env::temp_dir().join(format!("photocraft-gpu-startup-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         d
+    }
+
+    /// `Sentinel::begin`, called again up to 50 times, 10 ms apart, while it returns
+    /// `Previous::Busy`. Other tests in this binary spawn processes: between fork and exec a child
+    /// briefly shares the marker's flock, so `begin` can see the lock as busy just after a test
+    /// drops its sentinel.
+    fn begin_when_unlocked(dir: &Path) -> (Previous, Option<Sentinel>) {
+        let (mut prev, mut s) = Sentinel::begin(dir);
+        for _ in 0..50 {
+            if prev != Previous::Busy {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            (prev, s) = Sentinel::begin(dir);
+        }
+        (prev, s)
     }
 
     #[test]
@@ -699,16 +715,7 @@ mod tests {
         assert!(none.is_none());
         // The process dies in the driver: the lock goes, the marker stays.
         drop(s);
-        // Another test in this binary spawns a process: between its fork and exec the child briefly
-        // shares this file's flock, so `begin` can see the lock as busy. Retry for a moment.
-        let (mut prev, mut s) = Sentinel::begin(&dir);
-        for _ in 0..50 {
-            if prev != Previous::Busy {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(10));
-            (prev, s) = Sentinel::begin(&dir);
-        }
+        let (prev, s) = begin_when_unlocked(&dir);
         let m = prev.crashed().cloned().expect("crash detected");
         assert_eq!((m.adapter.as_str(), m.tried()), ("GPU", Some(Vulkan)));
         // This start succeeds: the next one finds nothing.
@@ -718,6 +725,29 @@ mod tests {
         assert!(!dir.join(MARKER_FILE).exists());
         let (prev, _s) = Sentinel::begin(&dir);
         assert_eq!(prev, Previous::Clean);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn begin_when_unlocked_waits_for_a_briefly_held_lock() {
+        let dir = temp_dir("shared-lock");
+        let (_, s) = Sentinel::begin(&dir);
+        let mut s = s.expect("sentinel");
+        s.write(Marker { backend: "vulkan".into(), ..Default::default() }).unwrap();
+        // After the start dies, a second handle on the marker holds the lock for 50 ms, as a
+        // spawned child's copy of the descriptor does until the child calls exec.
+        let held = File::open(dir.join(MARKER_FILE)).unwrap();
+        drop(s);
+        held.lock().unwrap();
+        assert_eq!(Sentinel::begin(&dir).0, Previous::Busy);
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            held.unlock().unwrap();
+        });
+        let (prev, s) = begin_when_unlocked(&dir);
+        release.join().unwrap();
+        assert_eq!(prev.crashed().map(|m| m.backend.as_str()), Some("vulkan"));
+        s.expect("sentinel").finish();
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -738,7 +768,7 @@ mod tests {
             } else {
                 s.finish();
             }
-            let (previous, s) = Sentinel::begin(&dir);
+            let (previous, s) = begin_when_unlocked(&dir);
             assert_eq!(previous.crashed().is_some(), keep, "{name}: {result:?}");
             if !keep {
                 assert_eq!(plan(Vulkan, previous.crashed(), None, false, Os::Other).backend, Vulkan);

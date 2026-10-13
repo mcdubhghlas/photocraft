@@ -342,13 +342,28 @@ pub fn content_aware_move_params(app: &PhotocraftApp, offset: [i64; 2]) -> Value
 }
 
 /// Object Selection: the dragged rectangle. A click (or a sub-2 px nudge) cannot be a
-/// rectangle: like Photoshop's click-to-select, it falls back to a Quick Selection dab at
+/// rectangle: with Object Finder on it selects the object under the pointer, the one hovering
+/// highlighted (#4087; ⇧ adds, ⌥ subtracts, ⇧⌥ intersects, otherwise replaces). With it off it
+/// falls back to a Quick Selection dab at
 /// the brush size instead of looking dead (⌥ subtracts, otherwise it adds). Larger drags
 /// run the rectangle GrabCut (⌥ subtracts, ⇧ adds, otherwise replaces).
 pub fn finish_object_selection(app: &mut PhotocraftApp, start: [f64; 2], end: [f64; 2], mods: egui::Modifiers) {
     let (x, y) = (start[0].min(end[0]), start[1].min(end[1]));
     let (w, h) = ((end[0] - start[0]).abs(), (end[1] - start[1]).abs());
     let sample_all = app.ui.tool_options.sample_all_layers;
+    if (w < 2.0 || h < 2.0) && app.ui.tool_options.object_finder {
+        // Object Finder (#4087): the object under the click, as hovering highlighted it.
+        let mode = match (mods.shift, mods.alt) {
+            (true, true) => "intersect",
+            (true, false) => "add",
+            (false, true) => "subtract",
+            (false, false) => "replace",
+        };
+        let r = app.run("select.object", json!({"point": [end[0], end[1]], "mode": mode, "sampleAllLayers": sample_all}));
+        crate::object_finder::clear(app);
+        report_smart_result(app, r, tl!("No object found there — drag a rectangle around it"));
+        return;
+    }
     if w < 2.0 || h < 2.0 {
         let size = app.session.tools.brush.size;
         let mode = if mods.alt { "subtract" } else { "add" };
@@ -600,6 +615,7 @@ pub fn options_bar(app: &mut PhotocraftApp, ui: &mut egui::Ui, tool: Tool) -> bo
             }
         }
         Tool::ObjectSelection => {
+            crate::widgets::checkbox(ui, &mut o.object_finder, tl!("Object Finder"));
             crate::widgets::checkbox(ui, &mut o.sample_all_layers, tl!("Sample All Layers"));
             opt(ui, tl!("Drag a rectangle around the object"));
             crate::widgets::vline(ui, 22.0);
@@ -776,6 +792,7 @@ mod tests {
         // A click cannot be a rectangle: it selects at the cursor instead of looking dead.
         let mut app = app();
         app.ui.tool = Tool::ObjectSelection;
+        app.ui.tool_options.object_finder = false;
         let m = egui::Modifiers::NONE;
         tool_event(&mut app, ToolEvent::Down { x: 50.0, y: 30.0, pressure: 1.0 }, m);
         tool_event(&mut app, ToolEvent::Up { x: 50.0, y: 30.0 }, m);

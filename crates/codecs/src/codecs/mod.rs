@@ -1,4 +1,6 @@
+pub(crate) mod dds;
 pub(crate) mod deep_exr;
+pub(crate) mod dpx;
 pub(crate) mod exr;
 pub(crate) mod exr_cryptomatte;
 pub(crate) mod fits;
@@ -13,3 +15,4 @@ pub(crate) mod tiff_ifd;
 pub(crate) mod via_image;
 pub(crate) mod vp8;
 pub(crate) mod webp;
+pub(crate) mod xpm;

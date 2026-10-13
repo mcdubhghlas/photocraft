@@ -387,6 +387,20 @@ fn place(name: &str, bytes: &[u8], fmt: PixelFormat, sm: &SmartObject) -> Result
     })
 }
 
+/// The box of a smart object's source in source pixels (what its warp's `us`/`vs` span), or `None`
+/// when the source can't be read.
+pub(crate) fn source_box(doc: &Document, sm: &SmartObject) -> Option<[f64; 4]> {
+    let (name, bytes) = source_bytes(&doc.metadata, &sm.source)?;
+    let fmt = doc.pixel_format();
+    let img = match sm.stack_mode {
+        Some(mode) => stack_image(&name, &bytes, fmt, mode),
+        None => source_image(&name, &bytes, fmt),
+    }
+    .ok()?;
+    let r = img.bounds;
+    Some([f64::from(r.x0), f64::from(r.y0), f64::from(r.x1), f64::from(r.y1)])
+}
+
 /// Renders a smart object from its source. `Ok(None)` when the source is unavailable (a missing
 /// linked file, or a PSD placed layer without embedded data): callers keep the existing cache.
 pub fn render(doc: &Document, sm: &SmartObject) -> Result<Option<Surface>> {
@@ -1055,6 +1069,73 @@ fn move_filter(s: &mut Session, p: &Value) -> Result<Value> {
     })
 }
 
+/// Dragging smart filters onto another smart object in the Layers panel (#4271): they move there,
+/// or are copied with `copy` (⌥-drag in Photoshop). One filter (`filter`) lands on top of the
+/// target's filters; all of them (the Smart Filters row) are added on top too, with the filter
+/// mask when the target has none. Both smart objects are re-rendered in one undo step.
+fn transfer_filters(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "layer.smartFilter.transfer";
+    let id_of = |key: &str| p.get(key).and_then(Value::as_u64).map(LayerId).ok_or_else(|| bad(CMD, format!("`{key}` must be a layer id")));
+    let (from, to) = (id_of("from")?, id_of("to")?);
+    if from == to {
+        return Err(bad(CMD, "the smart filters are already on that layer"));
+    }
+    // The other `layer.smartFilter.*` commands name a filter `index`; here a guessed `index`
+    // would otherwise be dropped and every filter moved.
+    if p.get("index").is_some() {
+        return Err(bad(CMD, "name the filter with `filter` (no `filter`: all of them)"));
+    }
+    let copy = p.get("copy").and_then(Value::as_bool).unwrap_or(false);
+    let doc = &s.active().ok_or(EngineError::NoDocument)?.doc;
+    let src = smart(doc, from)?;
+    smart(doc, to).map_err(|_| bad(CMD, "smart filters can only be dropped on a smart object"))?;
+    let n = src.smart_filters.len();
+    if n == 0 {
+        return Err(other("the smart object has no smart filters"));
+    }
+    let index = match p.get("filter") {
+        None | Some(Value::Null) => None,
+        Some(v) => Some(v.as_u64().map(|i| i as usize).filter(|i| *i < n).ok_or_else(|| bad(CMD, format!("`filter` must be 0..{n} (0 = bottom filter)")))?),
+    };
+    let (filters, mask) = match index {
+        Some(i) => (vec![src.smart_filters[i].clone()], None),
+        None => (src.smart_filters.clone(), src.filter_mask.clone()),
+    };
+    let label = match (copy, index.is_some()) {
+        (true, true) => "Copy Smart Filter",
+        (true, false) => "Copy Smart Filters",
+        (false, true) => "Move Smart Filter",
+        (false, false) => "Move Smart Filters",
+    };
+    crate::jobs::edit_job(
+        s,
+        label,
+        move |doc, _, ctx| {
+            let dst = smart_mut(doc, to)?;
+            dst.smart_filters.extend(filters);
+            if dst.filter_mask.is_none() {
+                dst.filter_mask = mask;
+            }
+            refresh_or_fail_in(doc, to, ctx)?;
+            if !copy {
+                let src = smart_mut(doc, from)?;
+                match index {
+                    Some(i) => {
+                        src.smart_filters.remove(i);
+                    }
+                    None => {
+                        src.smart_filters.clear();
+                        src.filter_mask = None;
+                    }
+                }
+                refresh_or_fail_in(doc, from, ctx)?;
+            }
+            Ok(())
+        },
+        move |()| json!({"from": from.0, "to": to.0}),
+    )
+}
+
 // ---------- enablement ----------
 
 fn active_smart(s: &Session) -> std::result::Result<&SmartObject, String> {
@@ -1073,6 +1154,9 @@ fn has_linked(s: &Session) -> std::result::Result<(), String> {
         SmartSource::Linked { .. } => Ok(()),
         _ => Err("the smart object is embedded".into()),
     }
+}
+fn has_doc(s: &Session) -> std::result::Result<(), String> {
+    s.active().map(|_| ()).ok_or_else(|| "no document open".into())
 }
 fn has_smart_filters(s: &Session) -> std::result::Result<(), String> {
     if active_smart(s)?.smart_filters.is_empty() { Err("the smart object has no smart filters".into()) } else { Ok(()) }
@@ -1255,6 +1339,14 @@ pub fn specs() -> Vec<CommandSpec> {
         ),
         spec!("layer.smartFilter.delete", "Delete Smart Filter", &[], r##"{"layer":id?,"index":u32?}"##, has_smart_filters, delete_filter),
         spec!("layer.smartFilter.move", "Move Smart Filter", &[], r##"{"layer":id?,"index":u32?,"to":u32}"##, has_smart_filters, move_filter),
+        spec!(
+            "layer.smartFilter.transfer",
+            "Move or Copy Smart Filters",
+            &[],
+            r##"{"from":id,"to":id,"filter":u32? (default: all, with the filter mask),"copy":bool=false}"##,
+            has_doc,
+            transfer_filters
+        ),
     ]
 }
 

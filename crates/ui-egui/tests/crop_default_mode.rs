@@ -24,6 +24,8 @@ fn harness() -> Option<Harness> {
         egui_kittest::Harness::builder().with_size(egui::vec2(900.0, 640.0)).with_max_steps(64).wgpu().build_eframe(|cc| {
             PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
             let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), Default::default());
+            // The queries below use English labels; don't follow the system locale.
+            app.session.prefs.edit(|p| p.interface.language = "en".into());
             if let Some(rs) = cc.wgpu_render_state.as_ref() {
                 app.set_wgpu(rs.clone());
             }
@@ -104,6 +106,9 @@ fn setup() -> Option<Harness> {
 
 #[test]
 fn a_ratio_dropdown_updates_the_preview_and_enter_without_touching_a_handle() {
+    // Windows WARP can access-violate when GPU harnesses initialize or tear down concurrently:
+    // hold the GPU lock for the whole test, harness included.
+    let _gpu = photocraft_testkit::gpu_lock();
     let Some(mut h) = setup() else { return };
     h.get_by_value("Ratio").click();
     h.run_steps(3);
@@ -122,6 +127,9 @@ fn a_ratio_dropdown_updates_the_preview_and_enter_without_touching_a_handle() {
 
 #[test]
 fn the_swap_button_and_x_apply_the_same_inscribed_ratio() {
+    // Windows WARP can access-violate when GPU harnesses initialize or tear down concurrently:
+    // hold the GPU lock for the whole test, harness included.
+    let _gpu = photocraft_testkit::gpu_lock();
     let Some(mut h) = setup() else { return };
     let original = [30.0, 20.0, 270.0, 180.0];
     h.state_mut().ui.crop_rect = Some(original);
@@ -146,6 +154,9 @@ fn the_swap_button_and_x_apply_the_same_inscribed_ratio() {
 
 #[test]
 fn a_resize_renders_the_frame_and_image_with_the_same_camera() {
+    // Windows WARP can access-violate when GPU harnesses initialize or tear down concurrently:
+    // hold the GPU lock for the whole test, harness included.
+    let _gpu = photocraft_testkit::gpu_lock();
     let Some(mut h) = setup() else { return };
     let box0 = screen_box(&h);
     let c = mid(box0);

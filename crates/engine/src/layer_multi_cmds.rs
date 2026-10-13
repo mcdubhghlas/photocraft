@@ -113,9 +113,9 @@ fn range_order(layers: &[Layer], include_collapsed: bool, out: &mut Vec<LayerId>
     }
 }
 
-/// `layer.select`: `{"layer": id, "mode": "replace|toggle|range|add"}`.
+/// `layer.select`: `{"layer": id, "mode": "replace|toggle|range|add|remove"}`.
 pub fn select(s: &mut Session, p: &Value) -> Result<Value> {
-    let id = LayerId(p.get("layer").and_then(Value::as_u64).ok_or_else(|| bad("layer.select", "missing `layer`"))?);
+    let id = crate::commands::explicit_layer(s, p)?.ok_or_else(|| bad("layer.select", "missing `layer`"))?;
     let mode = p.get("mode").and_then(Value::as_str).unwrap_or("replace");
     let st = s.active().ok_or(EngineError::NoDocument)?;
     if st.doc.layer(id).is_none() {
@@ -142,6 +142,15 @@ pub fn select(s: &mut Session, p: &Value) -> Result<Value> {
             } else {
                 sel.push(id);
                 set_selection(s, sel, Some(id), Some(id))?;
+            }
+        }
+        // Toggle's removing half: a layer that isn't selected stays unselected (Photoshop's
+        // `removeFromSelection`, recorded by actions).
+        "remove" => {
+            if sel.contains(&id) && sel.len() > 1 {
+                sel.retain(|x| *x != id);
+                let active = if st.active_layer == Some(id) { sel.last().copied() } else { st.active_layer };
+                set_selection(s, sel, active, active)?;
             }
         }
         "range" => {
@@ -261,9 +270,9 @@ pub(crate) fn with_links(doc: &Document, ids: &[LayerId]) -> Vec<LayerId> {
 }
 
 /// Move layers by whole pixels the way the Move tool does: pixels, linked masks, type and
-/// vector content (shapes, linked vector masks) all move together.
-pub(crate) fn move_layers(doc: &mut Document, moves: &[(LayerId, i32, i32)]) -> Result<()> {
-    let snapshot = doc.clone();
+/// vector content (shapes, linked vector masks) all move together. `before` is `doc` as it was
+/// before any of the moves (the edit's starting document), read when type and shapes re-render.
+pub(crate) fn move_layers(doc: &mut Document, before: &Document, moves: &[(LayerId, i32, i32)]) -> Result<()> {
     for &(id, dx, dy) in moves {
         if dx == 0 && dy == 0 {
             continue;
@@ -273,8 +282,8 @@ pub(crate) fn move_layers(doc: &mut Document, moves: &[(LayerId, i32, i32)]) -> 
         if locks.position || locks.all {
             return Err(EngineError::Other(format!("layer \"{}\" is position-locked", l.name)));
         }
-        crate::commands::translate_layer(&snapshot, l, dx, dy);
-        crate::vector_cmds::translate_vectors(&snapshot, l, dx as f64, dy as f64);
+        crate::commands::translate_layer(before, l, dx, dy);
+        crate::vector_cmds::translate_vectors(before, l, dx as f64, dy as f64);
     }
     Ok(())
 }
@@ -288,13 +297,32 @@ pub fn moves_mask_alone(l: &Layer) -> bool {
 /// `layer.translate`: the explicit layer, or every selected layer, plus their linked layers.
 /// With `"target":"mask"` a layer whose mask is unlinked moves that mask alone.
 pub fn translate(s: &mut Session, p: &Value) -> Result<Value> {
-    let dx = int_i32("layer.translate", p, "dx")?.unwrap_or(0);
-    let dy = int_i32("layer.translate", p, "dy")?.unwrap_or(0);
+    let (dx, dy) = match p.get("units").and_then(Value::as_str) {
+        None | Some("px") => (int_i32("layer.translate", p, "dx")?.unwrap_or(0), int_i32("layer.translate", p, "dy")?.unwrap_or(0)),
+        // Points (1/72 in), as a Photoshop action records a nudge: whole pixels at this
+        // document's resolution.
+        Some("pt") => {
+            let dpi = s.active().map_or(72.0, |d| f64::from(d.doc.resolution_dpi));
+            let to_px = |key: &str| -> Result<i32> {
+                let pt = match p.get(key) {
+                    None => 0.0,
+                    Some(v) => v.as_f64().filter(|f| f.is_finite()).ok_or_else(|| bad("layer.translate", format!("`{key}` must be a number")))?,
+                };
+                let px = (pt * dpi / 72.0).round();
+                if px.abs() > f64::from(i32::MAX) {
+                    return Err(bad("layer.translate", format!("`{key}` = {pt} pt is outside the 32-bit coordinate range")));
+                }
+                Ok(px as i32)
+            };
+            (to_px("dx")?, to_px("dy")?)
+        }
+        Some(other) => return Err(bad("layer.translate", format!("unknown units `{other}` (px|pt)"))),
+    };
     if dx == 0 && dy == 0 {
         return Ok(Value::Null);
     }
-    let roots = match p.get("layer").and_then(Value::as_u64) {
-        Some(id) => vec![LayerId(id)],
+    let roots = match crate::commands::explicit_layer(s, p)? {
+        Some(id) => vec![id],
         None => selected(s),
     };
     if roots.is_empty() {
@@ -309,7 +337,7 @@ pub fn translate(s: &mut Session, p: &Value) -> Result<Value> {
             return Err(EngineError::NoLayer(roots[0]));
         }
         let moves: Vec<_> = ids.iter().map(|&id| (id, dx, dy)).collect();
-        move_layers(doc, &moves)?;
+        move_layers(doc, &before, &moves)?;
         for id in alone {
             let locks = doc.effective_locks(id);
             let l = doc.layer_mut(id).ok_or(EngineError::NoLayer(id))?;
@@ -873,6 +901,7 @@ fn align(s: &mut Session, p: &Value, kind: &str) -> Result<Value> {
     let edge = Edge::parse(kind).ok_or_else(|| bad(&cmd, "unknown edge"))?;
     let sel = selected(s);
     let to = p.get("to").and_then(Value::as_str).unwrap_or("auto").to_string();
+    let before = s.active().ok_or(EngineError::NoDocument)?.doc.clone();
     let moved = s.edit("Align", |doc, _| {
         let items = bounded_selection(doc, &sel);
         if items.is_empty() {
@@ -904,7 +933,7 @@ fn align(s: &mut Session, p: &Value, kind: &str) -> Result<Value> {
             })
             .collect();
         let moves = dedup_moves(doc, moves);
-        move_layers(doc, &moves)?;
+        move_layers(doc, &before, &moves)?;
         Ok(moves.iter().filter(|m| m.1 != 0 || m.2 != 0).count())
     })?;
     Ok(json!({"moved": moved}))
@@ -927,6 +956,7 @@ fn dedup_moves(doc: &Document, moves: Vec<(LayerId, i32, i32)>) -> Vec<(LayerId,
 fn distribute(s: &mut Session, kind: &str) -> Result<Value> {
     let sel = selected(s);
     let kind = kind.to_string();
+    let before = s.active().ok_or(EngineError::NoDocument)?.doc.clone();
     let moved = s.edit("Distribute", |doc, _| {
         let mut items = bounded_selection(doc, &sel);
         if items.len() < 3 {
@@ -966,7 +996,7 @@ fn distribute(s: &mut Session, kind: &str) -> Result<Value> {
         }
         let moves: Vec<_> = moves.into_iter().flat_map(|(id, dx, dy)| with_links(doc, &[id]).into_iter().map(move |l| (l, dx, dy))).collect();
         let moves = dedup_moves(doc, moves);
-        move_layers(doc, &moves)?;
+        move_layers(doc, &before, &moves)?;
         Ok(moves.iter().filter(|m| m.1 != 0 || m.2 != 0).count())
     })?;
     Ok(json!({"moved": moved}))
@@ -1188,8 +1218,8 @@ pub(crate) fn check_group_depth(doc: &Document, what: &str) -> Result<()> {
 /// Group Layers (⌘G) / Group from Layers: the explicit layer, or every selected layer, moves
 /// into a new group placed where the top-most of them was. Bottom-to-top order is preserved.
 pub fn group_layers(s: &mut Session, p: &Value) -> Result<Value> {
-    let ids = match p.get("layer").and_then(Value::as_u64) {
-        Some(id) => vec![LayerId(id)],
+    let ids = match crate::commands::explicit_layer(s, p)? {
+        Some(id) => vec![id],
         None => selected(s),
     };
     if ids.is_empty() {
@@ -1478,6 +1508,42 @@ mod tests {
 
     fn damage(s: &Session) -> Option<Rect> {
         s.active().unwrap().last_damage
+    }
+
+    /// A Photoshop action's nudge in points moves whole pixels at the document's resolution:
+    /// 0.36 pt is 1 px at 200 ppi and 1.5 → 2 px at 300 ppi.
+    #[test]
+    fn translate_in_points_follows_the_resolution() {
+        for (res, moved) in [(200, 1), (300, 2), (72, 0)] {
+            let mut s = Session::new();
+            s.execute("file.new", json!({"width": 100, "height": 80, "resolution": res})).unwrap();
+            let a = rect_layer(&mut s, Rect::new(10, 10, 20, 20));
+            s.execute("layer.translate", json!({"dx": 0.36, "dy": -0.36, "units": "pt"})).unwrap();
+            assert_eq!(bounds(&s, a), Rect::new(10 + moved, 10 - moved, 20 + moved, 20 - moved), "{res} ppi");
+        }
+        let mut s = session(8);
+        rect_layer(&mut s, Rect::new(10, 10, 20, 20));
+        for bad in [json!({"dx": 1, "units": "in"}), json!({"dx": "x", "units": "pt"}), json!({"dx": 1e300, "units": "pt"})] {
+            assert!(s.execute("layer.translate", bad.clone()).is_err(), "{bad}");
+        }
+    }
+
+    /// `remove` deselects a selected layer, leaves an unselected one alone and never empties the
+    /// selection.
+    #[test]
+    fn select_remove_takes_a_layer_out_of_the_selection() {
+        let mut s = session(8);
+        let a = rect_layer(&mut s, Rect::new(10, 10, 20, 20));
+        let b = rect_layer(&mut s, Rect::new(30, 10, 40, 20));
+        let c = rect_layer(&mut s, Rect::new(50, 10, 60, 20));
+        s.execute("layer.select", json!({"layer": a.0})).unwrap();
+        s.execute("layer.select", json!({"layer": b.0, "mode": "add"})).unwrap();
+        s.execute("layer.select", json!({"layer": c.0, "mode": "remove"})).unwrap();
+        assert_eq!(sel(&s).len(), 2, "an unselected layer stays out");
+        s.execute("layer.select", json!({"layer": b.0, "mode": "remove"})).unwrap();
+        assert_eq!(sel(&s), vec![a]);
+        s.execute("layer.select", json!({"layer": a.0, "mode": "remove"})).unwrap();
+        assert_eq!(sel(&s), vec![a], "the last selected layer stays");
     }
 
     /// A mask with its chain off stays put while the layer moves; a linked one moves along.

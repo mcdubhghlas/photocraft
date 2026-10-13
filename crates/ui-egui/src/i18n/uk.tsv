@@ -8,9 +8,19 @@
 # No proprietary translation resources were used.
 # Licensed MIT OR Apache-2.0. See LICENSE-translations.txt and ATTRIBUTION.md.
 
+# Channel Options and New Spot Channel (#3761)
+	Channel Color	Колір каналу
+	Color Indicates:	Кольором позначено:
+	Solidity:	Щільність:
+	Ink Characteristics	Характеристики фарби
+
 # Menus
 
 # Guide layout dialog
+
+# Custom print paper (#3820)
+	Paper Width	Ширина паперу
+	Paper Height	Висота паперу
 	Rows	Рядки
 	Number	Кількість
 	Top:	Зверху:
@@ -69,6 +79,8 @@
 	Save	Зберегти
 	Save As…	Зберегти як…
 	Save a Copy…	Зберегти копію…
+	{name} can't keep everything in this document	{name} не може зберегти весь вміст цього документа
+	Choose a format that keeps it, such as Photoshop (PSD), or save a copy.	Виберіть формат, який збереже все, наприклад Photoshop (PSD), або збережіть копію.
 	Save…	Зберегти…
 	Revert	Повернути до збереженого
 	Import	Імпорт
@@ -189,6 +201,9 @@
 	Enable Layer Mask	Увімкнути маску шару
 	Disable Layer Mask	Вимкнути маску шару
 	Apply Layer Mask	Застосувати маску шару
+	Add Mask to Selection	Додати маску до виділення
+	Subtract Mask from Selection	Відняти маску від виділення
+	Intersect Mask with Selection	Перетнути маску з виділенням
 	Link Layer Mask	Зв'язати маску шару
 	Unlink Layer Mask	Відв'язати маску шару
 	Vector Mask	Векторна маска
@@ -248,6 +263,8 @@
 	Check Spelling	Перевірити правопис
 	Language Options	Мовні параметри
 	Find and Replace Text…	Знайти та замінити текст…
+	Add to Dictionary	Додати до словника
+	No Spelling Suggestions	Немає варіантів написання
 	Paste Lorem Ipsum	Вставити Lorem Ipsum
 	Glyphs Panel	Панель гліфів
 	Type Styles	Текстові стилі
@@ -557,6 +574,7 @@
 	OK	Гаразд
 	Cancel	Скасувати
 	Cancel (Esc)	Скасувати (Esc)
+	Manage submitted jobs in the system print queue	Керуйте надісланими завданнями в системній черзі друку
 	Done	Готово
 	Apply	Застосувати
 	Reset	Скинути
@@ -995,9 +1013,17 @@
 	Rename Brush…	Перейменувати пензель…
 	Delete Brush	Видалити пензель
 	Import Brushes…	Імпортувати пензлі…
+	Gradient Preset Options	Параметри наборів градієнтів
+	Import .GRD	Імпортувати .GRD
+	Choose a gradient file (.grd).	Виберіть файл градієнтів (.grd).
 	Brush Name	Назва пензля
 	Brush Stroke	Мазок пензля
 	New Brush Preset…	Новий набір пензля…
+	Capture Brush Size in Preset	Зберегти розмір пензля в наборі
+	Include Tool Settings	Включити налаштування інструмента
+	Include Color	Включити колір
+	Enter a name for the brush preset	Введіть назву набору пензля
+	A brush preset with this name already exists	Набір пензля з такою назвою вже існує
 	Brush Preset Options	Параметри набору пензля
 	New Brush	Новий пензель
 	Create new brush from these settings	Створити новий пензель із цими параметрами
@@ -1159,6 +1185,8 @@
 	Offset	Зсув
 	Reset Transform	Скинути трансформацію
 	Rotate	Повернути
+	Set horizontal skew	Задати горизонтальний скіс
+	Set vertical skew	Задати вертикальний скіс
 	Flip Horizontal	Віддзеркалити горизонтально
 	Flip Vertical	Віддзеркалити вертикально
 	Frame Sync	Синхронізація кадрів
@@ -1406,6 +1434,10 @@
 	Breeze Dark Theme	Темна тема Breeze
 	Breeze light	Breeze світла
 	Breeze Light Theme	Світла тема Breeze
+	Soft dark	М'яка темна
+	Soft light	М'яка світла
+	Soft Dark Theme	М'яка темна тема
+	Soft Light Theme	М'яка світла тема
 	Adwaita Light Theme	Світла тема Adwaita
 	Adwaita Dark Theme	Темна тема Adwaita
 	Adwaita	Adwaita
@@ -1658,6 +1690,12 @@
 	Show in Explorer	Показати у Провіднику
 	Show in Folder	Показати в теці
 	Before (Y)	До (Y)
+	Save Settings…	Зберегти налаштування…
+	Load Settings…	Завантажити налаштування…
+	Save these settings as a Camera Raw .xmp file	Зберегти ці налаштування у файл Camera Raw .xmp
+	Load settings from a Camera Raw .xmp file	Завантажити налаштування з файлу Camera Raw .xmp
+	Loaded Camera Raw settings from {file}	Налаштування Camera Raw завантажено з {file}
+	Loaded Camera Raw settings from {file} ({n} not supported)	Налаштування Camera Raw завантажено з {file} (не підтримується: {n})
 	After (X)	Після (X)
 	Original	Оригінал
 	Current	Поточний
@@ -1809,6 +1847,14 @@
 	Border…	Межа…
 	Bottom Edges	Нижні краї
 	Browse…	Огляд…
+	Source Files	Вихідні файли
+	Use:	Використовувати:
+	Files	Файли
+	Folder	Папка
+	Add Open Files	Додати відкриті файли
+	Sort By Name	Сортувати за назвою
+	Attempt to Automatically Align Source Images	Спробувати автоматично вирівняти вихідні зображення
+	Create Smart Object after Loading Layers	Створити смартоб'єкт після завантаження шарів
 	Canvas Guides	Напрямні полотна
 	Character Styles Panel	Панель стилів символів
 	Clear Canvas Guides	Очистити напрямні полотна
@@ -2563,6 +2609,7 @@ cameraRaw	Roughness	Шорсткість
 	Click to pick · Esc to cancel	Клацніть для вибору · Esc для скасування
 	Pick a screen pixel or press Esc to cancel	Виберіть піксель екрана або натисніть Esc для скасування
 	Scroll to zoom	Прокрутіть для масштабування
+	Drag to pan · Scroll to zoom · Double-click to fit	Перетягніть для панорамування · Прокрутіть для масштабування · Двічі клацніть, щоб умістити
 	Show/Hide All Panels	Показати/приховати всі панелі
 	Show/Hide Panels	Показати/приховати панелі
 	Could not open	Не вдалося відкрити
@@ -3746,6 +3793,34 @@ curves	Smooth	Згладити
 	Light Red	Світло-червоний
 	Medium Blue	Середньо-синій
 	Light Gray	Світло-сірий
+	Object Finder	Пошук об’єктів
+	No object found there — drag a rectangle around it	Там не знайдено об’єкта — обведіть його прямокутником
 	Remove after each stroke	Видаляти після кожного штриха
 	Apply the removal ({key})	Застосувати видалення ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Штрихів для видалення: {n} (Enter застосовує, Esc скасовує)
+	Clear Brush Controls	Очистити параметри пензля
+	Reset All Locked Settings	Скинути всі заблоковані параметри
+	Copy Texture to Other Tools	Скопіювати текстуру в інші інструменти
+
+# Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
+	Load Actions…	Завантажити операції…
+	Save Actions…	Зберегти операції…
+	{name} (Photoshop)	{name} (Photoshop)
+	{message} ({note})	{message} ({note})
+@plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	Завантажено {n} операцію з {file}|Завантажено {n} операції з {file}|Завантажено {n} операцій з {file}
+@plural	{n} step has no PhotoCraft equivalent yet|{n} steps have no PhotoCraft equivalent yet	{n} крок ще не має відповідника в PhotoCraft|{n} кроки ще не мають відповідника в PhotoCraft|{n} кроків ще не мають відповідника в PhotoCraft
+@plural	Saved {n} action to {file}|Saved {n} actions to {file}	Збережено {n} операцію до {file}|Збережено {n} операції до {file}|Збережено {n} операцій до {file}
+@plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	Пропущено {n} крок без відповідника в Photoshop|Пропущено {n} кроки без відповідника в Photoshop|Пропущено {n} кроків без відповідника в Photoshop
+
+# Actions panel: set folders, dialog toggle, Insert Stop
+	Insert Stop…	Вставити зупинку…
+	Save Set…	Зберегти набір…
+	Message:	Повідомлення:
+	Allow Continue	Дозволити продовження
+	Show dialog during playback	Показувати діалог під час відтворення
+	Select an action first	Спочатку виберіть операцію
+	Action playback stopped	Відтворення операції зупинено
+	Step {step} is waiting for its dialog	Крок {step} очікує на свій діалог
+@plural	{n} action|{n} actions	{n} операція|{n} операції|{n} операцій
+	Auto Add/Delete	Автододавання/видалення
+	ICO is limited to 256 × 256 pixels	ICO обмежено розміром 256 × 256 пікселів

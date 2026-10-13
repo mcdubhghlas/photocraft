@@ -4,7 +4,7 @@ members = ["crates/*", "apps/*", "xtask"]
 default-members = ["crates/*", "apps/photocraft", "apps/photocraft-cli", "xtask"]
 
 [workspace.package]
-version = "0.8.0"
+version = "0.8.2"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.95"
@@ -38,6 +38,7 @@ photocraft-testkit = { path = "crates/testkit" }
 photocraft-tablet = { path = "crates/tablet" }
 
 # external
+craft-print = { git = "https://github.com/storytold/craft-libs", rev = "d991bf6792f8ade99c51358bf3c1d902c8cd96b5" }
 thiserror = "2"
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
@@ -50,7 +51,9 @@ zune-core = "0.5"
 zune-jpeg = "0.5"
 proptest = "1"
 eframe = { version = "0.36", default-features = false }
-egui = "0.36"
+# Without `default_fonts`, which embeds egui's fonts uncompressed: ui-egui ships them deflated
+# (egui_fonts.rs; the web build's size gate).
+egui = { version = "0.36", default-features = false }
 egui_kittest = "0.36"
 rfd = "0.17"
 log = "0.4"
@@ -81,13 +84,14 @@ codegen-units = 1
 
 # The browser build (apps/photocraft-web, `data-cargo-profile` in its index.html). Hosts cap the
 # size of a single file (Cloudflare Pages/Workers: 25 MiB), and the wasm is downloaded on every
-# visit, so this profile optimizes for size: fat LTO, opt-level "z" for the UI, command, and I/O
-# shells, and "s" for other crates except pixel processing, which keeps opt-level 3. panic
-# stays the target default (wasm32-unknown-unknown aborts; AGENTS.md's `panic = "unwind"` is for
-# the native app shell). packaging/web/package.sh fails the build above 24 MiB.
+# visit, so this profile optimizes for size: fat LTO, opt-level "z" for PhotoCraft's own crates,
+# "s" for dependencies and for the crates that decode files, and 3 for pixel processing (filters
+# and compositing). Dependencies stay at "s": at "z" the whole wasm grows (by 0.4 MB, measured).
+# panic stays the target default (wasm32-unknown-unknown aborts; AGENTS.md's `panic = "unwind"`
+# is for the native app shell). packaging/web/package.sh fails the build above 24 MiB.
 [profile.wasm-release]
 inherits = "release"
-opt-level = "s"
+opt-level = "z"
 lto = "fat"
 codegen-units = 1
 strip = "debuginfo"
@@ -95,20 +99,35 @@ strip = "debuginfo"
 [profile.wasm-release.package."*"]
 opt-level = "s"
 
-# Keep the browser shell compact as shared panel controls grow. Pixel-processing crates below
-# retain their speed-oriented optimization level.
-[profile.wasm-release.package.photocraft-ui-egui]
+# Decoding and rasterizing keep their speed.
+[profile.wasm-release.package.photocraft-codecs]
+opt-level = "s"
+[profile.wasm-release.package.photocraft-raw]
+opt-level = "s"
+[profile.wasm-release.package.photocraft-heif]
+opt-level = "s"
+[profile.wasm-release.package.photocraft-vector]
+opt-level = "s"
+
+# Large crates off the per-frame and per-pixel paths: the document model, file parsers run once
+# per open/save, JSON (settings, presets, control channel), SVG parsing, and shader translation
+# (runs when a pipeline is created). "z" keeps the wasm well under the size gate.
+[profile.wasm-release.package.photocraft-doc]
+opt-level = "z"
+[profile.wasm-release.package.photocraft-psd]
+opt-level = "z"
+[profile.wasm-release.package.photocraft-format]
+opt-level = "z"
+[profile.wasm-release.package.photocraft-affinity]
+opt-level = "z"
+[profile.wasm-release.package.serde_json]
+opt-level = "z"
+[profile.wasm-release.package.usvg]
+opt-level = "z"
+[profile.wasm-release.package.naga]
 opt-level = "z"
 
-# Keep browser command dispatch, import/export glue, and the entry point compact. Native
-# builds and the speed-oriented pixel-processing overrides below retain their settings.
-[profile.wasm-release.package.photocraft-engine]
-opt-level = "z"
-[profile.wasm-release.package.photocraft-io]
-opt-level = "z"
-[profile.wasm-release.package.photocraft-web]
-opt-level = "z"
-
+# Pixel processing keeps its speed-oriented optimization level.
 [profile.wasm-release.package.photocraft-raster]
 opt-level = 3
 [profile.wasm-release.package.photocraft-color]
@@ -121,3 +140,4 @@ opt-level = 3
 opt-level = 3
 [profile.wasm-release.package.photocraft-paint]
 opt-level = 3
+

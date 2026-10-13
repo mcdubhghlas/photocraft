@@ -89,6 +89,8 @@ pub const UI_COMMANDS: &[(&str, &str, &[&str], Option<&str>)] = &[
     ("window.theme.adwaitaDark", "Adwaita Dark Theme", &["Window", "Theme"], None),
     ("window.theme.breezeLight", "Breeze Light Theme", &["Window", "Theme"], None),
     ("window.theme.breezeDark", "Breeze Dark Theme", &["Window", "Theme"], None),
+    ("window.theme.softLight", "Soft Light Theme", &["Window", "Theme"], None),
+    ("window.theme.softDark", "Soft Dark Theme", &["Window", "Theme"], None),
     ("window.theme.system", "Sync with system", &["Window", "Theme"], None),
     ("edit.search", "Search…", &["Edit"], Some("Cmd+F")),
     ("help.discord", "Join the ArtCraft Discord…", &["Help"], None),
@@ -161,10 +163,18 @@ pub fn invoke(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: Va
 
 /// [`invoke`] without the unsaved-changes prompt, for once the user has already answered it.
 pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id: &str, params: Value) -> Result<Value, String> {
+    if let Some(tool) = crate::tool_shortcuts::tool(id) {
+        app.ui.tool = tool;
+        return Ok(json!({"tool": tool}));
+    }
     if id == "ui.symmetryTransform" {
         return crate::symmetry_ui::begin(app).map(|_| Value::Null);
     }
     if let Some(r) = crate::tool_reset::invoke(app, id, &params) {
+        return r;
+    }
+    // A filter on a type layer asks to rasterize it first (#4303).
+    if let Some(r) = crate::rasterize_prompt::intercept_filter(app, id, &params) {
         return r;
     }
     // A pending Pen anchor is gesture state; Edit › Undo must match the keyboard.
@@ -296,14 +306,28 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
             app.ask_folder(|app, path| app.run("file.import.videoFramesToLayers", json!({"path": path})).map_err(|e| e.to_string()))
         }
         "file.save" => {
-            // Writes back only to a layered file; a flat one goes through Save As.
+            // Writes back only to a layered file that holds the whole document; anything else
+            // goes through Save As, so the original is never overwritten with less (#3806).
             let tga_bits = crate::targa_options_ui::bits_param(&params, id)?;
             match params.get("path").and_then(Value::as_str) {
                 Some(path) => app.save_as_with(Some(path.to_string()), tga_bits),
-                None => match app.session.active().and_then(|d| d.path.clone()).filter(|p| photocraft_engine::file_cmds::saves_in_place(p)) {
-                    Some(path) => app.save_in_place(path),
-                    None => app.save_as_with(None, tga_bits),
-                },
+                None => {
+                    let own = app.session.active().and_then(|d| d.path.clone().map(|p| (photocraft_engine::file_cmds::holds_at(&d.doc, &p), p, d)));
+                    match own {
+                        Some((true, path, _)) => app.save_in_place(path),
+                        Some((false, path, d)) if photocraft_engine::file_cmds::saves_in_place(&path) => {
+                            // Its own file is layered but can't hold what the document has now.
+                            let losses = photocraft_engine::file_cmds::losses_at(&d.doc, &path);
+                            let name = crate::file_open::display_name(&path);
+                            let title = crate::i18n::fmt(tl!("{name} can't keep everything in this document"), &[("name", name.as_str())]);
+                            let mut lines = losses;
+                            lines.push(tl!("Choose a format that keeps it, such as Photoshop (PSD), or save a copy.").to_string());
+                            crate::notices::post(app, title, lines, false, None);
+                            app.save_as_with(None, tga_bits)
+                        }
+                        _ => app.save_as_with(None, tga_bits),
+                    }
+                }
             }
         }
         "file.exit" => {
@@ -366,7 +390,9 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
         | "window.theme.adwaita"
         | "window.theme.adwaitaDark"
         | "window.theme.breezeLight"
-        | "window.theme.breezeDark" => {
+        | "window.theme.breezeDark"
+        | "window.theme.softLight"
+        | "window.theme.softDark" => {
             let k = crate::theme::ThemeKind::from_name(&id["window.theme.".len()..]).unwrap_or_default();
             app.set_theme(ctx, k);
             Ok(Value::Null)
@@ -460,6 +486,23 @@ pub(crate) fn invoke_unguarded(app: &mut PhotocraftApp, ctx: &egui::Context, id:
                 return Err(why);
             }
             Ok(json!({"dialog": crate::stroke_ui::open(app)}))
+        }
+        // Channels › Channel Options… without params: the dialog on the targeted alpha/spot
+        // channel, or Quick Mask Options while in Quick Mask (with params: the engine directly).
+        crate::channel_options_ui::COMMAND if params.as_object().is_none_or(|o| o.is_empty()) => {
+            let st = app.session.active().ok_or("no document is open")?;
+            let channel = match st.channel_view.target {
+                _ if st.doc.quick_mask.is_some() => json!("quickMask"),
+                photocraft_engine::channel_cmds::ChannelTarget::Alpha(i) => json!(i),
+                _ => return Err("target an alpha or spot channel first".into()),
+            };
+            let dialog = crate::channel_options_ui::open(app, &channel).ok_or("no such channel")?;
+            Ok(json!({"dialog": dialog}))
+        }
+        // Channels › New Spot Channel… without params: its dialog (with params: the engine).
+        crate::channel_options_ui::NEW_SPOT if params.as_object().is_none_or(|o| o.is_empty()) => {
+            let dialog = crate::channel_options_ui::open_new_spot(app).ok_or("no document is open")?;
+            Ok(json!({"dialog": dialog}))
         }
         // Photoshop's "Select and Mask…" is the engine's select.refineEdge.
         // Select › Color Range… from the menu: the dialog (with params: the engine directly).
@@ -656,6 +699,9 @@ fn open_path(app: &mut PhotocraftApp, path: &str) -> Result<Value, String> {
 }
 
 pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
+    if crate::tool_shortcuts::tool(id).is_some() {
+        return true;
+    }
     if id == "ui.symmetryTransform" {
         return crate::symmetry_ui::can_transform(app);
     }
@@ -670,6 +716,10 @@ pub fn is_enabled(app: &PhotocraftApp, id: &str) -> bool {
     // A pending crop greys what Photoshop greys during one (#1918).
     if crate::crop_ui::blocks(app, id) {
         return false;
+    }
+    // Filters stay live on a type layer: choosing one asks to rasterize it (#4303).
+    if crate::rasterize_prompt::filter_needs(app, id).is_some() {
+        return true;
     }
     if let Some(e) = crate::workspace_ui::is_enabled(app, id) {
         return e;
@@ -882,6 +932,7 @@ pub struct MenuItem {
 pub fn is_live(id: &str) -> bool {
     static UI_IDS: std::sync::OnceLock<std::collections::HashSet<&'static str>> = std::sync::OnceLock::new();
     photocraft_engine::commands::find(id).is_some()
+        || crate::tool_shortcuts::tool(id).is_some()
         || UI_IDS.get_or_init(|| UI_COMMANDS.iter().map(|c| c.0).collect()).contains(id)
         || panel_alias(id).is_some()
         || workspace_name(id).is_some()

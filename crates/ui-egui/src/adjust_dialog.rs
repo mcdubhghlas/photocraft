@@ -134,19 +134,33 @@ fn dialog_mem(kind: &str) -> egui::Id {
     egui::Id::new(("adjust-dialog", kind))
 }
 
-/// Whether holding Alt turns the dialog's Cancel into Reset. Measured in Photoshop 25.4 for Color
-/// Balance; other kinds keep Cancel until checked against Photoshop.
+/// Whether holding Alt turns Cancel into Reset for this adjustment dialog (every kind).
 pub fn resets(fields: &Map<String, Value>) -> bool {
-    fields.get("__adjust").and_then(Value::as_str) == Some("colorBalance")
+    owns(fields)
 }
 
-/// Alt+Cancel (Reset): back to the defaults Photoshop's Reset restores, dialog stays open.
-pub fn reset(ctx: &egui::Context, fields: &mut Map<String, Value>) {
-    if !resets(fields) {
+/// Alt+Cancel (Reset): engine defaults for the kind; Color Balance keeps Preserve Luminosity and
+/// shows Midtones (Photoshop 25.4). Dialog stays open.
+pub fn reset(app: &PhotocraftApp, ctx: &egui::Context, fields: &mut Map<String, Value>) {
+    if !owns(fields) {
         return;
     }
+    let kind = fields.get("__adjust").and_then(Value::as_str).unwrap_or_default().to_string();
+    let mode = app.session.active().map_or(photocraft_doc::ColorMode::Rgb, |s| s.doc.mode);
+    // Color Balance: Photoshop keeps the user's Preserve Luminosity across Reset.
+    let preserve = if kind == "colorBalance" { fields.get("preserveLuminosity").cloned() } else { None };
+    let Ok(defaults) = photocraft_engine::adjust_params::default_for(&kind, mode) else { return };
+    let values = photocraft_engine::adjust_params::to_params(&defaults);
+    // Replace parameter keys; keep private `__` chrome (preview, command, …).
+    fields.retain(|k, _| k.starts_with("__"));
+    if let Value::Object(v) = values {
+        fields.extend(v);
+    }
+    if let Some(p) = preserve {
+        fields.insert("preserveLuminosity".into(), p);
+    }
     let mut values = crate::filter_dialog::params_of(fields);
-    adjust_editors::reset_color_balance(ctx, dialog_mem("colorBalance"), &mut values);
+    adjust_editors::reset_adjustment_editor(ctx, &kind, dialog_mem(&kind), &mut values);
     if let Value::Object(v) = values {
         fields.extend(v);
     }
@@ -195,6 +209,9 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, fields: &mut Map<String,
         dynamic_color_sliders: app.session.prefs().interface.dynamic_color_sliders,
     };
     let e = adjust_editors::editor(ui, &kind, &mut values, &cx);
+    if e.import_gradients {
+        crate::preset_files_ui::import_gradients_dialog(app);
+    }
     if e.changed
         && let Value::Object(v) = values
     {
@@ -390,16 +407,29 @@ mod tests {
         assert!(h.state().ui.dialogs.is_empty(), "Cancel closes");
     }
 
-    /// Alt+Cancel is Reset only where it was checked against Photoshop.
+    /// Every adjustment kind opts into Alt+Reset; Levels restores engine defaults and stays open.
     #[test]
-    fn other_adjustment_dialogs_keep_cancel_under_alt() {
+    fn levels_alt_reset_restores_defaults() {
         use egui_kittest::kittest::Queryable;
         let mut h = Harness::builder().with_size(egui::vec2(1200.0, 900.0)).build_ui_state(|ui, app| crate::dialogs::show(app, ui.ctx()), app_with_image());
         PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
-        open(h.state_mut(), "image.adjustments.levels").unwrap();
-        h.event(egui::Event::ModifiersChanged(egui::Modifiers::ALT));
-        h.run_steps(3);
+        let id = open(h.state_mut(), "image.adjustments.levels").unwrap();
+        h.state_mut().ui.dialog_mut(id).unwrap().fields.insert("inBlack".into(), json!(30));
+        h.state_mut().ui.dialog_mut(id).unwrap().fields.insert("gamma".into(), json!(1.3));
+        h.run_steps(2);
         assert!(h.query_by_label("Cancel").is_some() && h.query_by_label("Reset").is_none());
+        h.event(egui::Event::ModifiersChanged(egui::Modifiers::ALT));
+        h.run_steps(2);
+        let reset = h.get_by_label("Reset").rect();
+        assert!(h.query_by_label("Cancel").is_none());
+        let click =
+            |pressed| egui::Event::PointerButton { pos: reset.center(), button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::ALT };
+        input(&mut h, egui::Modifiers::ALT, &[egui::Event::PointerMoved(reset.center()), click(true), click(false)]);
+        assert!(h.state().ui.dialogs.iter().any(|d| d.id == id), "Reset keeps the dialog open");
+        let defaults =
+            photocraft_engine::adjust_params::to_params(&photocraft_engine::adjust_params::default_for("levels", photocraft_doc::ColorMode::Rgb).unwrap());
+        assert_eq!(field(&h, id, "inBlack"), defaults["inBlack"]);
+        assert_eq!(field(&h, id, "gamma"), defaults["gamma"]);
     }
 
     fn sample_params(kind: &str) -> Value {

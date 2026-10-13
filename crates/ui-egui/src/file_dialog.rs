@@ -291,7 +291,7 @@ impl PhotocraftApp {
 }
 
 /// The folder an open dialog starts in: the directory of the most recent file (UI-217-3).
-fn last_used_dir(recent: &[String]) -> Option<String> {
+pub(crate) fn last_used_dir(recent: &[String]) -> Option<String> {
     let dir = std::path::Path::new(recent.first()?).parent()?;
     (!dir.as_os_str().is_empty()).then(|| dir.to_string_lossy().into_owned())
 }

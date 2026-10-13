@@ -282,3 +282,48 @@ fn rasterize_type_layer() {
     assert!(matches!(s.active().unwrap().doc.layer(id).unwrap().content, LayerContent::Raster(_)));
     assert!(!s.is_enabled("type.rasterizeTypeLayer"));
 }
+
+#[test]
+fn type_attaches_to_a_path_and_releases_it() {
+    let mut s = session(8);
+    let id = text_layer(&mut s, "Hello path");
+    assert!(s.is_enabled("type.attachToPath"));
+    assert!(!s.is_enabled("type.detachFromPath"));
+    // No work path yet, a bad subpath and bad params are errors, not panics.
+    assert!(s.execute("type.attachToPath", json!({})).is_err());
+    let flat = ink(&s, id);
+    s.edit("path", |doc, _| {
+        doc.work_path = Some(Path::new(vec![Subpath::polyline(&[(150.0, 10.0), (150.0, 110.0)])]));
+        Ok(())
+    })
+    .unwrap();
+    assert!(s.execute("type.attachToPath", json!({"subpath": 5})).is_err());
+    assert!(s.execute("type.attachToPath", json!({"start": "far"})).is_err());
+    assert!(s.execute("type.attachToPath", json!({"shape": 9999})).is_err());
+    s.execute("type.attachToPath", json!({"start": 4})).unwrap();
+    assert!(matches!(text(&s, id).shape, TextShape::Path { start, .. } if start == 4.0));
+    let on_path = ink(&s, id);
+    assert!(on_path.height() > on_path.width(), "the type runs down the vertical path: {on_path:?}");
+    assert!(on_path.height() > flat.height());
+    assert!(!s.is_enabled("type.convertToPointText"));
+    s.execute("type.detachFromPath", json!({})).unwrap();
+    assert_eq!(text(&s, id).shape, TextShape::Point);
+    assert!(ink(&s, id).width() > ink(&s, id).height());
+    assert!(s.undo());
+    assert!(matches!(text(&s, id).shape, TextShape::Path { .. }));
+}
+
+#[test]
+fn all_locked_layer_rejects_paste_lorem_ipsum_without_history() {
+    // #4188: Lock All stopped type.edit (#3132) but not Paste Lorem Ipsum into the layer.
+    let mut s = session(8);
+    let id = text_layer(&mut s, "Hi");
+    s.execute("layer.setProps", json!({"layer": id.0, "locked": true})).unwrap();
+    let history = s.active().unwrap().history.past_len();
+    for params in [json!({}), json!({"layer": id.0})] {
+        let result = s.execute("type.pasteLoremIpsum", params);
+        assert!(matches!(&result, Err(EngineError::Other(message)) if message.contains("locked")), "{result:?}");
+        assert_eq!(text(&s, id).text, "Hi");
+        assert_eq!(s.active().unwrap().history.past_len(), history);
+    }
+}

@@ -80,8 +80,11 @@ fn srgb_is_the_identity_fast_path() {
         assert!(s.color.canvas_lut(&d, 9).unwrap().is_none(), "no GPU LUT either");
         assert!(close(shown(&s, &d), [204.0, 127.5, 76.5], 0.6));
     }
-    // Untagged gray (sGray), CMYK (shown in sRGB) and Lab composites are sRGB too.
-    let g = Document::with_background("g", Size::new(4, 4), ColorMode::Grayscale, SampleType::U8, Color::gray(0.3));
+    // sGray-tagged gray and CMYK (shown in sRGB) composites are sRGB too; untagged gray takes the
+    // default working gray (Dot Gain 20 %-compatible), which is not.
+    let mut g = Document::with_background("g", Size::new(4, 4), ColorMode::Grayscale, SampleType::U8, Color::gray(0.3));
+    assert!(!s.color.canvas_display(&g).unwrap().is_identity());
+    g.icc_profile = Some(Builtin::SGray.profile().to_bytes());
     assert!(s.color.canvas_display(&g).unwrap().is_identity());
     assert!(s.color.canvas_display(&cmyk_doc(None, [0.1, 0.5, 0.5, 0.0])).unwrap().is_identity());
     // Cached: the same Arc for the same profiles.
@@ -195,7 +198,8 @@ fn gray_exr_round_trip_is_linear() {
     let mut s = Session::new();
     // An sGray document exported to EXR is linearised (#2386); re-opened it is tagged linear gray
     // and displays as before.
-    let d = Document::with_background("t", Size::new(8, 8), ColorMode::Grayscale, SampleType::U8, Color::gray(128.0 / 255.0));
+    let mut d = Document::with_background("t", Size::new(8, 8), ColorMode::Grayscale, SampleType::U8, Color::gray(128.0 / 255.0));
+    d.icc_profile = Some(Builtin::SGray.profile().to_bytes());
     let r = photocraft_io::export(&d, "x.exr", &photocraft_io::ExportOptions::default()).unwrap();
     let back = photocraft_io::import("x.exr", &r.bytes).unwrap().document;
     let icc = back.icc_profile.clone().expect("tagged");

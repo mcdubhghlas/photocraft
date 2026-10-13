@@ -27,6 +27,7 @@ mod content_aware_move;
 mod patch;
 mod pattern_stamp;
 mod remove;
+pub use content_aware_move::{ContentAwarePreview, preview as content_aware_move_preview};
 pub use patch::preview as patch_preview;
 
 fn bad(cmd: &str, msg: impl Into<String>) -> EngineError {
@@ -145,7 +146,7 @@ fn damage_json(r: Rect) -> Value {
 
 /// Which pixels Clone Stamp / Healing Brush sample.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum SampleLayers {
+pub(crate) enum SampleLayers {
     Current,
     CurrentAndBelow,
     All,
@@ -162,7 +163,7 @@ fn sample_layers(p: &Value, cmd: &str) -> Result<SampleLayers> {
 
 /// Composite pixels of `rect` in `fmt` (native channels): the whole document, or the target layer
 /// and everything below it.
-fn composite_region(pre: &Document, id: Option<LayerId>, which: SampleLayers, rect: Rect, fmt: PixelFormat) -> Region {
+pub(crate) fn composite_region(pre: &Document, id: Option<LayerId>, which: SampleLayers, rect: Rect, fmt: PixelFormat) -> Region {
     let mut doc = pre.clone();
     if which == SampleLayers::CurrentAndBelow
         && let Some(id) = id
@@ -297,15 +298,27 @@ fn clone_stamp(s: &mut Session, p: &Value) -> Result<Value> {
     let which = sample_layers(p, CMD)?;
     let mode = blend_param(p, CMD)?;
     let aligned = flag(p, "aligned", true);
+    // The live stroke the canvas already drew for exactly this commit: take its pixels instead of
+    // rendering the stroke again (the hitch on release).
+    let live = s.live_commit.take().filter(|l| l.matches(s, CMD, p, &stroke.points));
+    let from_live = live.is_some();
     let map = clone_mapping(s, p, &stroke, CMD)?;
     let off = map.offset();
     let dmg = run_stroke(s, "Clone Stamp", id, p, |pre, surf, sel, lock| {
+        if let Some(l) = live {
+            *surf = l.surface;
+            return Ok(l.bounds);
+        }
         let (bounds, cov) = stroke_coverage(&stroke);
         // Samples come from the pre-stroke state, so pixels painted earlier in the stroke are never re-cloned.
         let paint = clone_sample(pre, id, surf, which, bounds, &map, CMD)?;
         Ok(apply_coverage(surf, bounds, &cov, stroke.brush.opacity, sel, lock, &paint, mode))
     })?;
-    Ok(clone_result(dmg, off, aligned, p, &stroke))
+    let mut r = clone_result(dmg, off, aligned, p, &stroke);
+    if from_live {
+        r["fromLive"] = json!(true);
+    }
+    Ok(r)
 }
 
 /// What a live retouching stroke paints through its coverage.
@@ -337,6 +350,11 @@ pub struct LiveRetouch {
     /// Where the doc shows what finishing the stroke now would add (a lone first dab, the
     /// smoothing catch-up), redrawn on every step as the Brush's live stroke does.
     tail: Rect,
+    /// The document and revision the stroke started on.
+    base: (photocraft_doc::DocId, u64),
+    brush: Box<BrushSettings>,
+    /// Every point rendered so far, in order.
+    points: Vec<StrokePoint>,
 }
 
 impl LiveRetouch {
@@ -358,7 +376,8 @@ impl LiveRetouch {
             "paint.historyBrush" => LivePaint::History(history_source(s, id, p, cmd)?),
             other => return Err(bad(other, "live retouching strokes are the Clone Stamp, Healing Brush and History Brush")),
         };
-        let pre = s.active().ok_or(EngineError::NoDocument)?.doc.clone();
+        let st = s.active().ok_or(EngineError::NoDocument)?;
+        let (pre, base) = (st.doc.clone(), (st.doc.id, st.revision));
         let mut doc = (*pre).clone();
         let sel = doc.selection.clone();
         let (surf, lock) = crate::channel_cmds::target_surface(&mut doc, id, p)?;
@@ -366,6 +385,7 @@ impl LiveRetouch {
         // As `stroke_coverage`, which the commit uses.
         let renderer = photocraft_paint::StrokeRenderer::new(&stroke.brush, None, 1.0);
         let opacity = stroke.brush.opacity;
+        let brush = Box::new(stroke.brush.clone());
         let paint = match paint {
             LivePaint::History(src) if src.format() != pre_surf.format() => LivePaint::History(src.convert(pre_surf.format())),
             other => other,
@@ -384,6 +404,9 @@ impl LiveRetouch {
             sel,
             lock,
             tail: Rect::EMPTY,
+            base,
+            brush,
+            points: Vec::new(),
         };
         live.push(&stroke.points)?;
         Ok(live)
@@ -394,15 +417,46 @@ impl LiveRetouch {
         self.renderer.bounds().union(&self.tail)
     }
 
+    /// Every point rendered so far, in order.
+    pub fn points(&self) -> &[StrokePoint] {
+        &self.points
+    }
+
+    /// The finished stroke as its commit would take it over ([`Session::offer_live_retouch`]).
+    /// Only the Clone Stamp and History Brush draw what they commit (the Healing Brush blends on
+    /// release), and only while the brush, layer and clone source are still the ones the stroke
+    /// started with: the document revision doesn't cover those.
+    pub(crate) fn into_commit(mut self, s: &Session) -> Result<crate::brush_cmds::LiveCommit> {
+        let (stroke, id) = parse_brush(s, &self.params, &self.cmd)?;
+        let source_unchanged = match &self.paint {
+            LivePaint::Clone { map, .. } if self.cmd == "paint.cloneStamp" => {
+                let f = stroke.points.first().ok_or_else(|| bad(&self.cmd, "`points` is empty"))?;
+                crate::presets::clone_source::resolve(s, &self.params, (f.x, f.y), &self.cmd)?.0 == *map
+            }
+            LivePaint::History(_) if self.cmd == "paint.historyBrush" => true,
+            _ => return Err(bad(&self.cmd, "only Clone Stamp and History Brush strokes commit their live pixels")),
+        };
+        if !source_unchanged || *self.brush != stroke.brush || id != self.id {
+            return Err(bad(&self.cmd, "the brush, layer or clone source changed during the stroke"));
+        }
+        let bounds = self.bounds();
+        let (surf, _) = crate::channel_cmds::target_surface(std::sync::Arc::make_mut(&mut self.doc), self.id, &self.params)?;
+        let surface = surf.clone();
+        Ok(crate::brush_cmds::LiveCommit { cmd: self.cmd, base: self.base, params: self.params, seed: None, points: self.points, surface, bounds })
+    }
+
     /// Render more points; returns the rectangle that changed. Each changed area is redrawn from
     /// the pre-stroke pixels with the stroke's coverage so far, so overlapping dabs build up as in
     /// the commit, and pixels painted earlier in the stroke are never re-cloned. What finishing
     /// the stroke now would add is drawn too (a lone first dab shows on the press), and redrawn on
     /// every step.
     /// Invalid coordinates reject the whole batch without changing the preview.
+    /// Only the position and pressure of `pts` are used: the commands take no tilt or times.
     pub fn push(&mut self, pts: &[StrokePoint]) -> Result<Rect> {
         crate::brush_cmds::check_coords(pts, &self.cmd)?;
-        self.renderer.push(pts);
+        let pts: Vec<_> = pts.iter().map(|q| StrokePoint::new(q.x, q.y, q.pressure)).collect();
+        self.points.extend_from_slice(&pts);
+        self.renderer.push(&pts);
         let old = std::mem::replace(&mut self.tail, Rect::EMPTY);
         let mut dmg = Rect::EMPTY;
         if !old.is_empty() {
@@ -519,15 +573,25 @@ fn history_brush(s: &mut Session, p: &Value) -> Result<Value> {
     const CMD: &str = "paint.historyBrush";
     let (stroke, id) = parse_brush(s, p, CMD)?;
     let mode = blend_param(p, CMD)?;
+    let live = s.live_commit.take().filter(|l| l.matches(s, CMD, p, &stroke.points));
+    let from_live = live.is_some();
     let src_surface = history_source(s, id, p, CMD)?;
     let dmg = run_stroke(s, "History Brush", id, p, |_, surf, sel, lock| {
+        if let Some(l) = live {
+            *surf = l.surface;
+            return Ok(l.bounds);
+        }
         let fmt = surf.format();
         let src = if src_surface.format() == fmt { src_surface } else { src_surface.convert(fmt) };
         let (bounds, cov) = stroke_coverage(&stroke);
         let paint = Region::read(&src, bounds);
         Ok(apply_coverage(surf, bounds, &cov, stroke.brush.opacity, sel, lock, &paint, mode))
     })?;
-    Ok(json!({ "damage": damage_json(dmg) }))
+    let mut r = json!({ "damage": damage_json(dmg) });
+    if from_live {
+        r["fromLive"] = json!(true);
+    }
+    Ok(r)
 }
 
 // ---------------------------------------------------------------------------------------------

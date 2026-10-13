@@ -19,7 +19,17 @@
 # (PhotoCraft, ArtCraft, OpenType, CMYK, Lab ...) stay in Latin letters; the trailing "…" of
 # dialog commands is kept.
 
+# Channel Options and New Spot Channel (#3761)
+	Channel Color	Barva kanálu
+	Color Indicates:	Barva označuje:
+	Solidity:	Plnost:
+	Ink Characteristics	Vlastnosti inkoustu
+
 # Guide layout dialog
+
+# Custom print paper (#3820)
+	Paper Width	Šířka papíru
+	Paper Height	Výška papíru
 	Columns	Sloupce
 	Rows	Řádky
 	Number	Počet
@@ -77,6 +87,8 @@
 	Save	Uložit
 	Save As…	Uložit jako…
 	Save a Copy…	Uložit kopii…
+	{name} can't keep everything in this document	{name} nedokáže uchovat vše z tohoto dokumentu
+	Choose a format that keeps it, such as Photoshop (PSD), or save a copy.	Zvolte formát, který vše zachová, například Photoshop (PSD), nebo uložte kopii.
 	Revert	Vrátit k uložené verzi
 	Export	Export
 	Quick Export as PNG	Rychlý export do PNG
@@ -114,6 +126,13 @@
 	Script Events Manager…	Správce událostí skriptů…
 	Import	Import
 	Browse…	Procházet…
+	Source Files	Zdrojové soubory
+	Use:	Použít:
+	Files	Soubory
+	Add Open Files	Přidat otevřené soubory
+	Sort By Name	Seřadit podle názvu
+	Attempt to Automatically Align Source Images	Pokusit se automaticky zarovnat zdrojové obrazy
+	Create Smart Object after Loading Layers	Po načtení vrstev vytvořit chytrý objekt
 	Reveal in Finder	Zobrazit ve Finderu
 	Show in Explorer	Zobrazit v Průzkumníkovi
 	Show in Folder	Zobrazit ve složce
@@ -138,6 +157,8 @@
 	Search…	Hledat…
 	Check Spelling…	Kontrola pravopisu…
 	Find and Replace Text…	Najít a nahradit text…
+	Add to Dictionary	Přidat do slovníku
+	No Spelling Suggestions	Žádné návrhy pravopisu
 	Fill…	Vyplnit…
 	Stroke…	Tah…
 	Content-Aware Fill…	Výplň s ohledem na obsah…
@@ -152,6 +173,8 @@
 	Transform Again on a Copy	Duplikovat a opakovat transformaci
 	Scale	Měřítko
 	Rotate	Otočit
+	Set horizontal skew	Nastavit vodorovné zkosení
+	Set vertical skew	Nastavit svislé zkosení
 	Skew	Zkosit
 	Distort	Zkreslit
 	Perspective	Perspektiva
@@ -733,6 +756,10 @@
 	Breeze Dark Theme	Tmavý motiv Breeze
 	Breeze light	Breeze světlý
 	Breeze Light Theme	Světlý motiv Breeze
+	Soft dark	Jemný tmavý
+	Soft light	Jemný světlý
+	Soft Dark Theme	Jemné tmavé téma
+	Soft Light Theme	Jemné světlé téma
 	Next Theme	Další motiv
 	Actions	Akce
 	Brush Settings	Nastavení štětce
@@ -840,6 +867,9 @@
 	Appearance	Vzhled
 	Appearance (Layer Style)	Vzhled (styl vrstvy)
 	Apply Layer Mask	Použít masku vrstvy
+	Add Mask to Selection	Přidat masku do výběru
+	Subtract Mask from Selection	Odečíst masku od výběru
+	Intersect Mask with Selection	Průnik masky s výběrem
 	Apply Per Tip	Použít pro každý hrot
 	Apply next selected layer comp	Použít další vybranou kompozici vrstev
 	Apply previous selected layer comp	Použít předchozí vybranou kompozici vrstev
@@ -860,6 +890,12 @@
 	Baseline shift	Posun účaří
 	Basic	Základní
 	Before (Y)	Před (Y)
+	Save Settings…	Uložit nastavení…
+	Load Settings…	Načíst nastavení…
+	Save these settings as a Camera Raw .xmp file	Uložit toto nastavení jako soubor Camera Raw .xmp
+	Load settings from a Camera Raw .xmp file	Načíst nastavení ze souboru Camera Raw .xmp
+	Loaded Camera Raw settings from {file}	Nastavení Camera Raw načteno ze souboru {file}
+	Loaded Camera Raw settings from {file} ({n} not supported)	Nastavení Camera Raw načteno ze souboru {file} (nepodporováno: {n})
 	Begin recording	Zahájit záznam
 	Bend:	Ohyb:
 	Bicubic	Bikubická
@@ -890,6 +926,7 @@
 	Camera Raw isn't open	Camera Raw není otevřen
 	Cancel	Zrušit
 	Cancel (Esc)	Zrušit (Esc)
+	Manage submitted jobs in the system print queue	Spravovat odeslané úlohy v systémové tiskové frontě
 	Cancel any current edits (Esc)	Zrušit aktuální úpravy (Esc)
 	Cancel current crop operation  (Esc)	Zrušit aktuální oříznutí  (Esc)
 	Cancel transform (Esc)	Zrušit transformaci (Esc)
@@ -1161,6 +1198,9 @@
 	Ignore All	Ignorovat vše
 	Image Size	Velikost obrazu
 	Import Brushes…	Importovat štětce…
+	Gradient Preset Options	Možnosti předvoleb přechodu
+	Import .GRD	Importovat .GRD
+	Choose a gradient file (.grd).	Vyberte soubor přechodů (.grd).
 	Import brushes (.abr)	Importovat štětce (.abr)
 	Import Presets	Importovat přednastavení
 	Imported	Importováno
@@ -2101,6 +2141,11 @@
 	Rename Brush…	Přejmenovat štětec…
 	Delete Brush	Odstranit štětec
 	New Brush Preset…	Nová předvolba štětce…
+	Capture Brush Size in Preset	Zachytit velikost štětce v předvolbě
+	Include Tool Settings	Zahrnout nastavení nástroje
+	Include Color	Zahrnout barvu
+	Enter a name for the brush preset	Zadejte název předvolby štětce
+	A brush preset with this name already exists	Předvolba štětce s tímto názvem již existuje
 	Brush Preset Options	Možnosti přednastavení štětců
 	Group name	Název skupiny
 	Brush name	Název štětce
@@ -2322,6 +2367,7 @@ cameraRaw	Color	Barvy
 	Click to pick · Esc to cancel	Kliknutí vybere · Esc zruší
 	Pick a screen pixel or press Esc to cancel	Vyberte pixel obrazovky nebo stiskněte Esc pro zrušení
 	Scroll to zoom	Rolováním přibližujte
+	Drag to pan · Scroll to zoom · Double-click to fit	Tažením posouvejte · Rolováním přibližujte · Dvojklikem přizpůsobte
 	Show/Hide All Panels	Zobrazit/skrýt všechny panely
 	Show/Hide Panels	Zobrazit/skrýt panely
 	Could not open	Nelze otevřít
@@ -2666,7 +2712,6 @@ cameraData	Lens	Objektiv
 	Brush Type	Typ štětce
 	Bulge	Vyboulení
 	Burlap	Pytlovina
-	Burn	Ztmavení
 	Calculations	Výpočty
 	Camera Calibration	Kalibrace fotoaparátu
 	Camera Raw	Camera Raw
@@ -2696,7 +2741,6 @@ cameraData	Lens	Objektiv
 	Clear Selection	Zrušit výběr
 	Clipping Path	Ořezová cesta
 	Clone	Klonovat
-	Clone Stamp	Klonovací razítko
 	Close Window	Zavřít okno
 	Clumped	Shlukované
 	Coarse Dots	Hrubé tečky
@@ -2793,7 +2837,6 @@ cameraData	Lens	Objektiv
 	Distribution	Rozložení
 	Documentation	Dokumentace
 	Documents	Dokumenty
-	Dodge	Zesvětlení
 	Dot	Tečka
 	Double Line	Dvojitá čára
 	Draft	Koncept
@@ -2934,7 +2977,6 @@ cameraData	Lens	Objektiv
 	Highlight Radius	Poloměr světel
 	Highlight Strength	Síla odlesku
 	Highlight Tone	Tón světel
-	History Brush	Štětec historie
 	Horizontal Only	Pouze vodorovně
 	Hotspot	Jádro světla
 	Hsb	HSB
@@ -3279,7 +3321,6 @@ cameraData	Lens	Objektiv
 	Spherize	Sférická deformace
 	Spin	Rotace
 	Spin Blur	Rotační rozostření
-	Sponge	Houba
 	Spot	Reflektor
 	Spot Color	Přímá barva
 	Spot Healing	Bodové retušování
@@ -3337,7 +3378,6 @@ cameraData	Lens	Objektiv
 	Tiny Lens	Drobné čočky
 	To Center	Ke středu
 	Tone Curve	Tónová křivka
-	Tool	Nástroj
 	Tool Options	Možnosti nástroje
 	Toolbars	Panely nástrojů
 	Torn Edges	Roztřepené okraje
@@ -3630,6 +3670,7 @@ curves	Smooth	Vyhladit
 	gradients	přechody
 @plural	Imported {n} brush from {file}|Imported {n} brushes from {file}	Importován {n} štětec ze souboru {file}|Importovány {n} štětce ze souboru {file}|Importováno {n} štětců ze souboru {file}
 @plural	Imported {n} gradient from {file}|Imported {n} gradients from {file}	Importován {n} přechod ze souboru {file}|Importovány {n} přechody ze souboru {file}|Importováno {n} přechodů ze souboru {file}
+@plural	Imported {n} pattern from {file}|Imported {n} patterns from {file}	Importován {n} vzorek ze souboru {file}|Importovány {n} vzorky ze souboru {file}|Importováno {n} vzorků ze souboru {file}
 	Data Set: {name}  ({index}/{total})	Datová sada: {name}  ({index}/{total})
 	(none)	(žádná)
 navigator	Zoom	Zvětšení
@@ -3662,6 +3703,34 @@ navigator	Zoom	Zvětšení
 	Light Blue	Světle modrá
 	Light Red	Světle červená
 	Medium Blue	Středně modrá
+	Object Finder	Hledání objektů
+	No object found there — drag a rectangle around it	Nebyl tam nalezen žádný objekt — přetáhněte kolem něj obdélník
 	Remove after each stroke	Odstranit po každém tahu
 	Apply the removal ({key})	Použít odstranění ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Tahy k odstranění: {n} (Enter použije, Esc zruší)
+	Clear Brush Controls	Obnovit ovládací prvky stopy
+	Reset All Locked Settings	Obnovit všechna zamknutá nastavení
+	Copy Texture to Other Tools	Kopírovat texturu do jiných nástrojů
+
+# Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
+	Load Actions…	Načíst akce…
+	Save Actions…	Uložit akce…
+	{name} (Photoshop)	{name} (Photoshop)
+	{message} ({note})	{message} ({note})
+@plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	Načtena {n} akce ze souboru {file}|Načteny {n} akce ze souboru {file}|Načteno {n} akcí ze souboru {file}
+@plural	{n} step has no PhotoCraft equivalent yet|{n} steps have no PhotoCraft equivalent yet	{n} krok zatím nemá v PhotoCraftu obdobu|{n} kroky zatím nemají v PhotoCraftu obdobu|{n} kroků zatím nemá v PhotoCraftu obdobu
+@plural	Saved {n} action to {file}|Saved {n} actions to {file}	Uložena {n} akce do souboru {file}|Uloženy {n} akce do souboru {file}|Uloženo {n} akcí do souboru {file}
+@plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	Vynechán {n} krok bez obdoby v Photoshopu|Vynechány {n} kroky bez obdoby v Photoshopu|Vynecháno {n} kroků bez obdoby v Photoshopu
+
+# Actions panel: set folders, dialog toggle, Insert Stop
+	Insert Stop…	Vložit zastavení…
+	Save Set…	Uložit sadu…
+	Message:	Zpráva:
+	Allow Continue	Povolit pokračování
+	Show dialog during playback	Zobrazit dialog při přehrávání
+	Select an action first	Nejprve vyberte akci
+	Action playback stopped	Přehrávání akce zastaveno
+	Step {step} is waiting for its dialog	Krok {step} čeká na svůj dialog
+@plural	{n} action|{n} actions	{n} akce|{n} akce|{n} akcí
+	Auto Add/Delete	Automaticky přidat/odstranit
+	ICO is limited to 256 × 256 pixels	ICO je omezen na 256 × 256 pixelů

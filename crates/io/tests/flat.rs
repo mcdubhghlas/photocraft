@@ -53,6 +53,9 @@ codec_rt!(tiff_gray8, "tiff", ColorMode::Grayscale, SampleType::U8, false, 0.0);
 codec_rt!(fits_rgb8, "fits", ColorMode::Rgb, SampleType::U8, false, 0.0);
 codec_rt!(fits_gray16, "fit", ColorMode::Grayscale, SampleType::U16, false, 0.0);
 codec_rt!(fits_rgb32, "fits", ColorMode::Rgb, SampleType::F32, false, 0.0);
+codec_rt!(dpx_gray8, "dpx", ColorMode::Grayscale, SampleType::U8, false, 0.0);
+codec_rt!(dpx_rgb16, "dpx", ColorMode::Rgb, SampleType::U16, false, 0.0);
+codec_rt!(dpx_rgba16, "dpx", ColorMode::Rgb, SampleType::U16, true, 0.0);
 
 fn indexed_bmp_8() -> Vec<u8> {
     const FILE_HEADER_SIZE: usize = 14;
@@ -109,6 +112,25 @@ fn fits_header_cards_round_trip_as_text() {
     for kv in &d.metadata.text {
         assert!(back.metadata.text.contains(kv), "{kv:?}: {:?}", back.metadata.text);
     }
+}
+
+/// DPX header fields travel as the document's text metadata and come back on a DPX export at the
+/// chosen bit depth; the transfer characteristic is reported when the frame is opened (#1049).
+#[test]
+fn dpx_header_fields_and_encoding_notes_round_trip_through_the_document() {
+    let mut d = single(ColorMode::Rgb, SampleType::U16, false);
+    d.metadata.text = vec![("DPX:Project".into(), "Reel 7".into()), ("DPX:Transfer".into(), "3".into()), ("DPX:TimeCode".into(), "01:00:00:12".into())];
+    let mut opts = ExportOptions::default();
+    opts.encode.dpx_bits = Some(DpxBits::Bits10);
+    let r = export(&d, "a.dpx", &opts).unwrap();
+    assert!(r.bytes.starts_with(b"SDPX"));
+    assert_eq!(r.bytes[803], 10, "bits per sample");
+    let back = import("a.dpx", &r.bytes).unwrap();
+    for kv in &d.metadata.text {
+        assert!(back.document.metadata.text.contains(kv), "{kv:?}: {:?}", back.document.metadata.text);
+    }
+    assert!(back.warnings.iter().any(|w| w.contains("transfer characteristic: logarithmic (3)")), "{:?}", back.warnings);
+    assert_eq!(back.document.depth, SampleType::U16);
 }
 
 /// EXR stores linear light: a linear document round-trips exactly; an sRGB (untagged) one is
@@ -500,6 +522,73 @@ fn non_srgb_rgb_is_converted_to_srgb_for_formats_without_a_profile() {
         assert!(!r.warnings.iter().any(|w| w.contains("converted to sRGB")), "{:?}", r.warnings);
         let back = import("a.bmp", &r.bytes).unwrap().document;
         assert_colors(&column_pixels(&back, cols.len()), &column_pixels(&d, cols.len()), 0.0, "sRGB bmp");
+    }
+}
+
+/// A linear gray document needs the same display encoding as linear RGB when its profile
+/// cannot be embedded. Check decoded samples against the transfer function independently.
+#[test]
+fn linear_gray_exports_without_profiles_use_display_encoding() {
+    for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+        let mut d = columns(ColorMode::Grayscale, depth, &[&[0.25, 1.0], &[0.5, 1.0]]);
+        d.icc_profile = Some(photocraft_cms::builtin::linear_gray().to_bytes());
+        let stored = column_pixels(&d, 2);
+        for ext in ["tga", "bmp", "gif", "qoi"] {
+            let r = export(&d, ext, &ExportOptions::default()).unwrap();
+            let img = photocraft_codecs::decode(&r.bytes).unwrap();
+            let values = img.to_normalized();
+            let stride = img.layout().channels();
+            for (i, src) in stored.iter().enumerate() {
+                let expected = photocraft_color::convert::linear_to_srgb(src[0]);
+                assert!(
+                    (values[16 * i * stride] - expected).abs() <= 1.5 / 255.0,
+                    "{depth:?} {ext} pixel {i}: got {}, expected {expected}",
+                    values[16 * i * stride]
+                );
+            }
+            assert!(r.warnings.iter().any(|w| w.contains("converted to sGray")), "{depth:?} {ext}: {:?}", r.warnings);
+        }
+    }
+}
+
+#[test]
+fn default_gray_exports_without_profiles_keep_samples() {
+    for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+        for icc in [None, Some(photocraft_cms::Builtin::SGray.profile().to_bytes())] {
+            let mut d = columns(ColorMode::Grayscale, depth, &[&[0.25, 1.0], &[0.5, 1.0]]);
+            d.icc_profile = icc;
+            let stored = column_pixels(&d, 2);
+            for ext in ["tga", "bmp", "gif", "qoi"] {
+                let r = export(&d, ext, &ExportOptions::default()).unwrap();
+                let img = photocraft_codecs::decode(&r.bytes).unwrap();
+                let values = img.to_normalized();
+                let stride = img.layout().channels();
+                for (i, src) in stored.iter().enumerate() {
+                    assert!((values[16 * i * stride] - src[0]).abs() <= 1.0 / 255.0, "{depth:?} {ext} pixel {i}");
+                }
+                assert!(!r.warnings.iter().any(|w| w.contains("converted to sGray")), "{depth:?} {ext}: {:?}", r.warnings);
+            }
+        }
+    }
+}
+
+#[test]
+fn linear_gray_export_preserves_alpha_and_embeddable_profiles() {
+    for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+        let mut d = columns(ColorMode::Grayscale, depth, &[&[0.25, 0.5]]);
+        d.icc_profile = Some(photocraft_cms::builtin::linear_gray().to_bytes());
+        let stored = column_pixels(&d, 1);
+        let r = export(&d, "tga", &ExportOptions::default()).unwrap();
+        let img = photocraft_codecs::decode(&r.bytes).unwrap();
+        assert_eq!(img.layout(), photocraft_codecs::ChannelLayout::GrayA);
+        let values = img.to_normalized();
+        let expected = photocraft_color::convert::linear_to_srgb(stored[0][0]);
+        assert!((values[0] - expected).abs() <= 1.5 / 255.0, "{depth:?}: gray {} vs {expected}", values[0]);
+        assert!((values[1] - stored[0][1]).abs() <= 1.0 / 255.0, "{depth:?}: alpha changed");
+        let r = export(&d, "png", &ExportOptions::default()).unwrap();
+        let back = import("gray.png", &r.bytes).unwrap().document;
+        assert_eq!(back.icc_profile, d.icc_profile, "{depth:?}: PNG keeps linear gray ICC");
+        assert_colors(&column_pixels(&back, 1), &stored, 1.0 / 255.0, "PNG keeps gray samples");
     }
 }
 

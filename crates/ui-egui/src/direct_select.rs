@@ -134,12 +134,17 @@ pub fn shows(app: &PhotocraftApp, mods: Modifiers) -> bool {
         || matches!(app.ui.tool, Tool::AddAnchorPoint | Tool::DeleteAnchorPoint | Tool::ConvertPoint)
 }
 
-/// The paths Direct Selection edits, front first: the targeted vector mask or the active shape
-/// layer's path, then the work path.
-pub(crate) fn candidates(app: &PhotocraftApp) -> Vec<(PathRef, Path)> {
+/// The active paths, front first: the targeted vector mask or the active shape layer's path, then
+/// the work path. The Pen's Auto Add/Delete edits these (`anchor_tools::pen_auto`).
+pub(crate) fn active_paths(app: &PhotocraftApp) -> Vec<(PathRef, Path)> {
     let layer = crate::vector_ui::targeted_vector_mask(app).or_else(|| crate::vector_ui::active_shape_path(app));
     let work = app.session.active().and_then(|st| st.doc.work_path.clone());
-    let mut out: Vec<_> = layer.map(|(id, p)| (PathRef::Layer(id), p)).into_iter().chain(work.map(|p| (PathRef::Work, p))).collect();
+    layer.map(|(id, p)| (PathRef::Layer(id), p)).into_iter().chain(work.map(|p| (PathRef::Work, p))).collect()
+}
+
+/// The paths Direct Selection edits, front first: the active paths, then every visible shape layer.
+pub(crate) fn candidates(app: &PhotocraftApp) -> Vec<(PathRef, Path)> {
+    let mut out = active_paths(app);
     if let Some(st) = app.session.active() {
         for (path, _, l) in st.doc.walk().iter().rev() {
             if !l.visible || !(1..=path.len()).all(|n| st.doc.layer_at(&path[..n]).is_some_and(|a| a.visible)) {

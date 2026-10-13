@@ -4,8 +4,9 @@
 //! drop shadows, outer glows, outer bevel, then the layer itself (content at
 //! fill opacity) with pattern/gradient/colour overlays, satin, inner glows,
 //! inner shadows, strokes and the inner bevel on top. Exterior effects blend
-//! straight into the backdrop with their own modes; the layer and its
-//! interior effects blend with the layer's mode. Emboss and pillow emboss then
+//! straight into the backdrop with their own modes; the layer blends with its
+//! mode and the interior effects paint over the result, or blend with it as a
+//! group (Blend Interior Effects as Group, [`premerges_layer`]). Emboss and pillow emboss then
 //! shade the composited result (inside and outside halves). Layer opacity
 //! applies to the whole stack; fill opacity only to the layer's own pixels.
 //!
@@ -94,6 +95,10 @@ impl Map {
     /// Shifted copy (bilinear), outside reads `outside`.
     fn shifted(&self, dx: f32, dy: f32, outside: f32) -> Map {
         let mut out = Map::new(self.w, self.h, 0.0);
+        // A hostile distance (±1e30, inf, NaN) would overflow the i64 offsets below; no shift beyond
+        // 2^30 px can land inside a map, so clamp (non-finite shifts read as none).
+        let reach = |d: f32| if d.is_finite() { d.clamp(-1.0e9, 1.0e9) } else { 0.0 };
+        let (dx, dy) = (reach(dx), reach(dy));
         let (fx, fy) = (dx.floor(), dy.floor());
         let (ax, ay) = (dx - fx, dy - fy);
         let s = |x: i64, y: i64| if x < 0 || y < 0 || x >= self.w as i64 || y >= self.h as i64 { outside } else { self.v[y as usize * self.w + x as usize] };
@@ -1791,6 +1796,14 @@ fn knock_out_exterior(map: &mut Map, shape: &Map, fill_opacity: f32) {
     }
 }
 
+/// Blend Interior Effects as Group off (Photoshop's default): the layer's mode applies to its
+/// own pixels only, and the interior effects paint over the blended result. The layer is merged
+/// into the backdrop before they paint, so an Overlay colour overlay on a black Color-mode layer
+/// tints the grey beneath it (#3996). Normal-like modes give the same result either way.
+pub fn premerges_layer(layer: &Layer) -> bool {
+    !layer.advanced.blend_interior && !matches!(layer.blend, BlendMode::Normal | BlendMode::PassThrough | BlendMode::Dissolve)
+}
+
 /// Composites `content` (the layer's own pixels over `big`, alpha already
 /// masked, clipped layers applied) plus its effects into `backdrop`.
 pub fn composite_with_effects(layer: &Layer, content: &Buffer, backdrop: &mut Buffer, maps: &FxMaps, layer_bounds: Rect, patterns: &[Pattern]) {
@@ -1889,6 +1902,13 @@ pub(crate) fn composite_with_effects_prepared(
         }
     };
     let mut lay = Buffer { rect: big, px: content.px.iter().zip(&shape.v).enumerate().map(|(i, (p, a))| [p[0], p[1], p[2], lay_alpha(i, p, *a)]).collect() };
+    let gamma = crate::text_gamma(layer);
+    let premerge = premerges_layer(layer);
+    if premerge {
+        for (lp, wp) in lay.px.iter_mut().zip(&work.px) {
+            *lp = psblend::composite_gamma(layer.blend, *wp, *lp, 1.0, gamma);
+        }
+    }
     let rel = |m: Map| -> Map {
         let v = m.v.iter().zip(&shape.v).map(|(m, a)| if inside(*a) { (m / a).min(1.0) } else { 0.0 }).collect();
         Map { w: m.w, h: m.h, v }
@@ -2051,8 +2071,7 @@ pub(crate) fn composite_with_effects_prepared(
     }
 
     // Layer (with interior effects) onto the exterior result, in the layer's mode.
-    let mode = if layer.blend == BlendMode::PassThrough { BlendMode::Normal } else { layer.blend };
-    let gamma = crate::text_gamma(layer);
+    let mode = if premerge || layer.blend == BlendMode::PassThrough { BlendMode::Normal } else { layer.blend };
     for (wp, lp) in work.px.iter_mut().zip(&lay.px) {
         if lp[3] > 0.0 {
             *wp = psblend::composite_gamma(mode, *wp, *lp, 1.0, gamma);
@@ -3106,5 +3125,14 @@ mod tests {
         let noisy = glow_map(&square_shape(40), &g(0.6), false, (0, 0));
         let diff: f32 = plain.v.iter().zip(&noisy.v).map(|(a, b)| (a - b).abs()).sum();
         assert!(diff > 5.0, "glow noise changes the coverage: {diff}");
+    }
+
+    #[test]
+    fn shifting_by_hostile_distances_does_not_overflow() {
+        let m = square_shape(12);
+        for d in [1.0e30, -1.0e30, f32::INFINITY, f32::NAN] {
+            let s = m.shifted(d, d, 0.0);
+            assert_eq!(s.v.len(), 144);
+        }
     }
 }

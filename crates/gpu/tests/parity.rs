@@ -370,7 +370,7 @@ fn prefix_partial_damage_context_occlusion_and_budget_are_conservative() {
     check(&mut g, &doc, "bounded admission");
     assert!(g.comp.composite_cache_bytes() <= 1 << 20);
     assert!(diff_rect(&mut g, &doc, doc.bounds(), "bounded cache keeps its hits").unwrap().prefix_hits > 0);
-    doc.layers[0].blend_if.set(0, [photocraft_doc::BlendRange { black: [40, 40], white: [255, 255] }, photocraft_doc::BlendRange::FULL]);
+    doc.layers[0].advanced.knockout = photocraft_doc::Knockout::Deep;
     assert!(render_to_vec(&mut g.comp, &g.device, &g.queue, &doc, doc.bounds()).is_err());
     assert_eq!(g.comp.composite_cache_bytes(), 0);
 }
@@ -1461,6 +1461,7 @@ fn layer_effects_opacity_fill_blend_and_off_canvas() {
         (0.6, 0.35, BlendMode::Multiply),
         (1.0, 0.5, BlendMode::Screen),
         (0.8, 1.0, BlendMode::Dissolve),
+        (1.0, 1.0, BlendMode::Color),
     ] {
         let mut d = fx_doc(96, 80, SampleType::U8);
         let mut l = blob("fx", d.pixel_format(), 46.0, 40.0, 22.0, [0.2, 0.6, 0.9]);
@@ -1696,6 +1697,78 @@ fn stroke_effects_on_filled_and_stroked_shapes() {
             fx_check(&mut g, &d, &format!("{depth:?} fill {fill_kind} vector stroke {vector_stroke} masked {masked}"));
         }
     }
+}
+
+/// Blend If on the GPU matches `compose::apply_blend_if` (#4395): this-layer and underlying
+/// ranges, hard and split points, per channel, on raster, masked, adjustment and clipped layers,
+/// with channel restrictions, and in grayscale. Hard points are compared on 8-bit documents only:
+/// 16/32-bit layers reach the GPU as RGBA16F, so a value within about a tenth of a level of a
+/// hard point can land on its other side (as with the GPU Threshold adjustment, also compared at
+/// 8 bits); split points are compared at every depth.
+#[test]
+fn blend_if() {
+    use photocraft_doc::BlendRange;
+    let Some(mut g) = gpu() else { return };
+    let r = |b0: u8, b1: u8, w0: u8, w1: u8| BlendRange { black: [b0, b1], white: [w0, w1] };
+    // (name, entry, [this layer, underlying], has a hard point)
+    let cases: [(&str, usize, [BlendRange; 2], bool); 7] = [
+        ("gray this hard", 0, [r(90, 90, 255, 255), BlendRange::FULL], true),
+        ("gray under split", 0, [BlendRange::FULL, r(30, 140, 150, 230)], false),
+        ("red both", 1, [r(0, 60, 200, 200), r(20, 20, 180, 250)], true),
+        ("red both split", 1, [r(0, 60, 190, 230), r(10, 50, 180, 250)], false),
+        ("green white split", 2, [r(0, 0, 100, 220), BlendRange::FULL], false),
+        ("blue under hard", 3, [BlendRange::FULL, r(128, 128, 255, 255)], true),
+        ("everything hidden", 0, [r(255, 255, 0, 0), BlendRange::FULL], true),
+    ];
+    for depth in [SampleType::U8, SampleType::U16, SampleType::F32] {
+        let fmt = PixelFormat { sample: depth, ..PixelFormat::RGBA8 };
+        for (name, e, pair, hard) in cases {
+            if hard && depth != SampleType::U8 {
+                continue;
+            }
+            let mut d = Document::new("bi", Size::new(64, 48), ColorMode::Rgb, depth);
+            d.layers.push(noise_layer("bg", fmt, Rect::new(0, 0, 64, 48), 1, 0.3));
+            let mut l = noise_layer("top", fmt, Rect::new(4, 3, 60, 45), 2, 0.0);
+            l.blend = BlendMode::Multiply;
+            l.opacity = 0.8;
+            l.blend_if.set(e, pair);
+            d.layers.push(l.clone());
+            check(&mut g, &d, &format!("{depth:?} {name}"));
+            // Edits above it reuse the lower stack, Blend If included (prefix checkpoints).
+            let mut above = d.clone();
+            above.layers.push(noise_layer("above", fmt, Rect::new(20, 0, 40, 48), 4, 0.5));
+            check(&mut g, &above, &format!("{depth:?} {name} under another layer"));
+            above.layers[2].opacity = 0.4;
+            let hits = diff_rect(&mut g, &above, above.bounds(), &format!("{depth:?} {name} edit above")).unwrap_or_else(|e| panic!("{e}"));
+            assert!(hits.prefix_hits > 0, "{depth:?} {name}: the edit above reuses the lower stack");
+
+            // Masked, with channel restrictions.
+            let mut m = l.clone();
+            m.mask = Some(mask(Rect::new(0, 0, 64, 48), 5, 1.0));
+            m.excluded_channels = 0b010;
+            d.layers[1] = m;
+            check(&mut g, &d, &format!("{depth:?} {name} masked, channels"));
+
+            // An adjustment judged by its result, and a clipped layer.
+            let mut adj = Layer::new("inv", LayerContent::Adjustment(Adjustment::Invert));
+            adj.blend_if.set(e, pair);
+            d.layers[1] = l.clone();
+            d.layers[1].blend_if = Default::default();
+            d.layers.push(adj);
+            let mut c = noise_layer("clip", fmt, Rect::new(10, 10, 50, 40), 3, 0.2);
+            c.clipped = true;
+            c.blend_if.set(e, pair);
+            d.layers.push(c);
+            check(&mut g, &d, &format!("{depth:?} {name} adjustment, clipped"));
+        }
+    }
+    // Grayscale: the one channel's entries.
+    let mut d = Document::new("g", Size::new(32, 32), ColorMode::Grayscale, SampleType::U8);
+    d.layers.push(noise_layer("bg", PixelFormat::GRAYA8, Rect::new(0, 0, 32, 32), 9, 1.0));
+    let mut l = noise_layer("top", PixelFormat::GRAYA8, Rect::new(0, 0, 32, 32), 10, 1.0);
+    l.blend_if.set(1, [r(60, 120, 255, 255), r(0, 0, 140, 200)]);
+    d.layers.push(l);
+    check(&mut g, &d, "gray blend if");
 }
 
 #[test]

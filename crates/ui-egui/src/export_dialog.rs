@@ -11,7 +11,47 @@ use crate::state::DialogKind;
 use crate::theme::Tokens;
 use crate::{ExportSettings, PhotocraftApp};
 
-const FORMATS: [(&str, &str); 5] = [("png", "PNG"), ("jpg", "JPG"), ("webp", "WebP"), ("tif", "TIFF"), ("tga", "TGA")];
+const FORMATS: [(&str, &str); 6] = [("png", "PNG"), ("jpg", "JPG"), ("webp", "WebP"), ("tif", "TIFF"), ("tga", "TGA"), ("ico", "ICO")];
+
+/// Preferences ▸ remembered dialog settings: Export As writes the settings it was used with
+/// last under its command id and seeds the next dialog from them, as Fill, Liquify and the
+/// filter dialogs do.
+pub(crate) const COMMAND: &str = "file.export.exportAs";
+
+/// The dialog is seeded from the settings it was used with last (see [`COMMAND`]); a value that
+/// no longer matches a control (a hand-edited preferences file) is left at its default.
+fn seed_remembered(app: &PhotocraftApp, f: &mut Map<String, Value>) {
+    let Some(Value::Object(saved)) = app.session.prefs().dialogs.get(COMMAND) else { return };
+    if let Some(v) = saved.get("format").and_then(Value::as_str).filter(|v| FORMATS.iter().any(|(k, _)| k == v)) {
+        f.insert("format".into(), json!(v));
+    }
+    if let Some(v) = saved.get("quality").and_then(Value::as_f64).filter(|v| (1.0..=100.0).contains(v)) {
+        f.insert("quality".into(), json!(v));
+    }
+    if let Some(v) = saved.get("scale").and_then(Value::as_f64).filter(|v| (1.0..=1000.0).contains(v)) {
+        f.insert("scale".into(), json!(v));
+    }
+    for key in ["lossless", "transparency"] {
+        if let Some(v) = saved.get(key).and_then(Value::as_bool) {
+            f.insert(key.into(), json!(v));
+        }
+    }
+    if let Some(v) = saved.get("metadata").and_then(Value::as_str).filter(|v| ["none", "all"].contains(v)) {
+        f.insert("metadata".into(), json!(v));
+    }
+    if let Some(v) = saved.get("tgaBits").and_then(Value::as_str).filter(|v| ["auto", "24", "32"].contains(v)) {
+        f.insert("tgaBits".into(), json!(v));
+    }
+}
+
+/// Record the settings for the next Export As (see [`seed_remembered`]).
+fn remember(app: &mut PhotocraftApp, f: &Map<String, Value>) {
+    const KEYS: [&str; 7] = ["format", "quality", "lossless", "transparency", "scale", "metadata", "tgaBits"];
+    let saved: Map<String, Value> = KEYS.iter().filter_map(|k| f.get(*k).map(|v| ((*k).to_string(), v.clone()))).collect();
+    app.session.prefs.edit(|p| {
+        p.dialogs.insert(COMMAND.into(), Value::Object(saved));
+    });
+}
 
 pub fn open(app: &mut PhotocraftApp) -> Result<u64, String> {
     let st = app.session.active().ok_or("no document")?;
@@ -27,6 +67,7 @@ pub fn open(app: &mut PhotocraftApp) -> Result<u64, String> {
     f.insert("tgaBits".into(), json!("auto"));
     f.insert("__w".into(), json!(st.doc.size.width));
     f.insert("__h".into(), json!(st.doc.size.height));
+    seed_remembered(app, &mut f);
     Ok(app.ui.open_dialog(DialogKind::Command, f))
 }
 
@@ -176,6 +217,9 @@ fn export_document(doc: &Document, f: &Map<String, Value>, max_side: Option<u32>
     // Both dimensions are sent: a scale can leave a 1 px width unchanged while halving the
     // height, and the engine would otherwise keep the aspect ratio from the width alone.
     let (w, h) = scaled_size(doc.size.width as f64, doc.size.height as f64, scale);
+    if s_fmt(f) == "ico" && (w > 256.0 || h > 256.0) && max_side.is_none() {
+        return Err("ICO export is limited to 256 × 256 pixels; reduce the export scale".into());
+    }
     if (w - doc.size.width as f64).abs() >= 1.0 || (h - doc.size.height as f64).abs() >= 1.0 {
         s.execute("image.imageSize", json!({"width": w, "height": h, "resample": if max_side.is_some() { "bilinear" } else { "bicubic" }}))
             .map_err(|e| e.to_string())?;
@@ -240,7 +284,8 @@ fn settings(f: &Map<String, Value>) -> ExportSettings {
 /// Estimated size (bytes) from a ≤512 px proxy encode, scaled by pixel count.
 fn estimate(app: &PhotocraftApp, doc: &Document, f: &Map<String, Value>) -> Option<u64> {
     let export = app.services.export.as_ref()?;
-    let proxy = export_document(doc, f, Some(512)).ok()?;
+    let max = if s_fmt(f) == "ico" { 256 } else { 512 };
+    let proxy = export_document(doc, f, Some(max)).ok()?;
     let (bytes, _) = export(&proxy, &format!("estimate.{}", s_fmt(f)), &settings(f)).ok()?;
     let scale = n(f, "scale", 100.0) / 100.0;
     let full = doc.size.width as f64 * scale * doc.size.height as f64 * scale;
@@ -310,6 +355,9 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
             let (bw, bh) = (n(f, "__w", f64::from(doc.size.width)), n(f, "__h", f64::from(doc.size.height)));
             let (w, h) = scaled_size(bw, bh, f64::from(sc) / 100.0);
             ui.label(egui::RichText::new(format!("{w} × {h} px")).color(t.text_dim).size(11.5));
+            if fmt == "ico" && (w > 256.0 || h > 256.0) {
+                ui.label(egui::RichText::new(tl!("ICO is limited to 256 × 256 pixels")).color(t.warning));
+            }
         });
         ui.add_space(12.0);
         // Right: preview + estimated size.
@@ -355,6 +403,7 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
 
 /// Export with the dialog's settings: choose a path, render, encode, write.
 pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value, String> {
+    remember(app, f);
     if let Some(layers) = f.get("__layers").and_then(Value::as_array) {
         let ids: Vec<_> = layers.iter().filter_map(Value::as_u64).map(photocraft_doc::LayerId).collect();
         return confirm_layers(app, f, &ids);
@@ -450,7 +499,70 @@ fn quick_export(app: &mut PhotocraftApp, p: Value) -> Result<Value, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn ico_export_is_available_and_rejects_oversize_output() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 300, "height": 200})).unwrap();
+        let mut f = Map::new();
+        f.insert("format".into(), json!("ico"));
+        f.insert("scale".into(), json!(100));
+        assert!(FORMATS.iter().any(|(ext, _)| *ext == "ico"));
+        assert!(export_document(&app.session.active().unwrap().doc, &f, None).err().is_some_and(|e| e.contains("256")));
+        f.insert("scale".into(), json!(50));
+        let resized = export_document(&app.session.active().unwrap().doc, &f, None).unwrap();
+        assert_eq!((resized.size.width, resized.size.height), (150, 100));
+    }
+
     use super::*;
+
+    /// Export As reopens with the settings it was used with last (Preferences ▸ remembered
+    /// dialog settings), and a value no control accepts keeps its default.
+    #[test]
+    fn export_as_opens_with_the_settings_used_last() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        app.run("file.new", json!({"width": 20, "height": 10})).unwrap();
+        app.session.prefs.edit(|p| {
+            p.dialogs.insert(
+                COMMAND.into(),
+                json!({"format": "jpg", "quality": 88, "scale": 37, "transparency": false, "metadata": "all", "tgaBits": "24", "lossless": true}),
+            );
+        });
+        let id = open(&mut app).unwrap();
+        let f = &app.ui.dialog_mut(id).unwrap().fields;
+        assert_eq!(f["format"], "jpg");
+        assert_eq!(f["quality"], json!(88.0));
+        assert_eq!(f["scale"], json!(37.0));
+        assert_eq!(f["transparency"], false);
+        assert_eq!(f["metadata"], "all");
+        assert_eq!(f["tgaBits"], "24");
+
+        app.session.prefs.edit(|p| {
+            p.dialogs.insert(COMMAND.into(), json!({"format": "nope", "scale": 0, "metadata": "sometimes"}));
+        });
+        let id = open(&mut app).unwrap();
+        let f = &app.ui.dialog_mut(id).unwrap().fields;
+        assert_eq!(f["format"], "png");
+        assert_eq!(f["scale"], 100);
+        assert_eq!(f["metadata"], "none");
+    }
+
+    /// Only the dialog's own settings are remembered: not the destination, the document size or
+    /// the layer the dialog was opened with.
+    #[test]
+    fn remembering_keeps_only_the_dialog_settings() {
+        let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+        let mut f = Map::new();
+        f.insert("format".into(), json!("webp"));
+        f.insert("scale".into(), json!(50));
+        f.insert("path".into(), json!("/tmp/x.webp"));
+        f.insert("__w".into(), json!(1200));
+        f.insert("__layer".into(), json!(3));
+        remember(&mut app, &f);
+        let saved = app.session.prefs().dialogs.get(COMMAND).cloned().unwrap();
+        assert_eq!(saved["format"], "webp");
+        assert_eq!(saved["scale"], 50);
+        assert!(saved.get("path").is_none() && saved.get("__w").is_none() && saved.get("__layer").is_none());
+    }
 
     #[test]
     fn export_document_scales_height_when_rounded_width_is_unchanged() {

@@ -19,7 +19,17 @@
 # ArtCraft, OpenType, Lab ...) stay as they are; RGB/CMYK read RVB/CMJN; the trailing "…" of
 # dialog commands is kept.
 
+# Channel Options and New Spot Channel (#3761)
+	Channel Color	Couleur de la couche
+	Color Indicates:	La couleur indique :
+	Solidity:	Solidité :
+	Ink Characteristics	Caractéristiques de l’encre
+
 # Guide layout dialog
+
+# Custom print paper (#3820)
+	Paper Width	Largeur du papier
+	Paper Height	Hauteur du papier
 	Rows	Lignes
 	Number	Nombre
 	Margin	Marge
@@ -75,6 +85,8 @@
 	Save	Enregistrer
 	Save As…	Enregistrer sous…
 	Save a Copy…	Enregistrer une copie…
+	{name} can't keep everything in this document	{name} ne peut pas conserver tout le contenu de ce document
+	Choose a format that keeps it, such as Photoshop (PSD), or save a copy.	Choisissez un format qui conserve tout, comme Photoshop (PSD), ou enregistrez une copie.
 	Revert	Revenir à la version enregistrée
 	Export	Exporter
 	Quick Export as PNG	Exportation rapide au format PNG
@@ -112,6 +124,14 @@
 	Script Events Manager…	Gestionnaire d'événements de script…
 	Import	Importer
 	Browse…	Parcourir…
+	Source Files	Fichiers source
+	Use:	Utiliser :
+	Files	Fichiers
+	Folder	Dossier
+	Add Open Files	Ajouter les fichiers ouverts
+	Sort By Name	Trier par nom
+	Attempt to Automatically Align Source Images	Tenter d'aligner automatiquement les images source
+	Create Smart Object after Loading Layers	Créer un objet intelligent après le chargement des calques
 	Reveal in Finder	Afficher dans le Finder
 	Show in Explorer	Afficher dans l'Explorateur
 	Show in Folder	Afficher dans le dossier
@@ -136,6 +156,8 @@
 	Search…	Rechercher…
 	Check Spelling…	Vérifier l'orthographe…
 	Find and Replace Text…	Rechercher et remplacer du texte…
+	Add to Dictionary	Ajouter au dictionnaire
+	No Spelling Suggestions	Aucune suggestion orthographique
 	Fill…	Remplir…
 	Stroke…	Contourner…
 	Content-Aware Fill…	Remplissage d'après le contenu…
@@ -148,6 +170,8 @@
 	Again	Répéter
 	Scale	Mise à l'échelle
 	Rotate	Rotation
+	Set horizontal skew	Définir l'inclinaison horizontale
+	Set vertical skew	Définir l'inclinaison verticale
 	Skew	Inclinaison
 	Distort	Déformation
 	Perspective	Perspective
@@ -716,6 +740,10 @@
 	Breeze Dark Theme	Thème Breeze sombre
 	Breeze light	Breeze clair
 	Breeze Light Theme	Thème Breeze clair
+	Soft dark	Doux sombre
+	Soft light	Doux clair
+	Soft Dark Theme	Thème doux sombre
+	Soft Light Theme	Thème doux clair
 	Next Theme	Thème suivant
 	Actions	Actions
 	Brush Settings	Paramètres du pinceau
@@ -814,6 +842,9 @@
 	Appearance	Apparence
 	Appearance (Layer Style)	Apparence (style de calque)
 	Apply Layer Mask	Appliquer le masque de calque
+	Add Mask to Selection	Ajouter le masque à la sélection
+	Subtract Mask from Selection	Soustraire le masque de la sélection
+	Intersect Mask with Selection	Intersection du masque et de la sélection
 	Apply Per Tip	Appliquer par pointe
 	Apply next selected layer comp	Appliquer la composition de calques sélectionnée suivante
 	Apply previous selected layer comp	Appliquer la composition de calques sélectionnée précédente
@@ -834,6 +865,12 @@
 	Baseline shift	Décalage de la ligne de base
 	Basic	De base
 	Before (Y)	Avant (Y)
+	Save Settings…	Enregistrer les paramètres…
+	Load Settings…	Charger les paramètres…
+	Save these settings as a Camera Raw .xmp file	Enregistrer ces paramètres dans un fichier .xmp Camera Raw
+	Load settings from a Camera Raw .xmp file	Charger les paramètres d’un fichier .xmp Camera Raw
+	Loaded Camera Raw settings from {file}	Paramètres Camera Raw chargés depuis {file}
+	Loaded Camera Raw settings from {file} ({n} not supported)	Paramètres Camera Raw chargés depuis {file} ({n} non pris en charge)
 	Begin recording	Démarrer l'enregistrement
 	Bend:	Courbure :
 	Bicubic	Bicubique
@@ -864,6 +901,7 @@
 	Camera Raw isn't open	Camera Raw n'est pas ouvert
 	Cancel	Annuler
 	Cancel (Esc)	Annuler (Échap)
+	Manage submitted jobs in the system print queue	Gérer les tâches soumises dans la file d’impression du système
 	Cancel any current edits (Esc)	Annuler les modifications en cours (Échap)
 	Cancel current crop operation  (Esc)	Annuler le recadrage en cours  (Échap)
 	Cancel transform (Esc)	Annuler la transformation (Échap)
@@ -1129,6 +1167,9 @@
 	Ignore All	Tout ignorer
 	Image Size	Taille de l'image
 	Import Brushes…	Importer des pinceaux…
+	Gradient Preset Options	Options des paramètres prédéfinis de dégradé
+	Import .GRD	Importer .GRD
+	Choose a gradient file (.grd).	Choisissez un fichier de dégradés (.grd).
 	Import brushes (.abr)	Importer des pinceaux (.abr)
 	Import Presets	Importer des préréglages
 	Imported	Importé
@@ -2050,6 +2091,11 @@
 	Rename Brush…	Renommer le pinceau…
 	Delete Brush	Supprimer le pinceau
 	New Brush Preset…	Nouveau préréglage de pinceau…
+	Capture Brush Size in Preset	Capturer la taille du pinceau dans le préréglage
+	Include Tool Settings	Inclure les paramètres de l'outil
+	Include Color	Inclure la couleur
+	Enter a name for the brush preset	Saisissez un nom pour le préréglage de pinceau
+	A brush preset with this name already exists	Un préréglage de pinceau porte déjà ce nom
 	Brush Preset Options	Options des préréglages de pinceau
 	Group name	Nom du groupe
 	Brush name	Nom du pinceau
@@ -2744,6 +2790,7 @@ cameraRaw	Blending	Fusion
 	Click to pick · Esc to cancel	Cliquer pour choisir · Échap pour annuler
 	Pick a screen pixel or press Esc to cancel	Choisissez un pixel à l’écran ou appuyez sur Échap pour annuler
 	Scroll to zoom	Défiler pour zoomer
+	Drag to pan · Scroll to zoom · Double-click to fit	Glisser pour déplacer · Défiler pour zoomer · Double-cliquer pour ajuster
 	Show/Hide All Panels	Afficher/masquer tous les panneaux
 	Show/Hide Panels	Afficher/masquer les panneaux
 	Could not open	Impossible d’ouvrir
@@ -3049,6 +3096,34 @@ curves	Smooth	Lisser
 	Light Red	Rouge clair
 	Medium Blue	Bleu moyen
 	Light Gray	Gris clair
+	Object Finder	Outil de recherche d’objets
+	No object found there — drag a rectangle around it	Aucun objet trouvé ici — tracez un rectangle autour
 	Remove after each stroke	Supprimer après chaque trait
 	Apply the removal ({key})	Appliquer la suppression ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Traits à supprimer : {n} (Entrée applique, Échap annule)
+	Clear Brush Controls	Effacer les commandes de pinceau
+	Reset All Locked Settings	Réinitialiser tous les paramètres verrouillés
+	Copy Texture to Other Tools	Copier la texture dans d'autres outils
+
+# Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
+	Load Actions…	Charger des actions…
+	Save Actions…	Enregistrer les actions…
+	{name} (Photoshop)	{name} (Photoshop)
+	{message} ({note})	{message} ({note})
+@plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	{n} action chargée depuis {file}|{n} actions chargées depuis {file}
+@plural	{n} step has no PhotoCraft equivalent yet|{n} steps have no PhotoCraft equivalent yet	{n} étape n’a pas encore d’équivalent dans PhotoCraft|{n} étapes n’ont pas encore d’équivalent dans PhotoCraft
+@plural	Saved {n} action to {file}|Saved {n} actions to {file}	{n} action enregistrée dans {file}|{n} actions enregistrées dans {file}
+@plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	{n} étape sans équivalent Photoshop omise|{n} étapes sans équivalent Photoshop omises
+
+# Actions panel: set folders, dialog toggle, Insert Stop
+	Insert Stop…	Insérer un arrêt…
+	Save Set…	Enregistrer l’ensemble…
+	Message:	Message :
+	Allow Continue	Autoriser la poursuite
+	Show dialog during playback	Afficher la boîte de dialogue pendant l’exécution
+	Select an action first	Sélectionnez d’abord une action
+	Action playback stopped	Exécution de l’action arrêtée
+	Step {step} is waiting for its dialog	L’étape {step} attend sa boîte de dialogue
+@plural	{n} action|{n} actions	{n} action|{n} actions
+	Auto Add/Delete	Ajout/suppr. auto
+	ICO is limited to 256 × 256 pixels	Le format ICO est limité à 256 × 256 pixels

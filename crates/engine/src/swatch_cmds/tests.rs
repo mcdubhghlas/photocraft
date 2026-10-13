@@ -14,10 +14,11 @@ fn export_bytes(s: &mut Session, p: Value) -> Vec<u8> {
 fn defaults_and_listing() {
     let mut s = Session::new();
     let r = s.execute("swatches.list", json!({})).unwrap();
-    assert_eq!(r["count"], 40);
+    assert_eq!(r["count"], 46);
     assert_eq!(r["groups"][0]["name"], "Grays");
     assert_eq!(r["groups"][0]["swatches"][0], json!({"name": "Black", "model": "rgb", "values": [0.0, 0.0, 0.0], "hex": "#000000"}));
-    assert_eq!(r["groups"][2]["swatches"][0]["hex"], "#e62828");
+    assert_eq!(r["groups"][1]["swatches"][2]["hex"], "#00ff00", "RGB Green is exact (#4302)");
+    assert_eq!(r["groups"][3]["swatches"][0]["hex"], "#e62828");
 }
 
 #[test]
@@ -67,7 +68,7 @@ fn rename_delete_move_and_groups() {
     assert_eq!(s.presets.swatches[0].items[0].name, "White");
     let r = s.execute("swatches.move", json!({"swatch": "White", "to": "Dark", "position": 1})).unwrap();
     assert_eq!(r, json!({"group": "Dark", "position": 1}));
-    assert_eq!(s.presets.swatches[3].items[1].name, "White");
+    assert_eq!(s.presets.swatches[4].items[1].name, "White");
     // Out-of-range positions clamp.
     let r = s.execute("swatches.move", json!({"swatch": "White", "position": 999_999})).unwrap();
     assert_eq!(r["position"], 10);
@@ -80,21 +81,21 @@ fn rename_delete_move_and_groups() {
     assert!(s.execute("swatches.renameGroup", json!({"group": "Favourites", "name": "Dark"})).is_err());
     let r = s.execute("swatches.deleteGroup", json!({"group": "Favourites", "keepSwatches": true})).unwrap();
     assert_eq!(r["kept"], 2);
-    assert!(s.presets.swatches[3].items.iter().any(|i| i.name == "Red"), "kept in the group above");
+    assert!(s.presets.swatches[4].items.iter().any(|i| i.name == "Red"), "kept in the group above");
     s.execute("swatches.deleteGroup", json!({"group": "Mine 1"})).unwrap();
     // Delete several by name, and one by index.
     let r = s.execute("swatches.delete", json!({"swatch": ["Red", "Blue", "Red"]})).unwrap();
     assert_eq!(r["deleted"].as_array().unwrap().len(), 2);
     let r = s.execute("swatches.delete", json!({"index": 0})).unwrap();
     assert_eq!(r["deleted"], json!(["Ink Black"]));
-    assert_eq!(names(&s).len(), 37);
+    assert_eq!(names(&s).len(), 43);
     // Reset restores the defaults; append adds them again with unique names.
     s.execute("swatches.reset", json!({})).unwrap();
-    assert_eq!(names(&s).len(), 40);
+    assert_eq!(names(&s).len(), 46);
     s.execute("swatches.reset", json!({"append": true})).unwrap();
-    assert_eq!(names(&s).len(), 80);
+    assert_eq!(names(&s).len(), 92);
     assert!(names(&s).contains(&"Black 2".to_string()));
-    assert_eq!(s.presets.swatches[4].name, "Grays 1");
+    assert_eq!(s.presets.swatches[5].name, "Grays 1");
 }
 
 #[test]
@@ -220,7 +221,7 @@ fn bad_params_fail_gracefully() {
         ("swatches.delete", json!({"swatch": "Nope"})),
         ("swatches.delete", json!({"swatch": ["Red", 5]})),
         ("swatches.delete", json!({"swatch": ["Red", "Nope"]})),
-        ("swatches.delete", json!({"index": 40})),
+        ("swatches.delete", json!({"index": 46})),
         ("swatches.delete", json!({"index": "0"})),
         ("swatches.delete", json!({"swatch": "Red", "group": "Grays"})),
         ("swatches.rename", json!({"swatch": "Red"})),
@@ -264,7 +265,7 @@ fn bad_params_fail_gracefully() {
     assert_eq!(s.presets.swatches, before, "failed commands change nothing");
     // Empty library: the swatch commands are disabled, not crashing.
     s.execute("swatches.delete", json!({"swatch": names(&s)})).unwrap();
-    for g in ["Grays", "Pastel", "Pure", "Dark"] {
+    for g in ["Grays", "RGB", "Pastel", "Pure", "Dark"] {
         s.execute("swatches.deleteGroup", json!({"group": g})).unwrap();
     }
     for id in ["swatches.delete", "swatches.rename", "swatches.move", "swatches.use", "swatches.export", "swatches.renameGroup", "swatches.deleteGroup"] {
@@ -288,4 +289,31 @@ fn library_limits() {
     cap_library(&mut g);
     assert_eq!(total(&g), MAX_SWATCHES);
     assert_eq!(g[0].name.chars().count(), MAX_NAME);
+}
+
+/// A value beyond f32 range used to pass the finite check, become inf as f32 and wrap to a NaN
+/// hue, which the prefs file stores as `null`; the next launch then dropped every saved preset.
+#[test]
+fn values_beyond_f32_range_are_rejected_so_presets_survive_a_restart() {
+    let mut s = Session::new();
+    s.execute("swatches.add", json!({"name": "Keep me", "color": {"model": "lab", "values": [40, 12.5, -7.25]}})).unwrap();
+    let before = s.presets.swatches.clone();
+    for (model, values) in [
+        ("hsb", json!([1e39, 100, 100])),
+        ("hsb", json!([-1e39, 100, 100])),
+        ("rgb", json!([1e39, 0, 0])),
+        ("cmyk", json!([0, 0, 0, -1e300])),
+        ("lab", json!([50, 1e39, 0])),
+        ("gray", json!([1e39])),
+    ] {
+        let r = s.execute("swatches.add", json!({"name": "Bad", "color": {"model": model, "values": values}}));
+        assert!(matches!(r, Err(crate::EngineError::BadParams { .. })), "{model} {values}: {r:?}");
+    }
+    assert_eq!(s.presets.swatches, before, "a rejected colour leaves the library unchanged");
+    // The largest f32 hue is still accepted and stays finite.
+    s.execute("swatches.add", json!({"name": "Big hue", "color": {"model": "hsb", "values": [f64::from(f32::MAX), 100, 100]}})).unwrap();
+    let mut t = Session::new();
+    t.load_prefs_json(&s.prefs_to_json()).unwrap();
+    assert_eq!(t.presets.swatches, s.presets.swatches, "user swatches survive a save and reload");
+    assert!(names(&t).contains(&"Keep me".to_string()));
 }

@@ -15,7 +15,19 @@
 # way. Product and technology names (PhotoCraft, ArtCraft, OpenType, CMYK, Lab ...) stay in Latin
 # letters; the trailing "…" of dialog commands is kept. Plural rule: one|other (n != 1 -> other).
 
+# Channel Options and New Spot Channel (#3761)
+	Channel Color	Kanalfarbe
+	Color Indicates:	Farbe kennzeichnet:
+	Solidity:	Solidität:
+	Masked Areas	Maskierte Bereiche
+	Selected Areas	Ausgewählte Bereiche
+	Ink Characteristics	Farbeigenschaften
+
 # Guide layout dialog
+
+# Custom print paper (#3820)
+	Paper Width	Papierbreite
+	Paper Height	Papierhöhe
 	Columns	Spalten
 	Rows	Zeilen
 	Number	Anzahl
@@ -73,6 +85,8 @@
 	Save	Speichern
 	Save As…	Speichern unter…
 	Save a Copy…	Kopie speichern…
+	{name} can't keep everything in this document	{name} kann nicht alles in diesem Dokument erhalten
+	Choose a format that keeps it, such as Photoshop (PSD), or save a copy.	Wählen Sie ein Format, das alles erhält, etwa Photoshop (PSD), oder speichern Sie eine Kopie.
 	Revert	Zurücksetzen
 	Export	Exportieren
 	Quick Export as PNG	Schnellexport als PNG
@@ -110,6 +124,14 @@
 	Script Events Manager…	Skriptereignis-Manager…
 	Import	Importieren
 	Browse…	Durchsuchen…
+	Source Files	Quelldateien
+	Use:	Verwenden:
+	Files	Dateien
+	Folder	Ordner
+	Add Open Files	Geöffnete Dateien hinzufügen
+	Sort By Name	Nach Namen sortieren
+	Attempt to Automatically Align Source Images	Quellbilder nach Möglichkeit automatisch ausrichten
+	Create Smart Object after Loading Layers	Nach dem Laden der Ebenen Smart-Objekt erstellen
 	Reveal in Finder	Im Finder anzeigen
 	Show in Explorer	Im Explorer anzeigen
 	Show in Folder	Im Ordner anzeigen
@@ -134,6 +156,8 @@
 	Search…	Suchen…
 	Check Spelling…	Rechtschreibung prüfen…
 	Find and Replace Text…	Text suchen und ersetzen…
+	Add to Dictionary	Zum Wörterbuch hinzufügen
+	No Spelling Suggestions	Keine Rechtschreibvorschläge
 	Fill…	Füllen…
 	Stroke…	Nachziehen…
 	Content-Aware Fill…	Inhaltsbasiert füllen…
@@ -148,6 +172,8 @@
 	Transform Again on a Copy	Erneut auf Kopie transformieren
 	Scale	Skalieren
 	Rotate	Drehen
+	Set horizontal skew	Horizontale Neigung festlegen
+	Set vertical skew	Vertikale Neigung festlegen
 	Skew	Neigen
 	Distort	Verzerren
 	Perspective	Perspektive
@@ -719,6 +745,10 @@
 	Breeze Dark Theme	Breeze-Design (Dunkel)
 	Breeze light	Breeze hell
 	Breeze Light Theme	Breeze-Design (Hell)
+	Soft dark	Weich dunkel
+	Soft light	Weich hell
+	Soft Dark Theme	Weiches Design (Dunkel)
+	Soft Light Theme	Weiches Design (Hell)
 	Next Theme	Nächstes Design
 	Actions	Aktionen
 	Brush Settings	Pinseleinstellungen
@@ -817,6 +847,9 @@
 	Appearance	Erscheinungsbild
 	Appearance (Layer Style)	Erscheinungsbild (Ebenenstil)
 	Apply Layer Mask	Ebenenmaske anwenden
+	Add Mask to Selection	Maske zur Auswahl hinzufügen
+	Subtract Mask from Selection	Maske von Auswahl subtrahieren
+	Intersect Mask with Selection	Schnittmenge von Maske und Auswahl
 	Apply Per Tip	Pro Pinselspitze anwenden
 	Apply next selected layer comp	Nächste ausgewählte Ebenenkomposition anwenden
 	Apply previous selected layer comp	Vorherige ausgewählte Ebenenkomposition anwenden
@@ -837,6 +870,12 @@
 	Baseline shift	Grundlinienverschiebung
 	Basic	Grundeinstellungen
 	Before (Y)	Davor (Y)
+	Save Settings…	Einstellungen speichern…
+	Load Settings…	Einstellungen laden…
+	Save these settings as a Camera Raw .xmp file	Diese Einstellungen als Camera-Raw-.xmp-Datei speichern
+	Load settings from a Camera Raw .xmp file	Einstellungen aus einer Camera-Raw-.xmp-Datei laden
+	Loaded Camera Raw settings from {file}	Camera-Raw-Einstellungen aus {file} geladen
+	Loaded Camera Raw settings from {file} ({n} not supported)	Camera-Raw-Einstellungen aus {file} geladen ({n} nicht unterstützt)
 	Begin recording	Aufnahme starten
 	Bend:	Biegung:
 	Bicubic	Bikubisch
@@ -868,6 +907,7 @@
 	Cancel	Abbrechen
 	Reset	Zurücksetzen
 	Cancel (Esc)	Abbrechen (Esc)
+	Manage submitted jobs in the system print queue	Übermittelte Aufträge in der Druckwarteschlange des Systems verwalten
 	Cancel any current edits (Esc)	Aktuelle Bearbeitungen abbrechen (Esc)
 	Cancel current crop operation  (Esc)	Aktuelle Freistellung abbrechen  (Esc)
 	Cancel transform (Esc)	Transformation abbrechen (Esc)
@@ -1141,6 +1181,9 @@
 	Ignore All	Alle ignorieren
 	Image Size	Bildgröße
 	Import Brushes…	Pinsel importieren…
+	Gradient Preset Options	Verlaufsvorgabenoptionen
+	Import .GRD	.GRD importieren
+	Choose a gradient file (.grd).	Wählen Sie eine Verlaufsdatei (.grd).
 	Import brushes (.abr)	Pinsel (.abr) importieren
 	Import Presets	Vorgaben importieren
 	Imported	Importiert
@@ -2068,6 +2111,11 @@
 	Rename Brush…	Pinsel umbenennen…
 	Delete Brush	Pinsel löschen
 	New Brush Preset…	Neue Pinselvorgabe…
+	Capture Brush Size in Preset	Pinselgröße in Vorgabe erfassen
+	Include Tool Settings	Werkzeugeinstellungen einschließen
+	Include Color	Farbe einschließen
+	Enter a name for the brush preset	Geben Sie einen Namen für die Pinselvorgabe ein
+	A brush preset with this name already exists	Eine Pinselvorgabe mit diesem Namen ist bereits vorhanden
 	Brush Preset Options	Pinselvorgaben-Optionen
 	Group name	Gruppenname
 	Brush name	Pinselname
@@ -2359,6 +2407,7 @@
 	Click to pick · Esc to cancel	Klicken zum Auswählen · Esc zum Abbrechen
 	Pick a screen pixel or press Esc to cancel	Ein Bildschirmpixel auswählen oder mit Esc abbrechen
 	Scroll to zoom	Zum Zoomen scrollen
+	Drag to pan · Scroll to zoom · Double-click to fit	Ziehen zum Verschieben · Scrollen zum Zoomen · Doppelklick zum Einpassen
 	Show/Hide All Panels	Alle Bedienfelder ein-/ausblenden
 	Show/Hide Panels	Bedienfelder ein-/ausblenden
 	Could not open	Öffnen nicht möglich
@@ -2688,6 +2737,34 @@ curves	Smooth	Glätten
 	Light Red	Hellrot
 	Medium Blue	Mittelblau
 	Light Gray	Hellgrau
+	Object Finder	Objektsucher
+	No object found there — drag a rectangle around it	Dort wurde kein Objekt gefunden — ziehen Sie ein Rechteck darum
 	Remove after each stroke	Nach jedem Strich entfernen
 	Apply the removal ({key})	Entfernen anwenden ({key})
 	Strokes to remove: {n} (Enter applies, Esc cancels)	Striche zum Entfernen: {n} (Eingabe wendet an, Esc bricht ab)
+	Clear Brush Controls	Pinselsteuerungen löschen
+	Reset All Locked Settings	Alle gesperrten Einstellungen zurücksetzen
+	Copy Texture to Other Tools	Struktur auf andere Werkzeuge kopieren
+
+# Actions panel: Load/Save Actions (.atn) and kept Photoshop steps
+	Load Actions…	Aktionen laden…
+	Save Actions…	Aktionen speichern…
+	{name} (Photoshop)	{name} (Photoshop)
+	{message} ({note})	{message} ({note})
+@plural	Loaded {n} action from {file}|Loaded {n} actions from {file}	{n} Aktion aus {file} geladen|{n} Aktionen aus {file} geladen
+@plural	{n} step has no PhotoCraft equivalent yet|{n} steps have no PhotoCraft equivalent yet	{n} Schritt hat noch keine Entsprechung in PhotoCraft|{n} Schritte haben noch keine Entsprechung in PhotoCraft
+@plural	Saved {n} action to {file}|Saved {n} actions to {file}	{n} Aktion in {file} gespeichert|{n} Aktionen in {file} gespeichert
+@plural	{n} step with no Photoshop equivalent left out|{n} steps with no Photoshop equivalent left out	{n} Schritt ohne Photoshop-Entsprechung ausgelassen|{n} Schritte ohne Photoshop-Entsprechung ausgelassen
+
+# Actions panel: set folders, dialog toggle, Insert Stop
+	Insert Stop…	Stopp einfügen…
+	Save Set…	Set speichern…
+	Message:	Meldung:
+	Allow Continue	Fortsetzen erlauben
+	Show dialog during playback	Dialog bei der Wiedergabe anzeigen
+	Select an action first	Wählen Sie zuerst eine Aktion aus
+	Action playback stopped	Aktionswiedergabe angehalten
+	Step {step} is waiting for its dialog	Schritt {step} wartet auf seinen Dialog
+@plural	{n} action|{n} actions	{n} Aktion|{n} Aktionen
+	Auto Add/Delete	Autom. hinzuf./löschen
+	ICO is limited to 256 × 256 pixels	ICO ist auf 256 × 256 Pixel begrenzt
