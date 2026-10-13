@@ -6,6 +6,7 @@
 
 #include "common.h"
 
+#include "codecs/format.h"
 #include "io/exr_parts.h"
 
 static pc_buf load(const char *dir, const char *name)
@@ -215,6 +216,13 @@ static void test_import_only_deep_refused(void)
 
 int main(int argc, char **argv)
 {
+    /* Every test here decodes OpenEXR; skip the whole file when the build has no EXR support
+     * (WITH_EXR=0). The -DPC_NO_EXR define reaches only src/codecs and tests/codecs, not
+     * tests/io, so detect it at runtime like test_flat does rather than via the macro. */
+    if (!pc_cformat_caps(PC_CF_EXR).read) {
+        (void)printf("  (skipped: built without OpenEXR)\n");
+        return pc_t_finish();
+    }
     RUN(test_entries_list_parts_and_cryptomatte);
     RUN(test_entries_refuses_only_deep);
 #ifndef PC_NO_EXR

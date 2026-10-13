@@ -66,8 +66,12 @@ static bool dq_reserve(deque *q)
     if (nd == NULL) {
         return false;
     }
-    for (i = 0; i < q->len; i++) {
-        nd[i] = q->d[(q->head + i) % q->cap];
+    /* q->cap is 0 only while the deque is empty (q->len == 0 too), so this loop never runs
+     * then; the guard makes that explicit for the static analyzer (no % by zero). */
+    if (q->cap != 0) {
+        for (i = 0; i < q->len; i++) {
+            nd[i] = q->d[(q->head + i) % q->cap];
+        }
     }
     free(q->d);
     q->d = nd;

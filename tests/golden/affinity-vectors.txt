@@ -34,6 +34,78 @@ doc afdesignload/test_path.afdesign e72295f508544ee2 spreads 1 nodes 9 warnings 
 preview afdesignload/test_path.afdesign 512x512 29548
 truncate afdesignload/test_path.afdesign 76d98ba10c302064
 mutate afdesignload/test_path.afdesign 355dad5ec59bf3fd
+doc affinity-samples/01-layer-effects.af 3e6364077f5385e5 spreads 1 nodes 38 warnings 3
+preview affinity-samples/01-layer-effects.af 512x341 73096
+truncate affinity-samples/01-layer-effects.af 84e64a333e22b15f
+mutate affinity-samples/01-layer-effects.af 46b399073c41787e
+doc affinity-samples/02-adjustment-layers.af 607aece6471cbf77 spreads 1 nodes 42 warnings 2
+preview affinity-samples/02-adjustment-layers.af 512x341 13764
+truncate affinity-samples/02-adjustment-layers.af bf449e1ea082cb83
+mutate affinity-samples/02-adjustment-layers.af 7d505b742f0fada8
+doc affinity-samples/03-brush-strokes.af 61e127ff7b0ca3bc spreads 1 nodes 14 warnings 2
+preview affinity-samples/03-brush-strokes.af 512x341 28669
+truncate affinity-samples/03-brush-strokes.af 81bc99d78321b779
+mutate affinity-samples/03-brush-strokes.af 74ab1be3ac5d0d0b
+doc affinity-samples/04-master-page.af 980d322667e7f7ea spreads 3 nodes 30 warnings 3
+preview affinity-samples/04-master-page.af 362x512 7060
+truncate affinity-samples/04-master-page.af c3aa16cc383b0407
+mutate affinity-samples/04-master-page.af bac9a5e31f4d0c6e
+doc affinity-samples/05-symbols.af 671a5895994c5362 spreads 1 nodes 37 warnings 2
+preview affinity-samples/05-symbols.af 512x341 25485
+truncate affinity-samples/05-symbols.af 604959466215bc3f
+mutate affinity-samples/05-symbols.af fce26ef3f7207db9
+doc affinity-samples/06-special-shapes.af a3fc604966b700c1 spreads 1 nodes 50 warnings 1
+preview affinity-samples/06-special-shapes.af 512x341 37610
+truncate affinity-samples/06-special-shapes.af e0bacfa99d7b4557
+mutate affinity-samples/06-special-shapes.af e32ebca4a85e1513
+doc affinity-samples/07-transparency.af c768cb51f227baa3 spreads 1 nodes 26 warnings 3
+preview affinity-samples/07-transparency.af 512x341 28617
+truncate affinity-samples/07-transparency.af 1c3c6b305dbeca77
+mutate affinity-samples/07-transparency.af 805e2d63d7f18f2b
+doc affinity-samples/08-gradients.af 64a6c4391ba87483 spreads 1 nodes 14 warnings 1
+preview affinity-samples/08-gradients.af 512x341 54956
+truncate affinity-samples/08-gradients.af 78aab1671bc68044
+mutate affinity-samples/08-gradients.af d0f10cf94fd0d1df
+doc affinity-samples/09-corners-stars.af c070a46e2775677c spreads 1 nodes 26 warnings 1
+preview affinity-samples/09-corners-stars.af 512x341 18148
+truncate affinity-samples/09-corners-stars.af c3627471480bbb0a
+mutate affinity-samples/09-corners-stars.af c6ef826ab6edcc91
+doc affinity-samples/10-multiple-fills.af 1c8394e36a509b4d spreads 1 nodes 20 warnings 2
+preview affinity-samples/10-multiple-fills.af 512x341 15527
+truncate affinity-samples/10-multiple-fills.af 4227d7825cf6c353
+mutate affinity-samples/10-multiple-fills.af 9b3e65b8fb7f2ef3
+doc affinity-samples/11-text.af 5bae747744db4c91 spreads 1 nodes 28 warnings 4
+preview affinity-samples/11-text.af 512x341 43262
+truncate affinity-samples/11-text.af 3854eb6c34014a9f
+mutate affinity-samples/11-text.af 05438b156d0d4f21
+doc affinity-samples/12-cmyk8.af 55a69dc760ef0243 spreads 1 nodes 41 warnings 1
+preview affinity-samples/12-cmyk8.af 512x341 14630
+truncate affinity-samples/12-cmyk8.af 9caa42d6c023911a
+mutate affinity-samples/12-cmyk8.af bb436f7c1f184798
+doc affinity-samples/12-grey8.af 55a69dc760ef0243 spreads 1 nodes 41 warnings 1
+preview affinity-samples/12-grey8.af 512x341 12779
+truncate affinity-samples/12-grey8.af 25f69829074f91ea
+mutate affinity-samples/12-grey8.af 97ccb6904a1673c5
+doc affinity-samples/12-lab16.af 55a69dc760ef0243 spreads 1 nodes 41 warnings 1
+preview affinity-samples/12-lab16.af 512x341 14267
+truncate affinity-samples/12-lab16.af 9caa42d6c023911a
+mutate affinity-samples/12-lab16.af cd061a4d4828a185
+doc affinity-samples/12-rgb16.af 55a69dc760ef0243 spreads 1 nodes 41 warnings 1
+preview affinity-samples/12-rgb16.af 512x341 13451
+truncate affinity-samples/12-rgb16.af 5f94ea7e4186bed7
+mutate affinity-samples/12-rgb16.af 06d3772634c2b458
+doc affinity-samples/12-rgb32.af 9a18d712b7c5e3b8 spreads 1 nodes 41 warnings 1
+preview affinity-samples/12-rgb32.af 512x341 12677
+truncate affinity-samples/12-rgb32.af c97d7665bbfb43f1
+mutate affinity-samples/12-rgb32.af 5280411203dcc14d
+doc affinity-samples/12-rgb8.af 55a69dc760ef0243 spreads 1 nodes 41 warnings 1
+preview affinity-samples/12-rgb8.af 512x341 13570
+truncate affinity-samples/12-rgb8.af 5f94ea7e4186bed7
+mutate affinity-samples/12-rgb8.af 3af50ee27b501e52
+doc affinity-samples/13-blend-modes.af dc2e90824414e529 spreads 1 nodes 26 warnings 1
+preview affinity-samples/13-blend-modes.af 512x341 27422
+truncate affinity-samples/13-blend-modes.af 917e176af8347d67
+mutate affinity-samples/13-blend-modes.af 1ec0126ce78da8eb
 doc asset-store-template/AssetStore.aftemplate 1de2b2cb46fac398 spreads 1 nodes 5 warnings 0
 preview asset-store-template/AssetStore.aftemplate 512x424 2032
 truncate asset-store-template/AssetStore.aftemplate b8ae77c26ac249c0

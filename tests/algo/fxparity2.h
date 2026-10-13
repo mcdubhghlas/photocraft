@@ -16,6 +16,7 @@
 #include "fxparity.h"
 
 /* Appends formatted text to got (capacity cap). */
+static void cat(char *got, size_t cap, const char *fmt, ...) __attribute__((format(printf, 3, 4)));
 static void cat(char *got, size_t cap, const char *fmt, ...)
 {
     size_t n = strlen(got);

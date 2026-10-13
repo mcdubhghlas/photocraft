@@ -24,6 +24,7 @@ static pc_buf OUT;
 static char **G;
 static size_t NG;
 
+static void line(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 static void line(const char *fmt, ...)
 {
     char tmp[8192];

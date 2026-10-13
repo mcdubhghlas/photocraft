@@ -401,8 +401,10 @@ static void nl_cell(const nl_vote_job *j, size_t hi)
                 }
             } else {
                 float wt = j->uniform ? 1.0f : pc_rs_maxf_k(expf(-j->cost[ti] / (2.0f * j->sigma2)), 1e-8f);
-                for (c = 0; c < cha; c++) {
-                    v[c] += s->img[si * cha + c] * wt;
+                if (v != NULL) { /* v is non-NULL exactly when !best_only, i.e. here */
+                    for (c = 0; c < cha; c++) {
+                        v[c] += s->img[si * cha + c] * wt;
+                    }
                 }
                 wsum += wt;
             }
@@ -413,7 +415,7 @@ static void nl_cell(const nl_vote_job *j, size_t hi)
         j->pcost[hi] = bc;
     } else {
         j->got[hi] = wsum > 0.0f;
-        if (wsum > 0.0f) {
+        if (v != NULL && wsum > 0.0f) {
             for (c = 0; c < cha; c++) {
                 v[c] /= wsum;
             }
