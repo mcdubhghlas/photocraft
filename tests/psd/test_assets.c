@@ -1446,6 +1446,8 @@ static void hostile_rect(const pc_psd_pattern *p, size_t k1, int32_t v1, size_t 
     pc_psd_bytes_fini(&f);
 }
 
+#define PADDED_MSG "limit exceeded: padded pattern channels exceed MAX_PADDED_PATTERN_BYTES"
+
 static void test_patterns_hostile(void)
 {
     pc_psd_pattern p = pat(8, false);
@@ -1459,13 +1461,16 @@ static void test_patterns_hostile(void)
     /* rectangle endpoints whose difference overflows */
     hostile_rect(&p, 4, INT32_MIN, 12, INT32_MAX, PC_ERR_LIMIT, NULL);
     /* a huge rectangle with a tiny payload: refused before the first plane is allocated */
-    hostile_rect(&rgb32, 8, 30000, 12, 30000, PC_ERR_LIMIT, "limit exceeded: pattern data exceeds MAX_DECODED_BYTES");
+    hostile_rect(&rgb32, 8, 30000, 12, 30000, PC_ERR_LIMIT, PADDED_MSG);
+    /* Tiny channels in a huge pattern rectangle are not zero-padded without bound (3 channels of
+     * 5x3 padded to 30000x30000 would allocate 2.7 GB of zeros). */
+    hostile_rect(&p, 8, 30000, 12, 30000, PC_ERR_LIMIT, PADDED_MSG);
     cmyk.mode = 4;
     cmyk.channels = realloc(cmyk.channels, 4 * sizeof *cmyk.channels);
     cmyk.channels[3].data = calloc(30, 1);
     cmyk.channels[3].len = 30;
     cmyk.nchannels = 4;
-    hostile_rect(&cmyk, 8, 30000, 12, 30000, PC_ERR_LIMIT, "limit exceeded: pattern data exceeds MAX_DECODED_BYTES");
+    hostile_rect(&cmyk, 8, 30000, 12, 30000, PC_ERR_LIMIT, PADDED_MSG);
     /* zero-size rectangle */
     pc_psd_write_pattern_block(&p, 1, &blk, NULL);
     set_i32(blk.data, vma_offset(4, &p) + 8, 0);

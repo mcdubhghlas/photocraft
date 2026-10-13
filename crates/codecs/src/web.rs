@@ -185,8 +185,10 @@ pub fn encode_gif_animated(width: u32, height: u32, frames: &[GifFrame], loop_fo
             return Err(gif_err("every frame's palette must have 1..=256 entries covering its indices"));
         }
         let bits = (1..=8u8).find(|b| (1usize << b) >= f.palette.len()).unwrap_or(8);
-        // Graphic Control Extension: disposal 1 (leave), delay, optional transparency.
-        let packed = if f.transparent.is_some() { 0x05 } else { 0x04 };
+        // Graphic Control Extension: delay and optional transparency. Every frame covers the whole
+        // image, so an opaque one is left in place (disposal 1), while one with a transparent index
+        // is cleared afterwards (disposal 2): otherwise the frames before it show through.
+        let packed = if f.transparent.is_some() { 0x09 } else { 0x04 };
         out.extend([0x21, 0xF9, 0x04, packed]);
         out.extend(f.delay_cs.to_le_bytes());
         out.push(f.transparent.unwrap_or(0));
@@ -316,6 +318,8 @@ pub fn encode_jpeg_rgb8(
         enc.set_density(jpeg_encoder::Density::Inch { x: v, y: v });
     }
     if let Some(x) = xmp {
+        // Its `tiff:` resolution, if any, says what the JFIF density says (#1691).
+        let x = crate::resolution::export_xmp(x, dpi.filter(|d| *d >= 1.0).map(|d| (d, d)));
         let mut seg = b"http://ns.adobe.com/xap/1.0/\0".to_vec();
         seg.extend_from_slice(x.as_bytes());
         enc.add_app_segment(1, &seg).map_err(e)?;
@@ -412,6 +416,17 @@ mod tests {
         assert!(prog.windows(2).any(|w| w == [0xFF, 0xC2]));
         assert_eq!(crate::decode(&prog).unwrap().dimensions(), (64, 48));
     }
+
+    /// #1691: the XMP resolution of a Save for Web JPEG says what its JFIF density says.
+    #[test]
+    fn web_jpeg_xmp_resolution_follows_the_density() {
+        let rgb = vec![100u8; 8 * 8 * 3];
+        let xmp = r#"<rdf:Description tiff:XResolution="300/1" tiff:YResolution="300/1"/>"#;
+        let out = encode_jpeg_rgb8(8, 8, &rgb, 80, false, false, None, Some(72.0), Some(xmp)).unwrap();
+        let img = crate::decode(&out).unwrap();
+        assert_eq!(img.meta.dpi, Some((72.0, 72.0)));
+        assert_eq!(img.meta.xmp.as_deref().and_then(crate::xmp_resolution), Some((72.0, 72.0)));
+    }
 }
 
 #[cfg(test)]
@@ -454,6 +469,19 @@ mod anim_tests {
         // First frame still decodes.
         let img = crate::decode(&g).unwrap();
         assert_eq!(img.dimensions(), (2, 2));
+    }
+
+    #[test]
+    fn transparent_frames_are_cleared_before_the_next() {
+        let frame = |transparent| GifFrame { indices: vec![0, 1, 1, 1], palette: vec![[0, 0, 0], [255, 0, 0]], transparent, delay_cs: 4 };
+        // The Graphic Control Extension's packed byte follows its 0x21 0xF9 0x04 introducer.
+        let packed = |g: &[u8]| g.windows(4).find(|w| w[..3] == [0x21, 0xF9, 0x04]).map(|w| w[3]).unwrap();
+        let opaque = encode_gif_animated(2, 2, &[frame(None)], false).unwrap();
+        assert_eq!(packed(&opaque), 0x04, "disposal 1, no transparency");
+        let clear = encode_gif_animated(2, 2, &[frame(Some(0))], false).unwrap();
+        assert_eq!(packed(&clear), 0x09, "disposal 2 with the transparency flag");
+        let px = crate::decode(&clear).unwrap().to_rgba8();
+        assert_eq!((px[3], &px[4..8]), (0, &[255, 0, 0, 255][..]), "index 0 transparent, index 1 red");
     }
 
     #[test]

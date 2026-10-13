@@ -484,6 +484,72 @@ bool pc_sfnt_each_name(const pc_sfnt *f, uint16_t id, bool (*fn)(void *ctx, cons
     return stop;
 }
 
+/* The class of a record's skrifa language: None (unknown or unreadable), an empty tag, English
+ * (primary subtag "en", any ASCII case) or another language. */
+static pc_sfnt_lang lang_class(const name_tab *t, uint16_t platform, uint16_t lang)
+{
+    if (t->version == 1 && lang >= 0x8000) {
+        size_t idx = (size_t)(lang - 0x8000), len, i = 0, n = 0;
+        const uint8_t *s;
+        char buf[30];
+        if (idx >= t->ntags ||
+            !record_bytes(t, be16(t->p + t->tags + 4 * idx + 2), be16(t->p + t->tags + 4 * idx), &s)) {
+            return PC_SFNT_LANG_NONE;
+        }
+        len = be16(t->p + t->tags + 4 * idx);
+        while (i + 2 <= len) {
+            uint32_t c = be16(s + i);
+            i += 2;
+            if (c > 0x7F || n == sizeof buf) {
+                return PC_SFNT_LANG_NONE;
+            }
+            buf[n++] = (char)c;
+        }
+        if (n == 0) {
+            return PC_SFNT_LANG_EMPTY;
+        }
+        for (i = 0; i < n && buf[i] != '-' && buf[i] != '_'; i++) {
+        }
+        return i == 2 && (buf[0] == 'e' || buf[0] == 'E') && (buf[1] == 'n' || buf[1] == 'N')
+                   ? PC_SFNT_LANG_ENGLISH
+                   : PC_SFNT_LANG_OTHER;
+    }
+    if ((platform != 1 && platform != 3) || !known_lang(lang)) {
+        return PC_SFNT_LANG_NONE;
+    }
+    /* Every English tag in skrifa's table: Mac 0 ("en") and the Windows LCIDs with primary
+     * language 0x09 ("en-US", "en-GB", ...). */
+    return lang == 0 || (lang > 151 && (lang & 0x3FF) == 0x09) ? PC_SFNT_LANG_ENGLISH : PC_SFNT_LANG_OTHER;
+}
+
+bool pc_sfnt_each_name_lang(const pc_sfnt *f, uint16_t id,
+                            bool (*fn)(void *ctx, const char *s, size_t len, pc_sfnt_lang lang), void *ctx)
+{
+    name_tab t;
+    size_t i;
+    pc_buf b;
+    bool stop = false;
+    if (!name_open(f, &t)) {
+        return false;
+    }
+    pc_buf_init(&b);
+    for (i = 0; i < t.count && !stop; i++) {
+        const uint8_t *rec = t.p + 6 + 12 * i, *s;
+        if (be16(rec + 6) != id) {
+            continue;
+        }
+        pc_buf_truncate(&b, 0);
+        if (record_bytes(&t, be16(rec + 10), be16(rec + 8), &s) &&
+            decode(s, be16(rec + 8), encoding(be16(rec), be16(rec + 2)), &b, NULL) != PC_OK) {
+            break; /* out of memory: stop rather than report a wrong name */
+        }
+        stop =
+            fn(ctx, b.len > 0 ? (const char *)b.data : "", b.len, lang_class(&t, be16(rec), be16(rec + 4)));
+    }
+    pc_buf_fini(&b);
+    return stop;
+}
+
 /* ------------------------------------------------------------------------------------------ */
 /* Attributes, axes, metrics */
 

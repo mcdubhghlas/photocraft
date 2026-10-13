@@ -381,6 +381,7 @@ static void dab_h(uint64_t *h, const pc_paint_dab *d)
     f32b(h, d->mix);
 }
 
+#include "parity_r7.h"
 #include "parity_cases.h"
 
 int main(int argc, char **argv)

@@ -13,6 +13,7 @@
 #include <string.h>
 
 #include "base/num.h"
+#include "testgen_enc.h"
 
 /* ---- growable bytes ---- */
 
@@ -750,7 +751,15 @@ static inline void tg_urat(double v, uint64_t out[2])
 
 /* ---- DNG ---- */
 
-typedef enum tg_storage { TG_STRIPS, TG_LJ92_TILES, TG_LJ92_STRIPS } tg_storage;
+typedef enum tg_storage {
+    TG_STRIPS,
+    TG_LJ92_TILES,
+    TG_LJ92_STRIPS,
+    TG_DEFLATE_STRIPS, /* compression 8, rows per strip, predictor */
+    TG_LOSSY_TILES,    /* compression 34892, tile_w x tile_h, quality 60 */
+    TG_JXL_STRIPS,     /* compression 52546, one codestream per strip from segments */
+    TG_JXL_TILES       /* one codestream per tile (row major) from segments */
+} tg_storage;
 
 typedef struct tg_dng {
     size_t width;
@@ -797,6 +806,14 @@ typedef struct tg_dng {
     uint16_t orientation;
     const char *make;
     const char *model;
+    bool monochrome;          /* samples 1: monochrome LinearRaw (no CFA tags) */
+    uint16_t predictor;       /* TG_DEFLATE_STRIPS: 1 or 2 */
+    const tg_bytes *segments; /* TG_JXL_*: encoded segments (borrowed) */
+    size_t nsegments;
+    const uint8_t *pgtm; /* ProfileGainTableMap bytes in IFD0 (borrowed), or NULL */
+    size_t npgtm;
+    const tg_entry *ifd0_extra; /* extra IFD0 entries (copied) */
+    size_t nifd0_extra;
 } tg_dng;
 
 /* A CFA DNG with default metadata around data (RGGB, 16-bit, one strip). */
@@ -823,7 +840,64 @@ static inline tg_dng tg_dng_cfa(size_t width, size_t height, uint16_t *data)
     d.orientation = 1;
     d.make = "Photocraft";
     d.model = "Synthetic";
+    d.predictor = 1;
     return d;
+}
+
+/* A monochrome (one-sample LinearRaw) DNG around data: no CFA tags, no colour matrices. */
+static inline tg_dng tg_dng_mono(size_t width, size_t height, uint16_t *data)
+{
+    tg_dng d = tg_dng_cfa(width, height, data);
+    d.monochrome = true;
+    return d;
+}
+
+static inline tg_val tg_val_copy(const tg_val *v)
+{
+    if (v->bytes != NULL || v->v == NULL) {
+        return tg_v_bytes(v->k, v->bytes, v->n);
+    }
+    return tg_v_nums(v->k, v->v, v->n);
+}
+
+/* Compression 8 strip y0..y1: the predictor applied to the values, packed (8-bit, 16-bit in the
+ * file's order, anything else in little-endian 16-bit containers), zlib-compressed. */
+static inline tg_bytes tg_deflate_strip(const tg_dng *s, size_t y0, size_t y1)
+{
+    size_t n = s->width * s->samples;
+    size_t cnt = (y1 - y0) * n;
+    uint16_t *v = tg_xalloc(cnt * sizeof *v);
+    tg_bytes raw = {NULL, 0, 0};
+    tg_bytes out = {NULL, 0, 0};
+    uint8_t *z;
+    size_t zl;
+    size_t i;
+    memcpy(v, s->data + y0 * n, cnt * sizeof *v);
+    if (s->predictor == 2) {
+        size_t plane = s->samples % 3 == 0 ? 3 : 1;
+        size_t r;
+        for (r = 0; r < y1 - y0; r++) {
+            uint16_t *row = v + r * n;
+            for (i = n; i-- > plane;) {
+                row[i] = (uint16_t)(row[i] - row[i - plane]);
+            }
+        }
+    }
+    for (i = 0; i < cnt; i++) {
+        if (s->bits == 8) {
+            tg_byte(&raw, (uint8_t)v[i]);
+        } else if (s->bits == 16 && s->big_endian) {
+            tg_be16(&raw, v[i]);
+        } else {
+            tg_le16(&raw, v[i]);
+        }
+    }
+    free(v);
+    z = tg_zlib(raw.d, raw.n, &zl);
+    tg_put(&out, z, zl);
+    free(z);
+    tg_free(&raw);
+    return out;
 }
 
 static inline tg_bytes tg_dng_pack(const tg_dng *s, size_t y0, size_t y1)
@@ -899,13 +973,13 @@ static inline tg_bytes tg_dng_build(const tg_dng *s)
     TG_E(256, tg_v_long1((uint32_t)s->width));
     TG_E(257, tg_v_long1((uint32_t)s->height));
     TG_E(258, tg_v_short(bitsv, s->samples));
-    TG_E(262, tg_v_short1(s->samples == 1 ? 32803 : 34892));
+    TG_E(262, tg_v_short1(s->samples == 1 && !s->monochrome ? 32803 : 34892));
     TG_E(277, tg_v_short1((uint16_t)s->samples));
     TG_E(284, tg_v_short1(1));
     TG_E(50717, tg_v_long(whites, s->samples));
     TG_E(50713, tg_v_short(s->black_repeat, 2));
     TG_E(50714, tg_v_long(s->black, s->nblack));
-    if (s->samples == 1) {
+    if (s->samples == 1 && !s->monochrome) {
         uint16_t dim[2] = {2, 2};
         uint8_t planes[3] = {0, 1, 2};
         TG_E(33421, tg_v_short(dim, 2));
@@ -915,7 +989,76 @@ static inline tg_bytes tg_dng_build(const tg_dng *s)
     }
     offs = tg_xalloc((s->height + 1) * (s->width + 1) * sizeof *offs);
     lens = tg_xalloc((s->height + 1) * (s->width + 1) * sizeof *lens);
-    if (s->storage == TG_STRIPS || s->storage == TG_LJ92_STRIPS) {
+    if (s->storage == TG_JXL_STRIPS || s->storage == TG_JXL_TILES) {
+        for (i = 0; i < s->nsegments; i++) {
+            tg_bytes b = {NULL, 0, 0};
+            tg_put(&b, s->segments[i].d, s->segments[i].n);
+            lens[nseg] = (uint32_t)b.n;
+            offs[nseg++] = tg_blob(&t, b);
+        }
+        TG_E(259, tg_v_short1(52546));
+        if (s->storage == TG_JXL_STRIPS) {
+            TG_E(278, tg_v_long1((uint32_t)s->rows));
+            TG_E(273, tg_v_nums(TG_BLOBS, offs, nseg));
+            TG_E(279, tg_v_long(lens, nseg));
+        } else {
+            TG_E(322, tg_v_long1((uint32_t)s->tile_w));
+            TG_E(323, tg_v_long1((uint32_t)s->tile_h));
+            TG_E(324, tg_v_nums(TG_BLOBS, offs, nseg));
+            TG_E(325, tg_v_long(lens, nseg));
+        }
+    } else if (s->storage == TG_DEFLATE_STRIPS) {
+        size_t y;
+        for (y = 0; y < s->height; y += s->rows) {
+            size_t y1 = y + s->rows < s->height ? y + s->rows : s->height;
+            tg_bytes b = tg_deflate_strip(s, y, y1);
+            lens[nseg] = (uint32_t)b.n;
+            offs[nseg++] = tg_blob(&t, b);
+        }
+        TG_E(259, tg_v_short1(8));
+        TG_E(317, tg_v_short1(s->predictor));
+        TG_E(278, tg_v_long1((uint32_t)s->rows));
+        TG_E(273, tg_v_nums(TG_BLOBS, offs, nseg));
+        TG_E(279, tg_v_long(lens, nseg));
+    } else if (s->storage == TG_LOSSY_TILES) {
+        size_t tw = s->tile_w;
+        size_t th = s->tile_h;
+        size_t sp = s->samples;
+        size_t ty;
+        size_t tx;
+        for (ty = 0; ty < s->height; ty += th) {
+            for (tx = 0; tx < s->width; tx += tw) {
+                uint8_t *tile = tg_xalloc(tw * th * sp);
+                size_t y;
+                size_t x;
+                size_t c;
+                size_t jl;
+                uint8_t *j;
+                tg_bytes b = {NULL, 0, 0};
+                for (y = 0; y < th; y++) {
+                    for (x = 0; x < tw; x++) {
+                        size_t sy = ty + y < s->height - 1 ? ty + y : s->height - 1;
+                        size_t sx = tx + x < s->width - 1 ? tx + x : s->width - 1;
+                        for (c = 0; c < sp; c++) {
+                            tile[(y * tw + x) * sp + c] =
+                                (uint8_t)(s->data[(sy * s->width + sx) * sp + c] >> 8);
+                        }
+                    }
+                }
+                j = tg_jpeg(tile, tw, th, (int)sp, 60, &jl);
+                free(tile);
+                tg_put(&b, j, jl);
+                free(j);
+                lens[nseg] = (uint32_t)b.n;
+                offs[nseg++] = tg_blob(&t, b);
+            }
+        }
+        TG_E(259, tg_v_short1(34892));
+        TG_E(322, tg_v_long1((uint32_t)tw));
+        TG_E(323, tg_v_long1((uint32_t)th));
+        TG_E(324, tg_v_nums(TG_BLOBS, offs, nseg));
+        TG_E(325, tg_v_long(lens, nseg));
+    } else if (s->storage == TG_STRIPS || s->storage == TG_LJ92_STRIPS) {
         size_t y;
         for (y = 0; y < s->height; y += s->rows) {
             size_t y1 = y + s->rows < s->height ? y + s->rows : s->height;
@@ -1066,6 +1209,12 @@ static inline tg_bytes tg_dng_build(const tg_dng *s)
         uint64_t r[2];
         tg_srat(s->baseline, r);
         TG_E(50730, tg_v_nums(TG_SRATIONAL, r, 1));
+    }
+    if (s->pgtm != NULL) {
+        TG_E(52525, tg_v_bytes(TG_UNDEFINED, s->pgtm, s->npgtm));
+    }
+    for (i = 0; i < s->nifd0_extra; i++) {
+        TG_E(s->ifd0_extra[i].tag, tg_val_copy(&s->ifd0_extra[i].val));
     }
     i0 = tg_ifd_add(&t, e, ne);
     tg_set_chain(&t, &i0, 1);

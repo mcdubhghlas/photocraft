@@ -21,6 +21,7 @@
 #include "base/mem.h"
 #include "base/num.h"
 #include "base/pool.h"
+#include "format/bundle_dir.h"
 #include "format/pathmap.h"
 
 #if defined(__APPLE__)
@@ -347,21 +348,23 @@ static void sig_from_stat(const struct stat *st, pc_format_sig *sig)
     sig->ctime_ns = PC_ST_CTIM(*st).tv_nsec;
 }
 
-/* *present = a regular file is there (its signature in *sig); missing is not an error. */
+/* *present = a regular file is there (its signature in *sig); missing is not an error, anything
+ * else there (a symlink, a directory) is refused (store.rs path_signature). */
 static pc_status path_signature(const char *path, bool *present, pc_format_sig *sig, pc_error *err)
 {
     struct stat st;
     *present = false;
-    if (stat(path, &st) != 0) {
+    if (lstat(path, &st) != 0) {
         if (errno == ENOENT) {
             return PC_OK;
         }
         return io_errno(err, errno, "cannot inspect", path);
     }
-    *present = S_ISREG(st.st_mode);
-    if (*present) {
-        sig_from_stat(&st, sig);
+    if (!S_ISREG(st.st_mode)) {
+        return pc_bundle_unsafe_entry(path, err);
     }
+    *present = true;
+    sig_from_stat(&st, sig);
     return PC_OK;
 }
 
@@ -475,9 +478,23 @@ static pc_status list_objects(const char *dir, names *out, pc_error *err)
     for (size_t k = 0; k < 2 && s == PC_OK; k++) {
         DIR *d;
         struct dirent *de;
-        if ((s = join(dir, SUBS[k], &path, err)) != PC_OK) {
+        char *canon;
+        if ((s = join(dir, SUBS[k], &path, err)) != PC_OK ||
+            (s = pc_bundle_plain_directory_or_missing(pc_buf_cstr(&path), err)) != PC_OK) {
             break;
         }
+        canon = realpath(pc_buf_cstr(&path), NULL);
+        if (canon == NULL) {
+            s = errno == ENOMEM ? pc_fail(err, PC_ERR_NOMEM, "out of memory")
+                                : io_errno(err, errno, "cannot resolve", pc_buf_cstr(&path));
+            break;
+        }
+        if (strcmp(canon, pc_buf_cstr(&path)) != 0) {
+            free(canon);
+            s = pc_bundle_unsafe_entry(pc_buf_cstr(&path), err);
+            break;
+        }
+        free(canon);
         d = opendir(pc_buf_cstr(&path));
         if (d == NULL) {
             s = io_errno(err, errno, "cannot list", pc_buf_cstr(&path));
@@ -497,6 +514,28 @@ static pc_status list_objects(const char *dir, names *out, pc_error *err)
             nl = strlen(de->d_name);
             if (nl < 4 || memcmp(de->d_name + nl - 4, ".zst", 4) != 0) {
                 continue;
+            }
+            {
+                /* A symlink is refused; stale directories (remove can't take them) and vanished
+                 * entries are left alone without failing the save. */
+                pc_buf full = PC_BUF_INIT;
+                bool exists = false;
+                bool is_link = false;
+                bool is_file = false;
+                s = join(pc_buf_cstr(&path), de->d_name, &full, err);
+                if (s == PC_OK) {
+                    s = pc_bundle_lstat(pc_buf_cstr(&full), &exists, &is_link, &is_file, err);
+                }
+                if (s == PC_OK && is_link) {
+                    s = pc_bundle_unsafe_entry(pc_buf_cstr(&full), err);
+                }
+                pc_buf_fini(&full);
+                if (s != PC_OK) {
+                    break;
+                }
+                if (!is_file) {
+                    continue;
+                }
             }
             if (ns.n == ns.cap) {
                 char **grown = pc_grow_array(ns.v, &ns.cap, ns.n + 1, sizeof *grown);
@@ -612,45 +651,50 @@ static pc_status remember(pc_pcraft_writer *w, const char *path, const pc_format
     return s;
 }
 
-pc_status pc_pcraft_writer_save_dir_prepared(pc_pcraft_writer *w, const pc_format_prepared *p,
-                                             const char *dir, pc_format_save_stats *stats_out, pc_error *err)
+/* store.rs save_dir before prepare: the canonical bundle root (created with its folders), its
+ * existing objects, and the fixed entries checked, so a hostile bundle is refused before anything
+ * is written. */
+static pc_status dir_setup(const char *dir, char **root, names *existing, pc_error *err)
 {
-    static const char *const SUBS[3] = {"tiles", "blobs", "composite"};
+    static const char *const FIXED[3] = {PC_FORMAT_MANIFEST, PC_FORMAT_THUMB, PC_FORMAT_COMPOSITE};
+    pc_buf path = PC_BUF_INIT;
+    pc_status s = pc_bundle_root(dir, root, err);
+    if (s != PC_OK) {
+        return s;
+    }
+    s = list_objects(*root, existing, err);
+    for (size_t k = 0; k < 3 && s == PC_OK; k++) {
+        s = join(*root, FIXED[k], &path, err);
+        if (s == PC_OK) {
+            s = pc_bundle_validate_file(*root, pc_buf_cstr(&path), err);
+        }
+    }
+    pc_buf_fini(&path);
+    if (s != PC_OK) {
+        names_free(existing);
+        free(*root);
+        *root = NULL;
+    }
+    return s;
+}
+
+/* The rest of save_dir: objects, previews, the manifest (committing the save), then best-effort
+ * garbage collection. Takes over root. */
+static pc_status dir_save(pc_pcraft_writer *w, const pc_format_prepared *p, char *root, names *existing,
+                          pc_format_save_stats *stats_out, pc_error *err)
+{
     pc_format_save_stats stats = p->stats;
     pc_buf path = PC_BUF_INIT;
-    names existing = {NULL, 0, 0};
     bool *recheck = NULL;
-    char *canonical = NULL;
     uint64_t generation;
     pc_status s = PC_OK;
 
-    for (size_t k = 0; k < 3 && s == PC_OK; k++) {
-        s = join(dir, SUBS[k], &path, err);
-        if (s == PC_OK) {
-            s = pc_mkdir_p(pc_buf_cstr(&path), err);
-            if (s != PC_OK && s != PC_ERR_NOMEM) {
-                s = pc_format_io(s, err);
-            }
-        }
-    }
-    if (s != PC_OK) {
-        goto cleanup;
-    }
-    canonical = realpath(dir, NULL);
-    if (canonical == NULL) {
-        s = errno == ENOMEM ? pc_fail(err, PC_ERR_NOMEM, "out of memory")
-                            : io_errno(err, errno, "cannot resolve", dir);
-        goto cleanup;
-    }
-    if (w->vdir == NULL || strcmp(w->vdir, canonical) != 0) {
+    if (w->vdir == NULL || strcmp(w->vdir, root) != 0) {
         free(w->vdir);
-        w->vdir = canonical;
-        canonical = NULL;
+        w->vdir = root;
+        root = NULL;
         w->generation = 0;
         pc_pathmap_fini(&w->verified);
-    }
-    if ((s = list_objects(dir, &existing, err)) != PC_OK) {
-        goto cleanup;
     }
     generation = w->generation = w->generation == UINT64_MAX ? UINT64_MAX : w->generation + 1;
     if (p->nobjects > 0) {
@@ -665,11 +709,12 @@ pc_status pc_pcraft_writer_save_dir_prepared(pc_pcraft_writer *w, const pc_forma
     }
     for (size_t i = 0; i < p->nobjects; i++) {
         const pc_format_object *o = &p->objects[i];
-        bool exists = names_contains(&existing, o->path);
+        bool exists = names_contains(existing, o->path);
         bool present = false;
         pc_format_sig sig;
         pc_blob *z = NULL;
-        if ((s = join(dir, o->path, &path, err)) != PC_OK ||
+        if ((s = join(w->vdir, o->path, &path, err)) != PC_OK ||
+            (s = pc_bundle_plain_file_or_missing(pc_buf_cstr(&path), err)) != PC_OK ||
             (s = path_signature(pc_buf_cstr(&path), &present, &sig, err)) != PC_OK) {
             goto cleanup;
         }
@@ -706,7 +751,7 @@ pc_status pc_pcraft_writer_save_dir_prepared(pc_pcraft_writer *w, const pc_forma
             stats.blobs_written++;
         }
         if ((s = compress_object(o, &z, err)) == PC_OK) {
-            s = pc_format_write_atomic(pc_buf_cstr(&path), pc_blob_data(z), pc_blob_len(z), err);
+            s = pc_bundle_write_file(w->vdir, pc_buf_cstr(&path), pc_blob_data(z), pc_blob_len(z), err);
         }
         pc_blob_release(z);
         if (s != PC_OK || (s = path_signature(pc_buf_cstr(&path), &present, &sig, err)) != PC_OK) {
@@ -721,52 +766,68 @@ pc_status pc_pcraft_writer_save_dir_prepared(pc_pcraft_writer *w, const pc_forma
         }
     }
     for (size_t i = 0; i < p->npreviews; i++) {
-        if ((s = join(dir, p->previews[i].name, &path, err)) != PC_OK ||
-            (s = pc_format_write_atomic(pc_buf_cstr(&path), p->previews[i].png.data, p->previews[i].png.len,
-                                        err)) != PC_OK) {
+        if ((s = join(w->vdir, p->previews[i].name, &path, err)) != PC_OK ||
+            (s = pc_bundle_write_file(w->vdir, pc_buf_cstr(&path), p->previews[i].png.data,
+                                      p->previews[i].png.len, err)) != PC_OK) {
             goto cleanup;
         }
     }
     {
         static const char *const STALE[2] = {PC_FORMAT_THUMB, PC_FORMAT_COMPOSITE};
+        bool gone = false; /* a missing stale preview is fine */
         for (size_t k = 0; k < 2; k++) {
             bool kept = false;
             for (size_t i = 0; i < p->npreviews; i++) {
                 kept = kept || strcmp(p->previews[i].name, STALE[k]) == 0;
             }
-            if (!kept && join(dir, STALE[k], &path, NULL) == PC_OK) {
-                (void)unlink(pc_buf_cstr(&path));
+            if (!kept && ((s = join(w->vdir, STALE[k], &path, err)) != PC_OK ||
+                          (s = pc_bundle_remove_file(w->vdir, pc_buf_cstr(&path), &gone, err)) != PC_OK)) {
+                goto cleanup;
             }
         }
     }
-    if ((s = join(dir, PC_FORMAT_MANIFEST, &path, err)) != PC_OK ||
-        (s = pc_format_write_atomic(pc_buf_cstr(&path), p->manifest.data, p->manifest.len, err)) != PC_OK) {
+    if ((s = join(w->vdir, PC_FORMAT_MANIFEST, &path, err)) != PC_OK ||
+        (s = pc_bundle_write_file(w->vdir, pc_buf_cstr(&path), p->manifest.data, p->manifest.len, err)) !=
+            PC_OK) {
         goto cleanup;
     }
-    for (size_t i = 0; i < existing.n; i++) {
-        if (find_object(p, existing.v[i]) != NULL) {
+    /* The manifest is committed: the save has succeeded. Removing objects it no longer references
+     * is best-effort housekeeping (a vanished or locked file must not turn a complete save into a
+     * failure); a leftover is retried on the next save. */
+    for (size_t i = 0; i < existing->n; i++) {
+        if (find_object(p, existing->v[i]) != NULL) {
             continue;
         }
-        if ((s = join(dir, existing.v[i], &path, err)) != PC_OK) {
-            goto cleanup;
+        if (join(w->vdir, existing->v[i], &path, NULL) == PC_OK) {
+            bool missing = false;
+            if (pc_bundle_remove_file(w->vdir, pc_buf_cstr(&path), &missing, NULL) == PC_OK && !missing) {
+                stats.objects_removed++;
+            }
         }
-        if (unlink(pc_buf_cstr(&path)) != 0) {
-            s = io_errno(err, errno, "cannot remove", pc_buf_cstr(&path));
-            goto cleanup;
-        }
-        stats.objects_removed++;
-        if (strlen(existing.v[i]) < PC_PATHMAP_KEY_MAX) {
-            (void)pc_pathmap_remove(&w->verified, existing.v[i], NULL);
+        if (strlen(existing->v[i]) < PC_PATHMAP_KEY_MAX) {
+            (void)pc_pathmap_remove(&w->verified, existing->v[i], NULL);
         }
     }
     if (stats_out != NULL) {
         *stats_out = stats;
     }
 cleanup:
-    free(canonical);
+    free(root);
     free(recheck);
-    names_free(&existing);
     pc_buf_fini(&path);
+    return s;
+}
+
+pc_status pc_pcraft_writer_save_dir_prepared(pc_pcraft_writer *w, const pc_format_prepared *p,
+                                             const char *dir, pc_format_save_stats *stats_out, pc_error *err)
+{
+    names existing = {NULL, 0, 0};
+    char *root = NULL;
+    pc_status s = dir_setup(dir, &root, &existing, err);
+    if (s == PC_OK) {
+        s = dir_save(w, p, root, &existing, stats_out, err);
+        names_free(&existing);
+    }
     return s;
 }
 
@@ -791,11 +852,20 @@ pc_status pc_pcraft_writer_save_dir(pc_pcraft_writer *w, const pc_document *doc,
                                     pc_error *err)
 {
     pc_format_prepared p;
-    pc_status s = pc_pcraft_writer_prepare(w, doc, opts, &p, err);
+    names existing = {NULL, 0, 0};
+    char *root = NULL;
+    pc_status s = dir_setup(dir, &root, &existing, err);
     if (s != PC_OK) {
         return s;
     }
-    s = pc_pcraft_writer_save_dir_prepared(w, &p, dir, stats, err);
+    s = pc_pcraft_writer_prepare(w, doc, opts, &p, err);
+    if (s != PC_OK) {
+        free(root);
+        names_free(&existing);
+        return s;
+    }
+    s = dir_save(w, &p, root, &existing, stats, err);
+    names_free(&existing);
     pc_format_prepared_fini(&p);
     return s;
 }

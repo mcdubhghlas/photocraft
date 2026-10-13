@@ -290,7 +290,8 @@ static void x_layer(pc_buf *b, const pc_layer *l, bool pixels)
 static const char *rust_kind(pc_io_err_kind k)
 {
     static const char *const N[] = {"Psd", "Codec", "UnknownFormat", "Unsupported", "Pcraft",
-                                    "Raw", "Svg",   "Cancelled",     "Other"};
+                                    "Raw", "Svg",   "Cancelled",     "Pdn",         "Ora",
+                                    "Kra", "Other"};
     return N[k];
 }
 

@@ -112,7 +112,7 @@ bool pc_raw_identify(const uint8_t *b, size_t n, pc_raw_format *out)
         *out = PC_RAW_CR3;
         return true;
     }
-    if (n >= 15 && memcmp(b, "FUJIFILMCCD-RAW", 15) == 0) {
+    if (n >= 15 && memcmp(b, RX_RAF_MAGIC, 15) == 0) {
         *out = PC_RAW_RAF;
         return true;
     }
@@ -172,7 +172,7 @@ pc_status pc_raw_decode(const uint8_t *b, size_t n, const pc_raw_limits *limits,
         return rx_unsupported(err, "Canon CR3 (ISO BMFF / CRX) is not decoded yet");
     }
     if (f == PC_RAW_RAF) {
-        return rx_unsupported(err, "Fujifilm RAF is not decoded yet");
+        return rx_raf_decode(b, n, limits, out, err);
     }
     if (!rx_tiff_new(b, n, &t)) {
         return rx_notraw(err);

@@ -126,7 +126,8 @@ pc_status pc_psd_ustr_to_utf8(const pc_psd_ustr *s, char **out, pc_error *err);
 bool pc_psd_ustr_eq(const pc_psd_ustr *a, const pc_psd_ustr *b);
 pc_status pc_psd_ustr_clone(const pc_psd_ustr *s, pc_psd_ustr *out, pc_error *err);
 
-/* 4-byte strings become codes, others explicit strings (Id::new). */
+/* 4-byte strings become codes, others explicit strings (Id::new). The four-character names
+ * Photoshop stores as length-4 strings (`warp`, `list`, `time`) are strings too. */
 pc_status pc_psd_id_make(const char *s, pc_psd_id *out, pc_error *err);
 void pc_psd_id_fini(pc_psd_id *id);
 bool pc_psd_id_is(const pc_psd_id *id, const char *s);

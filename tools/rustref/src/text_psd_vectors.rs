@@ -1001,4 +1001,246 @@ pub fn run() {
     styles_section(&named);
     println!("# l15 corpus");
     corpus();
+    println!("# r8");
+    r8_section(&mut named);
+}
+
+/// txt2_with_modes with each style run's keys given as EngineData text.
+fn txt2_with_styles(text: &str, styles: &[(usize, &str)]) -> Vec<u8> {
+    let mut v = b"\n\n/98 << /0 14 >> /0 << >> /1 << /1 [ << /0 << /0 (\xfe\xff".to_vec();
+    for u in format!("{text}\r").encode_utf16() {
+        for x in u.to_be_bytes() {
+            if matches!(x, b'(' | b')' | b'\\') {
+                v.push(b'\\');
+            }
+            v.push(x);
+        }
+    }
+    v.extend_from_slice(b") /6 << /0 [ ");
+    for (len, keys) in styles {
+        v.extend_from_slice(format!("<< /0 << /0 << /0 (\u{fe}\u{ff}) /6 << /0 0 {keys} >> >> >> /1 {len} >> ").as_bytes());
+    }
+    v.extend_from_slice(b"] >> >> >> ] >>");
+    v
+}
+
+/// Photoshop-shaped Txt2 for "AVA\r" (see crates/text/src/tests.rs photoshop_txt2).
+fn photoshop_txt2(modes: &[(usize, i64)]) -> Vec<u8> {
+    let mut v = b"\n\n/98 << /0 14 >> /0 << /1 << /0 [ << /0 << /0 (MyriadPro-Regular) /2 0 >> >> ] >> >> /1 << /0 << /0 1 /1 .5 >> /1 [ << /0 << /0 (\xfe\xff\0A\0V\0A\0\r) /6 << /0 [ ".to_vec();
+    for (len, m) in modes {
+        v.extend_from_slice(format!("<< /0 << /0 << /0 (\u{fe}\u{ff}) /6 << /0 0 /1 12.0 /2 14.5 /11 {m} >> >> >> /1 {len} >> ").as_bytes());
+    }
+    v.extend_from_slice(b"] >> /7 << /0 1 >> >> /21 << /1 [ 1.25 2.5 ] >> >> << /0 << /0 (\xfe\xff\0B\0\r) >> /21 << /1 [ 3.0 ] >> >> ] /2 << /0 7 >> >> /3 << /0 .25 >>");
+    v
+}
+
+/// Txt2 with one text object for `text` whose rendered frame is frame 0, and that frame.
+fn txt2_with_frame(text: &str, point: Option<[f64; 2]>, matrix: [f64; 6]) -> Vec<u8> {
+    let mut v = txt2_with_modes(text, &[(text.encode_utf16().count() + 1, 1)]);
+    let tail = b"] >> >> >> ] >>";
+    v.truncate(v.len() - tail.len());
+    v.extend_from_slice(b"] >> >> /1 << /2 [ << /6 [ << /10 0 >> ] >> ] >> >> ] >>");
+    let pt = point.map(|[x, y]| format!("/0 [ {x:.5} {y:.5} ] ")).unwrap_or_default();
+    let m = matrix.map(|x| format!("{x:.5}")).join(" ");
+    let frames = format!("/0 << /8 << /0 [ << /0 << {pt}/2 << /2 [ {m} ] >> >> >> ] >> >>");
+    let at = v.windows(9).position(|w| w == b"/0 << >> ").unwrap();
+    v.splice(at..at + 9, frames.into_bytes().into_iter().chain(*b" "));
+    v
+}
+
+fn with_bounds(tysh: &[u8], r: [f64; 4]) -> Vec<u8> {
+    let mut t = psd::parse_tysh(tysh).unwrap();
+    let mut d = Descriptor::default();
+    for (k, v) in ["Left", "Top ", "Rght", "Btom"].iter().zip(r) {
+        d.items.push((Id::new(k), D::Double(v)));
+    }
+    t.text.items.retain(|(k, _)| !k.is("bounds"));
+    t.text.items.push((Id::new("bounds"), D::Descriptor(d)));
+    psd::write_tysh(&t)
+}
+
+/// R8 (upstream after L15): Txt2 OpenType settings, build_txt2 / needs_txt2, TextIndex,
+/// translate_tysh, Txt2 frames, f32 trailing bounds, EngineData anti-aliasing numbers, tabs.
+fn r8_section(named: &mut HashMap<String, Vec<u8>>) {
+    // Layers (registered like layer_section's, built at 72 dpi).
+    let layers: Vec<(&str, &str)> = vec![
+        ("r8tab", r#"{"text":"Name\tValue\n\tIndented","font_family":"Inter","size_pt":20}"#),
+        ("r8tabbox", r#"{"text":"a\tb\tc","shape":{"Box":{"x":0,"y":0,"width":300,"height":100}}}"#),
+        ("r8opt", r#"{"text":"AVAT","runs":[{"len":2,"style":{"kerning":"Optical"}},{"len":1,"style":{"kerning":"Metrics"}},{"len":1,"style":{"kerning":"Off"}}]}"#),
+        ("r8man", r#"{"text":"AB","runs":[{"len":1,"style":{"kern":50}},{"len":1,"style":{}}]}"#),
+        ("r8met", r#"{"text":"AV","runs":[{"len":2,"style":{"kerning":"Metrics"}}]}"#),
+        ("r8off", r#"{"text":"AV","runs":[{"len":2,"style":{"kerning":"Off"}}]}"#),
+        ("r8ava2", r#"{"text":"AVA","runs":[{"len":1,"style":{"kerning":"Optical"}},{"len":2,"style":{"kerning":"Metrics"}}]}"#),
+        ("r8multi", r#"{"text":"x\ny😀","runs":[{"len":3,"style":{"kerning":"Optical"}},{"len":5,"style":{"kern":-20}}]}"#),
+        ("r8warp", r#"{"text":"Type","font_family":"Inter","size_pt":20,"warp":{"style":"warpArc","value":50,"horizontal_distortion":0,"vertical_distortion":0,"horizontal":true}}"#),
+        ("r8box", r#"{"text":"Casemiro 45","runs":[{"len":11,"style":{"size_pt":25}}],"shape":{"Box":{"x":500,"y":600,"width":300,"height":90}},"transform":{"m":[1,0,0,1,-700,-300]}}"#),
+        ("r8pt", r#"{"text":"2","font_family":"Inter","size_pt":100,"transform":{"m":[1,0,0,1,-1000,-2000]}}"#),
+    ];
+    let mut lmap: HashMap<&str, TextLayer> = HashMap::new();
+    for (name, json) in &layers {
+        println!("layer {name} {json}");
+        let t = layer_from(json, named);
+        let ink = Some([0.0f32, -34.316406, 288.90625, 15.058594]);
+        for (dpi, ink) in [(72.0f32, None), (72.0, ink)] {
+            let bytes = psd::build_tysh(&t, dpi, ink);
+            let back = psd::text_layer_from_tysh(&bytes, dpi).map_or("NONE".into(), |l| ldump(&l));
+            let inks = ink.map_or("-".into(), |i| i.iter().map(|v| format!("{:08x}", v.to_bits())).collect::<Vec<_>>().join(","));
+            println!("build {name} {:08x} {inks} => {} {:016x} | {}", dpi.to_bits(), bytes.len(), fnv64(&bytes), back);
+        }
+        named.insert((*name).to_string(), psd::build_tysh(&t, 72.0, None));
+        lmap.insert(name, t);
+    }
+    // TextIndex refs, imported.
+    let mut refs: Vec<(String, Vec<u8>)> = vec![("r8ava_i0".into(), with_text_index(&named["ava"], 0))];
+    for name in ["r8opt", "r8man", "r8ava2", "r8multi"] {
+        refs.push((format!("{name}_i0"), with_text_index(&named[name], 0)));
+    }
+    let pt = layer_from(layers[10].1, named);
+    let pt_far = with_text_index(&psd::build_tysh(&pt, 72.0, Some([1100.0, 1980.0, 1160.0, 2050.0])), 0);
+    let pt_near = with_text_index(&psd::build_tysh(&pt, 72.0, Some([0.0, -70.0, 60.0, 0.0])), 0);
+    let bx = layer_from(layers[9].1, named);
+    let bx_built = with_text_index(&psd::build_tysh(&bx, 72.0, None), 0);
+    refs.push(("r8ptfar".into(), pt_far));
+    refs.push(("r8ptnear".into(), pt_near));
+    refs.push(("r8boxb".into(), with_bounds(&bx_built, [960.0, 300.0, 1260.0, 390.0])));
+    refs.push(("r8boxown".into(), bx_built));
+    // Anti-aliasing from EngineData alone (no AntA).
+    for (i, aa) in ["None", "Crisp", "Strong", "Smooth", "Sharp", "Windows", "WindowsLcd"].iter().enumerate() {
+        let t = layer_from(&format!(r#"{{"text":"Type","antialias":"{aa}"}}"#), named);
+        let mut ty = psd::parse_tysh(&psd::build_tysh(&t, 72.0, None)).unwrap();
+        ty.text.items.retain(|(k, _)| !k.is("AntA"));
+        refs.push((format!("r8aa{i}"), psd::write_tysh(&ty)));
+    }
+    for (n, b) in &refs {
+        println!("imp {n} {} => {}", hex(b), imp_result(b, 72.0));
+        named.insert(n.clone(), b.clone());
+    }
+    // OpenType settings from Txt2 (#3617).
+    let feats: Vec<(&str, Vec<u8>)> = vec![
+        ("r8ava_i0", txt2_with_styles("AVA", &[(2, "/11 1 /18 true /19 false /20 true /25 true /85 2"), (2, "/11 1 /20 false /23 true /85 1")])),
+        ("r8ava_i0", txt2_with_styles("AVA", &[(4, "/24 true /26 1 /28 true /29 true /85 1048575")])),
+        ("r8ava_i0", txt2_with_styles("AVA", &[(1, "/85 -1"), (1, "/85 1048576 /20 (x)"), (2, "/85 3 /20 0 /11 2")])),
+        ("r8ava_i0", txt2_with_styles("AVA", &[(1, "/85 1"), (1, "/85 (x) /20 (x) /25 (true)"), (2, "/85 99999999999 /999 true")])),
+        ("r8multi_i0", txt2_with_styles("x\ny😀", &[(2, "/85 4"), (4, "/20 true /29 false")])),
+    ];
+    for (r, data) in feats {
+        let res = match psd::parse_txt2(&data) {
+            None => "NOTXT2".to_string(),
+            Some(txt2) => match psd::text_layer_from_tysh(&named[r], 72.0) {
+                None => "NONE".to_string(),
+                Some(mut l) => {
+                    psd::apply_txt2(&mut l, &named[r], &txt2);
+                    format!("{} {} {:08x} {}", js!(&l.runs), js!(&l.font_family), l.size_pt.to_bits(), js!(&l.color))
+                }
+            },
+        };
+        println!("txt2 {r} {} => {}", hex(&data), res);
+    }
+    // build_txt2 / needs_txt2: `r8b2 <layer>:<index>,... <previous hex|-> => needs len hash`.
+    let prevs: Vec<Vec<u8>> = vec![
+        Vec::new(),
+        photoshop_txt2(&[(2, 1), (2, 1)]),
+        photoshop_txt2(&[(1, 2), (3, 1)]),
+        photoshop_txt2(&[(4, 1)]),
+        photoshop_txt2(&[(9, 1)]),
+        photoshop_txt2(&[(usize::MAX, 1), (2, 1)]),
+        photoshop_txt2(&[]),
+        b"<< garbage".to_vec(),
+        b"/1 << /1 [ 1 2 << /0 5 >> ] >> /x (y)".to_vec(),
+        b"/1 5 /0 << >>".to_vec(),
+    ];
+    lmap.insert("ava", layer_from(&layer_json("ava"), named));
+    let objs: Vec<Vec<(&str, i32)>> = vec![
+        vec![("r8met", 0)],
+        vec![("r8off", 0)],
+        vec![("r8opt", 0)],
+        vec![("r8man", 0)],
+        vec![("ava", 0)],
+        vec![("r8ava2", 0)],
+        vec![("r8ava2", 2), ("r8opt", 0)],
+        vec![("r8multi", 1), ("r8tab", 3), ("r8opt", 0)],
+        vec![("r8opt", -1), ("r8opt", 65536), ("r8opt", i32::MAX)],
+        vec![("r8opt", 65535)],
+        vec![],
+    ];
+    for o in &objs {
+        let pairs: Vec<(i32, &TextLayer)> = o.iter().map(|(n, i)| (*i, &lmap[n])).collect();
+        let spec = if o.is_empty() { "-".to_string() } else { o.iter().map(|(n, i)| format!("{n}:{i}")).collect::<Vec<_>>().join(",") };
+        for (pi, prev) in prevs.iter().enumerate() {
+            if o.len() > 2 && pi > 1 {
+                continue;
+            }
+            let p = (pi > 0).then_some(prev.as_slice());
+            let out = psd::build_txt2(&pairs, p);
+            let back = psd::parse_txt2(&out).map_or("NOTXT2".to_string(), |v| short(dumps(&v)));
+            println!(
+                "r8b2 {spec} {} => {} {} {:016x} {}",
+                p.map_or("-".to_string(), hex),
+                u8::from(psd::needs_txt2(&pairs)),
+                out.len(),
+                fnv64(&out),
+                back
+            );
+        }
+    }
+    // write_bare: `r8bare <hex txt2> => hex`.
+    for b in [photoshop_txt2(&[(2, 1)]), txt2_with_modes("AV", &[(3, 2)]), b"/a 1 /b [ 1 2 ] /c << /d (x) >>".to_vec(), b"/k [ << /x 1 >> ]".to_vec()] {
+        let r = psd::parse_txt2(&b).map_or("NOTXT2".to_string(), |v| match v {
+            E::Dict(items) => {
+                let out = ed::write_bare(&items);
+                format!("{} {:016x}", out.len(), fnv64(&out))
+            }
+            _ => "NODICT".to_string(),
+        });
+        println!("r8bare {} => {r}", hex(&b));
+    }
+    // TextIndex: `r8tix <ref> <index> => text_index after set_text_index | NONE`.
+    for (r, i) in [("ava", 0), ("ava", 65535), ("ava", 65536), ("ava", i32::MAX), ("ava", -1), ("r8tab", 7), ("r8ava_i0", 3), ("plain", 1)] {
+        let res = psd::set_text_index(&named[r], i).map_or("NONE".to_string(), |b| {
+            format!("{} {:016x} {}", b.len(), fnv64(&b), psd::text_index(&b).map_or("-".to_string(), |x| x.to_string()))
+        });
+        println!("r8tix {r} {i} => {res}");
+    }
+    for r in ["ava", "r8ava_i0", "r8multi_i0"] {
+        println!("r8tixr {r} => {}", psd::text_index(&named[r]).map_or("-".to_string(), |x| x.to_string()));
+    }
+    // translate_tysh: `r8move <ref> <dx bits> <dy bits> => len hash | NONE`.
+    for (r, dx, dy) in [("r8tab", -8.0f64, -279.0f64), ("ava", 0.5, 1e9), ("r8warp", f64::NAN, -0.0)] {
+        let res = psd::translate_tysh(&named[r], dx, dy).map_or("NONE".to_string(), |b| format!("{} {:016x}", b.len(), fnv64(&b)));
+        println!("r8move {r} {:016x} {:016x} => {res}", dx.to_bits(), dy.to_bits());
+    }
+    let short_ty = named["ava"][..40].to_vec();
+    println!("r8movehex {} => {}", hex(&short_ty), psd::translate_tysh(&short_ty, 1.0, 1.0).map_or("NONE".to_string(), |b| b.len().to_string()));
+    // Txt2 frames: `r8frame <ref> <hex txt2> => ldump | NOTXT2`.
+    let frames: Vec<(&str, Vec<u8>)> = vec![
+        ("r8ptfar", txt2_with_frame("2", Some([1000.0, 2100.0]), [1.0, 0.0, 0.0, 1.0, 100.0, -50.0])),
+        ("r8ptnear", txt2_with_frame("2", Some([1000.0, 2100.0]), [1.0, 0.0, 0.0, 1.0, 100.0, -50.0])),
+        ("r8ptfar", txt2_with_frame("3", Some([1000.0, 2100.0]), [1.0, 0.0, 0.0, 1.0, 100.0, -50.0])),
+        ("r8ptfar", txt2_with_frame("2", None, [1.0, 0.0, 0.0, 1.0, 1100.0, 2050.0])),
+        ("r8ptfar", txt2_with_frame("2", Some([1100.0, 2050.0]), [0.0, 0.0, 0.0, 0.0, 0.0, 0.0])),
+        ("r8ptfar", txt2_with_frame("2", Some([1100.0, 2050.0]), [2.0, 0.0, 0.0, 2.0, 0.0, 0.0])),
+        ("r8boxb", txt2_with_frame("Casemiro 45", None, [1.0, 0.0, 0.0, 1.0, 460.0, -300.0])),
+        ("r8boxown", txt2_with_frame("Casemiro 45", None, [1.0, 0.0, 0.0, 1.0, 460.0, -300.0])),
+        ("r8boxb", txt2_with_frame("Casemiro 45", Some([5.0, 5.0]), [1.0, 0.5, 0.0, 1.0, 460.0, -300.0])),
+        ("r8ptfar", b"/1 << /1 [ << /0 << /0 (\xfe\xff\x002\x00\r) >> /1 << /2 [ << /6 [ << /10 -1 >> << /10 0 >> ] >> ] >> >> ] >>".to_vec()),
+        ("r8ptfar", b"/0 << /8 << /0 [ << /0 << /0 [ 1 ] /2 << /2 [ 1 0 0 1 1100 2050 ] >> >> >> ] >> >> /1 << /1 [ << /0 << /0 (\xfe\xff\x002\x00\r) >> /1 << /2 [ << /6 [ << /10 0 >> ] >> ] >> >> ] >>".to_vec()),
+    ];
+    for (r, data) in frames {
+        let res = match psd::parse_txt2(&data) {
+            None => "NOTXT2".to_string(),
+            Some(txt2) => match psd::text_layer_from_tysh(&named[r], 72.0) {
+                None => "NONE".to_string(),
+                Some(mut l) => {
+                    psd::apply_txt2_frame(&mut l, &named[r], &txt2);
+                    ldump(&l)
+                }
+            },
+        };
+        println!("r8frame {r} {} => {res}", hex(&data));
+    }
+}
+
+/// The JSON of a layer_cases entry.
+fn layer_json(name: &str) -> String {
+    layer_cases().into_iter().find(|(n, _)| *n == name).map(|(_, j)| j).unwrap_or_else(|| "{}".into())
 }

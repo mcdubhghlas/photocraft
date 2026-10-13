@@ -169,36 +169,36 @@ halo 83 r26 Shape Blur
 case 84 {"filter":"shapeBlur","radius":12.0,"shape":"star"}
 halo 84 r13 Shape Blur
 apply rgba8 0 6c4bad5d57dfbc24
-apply rgba8 1 53bde550be99d78e
-apply rgba8 2 1c1f547afe5a2479
-apply rgba8 3 b43daa9ba0c63932
-apply rgba8 4 f7764b27f64968ea
-apply rgba8 5 36d2a8e4c46d960d
-apply rgba8 6 d8884bc7adf92f96
-apply rgba8 7 6449c655b565dccd
+apply rgba8 1 a829c125a80a0549
+apply rgba8 2 e276185cb6b4ecca
+apply rgba8 3 f79c14d25822e58e
+apply rgba8 4 21a3a5f6b7627614
+apply rgba8 5 c9bb74f485e85db0
+apply rgba8 6 83d2274c37ad8d13
+apply rgba8 7 791a181e78f3b505
 apply rgba8 8 6c4bad5d57dfbc24
-apply rgba8 9 783194792a00767f
-apply rgba8 10 f0ee30dc380a9dc3
-apply rgba8 11 728f09b84874caf5
-apply rgba8 12 1b917142450f0350
-apply rgba8 13 4e4809687354b640
-apply rgba8 14 2e6f313d06500acd
-apply rgba8 15 2680e437e20c387c
-apply rgba8 16 a9c2d9dd3e6ad7f5
-apply rgba8 17 a7ee131adda6b608
-apply rgba8 18 a8f4bd11bb4e7626
-apply rgba8 19 9e69c0974461bf3a
-apply rgba8 20 c1ea952cbf2587a4
-apply rgba8 21 383d6aedf229daed
+apply rgba8 9 9df1cd59b7786c60
+apply rgba8 10 e06ba6c90dd34388
+apply rgba8 11 70e87eb883e941fe
+apply rgba8 12 f89cd935a5ab0f58
+apply rgba8 13 a3786040cc980eb5
+apply rgba8 14 5168e3d080a1237f
+apply rgba8 15 b0ea26d3cdeee45d
+apply rgba8 16 b6a62ac9df4aa7c0
+apply rgba8 17 5802a08c6b3f35ef
+apply rgba8 18 f3572a4afa9beccf
+apply rgba8 19 f4baff654e098735
+apply rgba8 20 6ff68931e2eae447
+apply rgba8 21 ee07d7e143d11e73
 apply rgba8 22 e716da7e44ff6aa6
-apply rgba8 23 1c557b71c854e0f3
-apply rgba8 24 058693b3f8b6634d
-apply rgba8 25 f166a3630d6da90a
-apply rgba8 26 9b4df710aa0c1d88
-apply rgba8 27 296420f159489334
-apply rgba8 28 1dc29406b68b615d
-apply rgba8 29 a5bd7f3c2ceff11c
-apply rgba8 30 e98f0f9ad580fb49
+apply rgba8 23 cc3fe2003906cdba
+apply rgba8 24 ab8982b32889d75e
+apply rgba8 25 4b550c53ecec28dc
+apply rgba8 26 b97ca8dfdef0e7cf
+apply rgba8 27 b54d65f26ae4adb8
+apply rgba8 28 c0b3b0b82e9c0788
+apply rgba8 29 70f5f9d97b42167d
+apply rgba8 30 c0ca6cecfdd67033
 apply rgba8 31 b2d0db39d27ec209
 apply rgba8 32 9d3ebe6a180a8938
 apply rgba8 33 3dd5a5af67c2f610
@@ -220,70 +220,70 @@ apply rgba8 48 120aa179128be77c
 apply rgba8 49 f35d340cc7bd2d64
 apply rgba8 50 3c905a001ede6cf7
 apply rgba8 51 248a3242b03c0bba
-apply rgba8 52 0287581e48548392
-apply rgba8 53 3a4804ac79c99483
-apply rgba8 54 867752030533d2df
-apply rgba8 55 4c6d1f6c3ac40e69
+apply rgba8 52 e67fb6b24144957e
+apply rgba8 53 2857a3127e64fb8e
+apply rgba8 54 c8107fec6956eba2
+apply rgba8 55 b430040db713d077
 apply rgba8 56 f7a49dbbf23795f1
-apply rgba8 57 33db15aa9ab70bf2
-apply rgba8 58 6bb1ecde417c87f9
-apply rgba8 59 0287581e48548392
+apply rgba8 57 a69dd8f1ede1c52a
+apply rgba8 58 fc575bf7239889a0
+apply rgba8 59 e67fb6b24144957e
 apply rgba8 60 6900d868a1ead504
 apply rgba8 61 4444548544cf2de8
 apply rgba8 62 1e8fd79295fa20bd
 apply rgba8 63 85fc939c8a184399
 apply rgba8 64 8ddc85fe410c3103
-apply rgba8 65 47cc8e7be4b7b3d9
+apply rgba8 65 567bdcff1c663615
 apply rgba8 66 579a5228fc7fb534
 apply rgba8 67 8bcec8e0cf2066a8
-apply rgba8 68 d8e42cf0b03f5d7c
-apply rgba8 69 4f70611a72fe7963
-apply rgba8 70 fe635b60b7998ba4
-apply rgba8 71 aff733bf89dcf5ec
-apply rgba8 72 91034668a1fdaca0
-apply rgba8 73 040bd99f3f923baf
-apply rgba8 74 1990a2325ee63e65
-apply rgba8 75 7c2e07d6184f418b
-apply rgba8 76 56d3e08d5cb8a64b
-apply rgba8 77 b9029cb600a37194
-apply rgba8 78 21fc772f851e3d45
-apply rgba8 79 d4e7b7261b93ea5a
-apply rgba8 80 b8440bfa44f52408
-apply rgba8 81 1158dbf5647138d1
-apply rgba8 82 18ae2746d90e0925
-apply rgba8 83 d080a9c5e2611f5a
-apply rgba8 84 a10b5a37b2d3ec77
+apply rgba8 68 196158e6d108b7ce
+apply rgba8 69 8f39aec2b0c06a28
+apply rgba8 70 adec147a3eb1c2c7
+apply rgba8 71 d3b4a6a10c0190e3
+apply rgba8 72 a4f96ba387f48180
+apply rgba8 73 16aa777e53b3ee06
+apply rgba8 74 ce9867f6720dd615
+apply rgba8 75 afe882c96e519a13
+apply rgba8 76 982b6001f1d1bb23
+apply rgba8 77 5ff29908a4edabda
+apply rgba8 78 a92d885cb1912df2
+apply rgba8 79 bfaee655242e9fa2
+apply rgba8 80 ee423a9475c4e6d4
+apply rgba8 81 6b80657862179d82
+apply rgba8 82 d3764da766a73733
+apply rgba8 83 a7126daa7acec21b
+apply rgba8 84 3c4ddc5a43a52c67
 apply rgba16 0 49bf239de244d0f2
-apply rgba16 1 ec050da06ae4f547
-apply rgba16 2 5540baeb395aff46
-apply rgba16 3 4dfa82d8eb12b73c
-apply rgba16 4 8287a8f8fd988d38
-apply rgba16 5 59799c8ef55dbbd7
-apply rgba16 6 4ecbbaa5dab67145
-apply rgba16 7 85daac1f1a60f8e0
+apply rgba16 1 d063c0f9458831d2
+apply rgba16 2 eb77c833c724960c
+apply rgba16 3 8969d8e3d1f0a683
+apply rgba16 4 497ca7d2b0bdf08c
+apply rgba16 5 994f1b0d69898579
+apply rgba16 6 eb395bde183afd42
+apply rgba16 7 4500383de047c6a5
 apply rgba16 8 49bf239de244d0f2
-apply rgba16 9 c059767c583a50c9
-apply rgba16 10 540542775909fb2f
-apply rgba16 11 cb311233ff48dc20
-apply rgba16 12 5974bdcf694c9ebc
-apply rgba16 13 d7ff12c7a2ee149d
-apply rgba16 14 c166a137640d0cec
-apply rgba16 15 e75e7ae1978127db
-apply rgba16 16 c796c237969e87da
-apply rgba16 17 79991bc9f0aa79a0
-apply rgba16 18 f87f03d161b2c0d2
-apply rgba16 19 28fda7019771a8a3
-apply rgba16 20 6c6ae49303bc189a
-apply rgba16 21 2dde8b410bd76df8
+apply rgba16 9 13fd778586c7ebb6
+apply rgba16 10 70b9b711ba928478
+apply rgba16 11 8a716966df6c82c6
+apply rgba16 12 8b529b3ce102fc85
+apply rgba16 13 b90be588aa288e4e
+apply rgba16 14 47b7a5b93ef73bb0
+apply rgba16 15 3cf9ab7d65b92372
+apply rgba16 16 ab8147858f05351b
+apply rgba16 17 e0ea3ac193459cd4
+apply rgba16 18 747ea576f009e7e2
+apply rgba16 19 43640e055843a42f
+apply rgba16 20 6197d2a99ab03653
+apply rgba16 21 a5ac523b8a5c3bf1
 apply rgba16 22 65dba5580a9daff1
-apply rgba16 23 aa12b23a119dc6cc
-apply rgba16 24 0e2174d78294f0a7
-apply rgba16 25 9773a49339120b0b
-apply rgba16 26 27da971d889c9b25
-apply rgba16 27 22315fbf9e8460c8
-apply rgba16 28 e2d32dc7031f608f
-apply rgba16 29 adc350035ccf1985
-apply rgba16 30 91f41a27e46e0406
+apply rgba16 23 32755bec25b8286d
+apply rgba16 24 bbba3bad9082d1b7
+apply rgba16 25 efc5d11625ef345e
+apply rgba16 26 6ddae5bedc76ec99
+apply rgba16 27 b92299884bda287a
+apply rgba16 28 69c7a85a03296724
+apply rgba16 29 0a86fa4552f5502b
+apply rgba16 30 bf7149b03d330d7c
 apply rgba16 31 839405cc369e7d43
 apply rgba16 32 c6bda7d3c248fa35
 apply rgba16 33 071f17b9c82862be
@@ -305,70 +305,70 @@ apply rgba16 48 2fd47fa4f57fa1ec
 apply rgba16 49 d2b5ac38324e0843
 apply rgba16 50 6625a195c39ae5a9
 apply rgba16 51 6075c7f717634afa
-apply rgba16 52 16140d814e8f8ceb
-apply rgba16 53 5eede666a51bcd2a
-apply rgba16 54 604bceae79596e42
-apply rgba16 55 7c7e4eec85c16856
+apply rgba16 52 9c4d2fe18064a595
+apply rgba16 53 693f632575810ff2
+apply rgba16 54 d77b25e0c9c7695c
+apply rgba16 55 c5c98d271c374142
 apply rgba16 56 d41e86927f51b082
-apply rgba16 57 4455236a2fec96e2
-apply rgba16 58 6b65f0831424a7dd
-apply rgba16 59 16140d814e8f8ceb
+apply rgba16 57 86c426cf9259c0a8
+apply rgba16 58 cd925930c3646df0
+apply rgba16 59 9c4d2fe18064a595
 apply rgba16 60 228e8f7301284df5
 apply rgba16 61 29ed5fc02267f474
 apply rgba16 62 3ff614fac7ee4efc
 apply rgba16 63 f386d16ebd913ede
 apply rgba16 64 3285a34ffa71a553
-apply rgba16 65 e538c1f845e7dc58
+apply rgba16 65 8f8cb3764787f1ff
 apply rgba16 66 b39cb18c6ba20c17
 apply rgba16 67 675bc697b973df08
-apply rgba16 68 d50ac34f583a996d
-apply rgba16 69 2e5b4f4fcba2e125
-apply rgba16 70 60a8d07b1e19c767
-apply rgba16 71 7dc898b028f684f9
-apply rgba16 72 c77651487a78455b
-apply rgba16 73 af2c1e558e194b7a
-apply rgba16 74 76c381e1c5ba9abf
-apply rgba16 75 f738893aea2432b1
-apply rgba16 76 db457a1747ccfad5
-apply rgba16 77 291bdf76087bf39e
-apply rgba16 78 e8ab0b3a6fbb5cde
-apply rgba16 79 3f0da634b76b1b35
-apply rgba16 80 731819ae9ce06387
-apply rgba16 81 fbd71b4d21622238
-apply rgba16 82 14caf38901e70256
-apply rgba16 83 9c0d92cdf7754ffa
-apply rgba16 84 5a8c9cb9005a4db2
+apply rgba16 68 dceb94b90808243d
+apply rgba16 69 e34a3a4b5ef0e9d8
+apply rgba16 70 fdf62f02ab6c13d4
+apply rgba16 71 c9a5b345cffb3cc6
+apply rgba16 72 46b13edec3522ff7
+apply rgba16 73 d4f5c52a9e00fce0
+apply rgba16 74 52bc7d5fb7ee46f8
+apply rgba16 75 37274891c2e5e5f7
+apply rgba16 76 03fabe58f7e95a97
+apply rgba16 77 5818f4506cc625fb
+apply rgba16 78 1b1c2abb70d1027a
+apply rgba16 79 092945ab79c6b2ab
+apply rgba16 80 d6f80e55767dba98
+apply rgba16 81 feff0c437023da34
+apply rgba16 82 b773331144658701
+apply rgba16 83 5e31e09a0004ce61
+apply rgba16 84 3cb44a946ed9887b
 apply rgba32 0 d2252c9297dbd7ce
-apply rgba32 1 2b40fed614f547d4
-apply rgba32 2 c2da88ae8b3a806b
-apply rgba32 3 3a4babdb57656f72
-apply rgba32 4 26fffaee7da06da8
-apply rgba32 5 676f77d27d9f0a82
-apply rgba32 6 87feb284ecd0b255
-apply rgba32 7 e7d43f13b03130b4
+apply rgba32 1 9287ef477fa558b3
+apply rgba32 2 2416b268eac76234
+apply rgba32 3 b67469c4cdfc50e0
+apply rgba32 4 c714edae4008d3f9
+apply rgba32 5 ced71a1852761750
+apply rgba32 6 c5a7c6da253c7048
+apply rgba32 7 31f8563819c37dc6
 apply rgba32 8 d2252c9297dbd7ce
-apply rgba32 9 9113d450f29800ae
-apply rgba32 10 90268bf78d435e2c
-apply rgba32 11 f8605eb1dd3f71f8
-apply rgba32 12 9fdf9bd62488be94
-apply rgba32 13 d72b7512a8738734
-apply rgba32 14 6a180850cdda4b00
-apply rgba32 15 6e8f00432c310f8a
-apply rgba32 16 50e4ef65036f091c
-apply rgba32 17 021fbeb7ec06739f
-apply rgba32 18 1a5411f03d218642
-apply rgba32 19 18f24b036ae9c032
-apply rgba32 20 dde71913f3f03cd5
-apply rgba32 21 46bfce5bf9b78a8a
+apply rgba32 9 110030f52b68de10
+apply rgba32 10 0adde7b95e6f281a
+apply rgba32 11 9a34999b0a0d325e
+apply rgba32 12 33c005da4eaa575d
+apply rgba32 13 8d09d4474994ed05
+apply rgba32 14 2a9a172b167cf835
+apply rgba32 15 e4f3cbeaac26879f
+apply rgba32 16 64d5de2b4a42eaf5
+apply rgba32 17 da7f3fd9b7b06328
+apply rgba32 18 16f9f56d2b724f67
+apply rgba32 19 62bd4bbfdcf66fd9
+apply rgba32 20 f34764db7f78f49d
+apply rgba32 21 c1c2ded5a1b9942b
 apply rgba32 22 a07a478a622ed006
-apply rgba32 23 60695d017e1ef045
-apply rgba32 24 7010cbf3d045a9e7
-apply rgba32 25 60632f5217dc687d
-apply rgba32 26 a0443d655416b253
-apply rgba32 27 c11622c446822379
-apply rgba32 28 566c5eac3620d18a
-apply rgba32 29 9685a83fd237a28a
-apply rgba32 30 293c8e80d8bd847c
+apply rgba32 23 15a39ca9b0134d6b
+apply rgba32 24 560375fef0ea0547
+apply rgba32 25 7322745aff9f79b2
+apply rgba32 26 4859dd5297cd4b64
+apply rgba32 27 5836532047433153
+apply rgba32 28 f79776549950ca54
+apply rgba32 29 3c8ceb39d489e4c9
+apply rgba32 30 1c3c6c7d5d5fd4c6
 apply rgba32 31 3dbc9cfd2abc2cd4
 apply rgba32 32 bf8ccd6374f52794
 apply rgba32 33 97bc0de20f115051
@@ -390,39 +390,39 @@ apply rgba32 48 194ae362247356b1
 apply rgba32 49 2da27b61ab43ce4d
 apply rgba32 50 9648e8b98d18a21d
 apply rgba32 51 fa917ababa781481
-apply rgba32 52 24cec478e1520bb7
-apply rgba32 53 2960ca8f548c8ea0
-apply rgba32 54 72105a87dec55fed
-apply rgba32 55 89ca6cc8a8fca9d5
+apply rgba32 52 897d44d0bdae46e5
+apply rgba32 53 a018e0d0adda389b
+apply rgba32 54 440f251d686feee4
+apply rgba32 55 d3f104ea9fb8df02
 apply rgba32 56 bbe020a6b5fae681
-apply rgba32 57 041e72bce38402d1
-apply rgba32 58 139c938e851cd4fe
-apply rgba32 59 24cec478e1520bb7
+apply rgba32 57 8c0e73bade5a79dc
+apply rgba32 58 0357507335561b7c
+apply rgba32 59 897d44d0bdae46e5
 apply rgba32 60 e1498ac87f495904
 apply rgba32 61 5f68aaf14cf8071b
 apply rgba32 62 36b1642f62579060
 apply rgba32 63 2d3a38af34a3eff1
 apply rgba32 64 b4675db68828195d
-apply rgba32 65 98f0525438d79946
+apply rgba32 65 03b4aaf7e7c51107
 apply rgba32 66 43b718373ea32e7f
 apply rgba32 67 158a820583226953
-apply rgba32 68 a5a1c6ec984ddc8e
-apply rgba32 69 9c5f2af383455995
-apply rgba32 70 ad191a2f95b4343d
-apply rgba32 71 8eef05b0d3064512
-apply rgba32 72 c17a138895f0567d
-apply rgba32 73 72752b659bd6a2d0
-apply rgba32 74 678f3341167fb392
-apply rgba32 75 824a4f98e604a60a
-apply rgba32 76 46c015d465adb0ff
-apply rgba32 77 b1d107df36657813
-apply rgba32 78 398afad84a5e52a2
-apply rgba32 79 9b9f876e893c9f13
-apply rgba32 80 31053ac4e1f6d3a3
-apply rgba32 81 6b74a8d61f6b75f7
-apply rgba32 82 788ee7d7fe962c9b
-apply rgba32 83 f9f7a6af2af085ad
-apply rgba32 84 5c4eab524c971527
+apply rgba32 68 a25c3589064d61ba
+apply rgba32 69 c30a18fd4d50b8d2
+apply rgba32 70 b7d48d400a395cc7
+apply rgba32 71 2c900a02ab2c4de8
+apply rgba32 72 9a7a329a8530d81d
+apply rgba32 73 1996177d36877347
+apply rgba32 74 03aa2feec6b6f17c
+apply rgba32 75 339b4bf33075e5af
+apply rgba32 76 7ea679af58afba8a
+apply rgba32 77 02bd75412317e996
+apply rgba32 78 630de1dcdd52d8fa
+apply rgba32 79 36c0787ebdf5e0c1
+apply rgba32 80 b07814b554e3a606
+apply rgba32 81 cad128ba5cb63caa
+apply rgba32 82 3b0d4834815dc9e4
+apply rgba32 83 bde5f63bfb02f12d
+apply rgba32 84 9700a2c305b6518b
 apply rgb8 0 dcc48705a398ebdc
 apply rgb8 1 5f6a76fb1727f6e0
 apply rgb8 2 5c13dd3ac1cd8872
@@ -594,36 +594,36 @@ apply gray8 82 997a1e3cfe18ed8c
 apply gray8 83 faef01d17fd46c5d
 apply gray8 84 a5c8e3d3542c0200
 apply graya16 0 320582aac8d6c17d
-apply graya16 1 43a0685fb9900ae5
-apply graya16 2 26dae102fb015a42
-apply graya16 3 58cfea59120ea603
-apply graya16 4 d64a9cda0ee7b8f7
-apply graya16 5 276055a7b332a4ff
-apply graya16 6 48d2c7155aa0c6bb
-apply graya16 7 175dac1eceeb215a
+apply graya16 1 9a3f9620938c000c
+apply graya16 2 44a67c964f21b949
+apply graya16 3 8e02ed2ad17427f5
+apply graya16 4 c9d4ee86ad00c1e2
+apply graya16 5 fd0d2d8741eab97a
+apply graya16 6 c007d58d3ad46c1d
+apply graya16 7 8ed70201ba639800
 apply graya16 8 320582aac8d6c17d
-apply graya16 9 404f264100c67692
-apply graya16 10 d0891a5edd154352
-apply graya16 11 05934924236cd558
-apply graya16 12 377e337ef2806e9c
-apply graya16 13 9c98ce2570696c7f
-apply graya16 14 82c2803d4756f3d4
-apply graya16 15 776a46b98efb01c9
-apply graya16 16 626b13380a032619
-apply graya16 17 3eb7fea0a1db7569
-apply graya16 18 7d2f9c7019a58f56
-apply graya16 19 c692ae5835a23c4a
-apply graya16 20 4ffa28989457f006
-apply graya16 21 b8ab74744b54788a
+apply graya16 9 63670b4189b6987e
+apply graya16 10 81142671d20b8436
+apply graya16 11 a9e464a0aaa5659e
+apply graya16 12 c40913cd346d72dd
+apply graya16 13 8f5a75495cc83d80
+apply graya16 14 cd88753a78b22221
+apply graya16 15 6b36991a466e38d3
+apply graya16 16 138b0e1585ec84df
+apply graya16 17 3ffb987d537964e3
+apply graya16 18 a8874591b19ba054
+apply graya16 19 19f0238d30f2485b
+apply graya16 20 6d10f47886cd8b0f
+apply graya16 21 20215e2efae4a2d5
 apply graya16 22 901c3e9dee425cb6
-apply graya16 23 42f2d84479b85a55
-apply graya16 24 2437018c6e173b95
-apply graya16 25 122c528b53de9c3e
-apply graya16 26 14f4744b27ffd985
-apply graya16 27 fcc0a26b66937c39
-apply graya16 28 33127fc466464e52
-apply graya16 29 75da2d46b627abeb
-apply graya16 30 44fb0d6da59ad562
+apply graya16 23 b0d8bd93b021f300
+apply graya16 24 9d7d1e2c7586754b
+apply graya16 25 4f129614d137967a
+apply graya16 26 a0518e9889927233
+apply graya16 27 94d9e1a907317577
+apply graya16 28 7bd480bb6cd9256d
+apply graya16 29 e6434c28aa76d303
+apply graya16 30 2039d5064f3acbd8
 apply graya16 31 dbd0dd169ff9bb35
 apply graya16 32 a979d35b1515aca2
 apply graya16 33 66592d5e6a0d8ddc
@@ -645,70 +645,70 @@ apply graya16 48 610b47a990a3d5c1
 apply graya16 49 4dd2bac85ce7e78c
 apply graya16 50 4bfb299571e24563
 apply graya16 51 725659a517114f96
-apply graya16 52 9a4503ed1ab20034
-apply graya16 53 3e92eb2274d613ca
-apply graya16 54 c7e058ed0c38249b
-apply graya16 55 b8b4c02d194a7d63
+apply graya16 52 812e8806218a9e3b
+apply graya16 53 5b6f829fa01c1fe2
+apply graya16 54 381452cbc78d44ef
+apply graya16 55 98a91644b9da6a18
 apply graya16 56 3fe99eff91cdcfc9
-apply graya16 57 e441ecf059a028b7
-apply graya16 58 63d834dc92557297
-apply graya16 59 9a4503ed1ab20034
+apply graya16 57 e525bc286a044a59
+apply graya16 58 a06c1f29a044816c
+apply graya16 59 812e8806218a9e3b
 apply graya16 60 37e977e14568ae4f
 apply graya16 61 2c721ac346076aec
 apply graya16 62 af14f5379118dfb7
 apply graya16 63 d83bdad12aec1e71
 apply graya16 64 819d10d0c842dfa9
-apply graya16 65 532223488a2bc938
+apply graya16 65 e4cf9733500bd441
 apply graya16 66 5faedc5d1af5d793
 apply graya16 67 4b6c6e40296cef4d
-apply graya16 68 ef6202233f160269
-apply graya16 69 d1a94acd54773ab1
-apply graya16 70 463ff40c078f76e2
-apply graya16 71 5645f459e706d2d4
-apply graya16 72 cd176adb677d39a2
-apply graya16 73 95fc8ca35c92a1a0
-apply graya16 74 5142cd030fe5394e
-apply graya16 75 42ffa6876b3cd451
-apply graya16 76 d04cc8294ed911a7
-apply graya16 77 3e71fad80e1fdf00
-apply graya16 78 36d1524efeffd0c7
-apply graya16 79 43a3ae37f08b51f6
-apply graya16 80 a220ba2e4a409936
-apply graya16 81 7b6bc261f30a5b78
-apply graya16 82 342f47caef480801
-apply graya16 83 cc73aa9bea20ac75
-apply graya16 84 72f8353a157f2cb6
+apply graya16 68 e2489b7b7440afa7
+apply graya16 69 0d83eba38db8bbe0
+apply graya16 70 032cdf6e64bc1f94
+apply graya16 71 a6d05e36ef24bd2c
+apply graya16 72 2288a09776f2e25e
+apply graya16 73 16a36adab690f92c
+apply graya16 74 b6c5e7044d1ca6e2
+apply graya16 75 42b5bee7410d8d8b
+apply graya16 76 2c0696374d2743af
+apply graya16 77 2cf2e83df6cb665b
+apply graya16 78 af81576714483f0c
+apply graya16 79 acadeb3fb575a3ce
+apply graya16 80 429c1b065d2793ac
+apply graya16 81 223439a47594193e
+apply graya16 82 077388df47f9d6ad
+apply graya16 83 00d9bf629f27711f
+apply graya16 84 71c593618eec46b9
 apply cmyka8 0 ad8cb40fb28b6887
-apply cmyka8 1 28c63fcb34178c5c
-apply cmyka8 2 a14a73b7122b4aab
-apply cmyka8 3 6dbe79ae94bb7ff7
-apply cmyka8 4 7e26651eb6af33b6
-apply cmyka8 5 d3b92b6569a5f201
-apply cmyka8 6 818bad52b937f860
-apply cmyka8 7 3518bb03a10e7dbd
+apply cmyka8 1 f2e98bdd877f7c58
+apply cmyka8 2 cfdbbe809312d0fc
+apply cmyka8 3 67d00870f70abd62
+apply cmyka8 4 07eb42092eca3c2e
+apply cmyka8 5 e0005d1b06113608
+apply cmyka8 6 6504418a7fb53c1b
+apply cmyka8 7 44d1614f07a90931
 apply cmyka8 8 ad8cb40fb28b6887
-apply cmyka8 9 227d396e317d30e6
-apply cmyka8 10 3b0c6a95be34c874
-apply cmyka8 11 5b48cd07cc49a6fc
-apply cmyka8 12 8c56b8cffd71429c
-apply cmyka8 13 e4b41101a4b3fb41
-apply cmyka8 14 9fab5bcedf40c802
-apply cmyka8 15 e3b2d836714f9d0f
-apply cmyka8 16 540b5294bbc741db
-apply cmyka8 17 47b6b293d09154c1
-apply cmyka8 18 8a2e4eaa64323109
-apply cmyka8 19 fe892c778726d05f
-apply cmyka8 20 faca2d9572ac7d02
-apply cmyka8 21 c59c482efc3f296f
+apply cmyka8 9 a6431fddada37e64
+apply cmyka8 10 029017894dfae64a
+apply cmyka8 11 12c82510c0afbf90
+apply cmyka8 12 f8d347ca2e6af9f2
+apply cmyka8 13 fd3d09bfbaee4fd2
+apply cmyka8 14 e1f14db43d44d885
+apply cmyka8 15 064813166e47c30c
+apply cmyka8 16 b8b5d5b0943f0c3a
+apply cmyka8 17 e3d6deec6db4f438
+apply cmyka8 18 0002e4876533e7e0
+apply cmyka8 19 1159addd5126a1c7
+apply cmyka8 20 a3faf5f6ab4e4ec7
+apply cmyka8 21 0a8bc7a90c71c7c0
 apply cmyka8 22 f8c75c98e09e611d
-apply cmyka8 23 d914c18e712aba8c
-apply cmyka8 24 9e105c7eb2c8de21
-apply cmyka8 25 d4930c5b4594f12b
-apply cmyka8 26 10ccec3a5ec80a5e
-apply cmyka8 27 ab48bef55ccc3248
-apply cmyka8 28 b5b41cdfd540d3e5
-apply cmyka8 29 71b3cf1e6ef804da
-apply cmyka8 30 b94fa084db807cb3
+apply cmyka8 23 55cd7e4ac410608c
+apply cmyka8 24 903971a70a969912
+apply cmyka8 25 ebb587211cf5b70d
+apply cmyka8 26 24424864ad7f1846
+apply cmyka8 27 eb13326674b5c7d7
+apply cmyka8 28 0832a59108319d3c
+apply cmyka8 29 c8e662edf6aab1f0
+apply cmyka8 30 73d41ba085db500d
 apply cmyka8 31 bb63f373008ca199
 apply cmyka8 32 beb393837db12a83
 apply cmyka8 33 62a597832e3cbadd
@@ -730,70 +730,70 @@ apply cmyka8 48 d94c6d1c1fa0eb79
 apply cmyka8 49 12cf82147936869e
 apply cmyka8 50 6fb817932ce7f0a6
 apply cmyka8 51 cdef4958ca151552
-apply cmyka8 52 e30ab51c74e5923f
-apply cmyka8 53 422fa1bc0df44768
-apply cmyka8 54 3f5643af6e5e5a78
-apply cmyka8 55 8c38ed4b2da6845a
+apply cmyka8 52 95dee193838f4d28
+apply cmyka8 53 ab91c07261762632
+apply cmyka8 54 9d384862236750b0
+apply cmyka8 55 23e3e2ef0ac21c99
 apply cmyka8 56 6f81488463a74482
-apply cmyka8 57 8cf0a61e9eb61877
-apply cmyka8 58 82839c2e7d0a274b
-apply cmyka8 59 e30ab51c74e5923f
+apply cmyka8 57 86e7640a5e02738b
+apply cmyka8 58 95770c406864f787
+apply cmyka8 59 95dee193838f4d28
 apply cmyka8 60 a4b46bcc815b1dfe
 apply cmyka8 61 41abcf30c56e3767
 apply cmyka8 62 10143ea192e6f76d
 apply cmyka8 63 d8c34b5e1efbf8b7
 apply cmyka8 64 b45a0ed2321307cd
-apply cmyka8 65 2c10fe6cee4bd01d
+apply cmyka8 65 ac588a74e98c8654
 apply cmyka8 66 a10bf480a37cfede
 apply cmyka8 67 c279f72e06e6c61e
-apply cmyka8 68 f4ce775e0953bf97
-apply cmyka8 69 78702dbbe2a31066
-apply cmyka8 70 437e2acaaef5af3a
-apply cmyka8 71 ac9a8a583f1db45f
-apply cmyka8 72 666f4f5cbdf41b07
-apply cmyka8 73 59da588feb22cf6e
-apply cmyka8 74 7b2e5e363d792451
-apply cmyka8 75 9c452392bd4019ec
-apply cmyka8 76 70512fbfdb7ae2ab
-apply cmyka8 77 8ebcfcdc5fa453a1
-apply cmyka8 78 65d31ee8aaea1ac3
-apply cmyka8 79 552ce10102ebfbb7
-apply cmyka8 80 c4618d1e659481ad
-apply cmyka8 81 39fe91ca1c7f4290
-apply cmyka8 82 3a291efdf88922d6
-apply cmyka8 83 2853daf84676a7ae
-apply cmyka8 84 30617d7c562c0dbf
+apply cmyka8 68 ab97b254cbd85382
+apply cmyka8 69 9581f2be6fa05ab5
+apply cmyka8 70 afbf21b47043c41f
+apply cmyka8 71 cb2e6e2a18027204
+apply cmyka8 72 38824d83a98d9140
+apply cmyka8 73 349481bc6ea12f8e
+apply cmyka8 74 46621381e7c49d9c
+apply cmyka8 75 b05e5c83de72a666
+apply cmyka8 76 9450f9413c101e57
+apply cmyka8 77 8643ceb9d61b7fd8
+apply cmyka8 78 46bfe738f7201103
+apply cmyka8 79 bef075b1d8f61f9b
+apply cmyka8 80 20f8f479a81ecb46
+apply cmyka8 81 dc7d9ed2b79c77c2
+apply cmyka8 82 dfe9b9980e5ddaec
+apply cmyka8 83 ca66c67114f099f4
+apply cmyka8 84 e27b22b208d90ab1
 apply laba16 0 49bf239de244d0f2
-apply laba16 1 ec050da06ae4f547
-apply laba16 2 5540baeb395aff46
-apply laba16 3 4dfa82d8eb12b73c
-apply laba16 4 8287a8f8fd988d38
-apply laba16 5 59799c8ef55dbbd7
-apply laba16 6 4ecbbaa5dab67145
-apply laba16 7 85daac1f1a60f8e0
+apply laba16 1 d063c0f9458831d2
+apply laba16 2 eb77c833c724960c
+apply laba16 3 8969d8e3d1f0a683
+apply laba16 4 497ca7d2b0bdf08c
+apply laba16 5 994f1b0d69898579
+apply laba16 6 eb395bde183afd42
+apply laba16 7 4500383de047c6a5
 apply laba16 8 49bf239de244d0f2
-apply laba16 9 c059767c583a50c9
-apply laba16 10 540542775909fb2f
-apply laba16 11 cb311233ff48dc20
-apply laba16 12 5974bdcf694c9ebc
-apply laba16 13 d7ff12c7a2ee149d
-apply laba16 14 c166a137640d0cec
-apply laba16 15 e75e7ae1978127db
-apply laba16 16 c796c237969e87da
-apply laba16 17 79991bc9f0aa79a0
-apply laba16 18 f87f03d161b2c0d2
-apply laba16 19 28fda7019771a8a3
-apply laba16 20 6c6ae49303bc189a
-apply laba16 21 2dde8b410bd76df8
+apply laba16 9 13fd778586c7ebb6
+apply laba16 10 70b9b711ba928478
+apply laba16 11 8a716966df6c82c6
+apply laba16 12 8b529b3ce102fc85
+apply laba16 13 b90be588aa288e4e
+apply laba16 14 47b7a5b93ef73bb0
+apply laba16 15 3cf9ab7d65b92372
+apply laba16 16 ab8147858f05351b
+apply laba16 17 e0ea3ac193459cd4
+apply laba16 18 747ea576f009e7e2
+apply laba16 19 43640e055843a42f
+apply laba16 20 6197d2a99ab03653
+apply laba16 21 a5ac523b8a5c3bf1
 apply laba16 22 65dba5580a9daff1
-apply laba16 23 aa12b23a119dc6cc
-apply laba16 24 0e2174d78294f0a7
-apply laba16 25 9773a49339120b0b
-apply laba16 26 27da971d889c9b25
-apply laba16 27 22315fbf9e8460c8
-apply laba16 28 e2d32dc7031f608f
-apply laba16 29 adc350035ccf1985
-apply laba16 30 91f41a27e46e0406
+apply laba16 23 32755bec25b8286d
+apply laba16 24 bbba3bad9082d1b7
+apply laba16 25 efc5d11625ef345e
+apply laba16 26 6ddae5bedc76ec99
+apply laba16 27 b92299884bda287a
+apply laba16 28 69c7a85a03296724
+apply laba16 29 0a86fa4552f5502b
+apply laba16 30 bf7149b03d330d7c
 apply laba16 31 839405cc369e7d43
 apply laba16 32 c6bda7d3c248fa35
 apply laba16 33 071f17b9c82862be
@@ -815,70 +815,70 @@ apply laba16 48 2fd47fa4f57fa1ec
 apply laba16 49 d2b5ac38324e0843
 apply laba16 50 6625a195c39ae5a9
 apply laba16 51 6075c7f717634afa
-apply laba16 52 16140d814e8f8ceb
-apply laba16 53 5eede666a51bcd2a
-apply laba16 54 604bceae79596e42
-apply laba16 55 7c7e4eec85c16856
+apply laba16 52 9c4d2fe18064a595
+apply laba16 53 693f632575810ff2
+apply laba16 54 d77b25e0c9c7695c
+apply laba16 55 c5c98d271c374142
 apply laba16 56 d41e86927f51b082
-apply laba16 57 4455236a2fec96e2
-apply laba16 58 6b65f0831424a7dd
-apply laba16 59 16140d814e8f8ceb
+apply laba16 57 86c426cf9259c0a8
+apply laba16 58 cd925930c3646df0
+apply laba16 59 9c4d2fe18064a595
 apply laba16 60 7dea62a34a105fb7
 apply laba16 61 29c2f77543ed3633
 apply laba16 62 709f986a78cf8648
 apply laba16 63 e5f5c53c27493132
 apply laba16 64 83381a0e577137c3
-apply laba16 65 e538c1f845e7dc58
+apply laba16 65 8f8cb3764787f1ff
 apply laba16 66 469ab5b9fba2c9a1
 apply laba16 67 43364a682da1c43e
-apply laba16 68 d50ac34f583a996d
-apply laba16 69 2e5b4f4fcba2e125
-apply laba16 70 b00cea4d1f0c4b26
-apply laba16 71 dda336cd12496255
-apply laba16 72 485aa2e77dc16ea6
-apply laba16 73 af2c1e558e194b7a
-apply laba16 74 76c381e1c5ba9abf
-apply laba16 75 f738893aea2432b1
-apply laba16 76 db457a1747ccfad5
-apply laba16 77 291bdf76087bf39e
-apply laba16 78 e8ab0b3a6fbb5cde
-apply laba16 79 3f0da634b76b1b35
-apply laba16 80 731819ae9ce06387
-apply laba16 81 fbd71b4d21622238
-apply laba16 82 14caf38901e70256
-apply laba16 83 9c0d92cdf7754ffa
-apply laba16 84 5a8c9cb9005a4db2
+apply laba16 68 dceb94b90808243d
+apply laba16 69 e34a3a4b5ef0e9d8
+apply laba16 70 06793a1c51799388
+apply laba16 71 9f7dc524674ce41d
+apply laba16 72 8969cd88b66179d4
+apply laba16 73 d4f5c52a9e00fce0
+apply laba16 74 52bc7d5fb7ee46f8
+apply laba16 75 37274891c2e5e5f7
+apply laba16 76 03fabe58f7e95a97
+apply laba16 77 5818f4506cc625fb
+apply laba16 78 1b1c2abb70d1027a
+apply laba16 79 092945ab79c6b2ab
+apply laba16 80 d6f80e55767dba98
+apply laba16 81 feff0c437023da34
+apply laba16 82 b773331144658701
+apply laba16 83 5e31e09a0004ce61
+apply laba16 84 3cb44a946ed9887b
 apply laba32 0 d2252c9297dbd7ce
-apply laba32 1 2b40fed614f547d4
-apply laba32 2 c2da88ae8b3a806b
-apply laba32 3 3a4babdb57656f72
-apply laba32 4 26fffaee7da06da8
-apply laba32 5 676f77d27d9f0a82
-apply laba32 6 87feb284ecd0b255
-apply laba32 7 e7d43f13b03130b4
+apply laba32 1 9287ef477fa558b3
+apply laba32 2 2416b268eac76234
+apply laba32 3 b67469c4cdfc50e0
+apply laba32 4 c714edae4008d3f9
+apply laba32 5 ced71a1852761750
+apply laba32 6 c5a7c6da253c7048
+apply laba32 7 31f8563819c37dc6
 apply laba32 8 d2252c9297dbd7ce
-apply laba32 9 9113d450f29800ae
-apply laba32 10 90268bf78d435e2c
-apply laba32 11 f8605eb1dd3f71f8
-apply laba32 12 9fdf9bd62488be94
-apply laba32 13 d72b7512a8738734
-apply laba32 14 6a180850cdda4b00
-apply laba32 15 6e8f00432c310f8a
-apply laba32 16 50e4ef65036f091c
-apply laba32 17 021fbeb7ec06739f
-apply laba32 18 1a5411f03d218642
-apply laba32 19 18f24b036ae9c032
-apply laba32 20 dde71913f3f03cd5
-apply laba32 21 46bfce5bf9b78a8a
+apply laba32 9 110030f52b68de10
+apply laba32 10 0adde7b95e6f281a
+apply laba32 11 9a34999b0a0d325e
+apply laba32 12 33c005da4eaa575d
+apply laba32 13 8d09d4474994ed05
+apply laba32 14 2a9a172b167cf835
+apply laba32 15 e4f3cbeaac26879f
+apply laba32 16 64d5de2b4a42eaf5
+apply laba32 17 da7f3fd9b7b06328
+apply laba32 18 16f9f56d2b724f67
+apply laba32 19 62bd4bbfdcf66fd9
+apply laba32 20 f34764db7f78f49d
+apply laba32 21 c1c2ded5a1b9942b
 apply laba32 22 a07a478a622ed006
-apply laba32 23 60695d017e1ef045
-apply laba32 24 7010cbf3d045a9e7
-apply laba32 25 60632f5217dc687d
-apply laba32 26 a0443d655416b253
-apply laba32 27 c11622c446822379
-apply laba32 28 566c5eac3620d18a
-apply laba32 29 9685a83fd237a28a
-apply laba32 30 293c8e80d8bd847c
+apply laba32 23 15a39ca9b0134d6b
+apply laba32 24 560375fef0ea0547
+apply laba32 25 7322745aff9f79b2
+apply laba32 26 4859dd5297cd4b64
+apply laba32 27 5836532047433153
+apply laba32 28 f79776549950ca54
+apply laba32 29 3c8ceb39d489e4c9
+apply laba32 30 1c3c6c7d5d5fd4c6
 apply laba32 31 3dbc9cfd2abc2cd4
 apply laba32 32 bf8ccd6374f52794
 apply laba32 33 97bc0de20f115051
@@ -900,39 +900,39 @@ apply laba32 48 194ae362247356b1
 apply laba32 49 2da27b61ab43ce4d
 apply laba32 50 9648e8b98d18a21d
 apply laba32 51 fa917ababa781481
-apply laba32 52 24cec478e1520bb7
-apply laba32 53 2960ca8f548c8ea0
-apply laba32 54 72105a87dec55fed
-apply laba32 55 89ca6cc8a8fca9d5
+apply laba32 52 897d44d0bdae46e5
+apply laba32 53 a018e0d0adda389b
+apply laba32 54 440f251d686feee4
+apply laba32 55 d3f104ea9fb8df02
 apply laba32 56 bbe020a6b5fae681
-apply laba32 57 041e72bce38402d1
-apply laba32 58 139c938e851cd4fe
-apply laba32 59 24cec478e1520bb7
+apply laba32 57 8c0e73bade5a79dc
+apply laba32 58 0357507335561b7c
+apply laba32 59 897d44d0bdae46e5
 apply laba32 60 59df6e4b216c8810
 apply laba32 61 c082a5d3f8539751
 apply laba32 62 117c4fd29afc7708
 apply laba32 63 1822e4c0d5229bc1
 apply laba32 64 269d9b938334c2f2
-apply laba32 65 98f0525438d79946
+apply laba32 65 03b4aaf7e7c51107
 apply laba32 66 b3ace64136edb4cf
 apply laba32 67 fae8e4b5e149ccdb
-apply laba32 68 a5a1c6ec984ddc8e
-apply laba32 69 9c5f2af383455995
-apply laba32 70 4cb18f951e8c30f9
-apply laba32 71 78178d99e7d9abd9
-apply laba32 72 1d0d9d2ee96edd4e
-apply laba32 73 72752b659bd6a2d0
-apply laba32 74 678f3341167fb392
-apply laba32 75 824a4f98e604a60a
-apply laba32 76 46c015d465adb0ff
-apply laba32 77 b1d107df36657813
-apply laba32 78 398afad84a5e52a2
-apply laba32 79 9b9f876e893c9f13
-apply laba32 80 31053ac4e1f6d3a3
-apply laba32 81 6b74a8d61f6b75f7
-apply laba32 82 788ee7d7fe962c9b
-apply laba32 83 f9f7a6af2af085ad
-apply laba32 84 5c4eab524c971527
+apply laba32 68 a25c3589064d61ba
+apply laba32 69 c30a18fd4d50b8d2
+apply laba32 70 0b90bd99673f74ef
+apply laba32 71 17b1f063ae3231d0
+apply laba32 72 399e53534c1981fd
+apply laba32 73 1996177d36877347
+apply laba32 74 03aa2feec6b6f17c
+apply laba32 75 339b4bf33075e5af
+apply laba32 76 7ea679af58afba8a
+apply laba32 77 02bd75412317e996
+apply laba32 78 630de1dcdd52d8fa
+apply laba32 79 36c0787ebdf5e0c1
+apply laba32 80 b07814b554e3a606
+apply laba32 81 cad128ba5cb63caa
+apply laba32 82 3b0d4834815dc9e4
+apply laba32 83 bde5f63bfb02f12d
+apply laba32 84 9700a2c305b6518b
 kernel 0 0 r2 f83cc607c8388797
 kernel 0 1 r1 a9c047216dc205a5
 kernel 0 2 r1 f83cc607c8388797
@@ -1275,61 +1275,61 @@ kernel 84 2 r1 f83cc607c8388797
 kernel 84 3 r1 f83cc607c8388797
 smooth 97x61 binary 0 10a7d9311c96fc45
 smooth 97x61 binary 0.4 10a7d9311c96fc45
-smooth 97x61 binary 1 62aeb7ca3470c138
-smooth 97x61 binary 2 9a6fe75ef692285b
-smooth 97x61 binary 5 a9876c812b109f2f
-smooth 97x61 binary 16 3560d691a940a2cb
-smooth 97x61 binary 50 d1ca7c3c96bc9d4e
+smooth 97x61 binary 1 d3a6c6ec8d42d545
+smooth 97x61 binary 2 8038d661dd415c98
+smooth 97x61 binary 5 5d7bcfe3a186fc85
+smooth 97x61 binary 16 0eb280337f883cf8
+smooth 97x61 binary 50 fb5ab6c5809ee2b8
 smooth 97x61 binary 500 fb5ab6c5809ee2b8
 feather 97x61 binary 0.1 10a7d9311c96fc45
-feather 97x61 binary 0.3 10a7d9311c96fc45
-feather 97x61 binary 1 2f5aa316e8a47752
-feather 97x61 binary 2.5 0ecc30afb3cc9b55
-feather 97x61 binary 8 43ce27246f39aaed
-feather 97x61 binary 9 3e241b4792d3360d
-feather 97x61 binary 17 74c1ef8793a7b0d1
-feather 97x61 binary 25 5dd664f40ea0c0e6
-feather 97x61 binary 50 9148218ff2cefa00
-feather 97x61 binary 120 43b2e3391ad0766a
-feather 97x61 binary 1000 619a41c2e1ddfc89
-smooth 97x61 soft 0 63105cd06dd3fc1c
-smooth 97x61 soft 0.4 63105cd06dd3fc1c
-smooth 97x61 soft 1 c9b6405dda8b731e
-smooth 97x61 soft 2 f9ffe22b0767d747
-smooth 97x61 soft 5 9b2003bbbdb0f98d
-smooth 97x61 soft 16 3abd5ba51e85f612
-smooth 97x61 soft 50 55a716b5defb0b1f
-smooth 97x61 soft 500 06a028afd88425d6
+feather 97x61 binary 0.3 3bc9dba0bda13600
+feather 97x61 binary 1 ff34cc3cb764045f
+feather 97x61 binary 2.5 98d547803d833caa
+feather 97x61 binary 8 b550421123c864c6
+feather 97x61 binary 9 851f3111f71b7ba7
+feather 97x61 binary 17 39e2f0ab77707c1e
+feather 97x61 binary 25 9148218ff2cefa00
+feather 97x61 binary 50 5b79fa68f8bbaa70
+feather 97x61 binary 120 8f1f360e7cb6fc1d
+feather 97x61 binary 1000 127a39cb67ee8a7f
+smooth 97x61 soft 0 5e4a5f51b2bb6db8
+smooth 97x61 soft 0.4 5e4a5f51b2bb6db8
+smooth 97x61 soft 1 fefc21ff7521e2d8
+smooth 97x61 soft 2 9bed1c4ad62ecae8
+smooth 97x61 soft 5 916210c41ff5f045
+smooth 97x61 soft 16 8e6e391bf621ede5
+smooth 97x61 soft 50 8ee1ce9343f926d8
+smooth 97x61 soft 500 fb5ab6c5809ee2b8
 feather 97x61 soft 0.1 bcc3b97c5a176f77
-feather 97x61 soft 0.3 bcc3b97c5a176f77
-feather 97x61 soft 1 4217ce815dbf9610
-feather 97x61 soft 2.5 6a5e46a9aecf19a4
-feather 97x61 soft 8 04a1604360defc6b
-feather 97x61 soft 9 aec0722807c4c83d
-feather 97x61 soft 17 30c5f63a603b8c54
-feather 97x61 soft 25 f0b912febb1f6666
-feather 97x61 soft 50 68c1e0f6e0d7ce7b
-feather 97x61 soft 120 66647065eda026bf
-feather 97x61 soft 1000 d520eb5e070f684a
-smooth 97x61 blob 0 4213f75d72a6e813
-smooth 97x61 blob 0.4 4213f75d72a6e813
-smooth 97x61 blob 1 aa1a0b7bcc966b2d
-smooth 97x61 blob 2 de0243096d513c5a
-smooth 97x61 blob 5 ce27c674902e3391
-smooth 97x61 blob 16 f91f3ae35bef9be4
+feather 97x61 soft 0.3 1bf74c69d21790bd
+feather 97x61 soft 1 8e634ab3f2b56946
+feather 97x61 soft 2.5 ea918e3f2ffca53d
+feather 97x61 soft 8 2baaa896a35fb617
+feather 97x61 soft 9 17b442303f7bd9b8
+feather 97x61 soft 17 01228c536ee37a12
+feather 97x61 soft 25 68c1e0f6e0d7ce7b
+feather 97x61 soft 50 8329988fb31e15d9
+feather 97x61 soft 120 4892a3fb9b587722
+feather 97x61 soft 1000 b7ae559974c8062b
+smooth 97x61 blob 0 116ee8c297f08bd8
+smooth 97x61 blob 0.4 116ee8c297f08bd8
+smooth 97x61 blob 1 fce5d7e685a92b58
+smooth 97x61 blob 2 857a49652bd4ca75
+smooth 97x61 blob 5 700c1b805772dfb8
+smooth 97x61 blob 16 5ea98beaf51c25f8
 smooth 97x61 blob 50 c3daf4d1bc2288b5
 smooth 97x61 blob 500 c3daf4d1bc2288b5
 feather 97x61 blob 0.1 3ccdf214e66ebdd7
-feather 97x61 blob 0.3 3ccdf214e66ebdd7
-feather 97x61 blob 1 916c59155aecd242
-feather 97x61 blob 2.5 cec72fc253fb715e
-feather 97x61 blob 8 cc2d0c83cc1f4e78
-feather 97x61 blob 9 06bb74f9d6046f95
-feather 97x61 blob 17 b331d7e6eee067ba
-feather 97x61 blob 25 2fb4933e50a044e2
-feather 97x61 blob 50 e926bccd7a781ef9
-feather 97x61 blob 120 76627c586aa9bdf4
-feather 97x61 blob 1000 c553d0ecb9ae1e72
+feather 97x61 blob 0.3 3adfffa6b1d822d1
+feather 97x61 blob 1 4a4131de1bc178da
+feather 97x61 blob 2.5 19287e86d8dd5549
+feather 97x61 blob 8 4ce645109846d55b
+feather 97x61 blob 9 40dc760f3be4de85
+feather 97x61 blob 17 06a52de74e434852
+feather 97x61 blob 25 e926bccd7a781ef9
+feather 97x61 blob 50 7bc39385b9113400
+feather 97x61 blob 120 e6f741f4077c5ea7
+feather 97x61 blob 1000 9c676a8f0a87883e
 smooth 97x61 sparse 0 313fb53e361ad158
 smooth 97x61 sparse 0.4 313fb53e361ad158
 smooth 97x61 sparse 1 c3daf4d1bc2288b5
@@ -1339,92 +1339,92 @@ smooth 97x61 sparse 16 c3daf4d1bc2288b5
 smooth 97x61 sparse 50 c3daf4d1bc2288b5
 smooth 97x61 sparse 500 c3daf4d1bc2288b5
 feather 97x61 sparse 0.1 313fb53e361ad158
-feather 97x61 sparse 0.3 313fb53e361ad158
-feather 97x61 sparse 1 8e521e0c4f931295
-feather 97x61 sparse 2.5 61f7ff47f6b972ad
-feather 97x61 sparse 8 2a619599a847a2bd
-feather 97x61 sparse 9 7f01a327e94b8e8b
-feather 97x61 sparse 17 7655a1dbbf20134f
-feather 97x61 sparse 25 0e557416317056a4
-feather 97x61 sparse 50 7971edd270d608ba
-feather 97x61 sparse 120 8f4cf6c6420f2e26
-feather 97x61 sparse 1000 06b1088fe3039720
+feather 97x61 sparse 0.3 a81b01ff0277fc2e
+feather 97x61 sparse 1 95a968113a9775ec
+feather 97x61 sparse 2.5 0ed1498ce723d0f3
+feather 97x61 sparse 8 45f9a5282e840397
+feather 97x61 sparse 9 1b3a2561b8199556
+feather 97x61 sparse 17 c73f2ed8a10d70a5
+feather 97x61 sparse 25 7971edd270d608ba
+feather 97x61 sparse 50 1731f37926dc7ef9
+feather 97x61 sparse 120 5cf9c8e79ba1163a
+feather 97x61 sparse 1000 8b768b0312cf59a3
 smooth 97x61 rect 0 d68472956ef41cb5
 smooth 97x61 rect 0.4 d68472956ef41cb5
-smooth 97x61 rect 1 1525afbf60b54104
-smooth 97x61 rect 2 ab9d26c882445fe8
-smooth 97x61 rect 5 477fdcf12b802e71
-smooth 97x61 rect 16 6b9db8f6471b04af
-smooth 97x61 rect 50 a2a6584ea2075f66
+smooth 97x61 rect 1 879df74eb15100b8
+smooth 97x61 rect 2 58d5f7692fed6e58
+smooth 97x61 rect 5 6bd3daeb15c7aa15
+smooth 97x61 rect 16 c97220440d25ca98
+smooth 97x61 rect 50 a256c380aff340c8
 smooth 97x61 rect 500 c3daf4d1bc2288b5
 feather 97x61 rect 0.1 d68472956ef41cb5
-feather 97x61 rect 0.3 d68472956ef41cb5
-feather 97x61 rect 1 f63e6f42a81ef1d0
-feather 97x61 rect 2.5 e996edb0cf5db3d9
-feather 97x61 rect 8 d3ad82342357ccd0
-feather 97x61 rect 9 0afdaf60fb912eba
-feather 97x61 rect 17 e31113d54adf587c
-feather 97x61 rect 25 e9e1249e64c3a4ed
-feather 97x61 rect 50 051e03285add8d34
-feather 97x61 rect 120 074b1ef5fce655e9
-feather 97x61 rect 1000 17eb4dc222908721
+feather 97x61 rect 0.3 e7aa4772d1c8684e
+feather 97x61 rect 1 0b72defdd05299de
+feather 97x61 rect 2.5 74f0478f5fc83776
+feather 97x61 rect 8 9f9dce389544a093
+feather 97x61 rect 9 8a525e77da866b2c
+feather 97x61 rect 17 e5a7f9e629f83a69
+feather 97x61 rect 25 051e03285add8d34
+feather 97x61 rect 50 89a85d358001fece
+feather 97x61 rect 120 e16602ecde2fea69
+feather 97x61 rect 1000 fbaf36ed961d6f0f
 smooth 40x150 binary 0 0793de1a0e169fe8
 smooth 40x150 binary 0.4 0793de1a0e169fe8
-smooth 40x150 binary 1 6a5f1e7099a54a24
-smooth 40x150 binary 2 daa9434c1a231fd8
-smooth 40x150 binary 5 003d1f2d63fa8eea
-smooth 40x150 binary 16 ee8d69d38fd1c5b9
-smooth 40x150 binary 50 deeb3044766d34aa
-smooth 40x150 binary 500 216e77c9c38eaa34
+smooth 40x150 binary 1 5f66d5aee2cc8e05
+smooth 40x150 binary 2 b9f3cd2fa90a7f95
+smooth 40x150 binary 5 7664336ebe1ab7d8
+smooth 40x150 binary 16 f883551227876b75
+smooth 40x150 binary 50 16fe653f1aacc5e5
+smooth 40x150 binary 500 cab7c8911b92c768
 feather 40x150 binary 0.1 0793de1a0e169fe8
-feather 40x150 binary 0.3 0793de1a0e169fe8
-feather 40x150 binary 1 51bb870e248a0034
-feather 40x150 binary 2.5 6e5f197c964f2010
-feather 40x150 binary 8 17027d868c8d7a0f
-feather 40x150 binary 9 42a9e180d000462b
-feather 40x150 binary 17 b57cb6a478769340
-feather 40x150 binary 25 aa58a01ba57ad6bb
-feather 40x150 binary 50 ffe16a3f163448a4
-feather 40x150 binary 120 4568ec755b6ea279
-feather 40x150 binary 1000 e12cc99a7ec3439b
-smooth 40x150 soft 0 0b7ee34677e51bf6
-smooth 40x150 soft 0.4 0b7ee34677e51bf6
-smooth 40x150 soft 1 d28d7ce1f3d72720
-smooth 40x150 soft 2 2e7b58e37b68b1e7
-smooth 40x150 soft 5 b465750c8fdd75d6
-smooth 40x150 soft 16 6a4711f468dcb31e
-smooth 40x150 soft 50 1caac3e02aa985dc
-smooth 40x150 soft 500 84e7211568cd74c7
+feather 40x150 binary 0.3 aa3f63853d1e890b
+feather 40x150 binary 1 9d0543952dcbf5f1
+feather 40x150 binary 2.5 9d0192bf6039a0a2
+feather 40x150 binary 8 5c65f887edda7d87
+feather 40x150 binary 9 d470a671c63d0271
+feather 40x150 binary 17 f4c4d977c69511b0
+feather 40x150 binary 25 ffe16a3f163448a4
+feather 40x150 binary 50 9f6c69a5ed997b22
+feather 40x150 binary 120 ef7b996d0d8cbaee
+feather 40x150 binary 1000 16032bc1998c35f2
+smooth 40x150 soft 0 3d609efb83b48725
+smooth 40x150 soft 0.4 3d609efb83b48725
+smooth 40x150 soft 1 4b07d39fd76848b8
+smooth 40x150 soft 2 de4b4550eb26b6c8
+smooth 40x150 soft 5 e8234649a6668958
+smooth 40x150 soft 16 30dcc81a6c641c75
+smooth 40x150 soft 50 fe7c2e039d4dd795
+smooth 40x150 soft 500 e33f0071d4fdb8a5
 feather 40x150 soft 0.1 98795e9737551e85
-feather 40x150 soft 0.3 98795e9737551e85
-feather 40x150 soft 1 ea7a07158357706a
-feather 40x150 soft 2.5 94689b02d208d722
-feather 40x150 soft 8 36ed55541013cd34
-feather 40x150 soft 9 145f9b47c61d20ed
-feather 40x150 soft 17 58b8ebacc0e291f1
-feather 40x150 soft 25 a2abffa4864cf7fb
-feather 40x150 soft 50 0542dcd9d6c8f770
-feather 40x150 soft 120 3bbb700120bd32bf
-feather 40x150 soft 1000 0f6c3bd3f0d4d678
-smooth 40x150 blob 0 ce92e09e7e329415
-smooth 40x150 blob 0.4 ce92e09e7e329415
-smooth 40x150 blob 1 391b2fa173eaefe4
-smooth 40x150 blob 2 4ae71cc78995e5f9
-smooth 40x150 blob 5 fe26ee3d387717ba
-smooth 40x150 blob 16 5e6b109e43ffabcf
+feather 40x150 soft 0.3 2a853a9440360257
+feather 40x150 soft 1 041faa0903ad334c
+feather 40x150 soft 2.5 e9c97bf1046c2c8f
+feather 40x150 soft 8 b36409b72fa1ed04
+feather 40x150 soft 9 430cf082fb633287
+feather 40x150 soft 17 b0c79a75def0edbb
+feather 40x150 soft 25 0542dcd9d6c8f770
+feather 40x150 soft 50 efc75bb3421a6eae
+feather 40x150 soft 120 3d479ed25705d94f
+feather 40x150 soft 1000 1b3f15b9fa8f6a2a
+smooth 40x150 blob 0 e9d40b032d047b05
+smooth 40x150 blob 0.4 e9d40b032d047b05
+smooth 40x150 blob 1 ea245a7818a8aae8
+smooth 40x150 blob 2 a6329d4a767c82e8
+smooth 40x150 blob 5 455a39355f472ae8
+smooth 40x150 blob 16 10d4748a841d7de8
 smooth 40x150 blob 50 8fed60f1e1889625
 smooth 40x150 blob 500 8fed60f1e1889625
 feather 40x150 blob 0.1 bf64d16b45d14695
-feather 40x150 blob 0.3 bf64d16b45d14695
-feather 40x150 blob 1 1f237353b9111654
-feather 40x150 blob 2.5 2b2e4034ef717788
-feather 40x150 blob 8 c0f511cef444f369
-feather 40x150 blob 9 925445792ce4bd17
-feather 40x150 blob 17 4cb01f88e947b6d7
-feather 40x150 blob 25 0126b7f489274074
-feather 40x150 blob 50 ba5108fbe6b347b2
-feather 40x150 blob 120 15592829139a5cd8
-feather 40x150 blob 1000 600ce899053916c3
+feather 40x150 blob 0.3 6e9a6f44baf8c1b6
+feather 40x150 blob 1 add3cd074d26eff0
+feather 40x150 blob 2.5 5e39f6e9baf58198
+feather 40x150 blob 8 013b5aa960fb10a2
+feather 40x150 blob 9 2c1b6b225844bcc9
+feather 40x150 blob 17 81e7187ca4f937f6
+feather 40x150 blob 25 ba5108fbe6b347b2
+feather 40x150 blob 50 0fd8ca4488286c85
+feather 40x150 blob 120 49ba620d3a7776fa
+feather 40x150 blob 1000 da2e6831cfeb4866
 smooth 40x150 sparse 0 dfe4da2105faf198
 smooth 40x150 sparse 0.4 dfe4da2105faf198
 smooth 40x150 sparse 1 8fed60f1e1889625
@@ -1434,92 +1434,92 @@ smooth 40x150 sparse 16 8fed60f1e1889625
 smooth 40x150 sparse 50 8fed60f1e1889625
 smooth 40x150 sparse 500 8fed60f1e1889625
 feather 40x150 sparse 0.1 dfe4da2105faf198
-feather 40x150 sparse 0.3 dfe4da2105faf198
-feather 40x150 sparse 1 1e499eb26cf4be49
-feather 40x150 sparse 2.5 d139dd1ce12a1bf2
-feather 40x150 sparse 8 03f282656058f1be
-feather 40x150 sparse 9 006bd79c0b4ffa45
-feather 40x150 sparse 17 83126c35c2220f02
-feather 40x150 sparse 25 c6c0f345189dcc0a
-feather 40x150 sparse 50 5d66feb8b8c61cf9
-feather 40x150 sparse 120 3bdc36c9cdb6a909
-feather 40x150 sparse 1000 cebb84668380d035
+feather 40x150 sparse 0.3 f596fdf836e316f8
+feather 40x150 sparse 1 e52715b58ecee95c
+feather 40x150 sparse 2.5 cbaf12827abdf1dd
+feather 40x150 sparse 8 fef66e8de71b8672
+feather 40x150 sparse 9 384f76543a64ae4b
+feather 40x150 sparse 17 7cc894ee2b748ca4
+feather 40x150 sparse 25 5d66feb8b8c61cf9
+feather 40x150 sparse 50 558504a2fa11ca44
+feather 40x150 sparse 120 9a7b3579e815bd5e
+feather 40x150 sparse 1000 c725234dfbf384cc
 smooth 40x150 rect 0 9424da8457690615
 smooth 40x150 rect 0.4 9424da8457690615
-smooth 40x150 rect 1 0cabb1524b29eeb4
-smooth 40x150 rect 2 5eeee2ebbfe04163
-smooth 40x150 rect 5 0643faf36c731a9a
-smooth 40x150 rect 16 c77e27e2625273d2
-smooth 40x150 rect 50 6e4b6c1ed7f811c0
+smooth 40x150 rect 1 c91f47e3588ec6a8
+smooth 40x150 rect 2 dd32610dc3a11cd8
+smooth 40x150 rect 5 3cbf07c8eddb3f55
+smooth 40x150 rect 16 3e557d692e4c8098
+smooth 40x150 rect 50 0377fcf2f81dcc65
 smooth 40x150 rect 500 8fed60f1e1889625
 feather 40x150 rect 0.1 9424da8457690615
-feather 40x150 rect 0.3 9424da8457690615
-feather 40x150 rect 1 a02db5c2a036981b
-feather 40x150 rect 2.5 efaa5e688561f4b6
-feather 40x150 rect 8 36f6a3d48e13c558
-feather 40x150 rect 9 e99fe9590a8ac0ce
-feather 40x150 rect 17 cf636e123315838b
-feather 40x150 rect 25 015a00728dc62018
-feather 40x150 rect 50 a9f78789115147d0
-feather 40x150 rect 120 76e569f56a37764c
-feather 40x150 rect 1000 8c86e598e6d15499
+feather 40x150 rect 0.3 2c31f6020e052d36
+feather 40x150 rect 1 afd76575fce8f918
+feather 40x150 rect 2.5 51131424533429f4
+feather 40x150 rect 8 344d5ec22e3617db
+feather 40x150 rect 9 8bae45b164d8394b
+feather 40x150 rect 17 7aed3f7be2e963e5
+feather 40x150 rect 25 a9f78789115147d0
+feather 40x150 rect 50 c8d18e7f63baacf7
+feather 40x150 rect 120 993292777857c1dc
+feather 40x150 rect 1000 98624b3c7d80dd93
 smooth 13x7 binary 0 86f8df646808ae75
 smooth 13x7 binary 0.4 86f8df646808ae75
-smooth 13x7 binary 1 729a15d58bf29c3d
-smooth 13x7 binary 2 736afedcd8149620
-smooth 13x7 binary 5 86c03cb14d669df0
+smooth 13x7 binary 1 8675d2c70e661388
+smooth 13x7 binary 2 767db11ea53af528
+smooth 13x7 binary 5 01a415396cfd9005
 smooth 13x7 binary 16 6924abb5b3ae1815
 smooth 13x7 binary 50 6924abb5b3ae1815
 smooth 13x7 binary 500 6924abb5b3ae1815
 feather 13x7 binary 0.1 86f8df646808ae75
-feather 13x7 binary 0.3 86f8df646808ae75
-feather 13x7 binary 1 2d1cd7e8db8ed9b6
-feather 13x7 binary 2.5 94c46607c3902d87
-feather 13x7 binary 8 50c61eaa4298cd1f
-feather 13x7 binary 9 973448a794896d4e
-feather 13x7 binary 17 210087c0b1ac0d72
-feather 13x7 binary 25 4780d3db61557169
-feather 13x7 binary 50 c175a5368c624385
-feather 13x7 binary 120 9a007be8cdb17e17
-feather 13x7 binary 1000 374d77e074a300d4
-smooth 13x7 soft 0 757161e40b955c8b
-smooth 13x7 soft 0.4 757161e40b955c8b
-smooth 13x7 soft 1 a60fd1cee83221ca
-smooth 13x7 soft 2 fc1722fb36c5bb81
-smooth 13x7 soft 5 ace81c1284cb2be0
-smooth 13x7 soft 16 78db2ad2b5af63f7
-smooth 13x7 soft 50 e68d85ff0fae55a1
-smooth 13x7 soft 500 ad7e45509e9eb20e
+feather 13x7 binary 0.3 fae396143d19b245
+feather 13x7 binary 1 e6019e020f2de238
+feather 13x7 binary 2.5 e8030d678909b46c
+feather 13x7 binary 8 8e3bd5b35b5e8de4
+feather 13x7 binary 9 b09097d717ad07dd
+feather 13x7 binary 17 dbc479bf898d2b62
+feather 13x7 binary 25 c175a5368c624385
+feather 13x7 binary 50 ffa49018b56ee846
+feather 13x7 binary 120 d89a13110e5fe764
+feather 13x7 binary 1000 fcfb97317022491c
+smooth 13x7 soft 0 ff49d41a2fca8995
+smooth 13x7 soft 0.4 ff49d41a2fca8995
+smooth 13x7 soft 1 ee6615ab917ca128
+smooth 13x7 soft 2 aa5609efc17c8998
+smooth 13x7 soft 5 b0caf0bfd44fed15
+smooth 13x7 soft 16 9d0e4b5bce69b645
+smooth 13x7 soft 50 c696ec11d598db65
+smooth 13x7 soft 500 6924abb5b3ae1815
 feather 13x7 soft 0.1 d916c6a69ce9e318
-feather 13x7 soft 0.3 d916c6a69ce9e318
-feather 13x7 soft 1 7a4d89ed9aaf4659
-feather 13x7 soft 2.5 1aa77a98e1d3a855
-feather 13x7 soft 8 c0c9ffb377457372
-feather 13x7 soft 9 48074962749bcf17
-feather 13x7 soft 17 e52730a3de71bd85
-feather 13x7 soft 25 5a3dec812adc0221
-feather 13x7 soft 50 6ba6e41559d9a9ff
-feather 13x7 soft 120 4a7b446eb6fd9a08
-feather 13x7 soft 1000 78db034c456a108a
-smooth 13x7 blob 0 3ce4015de74b7d30
-smooth 13x7 blob 0.4 3ce4015de74b7d30
-smooth 13x7 blob 1 bfd4c442c2231c5e
-smooth 13x7 blob 2 a19f749fe26a8d11
+feather 13x7 soft 0.3 042a620f2f81b747
+feather 13x7 soft 1 ffea1849fba21d48
+feather 13x7 soft 2.5 dc66fba6aa3b2b29
+feather 13x7 soft 8 8e4833c58e9fed3a
+feather 13x7 soft 9 24bcb8f90b8d983c
+feather 13x7 soft 17 2fd33926ef3e22b5
+feather 13x7 soft 25 6ba6e41559d9a9ff
+feather 13x7 soft 50 03cbd59e8217dc9a
+feather 13x7 soft 120 35e240c907a33ecf
+feather 13x7 soft 1000 d8b1ea9f0c58a76a
+smooth 13x7 blob 0 afef91a5791f3098
+smooth 13x7 blob 0.4 afef91a5791f3098
+smooth 13x7 blob 1 37196cdc6d5c8cd8
+smooth 13x7 blob 2 7db4e55ccc9143b5
 smooth 13x7 blob 5 6924abb5b3ae1815
 smooth 13x7 blob 16 6924abb5b3ae1815
 smooth 13x7 blob 50 6924abb5b3ae1815
 smooth 13x7 blob 500 6924abb5b3ae1815
 feather 13x7 blob 0.1 d06f299868589db0
-feather 13x7 blob 0.3 d06f299868589db0
-feather 13x7 blob 1 72f19999dffb9897
-feather 13x7 blob 2.5 f733bedc3a0665dd
-feather 13x7 blob 8 7bf9695f215f018c
-feather 13x7 blob 9 b65deb1f446a8d3b
-feather 13x7 blob 17 76578797aba699a3
-feather 13x7 blob 25 f277f3a8b1ad58bb
-feather 13x7 blob 50 10ae4de7427e2c8f
-feather 13x7 blob 120 f8c8962432dced37
-feather 13x7 blob 1000 df8ded91dd0f3a6d
+feather 13x7 blob 0.3 d0134229484d8e17
+feather 13x7 blob 1 54ad5fa66f9dc2e0
+feather 13x7 blob 2.5 413701c127285285
+feather 13x7 blob 8 a828cfacafd7b835
+feather 13x7 blob 9 f6c790dab06820b5
+feather 13x7 blob 17 f962b06d7a61edfa
+feather 13x7 blob 25 10ae4de7427e2c8f
+feather 13x7 blob 50 10d89728d14520ed
+feather 13x7 blob 120 26c52b6bd735599f
+feather 13x7 blob 1000 457fd5b14245d61c
 smooth 13x7 sparse 0 193422481d188125
 smooth 13x7 sparse 0.4 193422481d188125
 smooth 13x7 sparse 1 6924abb5b3ae1815
@@ -1529,35 +1529,35 @@ smooth 13x7 sparse 16 6924abb5b3ae1815
 smooth 13x7 sparse 50 6924abb5b3ae1815
 smooth 13x7 sparse 500 6924abb5b3ae1815
 feather 13x7 sparse 0.1 193422481d188125
-feather 13x7 sparse 0.3 193422481d188125
-feather 13x7 sparse 1 27f163a043702271
-feather 13x7 sparse 2.5 81181adb1ffdd307
-feather 13x7 sparse 8 112ca447e0be9871
-feather 13x7 sparse 9 02a06cf0384f43f6
-feather 13x7 sparse 17 62cd0c1624475ada
-feather 13x7 sparse 25 0d239af951b9cf12
-feather 13x7 sparse 50 5da4c7eb7f2e25b4
-feather 13x7 sparse 120 33fae678d7e45669
-feather 13x7 sparse 1000 9a372caf7fc3eb02
+feather 13x7 sparse 0.3 dfc76d35c378a41d
+feather 13x7 sparse 1 3436331eb2f7f3dd
+feather 13x7 sparse 2.5 4a3f34867fb45965
+feather 13x7 sparse 8 aba7a2c1f7cbe6a4
+feather 13x7 sparse 9 3b8bf9eb8a612103
+feather 13x7 sparse 17 41aa1072db0a86db
+feather 13x7 sparse 25 5da4c7eb7f2e25b4
+feather 13x7 sparse 50 46b58b59c3201d9d
+feather 13x7 sparse 120 03ccbfa89ba64026
+feather 13x7 sparse 1000 fc8d896d79b50807
 smooth 13x7 rect 0 fc623ca40583c695
 smooth 13x7 rect 0.4 fc623ca40583c695
-smooth 13x7 rect 1 766cbe76f2f71c84
-smooth 13x7 rect 2 fc77e7da95a95e88
-smooth 13x7 rect 5 3179e3538d80ddd1
-smooth 13x7 rect 16 3a563bb246e57f0e
+smooth 13x7 rect 1 671ece8e6be2f938
+smooth 13x7 rect 2 d4f0c2726cc16e98
+smooth 13x7 rect 5 938874c12945e175
+smooth 13x7 rect 16 6924abb5b3ae1815
 smooth 13x7 rect 50 6924abb5b3ae1815
 smooth 13x7 rect 500 6924abb5b3ae1815
 feather 13x7 rect 0.1 fc623ca40583c695
-feather 13x7 rect 0.3 fc623ca40583c695
-feather 13x7 rect 1 66b2fa24126c4194
-feather 13x7 rect 2.5 a1752e4a2c30b722
-feather 13x7 rect 8 051b91aa485e08fc
-feather 13x7 rect 9 029bc37d220b66ec
-feather 13x7 rect 17 ec03bd1989c5599b
-feather 13x7 rect 25 cd1aec1d88e3e402
-feather 13x7 rect 50 9feaeca7af76cce8
-feather 13x7 rect 120 d7d557368d0522c7
-feather 13x7 rect 1000 7e82243dd7dae9e0
+feather 13x7 rect 0.3 b0d4f6314f83b98e
+feather 13x7 rect 1 44013cf1789f87ac
+feather 13x7 rect 2.5 3df6b213e5ba8577
+feather 13x7 rect 8 edef07669474aa8e
+feather 13x7 rect 9 0dfa3041a45ccc3b
+feather 13x7 rect 17 e309cd03ffb2163a
+feather 13x7 rect 25 9feaeca7af76cce8
+feather 13x7 rect 50 eeda659351962392
+feather 13x7 rect 120 eb4b3b0e34f14ca8
+feather 13x7 rect 1000 fa1cfd8f7c387286
 smooth 1x1 binary 0 4b72477f9c5c2f98
 smooth 1x1 binary 0.4 4b72477f9c5c2f98
 smooth 1x1 binary 1 4b72477f9c5c2f98
@@ -1567,35 +1567,35 @@ smooth 1x1 binary 16 4b72477f9c5c2f98
 smooth 1x1 binary 50 4b72477f9c5c2f98
 smooth 1x1 binary 500 4b72477f9c5c2f98
 feather 1x1 binary 0.1 4b72477f9c5c2f98
-feather 1x1 binary 0.3 4b72477f9c5c2f98
-feather 1x1 binary 1 9a500f2bcb0d173f
-feather 1x1 binary 2.5 c0f61352c4a8f7b4
-feather 1x1 binary 8 ac5481d68aa700ec
-feather 1x1 binary 9 c345472ca6bf91df
-feather 1x1 binary 17 7c5f86d05a40e147
-feather 1x1 binary 25 fa2a6be9b6d7a5df
-feather 1x1 binary 50 70bd0b168c9661fa
-feather 1x1 binary 120 b353c5ad82bd6ce6
-feather 1x1 binary 1000 d60c1e0b63fa9929
-smooth 1x1 soft 0 9ba41cfacdeec3fe
-smooth 1x1 soft 0.4 9ba41cfacdeec3fe
-smooth 1x1 soft 1 9ba41cfacdeec3fe
-smooth 1x1 soft 2 9ba41cfacdeec3fe
-smooth 1x1 soft 5 9ba41cfacdeec3fe
-smooth 1x1 soft 16 9ba41cfacdeec3fe
-smooth 1x1 soft 50 9ba41cfacdeec3fe
-smooth 1x1 soft 500 9ba41cfacdeec3fe
+feather 1x1 binary 0.3 691b70d9399a47e2
+feather 1x1 binary 1 17951358ae16b4d6
+feather 1x1 binary 2.5 89582c301f677d7d
+feather 1x1 binary 8 390815954155a38e
+feather 1x1 binary 9 a4304d8d2e16bf03
+feather 1x1 binary 17 4d2e0e859227f523
+feather 1x1 binary 25 70bd0b168c9661fa
+feather 1x1 binary 50 c9865980d224ac09
+feather 1x1 binary 120 0d8d9790f9b77909
+feather 1x1 binary 1000 aa15767ca9645faa
+smooth 1x1 soft 0 4b72477f9c5c2f98
+smooth 1x1 soft 0.4 4b72477f9c5c2f98
+smooth 1x1 soft 1 4b72477f9c5c2f98
+smooth 1x1 soft 2 4b72477f9c5c2f98
+smooth 1x1 soft 5 4b72477f9c5c2f98
+smooth 1x1 soft 16 4b72477f9c5c2f98
+smooth 1x1 soft 50 4b72477f9c5c2f98
+smooth 1x1 soft 500 4b72477f9c5c2f98
 feather 1x1 soft 0.1 a1a778ef6f581913
-feather 1x1 soft 0.3 a1a778ef6f581913
-feather 1x1 soft 1 7a1066596ca0a49c
-feather 1x1 soft 2.5 e5fb575bc435260b
-feather 1x1 soft 8 7d3b659b660806d0
-feather 1x1 soft 9 e2c3f120af73b942
-feather 1x1 soft 17 895037682b0fd659
-feather 1x1 soft 25 496c09b04efe3c78
-feather 1x1 soft 50 719d0e8e2a0c8279
-feather 1x1 soft 120 c0b3b67faad5c783
-feather 1x1 soft 1000 ec848601d4bf7bb3
+feather 1x1 soft 0.3 519b2f437400c2ec
+feather 1x1 soft 1 d018c2180da2d21c
+feather 1x1 soft 2.5 5ab70f64bd0cb32f
+feather 1x1 soft 8 dec100aaafd76c1a
+feather 1x1 soft 9 75d401f43c8a9732
+feather 1x1 soft 17 1f99f0447072747f
+feather 1x1 soft 25 719d0e8e2a0c8279
+feather 1x1 soft 50 7940b194806a4cf5
+feather 1x1 soft 120 7d80ec204199512b
+feather 1x1 soft 1000 4d25767f9dce13f5
 smooth 1x1 blob 0 4b72477f9c5c2f98
 smooth 1x1 blob 0.4 4b72477f9c5c2f98
 smooth 1x1 blob 1 4b72477f9c5c2f98
@@ -1605,16 +1605,16 @@ smooth 1x1 blob 16 4b72477f9c5c2f98
 smooth 1x1 blob 50 4b72477f9c5c2f98
 smooth 1x1 blob 500 4b72477f9c5c2f98
 feather 1x1 blob 0.1 721bea9869729859
-feather 1x1 blob 0.3 721bea9869729859
-feather 1x1 blob 1 1b2634115f249253
-feather 1x1 blob 2.5 4d0106985dca6e65
-feather 1x1 blob 8 1f1974d6ab1fd414
-feather 1x1 blob 9 8c55328ae6b3bb3c
-feather 1x1 blob 17 14ac6dac3a30afbe
-feather 1x1 blob 25 a89b6d4ab2d33817
-feather 1x1 blob 50 b3aa89e631d3b305
-feather 1x1 blob 120 69774dc8ee9caad2
-feather 1x1 blob 1000 dc8da11c6992d204
+feather 1x1 blob 0.3 802208ab0a5758e9
+feather 1x1 blob 1 871a4a7c957bb83f
+feather 1x1 blob 2.5 e6016f7b2a9d92cf
+feather 1x1 blob 8 b20000b96b2957e5
+feather 1x1 blob 9 e2b5deef8b63bd37
+feather 1x1 blob 17 935e120fcf9e45e2
+feather 1x1 blob 25 b3aa89e631d3b305
+feather 1x1 blob 50 0627dc00caf5edad
+feather 1x1 blob 120 aa65c2880ae75fe7
+feather 1x1 blob 1000 20ca69ab52920a85
 smooth 1x1 sparse 0 4d25767f9dce13f5
 smooth 1x1 sparse 0.4 4d25767f9dce13f5
 smooth 1x1 sparse 1 4d25767f9dce13f5
@@ -1653,18 +1653,18 @@ feather 1x1 rect 25 4d25767f9dce13f5
 feather 1x1 rect 50 4d25767f9dce13f5
 feather 1x1 rect 120 4d25767f9dce13f5
 feather 1x1 rect 1000 4d25767f9dce13f5
-smooth hostile NaN 36a95818e2c81ab5
+smooth hostile NaN 00531ab2b99dcdb5
 feather hostile NaN cda23295429fde6a
 smooth hostile inf 51e78e744621f425
 feather hostile inf 51e78e744621f425
-smooth hostile -inf 36a95818e2c81ab5
+smooth hostile -inf 00531ab2b99dcdb5
 feather hostile -inf cda23295429fde6a
-smooth hostile -5 36a95818e2c81ab5
+smooth hostile -5 00531ab2b99dcdb5
 feather hostile -5 cda23295429fde6a
 smooth hostile 1000000000000000000000000000000 51e78e744621f425
 feather hostile 1000000000000000000000000000000 51e78e744621f425
-smooth mismatched 36a95818e2c81ab5
+smooth mismatched 00531ab2b99dcdb5
 feather mismatched cda23295429fde6a
 fft rgba-30-1000 4 3f065402 3f53a959 3df2a017 3a4bd477 3efd215b 3ee8f2b9 3f07e343 3e16fa28 3f00347f 3f070be2 3ef9bb52 3e9657e9 3f000600 3eff4aac 3f005ea9 3ee155b6 3ef966f3 3f0510a7 3f00100c 3effbc79 3ef789a2 3f047dd0 3f0102e9 3f0021c6 3ef629c4 3f03ea5b 3f01e846 3f0016fc 3ef523df 3f034010 3f028f67 3f000cca 3ef45353 3f025e73 3f03ac88 3efffffd 3effe0c4 3efca712 3f020007 3ede6825 3ef9f660 3f02b648 3f02e89d 3eb7ea98 3efebdcf 3ef3d038 3f034cf5 3e814cc3 3f012a71 3eeea4e6 3f03a806 3e955234 3effd8d1 3efd495e 3f013f42 3ea75746 3f084097 3efa512b 3ef4578d 3e830591 3f03f7fc 3f01076a 3ef9ece8 3ea1b674 3f070f65 3efb335b 3ef7092b 3ec5df46 3f026bef 3efb7810 3f003a7a 3ee9d5b0 3f056fa8 3f007432 3ef401d3 3f0021c6 3f04d440 3f010b09 3ef3ed9a 3f0016fc 3f0419a5 3ef9eda4 3efc3b24 3ef0546a 3f03ac5e 3f03760e 3ef3d160 3ec9816b 3ef862df 3f034098 3effc1fa 3ea2d5b6 3eecbd9b 3efff0dc 3f0949ad 3e83d54a 3f00410e 3eff06ce 3effd7fa 3eaa8d8e 3ef46a94 3f0533e2 3f01ad1a 3ed1ae1c 3ef3bb3c 3f02b4f3 3f03862b 3eceeb6f 3f003718 3f004340 3f004cfa 3eaa6815 3ef8192c 3ef51870 3f0692ea 3e85fd6c 3f010df0 3ef6860c 3f02cf78 3e9e6b25 3ef78fd3 3ef8f9dd 3f05eb00 3ec24d04 3efd298c 3f002b72 3f019427 3ee6e2c2 3f018b05 3efd8f13 3ef9b459 3edaf9a3 3ef74c5d 3efe7949 3f03a99e 3eb3fdf8 3f029da6 3eeba645 3f022b3f 3e8d9369 3f0774db 3efdd7bb 3ef1326c 3e98bb3a 3f0192b2 3f06a05f 3ef310da 3ebf8d64 3efefaa1 3f00b232 3f016213 3ee69870 3f01c5a0 3f040350 3ef719d2 3effbc79 3efd857f 3f050f30 3efd0e4f 3ef66825 3f0437a1 3f0233f3 3ef7f74a 3ed1a273 3efd685d 3efff434 3f0171d5 3ead37cc 3ef5ae11 3f08289b 3f00d2e4 3e889159 3ef2d390 3f047a3f 3f032bf6 3e9ac77c 3efb5cb2 3f062d77 3efe3db6 3ebf712c 3ef9e0d9 3efe00d2 3f03c3ad 3e9ebbf8 3f00b29f 3eedeb10 3f03c45f 3e87f140 3f022986 3efb8510 3efeb9ba 3eae2a52 3efc8594 3ef7a7e1 3f04f780 3ed4bd4d 3f027f58 3ef4691b 3f002ae1 3efbf29e 3f01eb54 3ef4e67f 3f007f0c 3effd207 3f02e6ff 3ef5fe3f 3eff2f55 3effbc79 3f04151a 3ef7b2e2 3efdac09 3f0021c6 3f05a39f 3efb50a6 3ef9c5bd 3ef8d487 3f014183 3ef67a65 3f019388 3ed1eb26 3ef9e213 3f09706f 3efd1c83 3e87289b 3f05a112 3ef6f1c7 3f00741d 3df18db6 3f09bc04 3efc472b 3ef09698 3e8943b0 3f0c57de 3f046eed 3ee1baa7 3e33b3f9 3efdbbcf 3efaf2e7 3f024679 3ea4e80a 3efa86c1 3eff3e1b 3f024524 3eea6cf4 3ef5e16f 3f039a31 3f026c2f 3efffffd 3ef56cd5 3f029d01 3f032b25 3effe668 3ef4d17b 3f018ef8 3f046c5e 3effd207 3ef5add4 3f0075f2 3f050aa1 3effbc79 3ef63e25 3eff4bd9 3f058e9d 3f0021c6 3efdf1db 3f00e92f 3f00aabd 3ee83868 3ef387cb 3efc6d64 3f0656f9 3ebdc720 3f009a5a 3f01e530 3efd73e8 3e668764 3f0a9376 3ef4e64f 3ef52751 3e8b4455 3f092e06 3ef6a3f5 3ef41811 3e8f16b7 3f01490f 3efdc884 3efb8ff9 3e5c2e58 3f06d4f2 3ef4b012 3efc5ffa 3eb982e8 3efdf82a 3f01520b 3eff0309 3eddfd46 3f0457ba 3f015bdf 3ef45ab6 3efffffd 3f0368da 3f022a61 3ef4c560 3effe668 3f024ba1 3f03224a 3ef62f4e 3effd207 3f0268d8 3f038083 3ef3f0c8 3ef98d87 3ef8a0cc 3f058f5b 3effaa87 3ed2e9a5 3f012a33 3f001e7c 3efe31dc 3eacafe2 3f017f51 3f0a6b64 3ef017de 3e86428b 3ef6d51b 3f04ff69 3f00a129 3ea0eb43 3ef50898 3efd0ec2 3f07ad82 3ec7a094 3f01df18 3ef793bc 3f013089 3eb67ab2 3ef5dda3 3ef65895 3f09abe1 3e91ecc7 3eff1b08 3eeb0f1f 3f05f296 3e926416 3ef4d618 3efea830 3f04c36b 3eb677c4 3f01f2c0 3efe1203 3efa3c81 3edac921 3f01a084 3ef50a18 3f016f62 3eff0cf4 3efeade7 3f0025eb 3f00b360 3ee47f77 3f01d3e7 3ef3fd4c 3f01d982 3ebd4058 3f073007 3efaa188 3ef14697 3e970707 3f04395c 3f067aed 3ef05255 3e8f88a5 3efbc188 3f032b0a 3f00be73 3eb60f85 3f01eabf 3effc8a6 3efbe30b 3edcf2fb 3efeca8e 3f0533d9 3efb871d 3efffffd 3f020bcf 3f005d91 3efd23bf 3eddba16
 fft graya-0-2000 2 3f0199d3 3e801062 3efd11d0 3e90b217 3efffbe4 3ea1954d 3eff7b6d 3eb26d9a 3f006764 3ec00831 3f00442a 3ebfdc87 3f005551 3ebffd49 3f000817 3ebfd19f 3eff7a96 3eb9ef0c 3eff43d9 3ea8eb14 3eff20ad 3e983e6d 3f0071c0 3e879cb7 3efd48fc 3e893b93 3efff4aa 3e9a08f5 3f003a69 3eaacb6b 3f005b5b 3ebb8de0 3f00260a 3ebfe76a 3f0039c3 3ec0082f 3efeb689 3ebfdc83 3f00848c 3ebffd46 3f003084 3eb06c7e 3efffd28 3e9ff675 3f0098c9 3e8ef27e 3f012c06 3e81c511 3efdb0e6 3e92a846 3f002fa8 3ea33427 3f0009d2 3eb4018a 3f0039eb 3ebfd1a0 3efff323 3ebff260 3f00a860 3ebfe76b 3efd566f 3ec0082c 3f008644 3eb81992 3f0076bf 3ea7414a 3efe1505 3e9673eb 3f0110f1 3e85fde1 3f01dee2 3e8acf83 3efe01cd 3e9bbda4 3f004252 3eaca0dc 3effba6c 3ebd2cbd 3eff24f6 3ebffd49 3f005ea9 3ebfd19e 3efe498a 3ebff260 3f00b140 3ebfa5f2 3f0002a7 3eaf0436 3f01157c 3e9e2101 3efd89fc 3e8d48b5 3efcaf65 3e8363ed 3f017b08 3e941b78 3efec222 3ea4c819 3efeb524 3eb5b639 3f0070ab 3ec0082b 3efe3c6f 3ebfdc84 3f00bbd9 3ebffd46 3efe4413 3ebfd19c 3f00651e 3eb67abe 3f0100bc 3ea5ad5c 3efde787 3e94eae7 3efe567c 3e84286c 3efd7a51 3e8c9a0a 3f006a66 3e9d5c82 3effedb9 3eae140b 3efd5cab 3ebec0ab 3f00ef74 3ebfe76b 3efe39e3 3ec0082b 3f00386f 3ebfdc7f 3eff111c 3ebdf13c 3eff5969 3ead0e06 3f012b4a 3e9c8229 3efd20b7 3e8bb4c9 3efccd73 3e84f7db 3f015e9a 3e95f0e7 3eff9a98 3ea6929c 3f0069f1 3eb75515 3efe0b9b 3ebff25d 3f004df0 3ebfc6b1 3eff35b8 3ebfe770 3f006d9a 3ec0082f 3f0061d4 3eb4e6c9 3f0008dd 3ea3f8aa 3f015d20 3e931574 3efd2ff1 3e828993 3efe2b29 3e8e38e5 3f0049c4 3e9ef070 3effde67 3eafe97c 3efdc259 3ebfdc81 3eff9973 3ebfd1a0 3f007d81 3ebff25d 3f0059ed 3ebfc6b4 3f008e61 3ebc5268 3effd443 3eab9ada 3effd34a 3e9aee35 3f012e7c 3e8a0014 3efe2e9f 3e86a1a0 3eff79c7 3e976f04 3eff40d3 3ea83179 3f000cfc 3eb8e902 3eff7556 3ec0082e
-fft rgba-45-900-sel-extent 4 3f02fe34 3efef48d 3efb457d 3f01579d 3efc7406 3f07f932 3eeca553 3eff877f 3ef93bc6 3f070cb1 3eeaf2c2 3ef758fc 3efd9d58 3f069d22 3ee3891b 3eea3b46 3ef8f481 3f074567 3f1455a4 3ed7e9f9 3ef3eccf 3f07c3bd 3f169e68 3f18146e 3eedb093 3f071372 3f18983d 3f12b481 3ee80575 3f06a857 3f19e4bc 3f0aba86 3edf64d6 3f05112f 3f1b0124 3f000003 3ed75b18 3f0369de 3f1b5d88 3ee53122 3ecd87be 3effd0ef 3f1b3eac 3ec4c3ab 3ebf6dba 3efe007e 3f1ae453 3e9fbcf5 3f4396cc 3e9e539a 3ef7150f 3e108707 3f416685 3e8bf5b8 3ef050a9 3f52f586 3f3fdb46 3e706e00 3ee9c3a0 3f3d4736 3f39e718 3e33ae5e 3ed3c711 3ebdf895 3f35e569 3e0e9fff 3ec453e2 3e6d6f7e 3f30dc10 3dd009df 3eb40b41 3dacb8e1 3f2b8d6e 3f6e5aa7 3ea42543 3f6e79fd 3f26229a 3f6b401d 3e9261d4 3f4c4b17 3f200a84 3f67a855 3e7f851d 3f277d56 3f198398 3f63887a 3e5811b9 3f00005f 3f127334 3f5ee015 3e2eaeae 3eabaaad 3ee47830 3f062f82 3f1aace6 3eea1eb6 3edd475a 3f0467bf 3f19dd3a 3ec9cf58 3ed51c14 3f02bc21 3f1929fc 3ea56e73 3ecbc276 3efdd69a 3f1b4933 3f2d493a 3ebe5b5d 3efc203d 3f18fe88 3f20e87a 3eaf81cc 3ef53903 3f186ae6 3f11a2ec 3e9b92ea 3ee7a876 3f1468df 3eaf8342 3e89cbad 3edd3fae 3f140031 3e8084f1 3e7e3530 3ecf4f53 3f11ade8 3f43e3c2 3f47e566 3ec4ce2f 3f0d6e00 3f2ed0d8 3f471723 3eb774ae 3f096963 3f1963a9 3f457d3c 3eaa2459 3f056fdb 3f0005cd 3f24410a 3f6a3f67 3e8c269d 3f0000fa 3f1dfc26 3f667fa9 3e7211c7 3eb00a36 3f173c8d 3f6223b6 3e4a1603 3e356179 3f100000 3f5d5555 3e200000 00000000 3f00cf7d 3f02a0eb 3ef7f740 3f02b12a 3ef87165 3f04edbb 3ef7a29d 3f048cc9 3f002cf3 3f04fad6 3ef06edc 3f03638c 3eff885b 3f041432 3ee9c81a 3effb0b7 3ef7331a 3f063101 3f166458 3ed5d2e5 3ef5770f 3f056c1a 3f16c0c9 3f0ba818 3eed19c6 3f06c400 3f193ce8 3f002844 3e89bdf6 3ed7921c 3f12844b 3f2b7601 3e71d5a7 3eccac70 3f0f7df0 3f170ec7 3f4793a0 3ec006f2 3f0c408b 3effffd7 3f46adc0 3eb33a0a 3f08052f 3ecc71b1 3f456126 3ea4e364 3f0357a1 3e939be4 3f435829 3e95bb62 3efca05a 3e2ab0af 3f41143b 3e855eb4 3ef0d8d0 3f5964d4 3f3e4ac3 3e68960b 3ee595ad 3f3e4b87 3f3b6e77 3e414561 3ed7c5d6 3f207103 3f372111 3e1e8249 3ec7ba04 3effe614 3f320f35 3deacd1b 3eb98bb4 3eb9b15e 3f29e6a8 3f6d588d 3e9e8fcd 3f6918fa 3ef887bd 3f096c97 3ed3fb8a 3f1286c4 3ef1910a 3f08bd5a 3f165aba 3f0f07e1 3eef8bae 3f0744a2 3f189e8d 3f08f24e 3eea0be8 3f06dccf 3f198284 3f000003 3ee29d37 3f057df0 3f1a6a8c 3ee8dee3 3ed9fb27 3f0420c9 3f1b383e 3ecc870c 3ed0bb4e 3f019ec7 3f1b3d14 3eaab0af 3ec657a1 3efe4f8d 3f1b0ce9 3f2eabd0 3eb9cafa 3ef80109 3f1a5dbc 3f21ded6 3eafe8d6 3eef1b73 3f17fec1 3f1216cb 3e9ca502 3ee99ca1 3f1711ce 3effd015 3f3c83cb 3e63390a 3ed6f598 3ef0c710 3f393b5f 3e38a51e 3ece12d2 3eb4fb55 3f31eb8b 3deda412 3eb9e61d 3f6962a3 3f2da28c 3d928cd4 3eaa21a1 3f48e81f 3f286c7d 3f6c9565 3e981796 3f25d40c 3f223b25 3f6937e4 3e859a28 3effff04 3f1bd30d 3f653a1a 3e64a2db 3eaf03a7 3f14e81e 3f60ba60 3e3bda63 3e315cec 3effabe3 3eff4fe0 3f006361 3f000483 3efe554c 3f024465 3efd13bc 3f044418 3f003b61 3f056146 3ef3acb2 3f056341 3efd2821 3f061c4a 3ee89885 3f03d4b8 3ec1dc12 3efe074a 3f17839f 3f0a0a9d 3eb69838 3ef5e22d 3f16c189 3ef3da17 3eab930d 3eeb995d 3f190a7a 3eda6cd7 3e9caecd 3ee55f22 3f153036 3eb0089a 3e84031d 3ed14a44 3f12705c 3f2c59a9 3e656d1c 3ecac5fa 3f0cf351 3f17a14e 3f460c59 3ebcc684 3f0b36f6 3efffda2 3f46dc98 3eae5772 3f06f00b 3ecb705c 3f44f4e3 3e9fb728 3f01ab2a 3e91999d 3f42df99 3e90774b 3ef879db 3e2508d5 3f4014cc 3e7f1f3d 3eed062f 3f5aecca 3f126dff 3f5ede5b 3e2eb3f1 3f7e7e5d 3efffbd8 3f00eea7 3efe1a84 3f010c2c 3effc1e1 3f0333f4 3ef82249 3f019fdc 3f00ec55 3f036e65 3ef068ff 3f000590 3efd202d 3f074e41 3ee40f15 3ef6bef6
+fft rgba-45-900-sel-extent 4 3f030467 3f0056a6 3ef94741 3f01579d 3efc73f8 3f07fb4c 3eec9f34 3eff877f 3ef9b3e3 3f05211e 3ef1a828 3ef758fc 3f0066bb 3f01dd95 3ef7517d 3eea3b46 3f00c890 3efe6520 3f004dc3 3ed7e9f9 3eeada2f 3f0d4b80 3f260c90 3f18146e 3ee51fb5 3f0a9a2a 3f23c3fa 3f12b481 3ee20dd6 3f08337c 3f1feb34 3f0aba86 3edf64d7 3f05112f 3f1b0122 3f000003 3ee22d00 3f02911e 3f14498a 3ee53122 3eeb0870 3efe2b72 3f0b806e 3ec4c3ab 3efc441b 3f019e2e 3eff504a 3e9fbcf5 3efcfb63 3f053dfa 3ee628a9 3e108707 3f4fb118 3e64e4cf 3ef02afd 3f52f586 3f47a7c2 3e4f8ef6 3ee69c35 3f3d4736 3f341ddd 3e543ec0 3ed8c356 3ebdf895 3f272c1b 3e7592fb 3ed59d8e 3e6d6f7e 3f008233 3effd711 3efc921e 3dacb8e1 3f2ed6a0 3f768121 3e9d4dd8 3f6e79fd 3f27d415 3f7003b9 3e8d8198 3f4c4b17 3f20a8e2 3f699f85 3e7a9b4e 3f277d56 3f198385 3f638830 3e581298 3f00005f 3f125810 3f5e5332 3e30a5b9 3eabaaad 3eebf597 3f047fe1 3f139c01 3eea1eb6 3ef207e5 3f01ab57 3f09f19a 3ec9cf58 3f0140d7 3f003d41 3ef949f6 3ea56e73 3eb1178a 3efe66af 3f2850f6 3f2d493a 3ea8ff88 3ef9a8ed 3f2202f3 3f20e87a 3ea2867c 3ef2a0b9 3f1cee64 3f11a2ec 3ecf23f2 3ef755b0 3f07cf07 3eaf8342 3ef80e6c 3f026d19 3f002862 3e8084f1 3e2dd0e3 3ec0d1a5 3f169f80 3f43e3c2 3f57add8 3eb77363 3f10673e 3f2ed0d8 3f4f16d0 3eaf423c 3f0a7d37 3f1963a9 3f457a0d 3eaa2851 3f056faa 3f0005cd 3f2440c3 3f6a3e96 3e8c2781 3f0000fa 3f1d10f4 3f6361ed 3e7a4ed2 3eb00a36 3f15d818 3f5c508e 3e5c7b03 3e356179 3f100000 3f5d5555 3e200000 00000000 3f00f2c8 3f0436eb 3ef47026 3f02b12a 3ef8b0ba 3f074c93 3ef11969 3f048cc9 3effe998 3f06b4d0 3eead755 3f03638c 3eff871a 3f04167a 3ee9bf70 3effb0b7 3f008426 3efbe51d 3f0217fb 3ed5d2e5 3ee86f30 3f0c72b2 3f29f878 3f0ba818 3edf0ec1 3f0bb412 3f29b17c 3f002844 3e585a86 3ecd8549 3f174bb7 3f2b7601 3e4e70bb 3ec5d566 3f119c77 3f170ec7 3f4793ab 3ec006e9 3f0c408d 3effffd7 3f3aed00 3ec021a4 3f06ae8a 3ecc71b1 3f28044b 3ecbc1b2 3f01e109 3e939be4 3efebba1 3f009912 3f0045dc 3e2ab0af 3f4cad97 3e5eebad 3eee4f4d 3f5964d4 3f45cfc6 3e467445 3ee20584 3f3e4b87 3f3f0f5c 3e2d8e2c 3ed51dc9 3f207103 3f37268d 3e1e5dcb 3ec7b4f9 3effe614 3f2dcd57 3e15a663 3ebf2a17 3eb9b15e 3f2e13b4 3f784ade 3e949764 3f6918fa 3ef36408 3f0efdfa 3eb91a1a 3f1286c4 3eec588f 3f0c980b 3f20eb7d 3f0f07e1 3eeb70b6 3f0935e0 3f1e6fd3 3f08f24e 3eea0be8 3f06dccf 3f198283 3f000003 3eeaccf1 3f03ec14 3f1341ba 3ee8dee3 3ef0aa54 3f01ceb3 3f0b3984 3ecc870c 3f008c7a 3eff86ff 3eff0c91 3eaab0af 3eaafc97 3efd5631 3f27c72c 3f2eabd0 3ea3bbe8 3ef5391c 3f22c4ec 3f21ded6 3ea1da7e 3eec8a36 3f1c5996 3f1216cb 3e9c93c0 3ee997b6 3f171630 3effd015 3f40867a 3e4f53f4 3ed6aa3c 3ef0c710 3f35db56 3e4bded7 3ecfc3f9 3eb4fb55 3f3714c2 3d9f1f23 3eb302d0 3f6962a3 3f3070c3 3d3a4938 3ea47edf 3f48e81f 3f298a45 3f6fc927 3e950a1a 3f25d40c 3f223b47 3f69384c 3e8599b1 3effff04 3f1b206c 3f62b622 3e6bb66f 3eaf03a7 3f1419f2 3f5d1181 3e482921 3e315cec 3effabe3 3eff4fe0 3f006361 3f000483 3efeb4f8 3f04b407 3ef72fc4 3f044418 3f001d9b 3f0828f8 3eeb9c03 3f056341 3efc9743 3f07f6c3 3ee24b04 3f03d4b8 3eb3225b 3efcc9a7 3f1e6ed8 3f0a0a9d 3eb2e435 3ef550ce 3f182bd0 3ef3da17 3ebee8ea 3eef697d 3f13bd3c 3eda6cd7 3ed0e6d0 3ef40b84 3f08e8a2 3eb0089a 3e4be073 3ec7471c 3f16a548 3f2c59a9 3e41ccfc 3ec34da6 3f0f148f 3f17a14e 3f460d09 3ebcc5df 3f0b3710 3efffda2 3f3b8e86 3ebbad76 3f05f9ae 3ecb705c 3f285718 3ec7f8c1 3f00e948 3e91999d 3eff9848 3f00fc16 3eff1b35 3e2508d5 3f4b17f0 3e534d50 3ee9d6a4 3f5aecca 3f128c29 3f5f6e5e 3e2cb231 3f7e7e5d 3f00132b 3f019bf6 3efcaabb 3f010c2c 3effd642 3f044c94 3ef55a74 3f019fdc 3f00ec5c 3f036e28 3ef069b6 3f000590 3efdfe92 3f053c50 3eeb9b66 3ef6bef6

@@ -57,6 +57,8 @@ PC_DOC_JSON_DECL(pc_label_color)
 PC_DOC_JSON_DECL(pc_fill)
 PC_DOC_JSON_DECL(pc_smart_filter)
 PC_DOC_JSON_DECL(pc_guides)
+PC_DOC_JSON_DECL(pc_guide_color)
+PC_DOC_JSON_DECL(pc_file_encoding)
 PC_DOC_JSON_DECL(pc_color_indicates)
 
 /* adjust.rs */

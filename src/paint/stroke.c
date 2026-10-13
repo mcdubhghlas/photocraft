@@ -16,11 +16,14 @@
 #include "base/rmath.h"
 #include "paint/pmath.h"
 #include "color/blend.h"
+#include "paint/render_priv.h"
 #include "paint/rng.h"
 #include "raster/pixel.h"
 
 #define CT PC_PAINT_COV_TILE
 #define TILE_PX ((size_t)CT * CT)
+/* Salt of the 8-bit dither's per-pixel noise. */
+#define DITHER_SALT 0x0000646974686572ull
 
 #define TRY(expr)                                                                                            \
     do {                                                                                                     \
@@ -49,8 +52,9 @@ static pc_rect tile_rect(int32_t tx, int32_t ty)
 typedef struct cov_tile {
     int32_t tx, ty;
     bool dirty;
-    float *cov; /* TILE_PX */
-    float *col; /* TILE_PX * nc premultiplied native colour, or NULL */
+    float *cov;   /* TILE_PX */
+    float *depth; /* Wet Edges: the deepest any dab reaches each pixel (TILE_PX), or NULL */
+    float *col;   /* TILE_PX * nc premultiplied native colour, or NULL */
 } cov_tile;
 
 typedef struct cov_map {
@@ -77,6 +81,7 @@ static void map_fini(cov_map *m)
 {
     for (size_t i = 0; i < m->count; i++) {
         free(m->tiles[i].cov);
+        free(m->tiles[i].depth);
         free(m->tiles[i].col);
     }
     free(m->tiles);
@@ -138,22 +143,38 @@ static pc_status map_insert(cov_map *m, const cov_tile *t, pc_error *err)
     return PC_OK;
 }
 
+static float *floats_dup(const float *src, size_t n, bool *ok)
+{
+    float *d;
+    if (src == NULL) {
+        return NULL;
+    }
+    d = pc_malloc_array(n, sizeof(float));
+    if (d == NULL) {
+        *ok = false;
+        return NULL;
+    }
+    memcpy(d, src, n * sizeof(float));
+    return d;
+}
+
+static void tile_free(cov_tile *t)
+{
+    free(t->cov);
+    free(t->depth);
+    free(t->col);
+}
+
 static pc_status tile_clone(const cov_tile *src, size_t nc, cov_tile *out, pc_error *err)
 {
     cov_tile t = *src;
-    t.cov = pc_malloc_array(TILE_PX, sizeof(float));
-    t.col = NULL;
-    if (t.cov != NULL && src->col != NULL) {
-        t.col = pc_malloc_array(TILE_PX * nc, sizeof(float));
-    }
-    if (t.cov == NULL || (src->col != NULL && t.col == NULL)) {
-        free(t.cov);
-        free(t.col);
+    bool ok = true;
+    t.cov = floats_dup(src->cov, TILE_PX, &ok);
+    t.depth = floats_dup(src->depth, TILE_PX, &ok);
+    t.col = floats_dup(src->col, TILE_PX * nc, &ok);
+    if (!ok) {
+        tile_free(&t);
         return pc_fail(err, PC_ERR_NOMEM, "out of memory for the stroke buffer");
-    }
-    memcpy(t.cov, src->cov, TILE_PX * sizeof(float));
-    if (src->col != NULL) {
-        memcpy(t.col, src->col, TILE_PX * nc * sizeof(float));
     }
     *out = t;
     return PC_OK;
@@ -170,8 +191,7 @@ static pc_status map_insert_copy(cov_map *m, const cov_tile *src, bool dirty, pc
     t.dirty = dirty;
     st = map_insert(m, &t, err);
     if (st != PC_OK) {
-        free(t.cov);
-        free(t.col);
+        tile_free(&t);
     }
     return st;
 }
@@ -248,10 +268,22 @@ static void map_clear_dirty(cov_map *m)
     }
 }
 
+/* Wet Edges depth at a pixel; NULL when the stroke has none there. */
+static const float *map_depth(const cov_map *m, int32_t x, int32_t y)
+{
+    int32_t tx = div64(x), ty = div64(y);
+    const cov_tile *t = map_find(m, tx, ty);
+    if (t == NULL || t->depth == NULL) {
+        return NULL;
+    }
+    return &t->depth[(size_t)(y - ty * CT) * CT + (size_t)(x - tx * CT)];
+}
+
 /* Accumulate dab values over rect: flow builds up towards the dab's opacity ceiling
- * (c <- c + v * (ceil - c)), or with max (wet edges). color = native colour for per-dab colour. */
-static pc_status map_accumulate(cov_map *m, pc_rect rect, const float *vals, float ceil, bool use_max,
-                                const float *color, pc_error *err)
+ * (c <- c + v * (ceil - c)). color = native colour for per-dab colour. depth (Wet Edges, one
+ * value per pixel of rect) keeps the deepest any dab reaches each pixel. */
+static pc_status map_accumulate(cov_map *m, pc_rect rect, const float *vals, float ceil, const float *color,
+                                const float *depth, pc_error *err)
 {
     size_t w, nc = m->nc;
     bool want_col = color != NULL && nc > 0;
@@ -288,7 +320,7 @@ static pc_status map_accumulate(cov_map *m, pc_rect rect, const float *vals, flo
             }
             tile = map_find(m, (int32_t)tx, (int32_t)ty);
             if (tile == NULL) {
-                cov_tile t = {(int32_t)tx, (int32_t)ty, false, NULL, NULL};
+                cov_tile t = {(int32_t)tx, (int32_t)ty, false, NULL, NULL, NULL};
                 pc_status st;
                 t.cov = pc_calloc_array(TILE_PX, sizeof(float));
                 if (t.cov == NULL) {
@@ -307,6 +339,12 @@ static pc_status map_accumulate(cov_map *m, pc_rect rect, const float *vals, flo
                     return pc_fail(err, PC_ERR_NOMEM, "out of memory for the stroke buffer");
                 }
             }
+            if (depth != NULL && tile->depth == NULL) {
+                tile->depth = pc_calloc_array(TILE_PX, sizeof(float));
+                if (tile->depth == NULL) {
+                    return pc_fail(err, PC_ERR_NOMEM, "out of memory for the stroke buffer");
+                }
+            }
             tile->dirty = true;
             for (int32_t y = tr.y0; y < tr.y1; y++) {
                 const float *row = vals + (size_t)(y - rect.y0) * w;
@@ -318,14 +356,12 @@ static pc_status map_accumulate(cov_map *m, pc_rect rect, const float *vals, flo
                         continue;
                     }
                     ti = trow + (size_t)(x - (int32_t)tx * CT);
-                    c = tile->cov[ti];
-                    if (use_max) {
-                        nv = pc_rs_maxf(c, v * ceil);
-                    } else if (ceil > c) {
-                        nv = c + v * (ceil - c);
-                    } else {
-                        nv = c;
+                    if (depth != NULL) {
+                        float *slot = &tile->depth[ti];
+                        *slot = pc_rs_maxf(*slot, depth[(size_t)(y - rect.y0) * w + (size_t)(x - rect.x0)]);
                     }
+                    c = tile->cov[ti];
+                    nv = ceil > c ? c + v * (ceil - c) : c;
                     if (nv <= c) {
                         continue;
                     }
@@ -356,6 +392,17 @@ static pc_status map_union_max(cov_map *m, const cov_map *other, pc_error *err)
             TRY(map_insert_copy(m, src, true, err));
             continue;
         }
+        if (dst->depth == NULL) {
+            bool ok = true;
+            dst->depth = floats_dup(src->depth, TILE_PX, &ok);
+            if (!ok) {
+                return pc_fail(err, PC_ERR_NOMEM, "out of memory for the stroke buffer");
+            }
+        } else if (src->depth != NULL) {
+            for (size_t i = 0; i < TILE_PX; i++) {
+                dst->depth[i] = pc_rs_maxf(dst->depth[i], src->depth[i]);
+            }
+        }
         for (size_t i = 0; i < TILE_PX; i++) {
             if (src->cov[i] > dst->cov[i]) {
                 dst->cov[i] = src->cov[i];
@@ -382,6 +429,7 @@ struct pc_paint_renderer {
     bool per_dab_color;
     size_t dabs_done;
     pc_paint_fbuf scratch;
+    pc_paint_fbuf depth_scratch; /* Wet Edges depth of the dab being accumulated */
     pc_paint_dab_vec dab_buf, dual_buf;
     bool recording;
     pc_paint_dab_vec all;
@@ -415,6 +463,44 @@ pc_status pc_paint_renderer_new(const pc_paint_brush *brush, const pc_pixel_form
     return PC_OK;
 }
 
+pc_status pc_paint_renderer_clone(const pc_paint_renderer *r, pc_paint_renderer **out, pc_error *err)
+{
+    pc_paint_renderer *c = calloc(1, sizeof *c);
+    pc_status st;
+    if (c == NULL) {
+        return pc_fail(err, PC_ERR_NOMEM, "out of memory for a stroke renderer");
+    }
+    pc_paint_context_copy(&c->ctx, &r->ctx);
+    pc_paint_dab_generator_copy(&c->gen, &r->gen);
+    map_init(&c->cov, r->cov.nc);
+    map_init(&c->dual, 0);
+    c->has_dual = r->has_dual;
+    c->has_fmt = r->has_fmt;
+    c->fmt = r->fmt;
+    c->per_dab_color = r->per_dab_color;
+    c->dabs_done = r->dabs_done;
+    c->recording = r->recording;
+    st = map_clone(&r->cov, &c->cov, err);
+    if (st == PC_OK) {
+        st = map_clone(&r->dual, &c->dual, err);
+    }
+    for (size_t i = 0; st == PC_OK && i < r->dab_buf.len; i++) {
+        st = pc_paint_dab_vec_push(&c->dab_buf, &r->dab_buf.v[i], err);
+    }
+    for (size_t i = 0; st == PC_OK && i < r->dual_buf.len; i++) {
+        st = pc_paint_dab_vec_push(&c->dual_buf, &r->dual_buf.v[i], err);
+    }
+    for (size_t i = 0; st == PC_OK && i < r->all.len; i++) {
+        st = pc_paint_dab_vec_push(&c->all, &r->all.v[i], err);
+    }
+    if (st != PC_OK) {
+        pc_paint_renderer_free(c);
+        return st;
+    }
+    *out = c;
+    return PC_OK;
+}
+
 void pc_paint_renderer_free(pc_paint_renderer *r)
 {
     if (r == NULL) {
@@ -425,6 +511,7 @@ void pc_paint_renderer_free(pc_paint_renderer *r)
     map_fini(&r->cov);
     map_fini(&r->dual);
     pc_paint_fbuf_fini(&r->scratch);
+    pc_paint_fbuf_fini(&r->depth_scratch);
     pc_paint_dab_vec_fini(&r->dab_buf);
     pc_paint_dab_vec_fini(&r->dual_buf);
     pc_paint_dab_vec_fini(&r->all);
@@ -467,12 +554,16 @@ static pc_status raster_pending(pc_paint_renderer *r, pc_error *err)
         pc_rect rect = pc_paint_context_dab_rect(&r->ctx, d, false);
         float native[PC_RASTER_MAX_CHANNELS] = {0};
         const float *col = NULL;
-        TRY(pc_paint_context_rasterize(&r->ctx, d, false, rect, &r->scratch, err));
+        /* Wet Edges acts on the whole stroke: the dab records how deep it reaches each pixel and
+         * the stroke darkens its own rim when composited, not every dab's. */
+        TRY(pc_paint_rasterize_into(&r->ctx, d, false, rect, &r->scratch, wet ? &r->depth_scratch : NULL,
+                                    true, err));
         if (nc > 0) {
             (void)pc_from_rgba(r->fmt, d->color, native);
             col = native;
         }
-        TRY(map_accumulate(&r->cov, rect, r->scratch.v, d->opacity, wet, col, err));
+        TRY(map_accumulate(&r->cov, rect, r->scratch.v, d->opacity, col, wet ? r->depth_scratch.v : NULL,
+                           err));
         /* Bounds track the full dab rectangle (even fully transparent parts), like the damage. */
         r->cov.bounds = pc_rect_union(r->cov.bounds, rect);
     }
@@ -481,7 +572,7 @@ static pc_status raster_pending(pc_paint_renderer *r, pc_error *err)
             const pc_paint_dab *d = &r->dual_buf.v[i];
             pc_rect rect = pc_paint_context_dab_rect(&r->ctx, d, true);
             TRY(pc_paint_context_rasterize(&r->ctx, d, true, rect, &r->scratch, err));
-            TRY(map_accumulate(&r->dual, rect, r->scratch.v, 1.0f, false, NULL, err));
+            TRY(map_accumulate(&r->dual, rect, r->scratch.v, 1.0f, NULL, NULL, err));
         }
     }
     r->dabs_done += r->dab_buf.len;
@@ -647,8 +738,8 @@ float pc_paint_renderer_coverage_at(const pc_paint_renderer *r, int32_t x, int32
     if (c <= 0.0f) {
         return 0.0f;
     }
-    return pc_paint_context_stroke_mask(&r->ctx, c, r->has_dual, r->has_dual ? map_get(&r->dual, x, y) : 0.0f,
-                                        x, y);
+    return pc_paint_context_stroke_mask_wet(&r->ctx, c, map_depth(&r->cov, x, y), r->has_dual,
+                                            r->has_dual ? map_get(&r->dual, x, y) : 0.0f, x, y);
 }
 
 static pc_status alloc_floats(pc_rect rect, float **out, size_t *n, pc_error *err)
@@ -696,10 +787,12 @@ pc_status pc_paint_renderer_dense_coverage(const pc_paint_renderer *r, pc_rect *
         pc_rect tr = pc_rect_intersect(tile_rect(t->tx, t->ty), b);
         for (int32_t y = tr.y0; y < tr.y1; y++) {
             for (int32_t x = tr.x0; x < tr.x1; x++) {
-                float c = t->cov[(size_t)(y - t->ty * CT) * CT + (size_t)(x - t->tx * CT)];
+                size_t ti = (size_t)(y - t->ty * CT) * CT + (size_t)(x - t->tx * CT);
+                float c = t->cov[ti];
                 if (c > 0.0f) {
-                    v[(size_t)(y - b.y0) * w + (size_t)(x - b.x0)] = pc_paint_context_stroke_mask(
-                        &r->ctx, c, r->has_dual, r->has_dual ? map_get(&r->dual, x, y) : 0.0f, x, y);
+                    v[(size_t)(y - b.y0) * w + (size_t)(x - b.x0)] = pc_paint_context_stroke_mask_wet(
+                        &r->ctx, c, t->depth != NULL ? &t->depth[ti] : NULL, r->has_dual,
+                        r->has_dual ? map_get(&r->dual, x, y) : 0.0f, x, y);
                 }
             }
         }
@@ -714,6 +807,17 @@ pc_status pc_paint_renderer_dense_coverage(const pc_paint_renderer *r, pc_rect *
 static pc_status fbuf_exact(pc_paint_fbuf *b, size_t n, pc_error *err)
 {
     return pc_paint_fbuf_zeroed(b, n, err);
+}
+
+/* Before a stroke's result is quantised to 8 bits, offset every channel of the pixel by the same
+ * deterministic noise of under half a level, so fractional values round up or down in
+ * proportion (a soft, low-flow stroke's fine gradient survives as grain instead of bands). */
+static void dither8(float *px, size_t n, int32_t x, int32_t y)
+{
+    float d = (pc_paint_hash2(x, y, DITHER_SALT) - 0.5f) / 255.0f;
+    for (size_t i = 0; i < n; i++) {
+        px[i] += d;
+    }
 }
 
 /* The compositing core shared by composite and composite_union. */
@@ -732,6 +836,8 @@ static pc_status composite_maps(const pc_paint_context *ctx, cov_map *cov, bool 
     cov_tile **keys = NULL;
     size_t nkeys = 0, sc = selection != NULL ? pc_surface_channels(selection) : 0;
     pc_paint_fbuf region = {0}, sel = {0};
+    /* 8-bit targets: the pixels the stroke changes are dithered as they are quantised. */
+    bool dither = fmt.sample == PC_SAMPLE_TYPE_U8;
     pc_status st;
     if (pc_surface_channels(pre) != n) {
         return pc_fail(err, PC_ERR_INVALID, "pre-stroke surface format differs from the target");
@@ -778,8 +884,8 @@ static pc_status composite_maps(const pc_paint_context *ctx, cov_map *cov, bool 
                 if (c <= 0.0f) {
                     continue;
                 }
-                m = pc_paint_context_stroke_mask(ctx, c, has_dual, has_dual ? map_get(dual, x, y) : 0.0f, x,
-                                                 y);
+                m = pc_paint_context_stroke_mask_wet(ctx, c, tile->depth != NULL ? &tile->depth[ti] : NULL,
+                                                     has_dual, has_dual ? map_get(dual, x, y) : 0.0f, x, y);
                 s = selection != NULL ? (sc > 0 ? sel.v[i * sc] : 0.0f) : 1.0f;
                 kk = pc_paint_minf_k(m * opacity * s, 1.0f);
                 if (kk <= 0.0f) {
@@ -795,6 +901,9 @@ static pc_status composite_maps(const pc_paint_context *ctx, cov_map *cov, bool 
                 if (b->erase) {
                     if (has_a && !lock) {
                         px[a_idx] *= 1.0f - kk;
+                    }
+                    if (dither) {
+                        dither8(px, n, x, y);
                     }
                     continue;
                 }
@@ -820,6 +929,9 @@ static pc_status composite_maps(const pc_paint_context *ctx, cov_map *cov, bool 
                     (void)pc_from_rgba(fmt, o, enc);
                     memcpy(px, enc, n * sizeof(float));
                 }
+                if (dither) {
+                    dither8(px, n, x, y);
+                }
             }
         }
         st = pc_surface_write_region(target, tr, region.v, region.len, err);
@@ -844,10 +956,11 @@ pc_status pc_paint_renderer_composite(pc_paint_renderer *r, const pc_surface *pr
                           lock_transparency, all, damage, err);
 }
 
-pc_status pc_paint_renderer_composite_union(const pc_paint_renderer *r, const pc_paint_renderer *other,
-                                            const pc_surface *pre, pc_surface *target,
-                                            const pc_surface *selection, bool lock_transparency,
-                                            pc_rect *damage, pc_error *err)
+pc_status pc_paint_renderer_composite_union_many(const pc_paint_renderer *r,
+                                                 const pc_paint_renderer *const *others, size_t n,
+                                                 const pc_surface *pre, pc_surface *target,
+                                                 const pc_surface *selection, bool lock_transparency,
+                                                 pc_rect *damage, pc_error *err)
 {
     cov_map cov, dual;
     pc_status st = map_clone(&r->cov, &cov, err);
@@ -858,11 +971,11 @@ pc_status pc_paint_renderer_composite_union(const pc_paint_renderer *r, const pc
     if (r->has_dual) {
         st = map_clone(&r->dual, &dual, err);
     }
-    if (st == PC_OK) {
-        st = map_union_max(&cov, &other->cov, err);
-    }
-    if (st == PC_OK && r->has_dual && other->has_dual) {
-        st = map_union_max(&dual, &other->dual, err);
+    for (size_t i = 0; i < n && st == PC_OK; i++) {
+        st = map_union_max(&cov, &others[i]->cov, err);
+        if (st == PC_OK && r->has_dual && others[i]->has_dual) {
+            st = map_union_max(&dual, &others[i]->dual, err);
+        }
     }
     if (st == PC_OK) {
         st = composite_maps(&r->ctx, &cov, r->has_dual, &dual, r->per_dab_color, pre, target, selection,
@@ -870,6 +983,272 @@ pc_status pc_paint_renderer_composite_union(const pc_paint_renderer *r, const pc
     }
     map_fini(&cov);
     map_fini(&dual);
+    return st;
+}
+
+pc_status pc_paint_renderer_composite_union(const pc_paint_renderer *r, const pc_paint_renderer *other,
+                                            const pc_surface *pre, pc_surface *target,
+                                            const pc_surface *selection, bool lock_transparency,
+                                            pc_rect *damage, pc_error *err)
+{
+    return pc_paint_renderer_composite_union_many(r, &other, 1, pre, target, selection, lock_transparency,
+                                                  damage, err);
+}
+
+/* ---- live union of passes ---- */
+
+typedef struct keyset {
+    pc_tile *v;
+    size_t n, cap;
+} keyset;
+
+static pc_status keys_push(keyset *k, int32_t tx, int32_t ty, pc_error *err)
+{
+    if (k->n == k->cap) {
+        pc_tile *nv = pc_grow_array(k->v, &k->cap, k->n + 1, sizeof *nv);
+        if (nv == NULL) {
+            return pc_fail(err, PC_ERR_NOMEM, "out of memory for a live stroke preview");
+        }
+        k->v = nv;
+    }
+    k->v[k->n++] = (pc_tile){tx, ty};
+    return PC_OK;
+}
+
+/* Every tile key of m (or only the dirty ones, clearing their marks). */
+static pc_status keys_of(keyset *k, cov_map *m, bool dirty_only, pc_error *err)
+{
+    for (size_t i = 0; i < m->count; i++) {
+        if (!dirty_only || m->tiles[i].dirty) {
+            TRY(keys_push(k, m->tiles[i].tx, m->tiles[i].ty, err));
+        }
+        if (dirty_only) {
+            m->tiles[i].dirty = false;
+        }
+    }
+    return PC_OK;
+}
+
+static int cmp_tile(const void *a, const void *b)
+{
+    const pc_tile *p = a, *q = b;
+    if (p->tx != q->tx) {
+        return p->tx < q->tx ? -1 : 1;
+    }
+    return p->ty < q->ty ? -1 : (p->ty > q->ty);
+}
+
+/* Sorts and deduplicates. */
+static void keys_unique(keyset *k)
+{
+    size_t o = 0;
+    if (k->n == 0) {
+        return;
+    }
+    qsort(k->v, k->n, sizeof *k->v, cmp_tile);
+    for (size_t i = 1; i < k->n; i++) {
+        if (cmp_tile(&k->v[i], &k->v[o]) != 0) {
+            k->v[++o] = k->v[i];
+        }
+    }
+    k->n = o + 1;
+}
+
+/* The finished coverage over the tiles `keys`: tail's copy of a tile where finishing the stroke
+ * changes it, else m's own; bounds from tail when there is one. */
+static pc_status finished_subset(const cov_map *m, const cov_map *tail, const keyset *keys, cov_map *out,
+                                 pc_error *err)
+{
+    cov_map s;
+    map_init(&s, m->nc);
+    s.bounds = tail != NULL ? tail->bounds : m->bounds;
+    for (size_t i = 0; i < keys->n; i++) {
+        const cov_tile *t = tail != NULL ? map_find(tail, keys->v[i].tx, keys->v[i].ty) : NULL;
+        pc_status st;
+        if (t == NULL) {
+            t = map_find(m, keys->v[i].tx, keys->v[i].ty);
+        }
+        if (t == NULL) {
+            continue;
+        }
+        st = map_insert_copy(&s, t, false, err);
+        if (st != PC_OK) {
+            map_fini(&s);
+            return st;
+        }
+    }
+    *out = s;
+    return PC_OK;
+}
+
+void pc_paint_union_live_fini(pc_paint_union_live *l)
+{
+    if (l == NULL) {
+        return;
+    }
+    free(l->tail_keys);
+    memset(l, 0, sizeof *l);
+}
+
+pc_rect pc_paint_union_live_bounds(const pc_paint_union_live *l)
+{
+    return l->bounds;
+}
+
+/* Builds the merged finished maps of the passes over `keys` (see composite_union_live). */
+static pc_status merge_finished(pc_paint_renderer *const *passes, pc_paint_renderer **tails, size_t n,
+                                const keyset *keys, cov_map *cov, cov_map *dual, pc_error *err)
+{
+    pc_status st = PC_OK;
+    map_init(cov, passes[0]->cov.nc);
+    map_init(dual, 0);
+    for (size_t i = 0; i < n && st == PC_OK; i++) {
+        const pc_paint_renderer *p = passes[i], *t = tails[i];
+        cov_map c, d;
+        map_init(&d, 0);
+        st = finished_subset(&p->cov, t != NULL ? &t->cov : NULL, keys, &c, err);
+        if (st != PC_OK) {
+            break;
+        }
+        if (p->has_dual) {
+            st = finished_subset(&p->dual, t != NULL ? &t->dual : NULL, keys, &d, err);
+        }
+        if (st != PC_OK) {
+            map_fini(&c);
+            break;
+        }
+        if (i == 0) {
+            map_fini(cov);
+            *cov = c;
+            *dual = d;
+            continue;
+        }
+        st = map_union_max(cov, &c, err);
+        if (st == PC_OK && passes[0]->has_dual && p->has_dual) {
+            st = map_union_max(dual, &d, err);
+        }
+        map_fini(&c);
+        map_fini(&d);
+    }
+    return st;
+}
+
+pc_status pc_paint_renderer_composite_union_live(pc_paint_renderer *const *passes, size_t n,
+                                                 pc_paint_union_live *live, bool full, const pc_surface *pre,
+                                                 pc_surface *target, const pc_surface *selection,
+                                                 bool lock_transparency, pc_rect *damage, pc_error *err)
+{
+    keyset keys = {NULL, 0, 0}, tail_keys = {NULL, 0, 0};
+    pc_paint_renderer **tails = NULL;
+    cov_map cov, dual;
+    pc_paint_fbuf region = {0};
+    pc_rect before = live->bounds, after, dmg = PC_RECT_EMPTY, ignored;
+    pc_status st = PC_OK;
+    if (n == 0) {
+        live->ntail = 0; /* the reference takes the tail keys before finding no passes */
+        *damage = PC_RECT_EMPTY;
+        return PC_OK;
+    }
+    map_init(&cov, 0);
+    map_init(&dual, 0);
+    tails = pc_calloc_array(n, sizeof *tails);
+    if (tails == NULL) {
+        return pc_fail(err, PC_ERR_NOMEM, "out of memory for a live stroke preview");
+    }
+    for (size_t i = 0; i < live->ntail && st == PC_OK; i++) {
+        st = keys_push(&keys, live->tail_keys[i].tx, live->tail_keys[i].ty, err);
+    }
+    for (size_t i = 0; i < n && st == PC_OK; i++) {
+        pc_paint_renderer *p = passes[i];
+        st = keys_of(&keys, &p->cov, !full, err);
+        if (st == PC_OK) {
+            st = keys_of(&keys, &p->dual, !full, err);
+        }
+        if (full) {
+            map_clear_dirty(&p->cov);
+            map_clear_dirty(&p->dual);
+        }
+    }
+    for (size_t i = 0; i < n && st == PC_OK; i++) {
+        st = pc_paint_renderer_tail_preview(passes[i], &tails[i], err);
+        if (st == PC_OK && tails[i] != NULL) {
+            st = keys_of(&tail_keys, &tails[i]->cov, false, err);
+            if (st == PC_OK) {
+                st = keys_of(&tail_keys, &tails[i]->dual, false, err);
+            }
+        }
+    }
+    for (size_t i = 0; i < tail_keys.n && st == PC_OK; i++) {
+        st = keys_push(&keys, tail_keys.v[i].tx, tail_keys.v[i].ty, err);
+    }
+    keys_unique(&keys);
+    keys_unique(&tail_keys);
+    if (st == PC_OK) {
+        st = merge_finished(passes, tails, n, &keys, &cov, &dual, err);
+    }
+    after = cov.bounds;
+    /* Back to the pre-stroke pixels where the previous call drew and nothing covers now. */
+    for (size_t i = 0; i < keys.n && st == PC_OK; i++) {
+        pc_rect tile = tile_rect(keys.v[i].tx, keys.v[i].ty), old = pc_rect_intersect(tile, before);
+        if (!pc_rect_is_empty(old)) {
+            size_t area = pc_rect_width(old) * pc_rect_height(old) * pc_surface_channels(pre);
+            st = pc_paint_fbuf_zeroed(&region, area, err);
+            if (st == PC_OK) {
+                st = pc_surface_read_region_into(pre, old, region.v, region.len, err);
+            }
+            if (st == PC_OK) {
+                st = pc_surface_write_region(target, old, region.v, region.len, err);
+            }
+            dmg = pc_rect_union(dmg, old);
+        }
+        if (map_find(&cov, keys.v[i].tx, keys.v[i].ty) != NULL) {
+            dmg = pc_rect_union(dmg, pc_rect_intersect(tile, after));
+        }
+    }
+    if (st == PC_OK) {
+        st = composite_maps(&passes[0]->ctx, &cov, passes[0]->has_dual, &dual, passes[0]->per_dab_color, pre,
+                            target, selection, lock_transparency, true, &ignored, err);
+    }
+    if (st == PC_OK) {
+        free(live->tail_keys);
+        live->tail_keys = tail_keys.v;
+        live->ntail = tail_keys.n;
+        live->cap = tail_keys.cap;
+        tail_keys.v = NULL;
+        live->bounds = after;
+        *damage = dmg;
+    }
+    for (size_t i = 0; i < n; i++) {
+        pc_paint_renderer_free(tails[i]);
+    }
+    free(tails);
+    free(keys.v);
+    free(tail_keys.v);
+    map_fini(&cov);
+    map_fini(&dual);
+    pc_paint_fbuf_fini(&region);
+    return st;
+}
+
+bool pc_paint_renderer_wants_time(const pc_paint_renderer *r)
+{
+    return pc_paint_dab_generator_wants_time(&r->gen);
+}
+
+bool pc_paint_renderer_smoothing_string(const pc_paint_renderer *r, double brush[2], double pointer[2])
+{
+    return pc_paint_dab_generator_smoothing_string(&r->gen, brush, pointer);
+}
+
+pc_status pc_paint_renderer_tail_dabs(const pc_paint_renderer *r, pc_paint_dab_vec *out, pc_error *err)
+{
+    pc_paint_dab_generator g;
+    pc_paint_dab_vec duals = {0};
+    pc_status st;
+    pc_paint_dab_generator_copy(&g, &r->gen);
+    st = pc_paint_dab_generator_finish(&g, out, &duals, err);
+    pc_paint_dab_generator_fini(&g);
+    pc_paint_dab_vec_fini(&duals);
     return st;
 }
 

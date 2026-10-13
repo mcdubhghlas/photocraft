@@ -226,3 +226,48 @@ void pc_color_to_rgba8(const pc_color *c, uint8_t out[4])
     out[2] = q8(rgb[2]);
     out[3] = q8(c->alpha);
 }
+
+static bool rgb_like(pc_color_mode m)
+{
+    return m == PC_COLOR_MODE_RGB || m == PC_COLOR_MODE_INDEXED || m == PC_COLOR_MODE_MULTICHANNEL;
+}
+
+pc_color pc_color_in_mode(const pc_color *c, pc_color_mode mode)
+{
+    pc_color o;
+    float rgb[3];
+    if (c->mode == mode || (rgb_like(c->mode) && rgb_like(mode))) {
+        return *c;
+    }
+    pc_color_to_rgb(c, rgb);
+    o.mode = mode;
+    o.alpha = c->alpha;
+    memset(o.c, 0, sizeof o.c);
+    switch (mode) {
+    case PC_COLOR_MODE_RGB:
+    case PC_COLOR_MODE_INDEXED:
+    case PC_COLOR_MODE_MULTICHANNEL:
+        o.mode = PC_COLOR_MODE_RGB;
+        memcpy(o.c, rgb, sizeof rgb);
+        break;
+    case PC_COLOR_MODE_GRAYSCALE:
+    case PC_COLOR_MODE_BITMAP:
+    case PC_COLOR_MODE_DUOTONE:
+        o.c[0] = pc_rgb_to_gray(rgb);
+        break;
+    case PC_COLOR_MODE_CMYK:
+        pc_rgb_to_cmyk(rgb, o.c);
+        break;
+    case PC_COLOR_MODE_LAB: {
+        float l[3];
+        pc_srgb_to_lab(rgb, l);
+        o.c[0] = l[0] / 100.0f;
+        o.c[1] = (l[1] + 128.0f) / 255.0f;
+        o.c[2] = (l[2] + 128.0f) / 255.0f;
+        break;
+    }
+    default:
+        return *c;
+    }
+    return o;
+}

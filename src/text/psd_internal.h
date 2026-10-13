@@ -58,6 +58,27 @@ static inline size_t psd_utf16_len(uint32_t cp)
     return cp >= 0x10000 ? 2 : 1;
 }
 
+/* A growable run list. */
+typedef struct psd_run_list {
+    pc_text_run *v;
+    size_t n;
+    size_t cap;
+} psd_run_list;
+
+void psd_run_list_fini(psd_run_list *l);
+/* Appends {len, style}, taking over *style (on success). */
+pc_status psd_run_list_push(psd_run_list *l, size_t len, pc_char_style *style, pc_error *err);
+/* Replaces the layer's runs with *l (taken over) and syncs the summary; on failure nothing
+ * changes and *l is still the caller's. */
+pc_status psd_set_runs(pc_text_layer *layer, psd_run_list *l, pc_error *err);
+
+/* A descriptor number (double, integer, unit float...). */
+bool psd_dnum(const pc_psd_value *v, double *out);
+/* descriptor_rect: text[key] as a finite, non-empty Left/Top /Rght/Btom rectangle. */
+bool psd_descriptor_rect(const pc_psd_desc *text, const char *key, double out[4]);
+/* manual(s): the Off mode or a nonzero kern (psd_write.c). */
+bool psd_manual(const pc_char_style *s);
+
 /* A parse failure that is the reference's None (anything but out-of-memory). */
 static inline bool psd_is_none(pc_status s)
 {

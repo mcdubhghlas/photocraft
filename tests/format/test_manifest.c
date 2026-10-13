@@ -186,12 +186,17 @@ static void test_older_channels_load_with_default_options(void)
 
 /* ---- helpers ---- */
 
-static void test_unhex_follows_from_str_radix(void)
+static void test_unhex_takes_hex_digits_only(void)
 {
     uint8_t out[8];
     size_t n = 0;
     CHECK(pc_format_unhex("00ff7F", 6, out, sizeof out, &n) && n == 3 && out[1] == 0xff && out[2] == 0x7f);
-    CHECK(pc_format_unhex("+f+0", 4, out, sizeof out, &n) && n == 2 && out[0] == 15 && out[1] == 0);
+    /* from_str_radix's leading '+' is refused since upstream #1818. */
+    CHECK(!pc_format_unhex("+f+0", 4, out, sizeof out, &n));
+    CHECK(!pc_format_unhex("+5", 2, out, sizeof out, &n));
+    CHECK(!pc_format_unhex("ab+5", 4, out, sizeof out, &n));
+    CHECK(!pc_format_unhex("g0", 2, out, sizeof out, &n));
+    CHECK(pc_format_unhex("0123456789abcdefFF", 18, out, sizeof out, &n) && n == 9 && out[7] == 0xef);
     CHECK(pc_format_unhex("", 0, out, sizeof out, &n) && n == 0);
     CHECK(!pc_format_unhex("0", 1, out, sizeof out, &n));
     CHECK(!pc_format_unhex("++", 2, out, sizeof out, &n));
@@ -382,7 +387,7 @@ int main(int argc, char **argv)
     RUN(test_too_new_and_invalid_versions);
     RUN(test_current_version_is_noop);
     RUN(test_older_channels_load_with_default_options);
-    RUN(test_unhex_follows_from_str_radix);
+    RUN(test_unhex_takes_hex_digits_only);
     RUN(test_reserve_ids);
     RUN(test_check_nesting_bounds);
     RUN(test_parse_error_order);

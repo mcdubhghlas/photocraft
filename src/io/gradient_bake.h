@@ -12,7 +12,8 @@
 typedef enum pc_io_bake_method {
     PC_IO_BAKE_CLASSIC,
     PC_IO_BAKE_PERCEPTUAL,
-    PC_IO_BAKE_LINEAR
+    PC_IO_BAKE_LINEAR,
+    PC_IO_BAKE_SMOOTH
 } pc_io_bake_method;
 
 /* "Perc" -> Perceptual, "Lnr " -> Linear, anything else (or NULL) -> Classic. */

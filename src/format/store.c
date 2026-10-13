@@ -130,6 +130,8 @@ struct pc_format_source {
     bool is_zip;
     pc_zip_reader zip;
     char *root;
+    pc_format_byte_source_get get; /* a caller's byte source (root and zip unused) */
+    void *ctx;
 };
 
 pc_status pc_format_source_zip(const uint8_t *bytes, size_t len, pc_format_source **out, pc_error *err)
@@ -160,6 +162,19 @@ pc_status pc_format_source_dir(const char *root, pc_format_source **out, pc_erro
     return PC_OK;
 }
 
+pc_status pc_format_source_custom(pc_format_byte_source_get get, void *ctx, pc_format_source **out,
+                                  pc_error *err)
+{
+    pc_format_source *src = calloc(1, sizeof *src);
+    if (src == NULL) {
+        return pc_fail(err, PC_ERR_NOMEM, "out of memory");
+    }
+    src->get = get;
+    src->ctx = ctx;
+    *out = src;
+    return PC_OK;
+}
+
 void pc_format_source_free(pc_format_source *src)
 {
     if (src != NULL) {
@@ -169,6 +184,20 @@ void pc_format_source_free(pc_format_source *src)
         free(src->root);
         free(src);
     }
+}
+
+pc_status pc_format_read_entry(int fd, uint64_t len_hint, size_t max, const char *path, pc_buf *out,
+                               pc_error *err)
+{
+    /* The stat length is a buffer hint only (files can change while open, a FIFO reports 0): the
+     * bound is enforced on the read itself. */
+    pc_status s;
+    (void)len_hint;
+    s = pc_fd_read_all(fd, max, out, err);
+    if (s == PC_ERR_LIMIT) {
+        return pc_format_limit(err, "`%s` exceeds %zu bytes", path, max);
+    }
+    return s == PC_OK || s == PC_ERR_NOMEM ? s : pc_format_io(s, err);
 }
 
 static pc_status dir_get(const char *root, const char *path, size_t max, pc_buf *out, pc_error *err)
@@ -187,31 +216,21 @@ static pc_status dir_get(const char *root, const char *path, size_t max, pc_buf 
         pc_buf_fini(&full);
         return pc_format_corrupt(err, "missing `%s`", path);
     }
-    if (st.st_size > 0 && (uintmax_t)st.st_size > (uintmax_t)max) {
+    if (!S_ISREG(st.st_mode)) {
         pc_buf_fini(&full);
-        return pc_format_limit(err, "`%s` is %jd bytes (max %zu)", path, (intmax_t)st.st_size, max);
+        return pc_format_corrupt(err, "`%s` is not a regular file", path);
     }
-    /* O_NONBLOCK: a FIFO planted in a bundle fails instead of hanging the load. The read is
-     * bounded by max even if the file grows after the check (the reference reads it all). */
+    /* O_NONBLOCK: a FIFO swapped in after the check fails instead of hanging the load. */
     do {
         fd = open(pc_buf_cstr(&full), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
     } while (fd < 0 && errno == EINTR);
-    if (fd < 0) {
-        int e = errno;
-        s = pc_fail(err, e == ENOENT ? PC_ERR_NOT_FOUND : PC_ERR_IO, "%s", strerror(e));
-        if (err != NULL) {
-            err->sys_errno = e;
-        }
-        pc_buf_fini(&full);
-        return pc_format_io(s, err);
-    }
     pc_buf_fini(&full);
-    s = pc_fd_read_all(fd, max, out, err);
-    (void)close(fd);
-    if (s == PC_ERR_LIMIT) {
-        return pc_format_limit(err, "`%s` is over %zu bytes (max %zu)", path, max, max);
+    if (fd < 0) {
+        return pc_format_corrupt(err, "missing `%s`", path);
     }
-    return s == PC_OK || s == PC_ERR_NOMEM ? s : pc_format_io(s, err);
+    s = pc_format_read_entry(fd, st.st_size > 0 ? (uint64_t)st.st_size : 0, max, path, out, err);
+    (void)close(fd);
+    return s;
 }
 
 pc_status pc_format_source_get(const pc_format_source *src, const char *path, size_t max, pc_buf *out,
@@ -219,6 +238,9 @@ pc_status pc_format_source_get(const pc_format_source *src, const char *path, si
 {
     if (src->is_zip) {
         return pc_zip_read_by_name(&src->zip, path, max, out, err);
+    }
+    if (src->get != NULL) {
+        return src->get(src->ctx, path, max, out, err);
     }
     return dir_get(src->root, path, max, out, err);
 }
@@ -372,7 +394,7 @@ pc_status pc_format_fetch_blob(pc_format_fetch *f, const char *hash, pc_blob **o
     }
     pc_buf_fini(&z);
     if (s == PC_OK && data.len > max) {
-        s = pc_format_limit(err, "%s exceeds max_blob_bytes", path);
+        s = pc_format_limit(err, "%s exceeds %zu bytes", path, max);
     }
     if (s == PC_OK) {
         s = account(f, data.len, err);

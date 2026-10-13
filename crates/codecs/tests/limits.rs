@@ -93,6 +93,30 @@ fn png_bomb_header_rejected_before_alloc() {
     assert!(is_limit(decode(&b)));
 }
 
+#[test]
+fn png_header_at_the_default_limit_needs_a_plausible_file_size() {
+    // 32768 x 32768 x RGBA16 is exactly the default max_alloc: it passes the dimension limits,
+    // but a ~100 byte file cannot hold it (zlib tops out near 1032:1), so it is refused before
+    // the 8 GiB output buffer is allocated.
+    let mut ihdr = Vec::new();
+    ihdr.extend_from_slice(&32768u32.to_be_bytes());
+    ihdr.extend_from_slice(&32768u32.to_be_bytes());
+    ihdr.extend_from_slice(&[16, 6, 0, 0, 0]);
+    let mut b = b"\x89PNG\r\n\x1a\n".to_vec();
+    b.extend(png_chunk(b"IHDR", &ihdr));
+    b.extend(png_chunk(b"IDAT", &[0x78, 0x9C, 0x03, 0x00, 0x00, 0x00, 0x00, 0x01]));
+    b.extend(png_chunk(b"IEND", &[]));
+    assert!(is_limit(decode(&b)));
+}
+
+#[test]
+fn png_highly_compressible_image_still_decodes() {
+    let img = Image::from_u8(3000, 3000, ChannelLayout::Rgba, vec![255u8; 3000 * 3000 * 4]).unwrap();
+    let b = encode(&img, Format::Png, &EncodeOptions::default()).unwrap();
+    assert!(b.len() < 100_000, "{}", b.len());
+    assert_eq!(decode(&b).unwrap().width(), 3000);
+}
+
 const PNG_TEXT_BUDGET: usize = 64 << 10;
 
 fn png_text_decode(bytes: &[u8], max_alloc: usize) -> Result<Image, CodecError> {
@@ -253,6 +277,43 @@ fn png_duplicate_xmp_chunks_each_consume_budget() {
             assert!(image.meta.text.is_empty());
         } else {
             assert!(is_limit(result), "replacing an XMP packet must not reset its budget charge");
+        }
+    }
+}
+
+#[test]
+fn png_xmp_in_all_text_chunk_types_is_preserved() {
+    const XMP: &str = "<x:xmpmeta xmlns:x='adobe:ns:meta/'/>";
+    for ty in [b"tEXt", b"zTXt", b"iTXt"] {
+        for after_idat in [false, true] {
+            let chunks = [png_text(ty, b"XML:com.adobe.xmp", XMP.as_bytes())];
+            let bytes = if after_idat { png_with_text(&[], &chunks) } else { png_with_text(&chunks, &[]) };
+            let image = png_text_decode(&bytes, PNG_TEXT_BUDGET).unwrap();
+            assert_eq!(image.meta.xmp.as_deref(), Some(XMP), "{ty:?}, after IDAT: {after_idat}");
+            assert!(image.meta.text.is_empty(), "XMP must not also be retained as ordinary text");
+            let saved = encode(&image, Format::Png, &EncodeOptions::default()).unwrap();
+            assert_eq!(decode(&saved).unwrap().meta.xmp, image.meta.xmp);
+        }
+    }
+}
+
+#[test]
+fn png_mixed_xmp_chunk_types_use_last_packet_and_share_budget() {
+    for first_ty in [b"tEXt", b"zTXt", b"iTXt"] {
+        for last_ty in [b"tEXt", b"zTXt", b"iTXt"] {
+            let first = png_text(first_ty, b"XML:com.adobe.xmp", b"first");
+            let last = png_text(last_ty, b"XML:com.adobe.xmp", b"last");
+            let bytes = png_with_text(&[first], &[last]);
+            let budget = 2 * b"XML:com.adobe.xmp".len() + b"first".len() + b"last".len();
+            // Pixel decoding needs a larger limit, so check the shared budget with larger packets.
+            let image = png_text_decode(&bytes, PNG_TEXT_BUDGET).unwrap();
+            assert_eq!(image.meta.xmp.as_deref(), Some("last"));
+            assert!(image.meta.text.is_empty());
+            let first = png_text(first_ty, b"XML:com.adobe.xmp", &vec![b'A'; PNG_TEXT_BUDGET - budget]);
+            let last = png_text(last_ty, b"XML:com.adobe.xmp", b"last");
+            let bytes = png_with_text(&[first], &[last]);
+            assert!(png_text_decode(&bytes, PNG_TEXT_BUDGET - b"first".len()).is_ok());
+            assert!(is_limit(png_text_decode(&bytes, PNG_TEXT_BUDGET - b"first".len() - 1)));
         }
     }
 }

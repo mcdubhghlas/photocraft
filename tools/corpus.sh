@@ -7,7 +7,7 @@
 #   tools/corpus.sh fetch NAME... | all  download what is missing or stale, verify every file
 #   tools/corpus.sh verify NAME... | all check what is on disk against the manifests (exit 1 if not)
 #
-# Names: psd psd-tools photoshop heif exr affinity pngsuite.
+# Names: psd psd-tools photoshop heif exr affinity pixls pngsuite.
 set -eu
 
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -16,7 +16,7 @@ CORPUS=$ROOT/corpus
 UA=Photocraft-dev
 PNGSUITE_URL=http://www.schaik.com/pngsuite/PngSuite-2017jul19.tgz
 PNGSUITE_SHA256=0294b244c95a8342c01b00010cf34abdcabc7c6a34fd0fe1bd963917537bfdc8
-ALL="psd psd-tools photoshop heif exr affinity pngsuite"
+ALL="psd psd-tools photoshop heif exr affinity pixls pngsuite"
 
 die() {
     printf 'corpus: %s\n' "$*" >&2
@@ -97,6 +97,16 @@ fetch() {
     grep -v '^#' "$PINS" | grep "^$f_name|" >"$f_stage/pins"
     while IFS='|' read -r _c f_prefix f_repo f_commit f_subdir f_extras; do
         f_i=$((f_i + 1))
+        case $f_repo in
+        https://*)
+            # A single pinned file (raw.pixls.us): every such pin shares one root directory.
+            case $f_prefix in "" | */* | *..*) die "$f_name: unsafe file name: $f_prefix" ;; esac
+            mkdir -p "$f_stage/files"
+            curl -fsSL --retry 3 -A "$UA" -o "$f_stage/files/$f_prefix" "$f_repo" || die "download failed: $f_repo"
+            printf '|%s|%s\n' "$f_stage/files" "$f_stage/files" >>"$f_stage/roots"
+            continue
+            ;;
+        esac
         f_top="${f_repo##*/}-$f_commit"
         f_url="https://codeload.github.com/$f_repo/tar.gz/$f_commit"
         curl -fsSL --retry 3 -A "$UA" -o "$f_stage/a$f_i.tgz" "$f_url" || die "download failed: $f_url"
@@ -104,8 +114,11 @@ fetch() {
         set -- "$f_top/$f_subdir"
         f_old_ifs=$IFS
         IFS=,
+        # Extras (licence, readme) are outside the subdir, so they must be named for tar to
+        # unpack them. When the subdir is the whole repo, the directory arg already covers them
+        # and naming them again makes GNU tar fail with "Not found in archive".
         for f_pair in $f_extras; do
-            set -- "$@" "$f_top/${f_pair%%:*}"
+            [ -n "$f_subdir" ] && set -- "$@" "$f_top/${f_pair%%:*}"
         done
         IFS=$f_old_ifs
         tar -xzf "$f_stage/a$f_i.tgz" -C "$f_stage/u$f_i" "$@" || die "$f_name: unpacking $f_repo failed"
@@ -156,7 +169,10 @@ fetch() {
         printf '# %s test corpus\n\nFetched by tools/corpus.sh, sha256-verified against tools/corpus/%s.sha256.\n' "$f_name" "$f_name"
         printf 'Unmodified files from (licences next to them):\n\n'
         while IFS='|' read -r _c f_prefix f_repo f_commit f_subdir _e; do
-            printf -- '- `%s` https://github.com/%s/tree/%s/%s\n' "${f_prefix:-.}" "$f_repo" "$f_commit" "$f_subdir"
+            case $f_repo in
+            https://*) printf -- '- `%s` %s\n' "$f_prefix" "$f_repo" ;;
+            *) printf -- '- `%s` https://github.com/%s/tree/%s/%s\n' "${f_prefix:-.}" "$f_repo" "$f_commit" "$f_subdir" ;;
+            esac
         done <"$f_stage/pins"
         printf '\nGitignored; never commit these files.\n'
     } >"$CORPUS/$f_name/SOURCES.md"

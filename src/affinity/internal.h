@@ -112,8 +112,9 @@ pc_status ax_outline(ax_reader *r, size_t id, pc_af_tag cls, pc_af_affine world,
                      bool *even_odd, pc_error *err);
 
 /* shapes.rs */
-pc_status ax_shape(ax_reader *r, size_t shape, const double b[4], pc_af_affine world, bool *ok, pc_af_path *out,
-                   pc_error *err);
+/* *even_odd is set for shapes with holes (cogs). */
+pc_status ax_shape(ax_reader *r, size_t shape, const double b[4], pc_af_affine world, bool *ok,
+                   pc_af_path *out, bool *even_odd, pc_error *err);
 pc_status ax_rectangle(double x0, double y0, double x1, double y1, pc_af_subpath *out, pc_error *err);
 typedef struct ax_corner_pt {
     pc_af_point p;

@@ -847,7 +847,8 @@ static pc_paint_json_type type_of(const char *s)
     } m[] = {{"BrushSettings", PC_PAINT_JSON_BRUSH}, {"BrushPreset", PC_PAINT_JSON_PRESET},
              {"Stroke", PC_PAINT_JSON_STROKE},       {"GrayTile", PC_PAINT_JSON_GRAY_TILE},
              {"StrokePoint", PC_PAINT_JSON_POINT},   {"Control", PC_PAINT_JSON_CONTROL},
-             {"Dynamic", PC_PAINT_JSON_DYNAMIC},     {"Pattern", PC_PAINT_JSON_PATTERN}};
+             {"Dynamic", PC_PAINT_JSON_DYNAMIC},     {"Pattern", PC_PAINT_JSON_PATTERN},
+             {"TipShape", PC_PAINT_JSON_TIP}};
     for (size_t i = 0; i < sizeof m / sizeof m[0]; i++) {
         if (strcmp(s, m[i].n) == 0) {
             return m[i].t;
@@ -966,7 +967,7 @@ static void test_parity_lines(void)
             do_pick(f);
         } else if (strcmp(f[0], "ser") == 0 || strcmp(f[0], "serv") == 0 || strcmp(f[0], "de") == 0) {
             do_serde(f, nf);
-        } else {
+        } else if (!r7_line(f)) {
             PC_T_FAIL("line %d: unknown kind %s", lines, f[0]);
         }
     }

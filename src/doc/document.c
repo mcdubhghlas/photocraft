@@ -151,6 +151,8 @@ pc_status pc_document_clone(const pc_document *d, pc_document *out, pc_error *er
     c.last_applied_comp = d->last_applied_comp;
     c.has_timeline = d->has_timeline;
     c.timeline = d->timeline;
+    c.quick_mask_unselected = d->quick_mask_unselected;
+    c.file_encoding = d->file_encoding;
     s = pc_str_clone(&d->name, &c.name, err);
     if (s != PC_OK) {
         goto fail;
@@ -289,7 +291,9 @@ bool pc_document_eq(const pc_document *a, const pc_document *b)
         a->has_clipping_path != b->has_clipping_path ||
         (a->has_clipping_path && !pc_clipping_path_eq(&a->clipping_path, &b->clipping_path)) ||
         a->has_quick_mask != b->has_quick_mask ||
-        (a->has_quick_mask && !pc_alpha_channel_eq(&a->quick_mask, &b->quick_mask))) {
+        (a->has_quick_mask && !pc_alpha_channel_eq(&a->quick_mask, &b->quick_mask)) ||
+        a->quick_mask_unselected != b->quick_mask_unselected ||
+        !pc_file_encoding_eq(&a->file_encoding, &b->file_encoding)) {
         return false;
     }
     PC_DOC_EQ_VEC(same, a->patterns, a->npatterns, b->patterns, b->npatterns, pc_pattern_eq);
@@ -535,6 +539,27 @@ const pc_layer *pc_document_layer(const pc_document *d, pc_layer_id id)
     }
     pc_doc_iter_fini(&it);
     return l;
+}
+
+bool pc_layer_has_background_traits(const pc_layer *l)
+{
+    return l->locks.transparency && l->locks.position && !l->clipped && l->content.kind == PC_LAYER_RASTER;
+}
+
+const pc_layer *pc_document_background(const pc_document *d)
+{
+    return d->nlayers > 0 && pc_layer_has_background_traits(&d->layers[0]) ? &d->layers[0] : NULL;
+}
+
+pc_layer *pc_document_background_mut(pc_document *d)
+{
+    return d->nlayers > 0 && pc_layer_has_background_traits(&d->layers[0]) ? &d->layers[0] : NULL;
+}
+
+bool pc_document_is_background(const pc_document *d, pc_layer_id id)
+{
+    const pc_layer *b = pc_document_background(d);
+    return b != NULL && b->id == id;
 }
 
 /* The sibling array (as owner fields) and index of layer id: 1 found, 0 not, -1 no memory. */

@@ -9,6 +9,7 @@
 #define PC_COMPOSE_ADJUST_H
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "doc/doc.h"
@@ -37,6 +38,10 @@ pc_compose_transfer pc_compose_transfer_for_exposure(pc_compose_transfer t);
 float pc_compose_transfer_decode(pc_compose_transfer t, float v);
 float pc_compose_transfer_encode(pc_compose_transfer t, float v);
 
+/* Legacy Brightness/Contrast scales contrast around 128 of 255 (contrast 80 keeps 128 at 128,
+ * measured on Photoshop 27.11). */
+#define PC_COMPOSE_LEGACY_PIVOT (128.0f / 255.0f)
+
 /* adjust::apply: assuming an sRGB document, unrounded. */
 pc_status pc_compose_adjust_apply(const pc_adjustment *adj, struct pc_compose_buffer *buf, pc_error *err);
 /* adjust::apply_with: with the document's tone transfer, unrounded. */
@@ -51,8 +56,29 @@ pc_status pc_compose_adjust_apply_depth(const pc_adjustment *adj, struct pc_comp
                                         pc_compose_transfer transfer, bool has_depth, pc_sample_type depth,
                                         pc_error *err);
 
+/* adjust::apply_in: pc_compose_adjust_apply_depth in a document of colour mode, except that in
+ * Lab documents the adjustments Photoshop evaluates on the L, a and b channels do so
+ * (pc_compose_lab_channel_adjustment). */
+pc_status pc_compose_adjust_apply_in(const pc_adjustment *adj, struct pc_compose_buffer *buf,
+                                     pc_compose_transfer transfer, bool has_depth, pc_sample_type depth,
+                                     pc_color_mode mode, pc_error *err);
+/* Whether a Lab document evaluates adj on its L, a and b channels rather than the screen colour:
+ * Invert and Posterize (L, a and b alike), Brightness/Contrast (L only), Threshold (split on L,
+ * neutral result) and Gradient Map (driven by L). */
+bool pc_compose_lab_channel_adjustment(const pc_adjustment *adj);
+/* Float RGB curve channels with no edit keep samples outside the LUT domain: per channel, whether
+ * the Curves adjustment leaves it alone in a 32-bit RGB document. */
+void pc_compose_float_tone_identity(const pc_adjustment *adj, bool has_depth, pc_sample_type depth,
+                                    bool out[3]);
+/* A Hue/Saturation colour range's Lightness, applied after the master edits: each channel moves
+ * towards the pixel's brightest channel when raised, its darkest when lowered. */
+void pc_compose_range_lightness(const float c[3], float l, float out[3]);
+/* Color Balance on channel ch (0 red, 1 green, 2 blue) of v (0..1); tones are the shadows,
+ * midtones and highlights slider triples (-100..100). */
+float pc_compose_color_balance_channel(const float tones[3][3], bool preserve_luminosity, int ch, float v);
+
 /* Per-channel LUTs of a Levels or Curves adjustment into out (4 rows of PC_COMPOSE_LUT_SIZE),
- * each channel's record composed with the master: the three per_channel channels then black
+ * each channel's record first, then the master: the three per_channel channels then black
  * (identity unless the space is CMYK). In Lab the master is ignored. Other adjustments give
  * identity rows. _q works on samples with q steps per unit (has_q false: continuous); _depth
  * in a document of depth (32-bit RGB Levels use levels_float). PC_ERR_NOMEM only. */
@@ -63,7 +89,9 @@ pc_status pc_compose_tone_luts_depth(const pc_adjustment *adj, bool has_depth, p
 /* Hue/Saturation's range edits as three hue-indexed tables into out (3 rows: hue shift in
  * degrees, saturation and lightness as fractions), sampled at hue k / (LUT_SIZE - 1) turns. */
 void pc_compose_hue_range_tables(const pc_hue_range ranges[6], float *out);
-/* One Hue/Saturation evaluation: hue shift in degrees, s and l in -1..=1. */
+/* One Hue/Saturation evaluation: hue shift in degrees, s and l in -1..=1. Lightness applies first,
+ * then the hue rotates and saturation scales (raised: divided by 1 - s); Colorize builds the
+ * colour at the lightened lightness (0 % saturation leaves only the lightness). */
 void pc_compose_hue_saturation(const float c[3], float hue, float s, float l, bool colorize, float out[3]);
 /* Black & White grey value (weights in percent: reds, yellows, greens, cyans, blues, magentas). */
 float pc_compose_black_white_gray(const float c[3], const float weights[6]);
@@ -102,6 +130,17 @@ float pc_compose_levels_float(const pc_levels_channel *ch, float v);
 /* Photoshop curve: a natural cubic spline through the points sampled into out
  * (PC_COMPOSE_LUT_SIZE values, clamped to 0..=1). PC_ERR_NOMEM only. */
 pc_status pc_compose_curve_lut(const pc_curve_point *pts, size_t n, float *out, pc_error *err);
+/* A pencil-drawn Curves map: straight segments between its (finite) entries, constant outside the
+ * first/last, clamped to 0..=1, sampled into out (PC_COMPOSE_LUT_SIZE values). */
+pc_status pc_compose_curve_map_lut(const pc_curve_point *pts, size_t n, float *out, pc_error *err);
+/* pc_compose_curve_map_lut for a pencil-drawn map, else pc_compose_curve_lut. */
+pc_status pc_compose_curve_lut_mode(const pc_curve_point *pts, size_t n, bool pencil, float *out,
+                                    pc_error *err);
+/* A layer-style contour curve: pc_compose_curve_lut, except that the curve bends sharply at corner
+ * points (corners[i], parallel to pts; missing flags are smooth): each run between corners is its
+ * own natural spline. */
+pc_status pc_compose_contour_curve_lut(const pc_curve_point *pts, size_t n, const bool *corners,
+                                       size_t ncorners, float *out, pc_error *err);
 void pc_compose_rgb_to_hsl(const float c[3], float *h, float *s, float *l);
 void pc_compose_hsl_to_rgb(float h, float s, float l, float out[3]);
 

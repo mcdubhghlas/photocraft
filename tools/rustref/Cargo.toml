@@ -19,9 +19,14 @@ photocraft-color = { path = "../../crates/color" }
 photocraft-raster = { path = "../../crates/raster" }
 photocraft-psd = { path = "../../crates/psd", features = ["testgen"] }
 photocraft-codecs = { path = "../../crates/codecs" }
+# Synthetic multi-part / Cryptomatte EXR fixtures (codecs-fixtures, R2); the version the workspace locks.
+exr = "=1.74.2"
 photocraft-io = { path = "../../crates/io" }
 photocraft-compose = { path = "../../crates/compose" }
 photocraft-raw = { path = "../../crates/raw", features = ["testgen"] }
+# Lossless JPEG XL encoder for the JPEG XL DNG vectors (as crates/raw's tests use it).
+zune-jpegxl = { version = "=0.5.2", default-features = false, features = ["std"] }
+zune-core = "0.5"
 photocraft-affinity = { path = "../../crates/affinity" }
 photocraft-doc = { path = "../../crates/doc" }
 photocraft-ops = { path = "../../crates/ops" }

@@ -3,7 +3,8 @@
  *
  * Ink density v of an ink with display colour c and solidity s turns the colour underneath p into
  * (1 - s v) p (1 - v + v c) + s v c: transparent inks multiply like overprinted process inks,
- * opaque ones cover what is below. */
+ * opaque ones cover what is below. An alpha-type channel (selected / masked areas) still prints, as
+ * a transparent black ink, like Photoshop shows it. */
 #include <stdlib.h>
 
 #include "base/mem.h"
@@ -28,14 +29,17 @@ pc_status pc_compose_inks(const pc_document *doc, pc_rect rect, pc_compose_buffe
         size_t total;
         size_t i;
         int j;
-        if (!c->has_spot) {
-            continue;
-        }
         if (pc_rect_is_empty(pc_rect_intersect(pc_surface_content_bounds(&c->surface), rect))) {
             continue;
         }
-        pc_color_to_rgb(&c->spot_color, rgb);
-        s = pc_clampf(c->spot_solidity, 0.0f, 1.0f);
+        if (c->has_spot) {
+            pc_color_to_rgb(&c->spot_color, rgb);
+            s = pc_clampf(c->spot_solidity, 0.0f, 1.0f);
+        } else {
+            /* An alpha-type channel still prints, as a transparent black ink. */
+            rgb[0] = rgb[1] = rgb[2] = 0.0f;
+            s = 0.0f;
+        }
         n = pc_surface_channels(&c->surface);
         if (n == 0 || !pc_size_mul(buf.len, n, &total)) {
             continue;

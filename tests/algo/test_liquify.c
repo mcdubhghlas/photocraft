@@ -97,6 +97,260 @@ static void test_a_segment_to_a_far_off_point_returns(void)
     pc_algo_liquify_field_fini(&f);
 }
 
+/* #937: skipping the dabs that can't reach a field node leaves every result bit-identical to the
+ * full walk (the last segment continues the stroke before it). */
+static void test_a_segment_walks_only_the_dabs_that_can_reach_the_field(void)
+{
+    static const pc_algo_liquify_tool tools[10] = {PC_ALGO_LIQUIFY_FORWARD_WARP, PC_ALGO_LIQUIFY_PUSH_LEFT,
+                                                   PC_ALGO_LIQUIFY_RECONSTRUCT,  PC_ALGO_LIQUIFY_SMOOTH,
+                                                   PC_ALGO_LIQUIFY_TWIRL_CW,     PC_ALGO_LIQUIFY_TWIRL_CCW,
+                                                   PC_ALGO_LIQUIFY_PUCKER,       PC_ALGO_LIQUIFY_BLOAT,
+                                                   PC_ALGO_LIQUIFY_FREEZE,       PC_ALGO_LIQUIFY_THAW};
+    static const double seg[10][2][3] = {{{10, 20, 1}, {70, 50, 0.5}},     {{-900, 30, 1}, {40, 31, 1}},
+                                         {{40, 30, 1}, {40, 4000, 0.2}},   {{-500, -500, 1}, {600, 600, 1}},
+                                         {{-300, -9, 1}, {300, -9, 1}},    {{-300, -400, 1}, {300, -400, 1}},
+                                         {{88.5, -50, 1}, {88.5, 120, 1}}, {{200, 200, 1}, {201, 900, 1}},
+                                         {{0, 0, 1}, {0.25, 0.1, 1}},      {{60, 40, 1}, {-2000, 45, 1}}};
+    static const double sizes[2] = {6.0, 40.0};
+    pc_rect b = pc_rect_make(-7, 3, 89, 67);
+    double w0[3] = {20, 20, 1}, w1[3] = {60, 40, 1};
+    pc_algo_liquify_stroke warp = pc_algo_liquify_stroke_make(PC_ALGO_LIQUIFY_FORWARD_WARP, 30.0);
+    int t, z, k;
+    for (t = 0; t < 10; t++) {
+        for (z = 0; z < 2; z++) {
+            for (k = 0; k < 10; k++) {
+                pc_algo_liquify_stroke s = pc_algo_liquify_stroke_make(tools[t], sizes[z]);
+                pc_algo_liquify_field fast, full;
+                pc_rect d1, d2;
+                CHECK(pc_algo_liquify_field_init(&fast, b, 2.0, NULL) == PC_OK);
+                CHECK(pc_algo_liquify_field_init(&full, b, 2.0, NULL) == PC_OK);
+                CHECK(pc_algo_liquify_stroke_segment(&fast, &warp, w0, w1, NULL, NULL) == PC_OK);
+                CHECK(pc_algo_liquify_stroke_segment(&full, &warp, w0, w1, NULL, NULL) == PC_OK);
+                CHECK(pc_algo_liquify_stroke_segment(&fast, &s, seg[k][0], seg[k][1], &d1, NULL) == PC_OK);
+                CHECK(pc_algo_liquify_walk_segment(&full, &s, seg[k][0], seg[k][1], false, &d2, NULL) ==
+                      PC_OK);
+                CHECK(pc_rect_eq(d1, d2));
+                CHECK(pc_algo_liquify_field_eq(&fast, &full));
+                pc_algo_liquify_field_fini(&fast);
+                pc_algo_liquify_field_fini(&full);
+                pc_algo_liquify_stroke_fini(&s);
+            }
+        }
+    }
+    pc_algo_liquify_stroke_fini(&warp);
+}
+
+/* The path's corners sampled by `parts` pointer events per leg, unevenly (t grows quadratically). */
+static pc_algo_liquify_stroke sampled_stroke(pc_algo_liquify_tool tool, double size, size_t parts)
+{
+    static const double path[5][3] = {{20, 20, 1}, {62, 26, 0.6}, {70, 50, 0.9}, {28, 55, 1}, {30, 30, 1}};
+    pc_algo_liquify_stroke s = pc_algo_liquify_stroke_make(tool, size);
+    size_t l, k, i;
+    CHECK(pc_algo_liquify_stroke_push(&s, path[0], 3, NULL) == PC_OK);
+    for (l = 0; l + 1 < 5; l++) {
+        for (k = 1; k <= parts; k++) {
+            double t = (double)(k * k) / (double)(parts * parts), p[3];
+            for (i = 0; i < 3; i++) {
+                p[i] = path[l][i] + (path[l + 1][i] - path[l][i]) * t;
+            }
+            CHECK(pc_algo_liquify_stroke_push(&s, p, 3, NULL) == PC_OK);
+        }
+    }
+    return s;
+}
+
+static void field_diff(const pc_algo_liquify_field *a, const pc_algo_liquify_field *b, float *dd, float *df)
+{
+    size_t i;
+    *dd = 0.0f, *df = 0.0f;
+    for (i = 0; i < a->w * a->h; i++) {
+        *dd = fmaxf(*dd, fmaxf(fabsf(a->d[i][0] - b->d[i][0]), fabsf(a->d[i][1] - b->d[i][1])));
+        *df = fmaxf(*df, fabsf(a->freeze[i] - b->freeze[i]));
+    }
+}
+
+/* #2606: spacing runs on along the whole stroke, so any sampling of a path gives the same field. */
+static void test_the_result_does_not_depend_on_how_finely_the_path_was_sampled(void)
+{
+    static const pc_algo_liquify_tool tools[7] = {PC_ALGO_LIQUIFY_FORWARD_WARP, PC_ALGO_LIQUIFY_PUSH_LEFT,
+                                                  PC_ALGO_LIQUIFY_TWIRL_CW,     PC_ALGO_LIQUIFY_BLOAT,
+                                                  PC_ALGO_LIQUIFY_RECONSTRUCT,  PC_ALGO_LIQUIFY_SMOOTH,
+                                                  PC_ALGO_LIQUIFY_FREEZE};
+    static const double sizes[2] = {12.0, 40.0};
+    static const size_t parts[3] = {3, 17, 60};
+    static const double wp[2][3] = {{30, 30, 1}, {50, 40, 1}};
+    int t, z, k;
+    for (t = 0; t < 7; t++) {
+        for (z = 0; z < 2; z++) {
+            pc_algo_liquify_stroke st[2];
+            pc_algo_liquify_field coarse;
+            st[0] = stroke(PC_ALGO_LIQUIFY_FORWARD_WARP, 30.0, wp, 2, 2);
+            st[1] = sampled_stroke(tools[t], sizes[z], 1);
+            CHECK(pc_algo_liquify_field_from_strokes(bounds(), 2.0, st, 2, &coarse, NULL) == PC_OK);
+            pc_algo_liquify_stroke_fini(&st[1]);
+            for (k = 0; k < 3; k++) {
+                pc_algo_liquify_field fine;
+                float dd, df;
+                st[1] = sampled_stroke(tools[t], sizes[z], parts[k]);
+                CHECK(pc_algo_liquify_field_from_strokes(bounds(), 2.0, st, 2, &fine, NULL) == PC_OK);
+                field_diff(&coarse, &fine, &dd, &df);
+                CHECK(dd < 1e-3f && df < 1e-4f);
+                pc_algo_liquify_field_fini(&fine);
+                pc_algo_liquify_stroke_fini(&st[1]);
+            }
+            pc_algo_liquify_field_fini(&coarse);
+            pc_algo_liquify_stroke_fini(&st[0]);
+        }
+    }
+}
+
+/* A long drag whose events land exactly on dab positions: rounding never adds or drops a dab. */
+static void test_a_long_diagonal_drag_gives_one_field_at_any_event_spacing(void)
+{
+    static const double steps[2] = {2.0, 60.0};
+    pc_algo_liquify_field f[2];
+    float dd, df;
+    int i;
+    for (i = 0; i < 2; i++) {
+        pc_algo_liquify_stroke s = pc_algo_liquify_stroke_make(PC_ALGO_LIQUIFY_FORWARD_WARP, 40.0);
+        size_t k, n = (size_t)(300.0 / steps[i]);
+        for (k = 0; k <= n; k++) {
+            double p[2] = {40.0 + (double)k * steps[i] * 0.6, 20.0 + (double)k * steps[i] * 0.8};
+            CHECK(pc_algo_liquify_stroke_push(&s, p, 2, NULL) == PC_OK);
+        }
+        CHECK(pc_algo_liquify_field_from_strokes(pc_rect_make(0, 0, 320, 300), 2.0, &s, 1, &f[i], NULL) ==
+              PC_OK);
+        pc_algo_liquify_stroke_fini(&s);
+    }
+    CHECK(pc_algo_liquify_max_displacement(&f[0]) > 50.0f);
+    field_diff(&f[0], &f[1], &dd, &df);
+    CHECK(dd < 1e-3f);
+    pc_algo_liquify_field_fini(&f[0]);
+    pc_algo_liquify_field_fini(&f[1]);
+}
+
+static void test_a_stroke_interrupted_by_a_jump_restarts_its_spacing(void)
+{
+    pc_algo_liquify_stroke s = pc_algo_liquify_stroke_make(PC_ALGO_LIQUIFY_FORWARD_WARP, 20.0);
+    pc_algo_liquify_field f, g;
+    double a[3] = {10, 10, 1}, b[3] = {10.3, 10, 1}, c[3] = {40, 30, 1}, d[3] = {50, 30, 1};
+    double n0[3] = {NAN, 3, 1}, n1[3] = {4, INFINITY, 1}, n2[3] = {4, 3, NAN}, n3[3] = {9, 3, 1};
+    CHECK(pc_algo_liquify_field_init(&f, bounds(), 2.0, NULL) == PC_OK);
+    CHECK(pc_algo_liquify_field_init(&g, bounds(), 2.0, NULL) == PC_OK);
+    CHECK(pc_algo_liquify_stroke_begin(&f, &s, a, NULL, NULL) == PC_OK);
+    CHECK(pc_algo_liquify_stroke_segment(&f, &s, a, b, NULL, NULL) == PC_OK);
+    CHECK(pc_algo_liquify_stroke_segment(&f, &s, c, d, NULL, NULL) == PC_OK);
+    CHECK(pc_algo_liquify_stroke_begin(&g, &s, c, NULL, NULL) == PC_OK);
+    CHECK(pc_algo_liquify_stroke_segment(&g, &s, c, d, NULL, NULL) == PC_OK);
+    CHECK(pc_algo_liquify_field_eq(&f, &g));
+    /* Hostile points: nothing crashes and the next segment starts afresh. */
+    CHECK(pc_algo_liquify_stroke_segment(&f, &s, n0, n1, NULL, NULL) == PC_OK);
+    CHECK(pc_algo_liquify_stroke_segment(&f, &s, n2, n3, NULL, NULL) == PC_OK);
+    pc_algo_liquify_field_fini(&f);
+    pc_algo_liquify_field_fini(&g);
+    pc_algo_liquify_stroke_fini(&s);
+}
+
+static void test_the_brush_fades_to_nothing_at_its_rim_at_every_density(void)
+{
+    const double dens[8] = {0.0, 0.25, 0.5, 0.75, 1.0, NAN, -3.0, 7.0};
+    int i, k;
+    for (i = 0; i < 8; i++) {
+        double prev = 1.0;
+        CHECK(pc_algo_liquify_falloff(0.0, dens[i]) == 1.0);
+        CHECK(pc_algo_liquify_falloff(1.0, dens[i]) == 0.0);
+        CHECK(pc_algo_liquify_falloff(0.98 * 0.98, dens[i]) < 0.02);
+        for (k = 1; k <= 100; k++) {
+            double v = pc_algo_liquify_falloff((double)k / 100.0, dens[i]);
+            CHECK(v <= prev && v >= 0.0);
+            prev = v;
+        }
+    }
+    for (k = 1; k < 100; k++) {
+        double t2 = (double)k / 100.0;
+        CHECK(pc_algo_liquify_falloff(t2, 1.0) >= pc_algo_liquify_falloff(t2, 0.5) &&
+              pc_algo_liquify_falloff(t2, 0.5) >= pc_algo_liquify_falloff(t2, 0.0));
+    }
+    CHECK(pc_algo_liquify_falloff(0.5, 1.0) > 0.5 && pc_algo_liquify_falloff(0.5, 0.0) < 0.2);
+}
+
+/* #2606: a Forward Warp leaves the nodes at the brush rim (almost) in place at every density. */
+static void test_forward_warp_leaves_the_brush_rim_in_place(void)
+{
+    const double r = 20.0, drag = 1.0, dens[3] = {0.0, 50.0, 100.0};
+    int k;
+    for (k = 0; k < 3; k++) {
+        double pts[2][3] = {{48.0, 32.0, 1.0}, {48.0 + drag, 32.0, 1.0}}, d[2];
+        pc_algo_liquify_stroke s =
+            stroke(PC_ALGO_LIQUIFY_FORWARD_WARP, 2.0 * r, (const double (*)[3])pts, 2, 2);
+        pc_algo_liquify_field f;
+        size_t i, j, rim = 0;
+        s.density = dens[k];
+        CHECK(pc_algo_liquify_field_from_strokes(bounds(), 1.0, &s, 1, &f, NULL) == PC_OK);
+        for (j = 0; j < f.h; j++) {
+            for (i = 0; i < f.w; i++) {
+                double p[2], t;
+                pc_algo_liquify_node_pos(&f, i, j, p);
+                t = hypot(p[0] - 48.0, p[1] - 32.0) / r;
+                if (t >= 0.97 && t < 1.0) {
+                    const float *dv = f.d[j * f.w + i];
+                    CHECK((double)hypotf(dv[0], dv[1]) < 0.03 * drag);
+                    rim++;
+                }
+            }
+        }
+        CHECK(rim > 20);
+        pc_algo_liquify_sample(&f, 48.0, 32.0, d);
+        CHECK(d[0] < -0.9 * drag);
+        pc_algo_liquify_field_fini(&f);
+        pc_algo_liquify_stroke_fini(&s);
+    }
+}
+
+static void test_full_resolution_preview_matches_the_unit_scale_proxy_and_partial_updates(void)
+{
+    static const pc_sample_type sts[3] = {PC_SAMPLE_TYPE_U8, PC_SAMPLE_TYPE_U16, PC_SAMPLE_TYPE_F32};
+    pc_rect canvas = pc_rect_make(0, 0, 96, 64);
+    int si;
+    for (si = 0; si < 3; si++) {
+        static const double pts[2][3] = {{38, 30, 1}, {52, 34, 0.8}}, bp[1][3] = {{43, 32, 1}};
+        pc_surface src;
+        pc_algo_liquify_stroke st = stroke(PC_ALGO_LIQUIFY_FORWARD_WARP, 32.0, pts, 2, 3);
+        pc_algo_liquify_stroke more = stroke(PC_ALGO_LIQUIFY_BLOAT, 16.0, bp, 1, 3);
+        pc_algo_liquify_field field;
+        pc_algo_liquify_proxy proxy;
+        pc_algo_liquify_scratch scratch = {NULL, 0};
+        size_t r[4], pr[4], n;
+        uint8_t (*want)[4], (*got)[4];
+        pc_rect dirty;
+        sample_surface(sts[si], &src);
+        CHECK(pc_algo_liquify_field_from_strokes(canvas, 2.0, &st, 1, &field, NULL) == PC_OK);
+        CHECK(pc_algo_liquify_proxy_init(&proxy, &src, canvas, 96, NULL) == PC_OK);
+        CHECK(proxy.scale == 1.0);
+        n = proxy.w * proxy.h;
+        want = calloc(n, sizeof *want);
+        got = calloc(n, sizeof *got);
+        r[0] = 0, r[1] = 0, r[2] = proxy.w, r[3] = proxy.h;
+        CHECK(pc_algo_liquify_proxy_render(&proxy, &field, r, want, n, NULL) == PC_OK);
+        CHECK(pc_algo_liquify_render_full_resolution(&src, &field, canvas, canvas, got, n, &scratch));
+        CHECK(memcmp(got, want, n * sizeof *got) == 0);
+        CHECK(pc_algo_liquify_apply_stroke(&field, &more, &dirty, NULL) == PC_OK);
+        pc_algo_liquify_proxy_rect(&proxy, dirty, pr);
+        CHECK(pc_algo_liquify_proxy_render(&proxy, &field, pr, want, n, NULL) == PC_OK);
+        CHECK(pc_algo_liquify_render_full_resolution(&src, &field, canvas, dirty, got, n, &scratch));
+        CHECK(memcmp(got, want, n * sizeof *got) == 0);
+        /* Hostile: a short buffer or an empty region renders nothing. */
+        CHECK(!pc_algo_liquify_render_full_resolution(&src, &field, canvas, canvas, got, n - 1, &scratch));
+        CHECK(!pc_algo_liquify_render_full_resolution(&src, &field, canvas, PC_RECT_EMPTY, got, n, &scratch));
+        free(want), free(got), free(scratch.px);
+        pc_algo_liquify_proxy_fini(&proxy);
+        pc_algo_liquify_field_fini(&field);
+        pc_algo_liquify_stroke_fini(&st);
+        pc_algo_liquify_stroke_fini(&more);
+        pc_surface_fini(&src);
+    }
+}
+
 static void test_lasso_freezes_exactly_the_nodes_inside_a_concave_polygon(void)
 {
     static const double poly[8][2] = {{10, 8},  {70, 8},  {70, 20}, {30, 22.5},
@@ -297,7 +551,7 @@ static void test_reconstruct_brush_reduces_the_field_and_freeze_protects(void)
     CHECK(pc_algo_liquify_max_displacement(&f) < before * 0.2f);
     /* Frozen area doesn't move. */
     fr = stroke(PC_ALGO_LIQUIFY_FREEZE, 60.0, c, 1, 2);
-    fr.density = 0.0;
+    fr.density = 100.0;
     CHECK(pc_algo_liquify_field_init(&g, bounds(), 2.0, NULL) == PC_OK);
     CHECK(pc_algo_liquify_apply_stroke(&g, &fr, NULL, NULL) == PC_OK);
     CHECK(pc_algo_liquify_freeze_at(&g, 40, 32) > 0.99f);
@@ -564,6 +818,13 @@ static void test_json_and_validation(void)
 int main(int argc, char **argv)
 {
     RUN(test_a_segment_to_a_far_off_point_returns);
+    RUN(test_a_segment_walks_only_the_dabs_that_can_reach_the_field);
+    RUN(test_the_result_does_not_depend_on_how_finely_the_path_was_sampled);
+    RUN(test_a_long_diagonal_drag_gives_one_field_at_any_event_spacing);
+    RUN(test_a_stroke_interrupted_by_a_jump_restarts_its_spacing);
+    RUN(test_the_brush_fades_to_nothing_at_its_rim_at_every_density);
+    RUN(test_forward_warp_leaves_the_brush_rim_in_place);
+    RUN(test_full_resolution_preview_matches_the_unit_scale_proxy_and_partial_updates);
     RUN(test_lasso_freezes_exactly_the_nodes_inside_a_concave_polygon);
     RUN(test_lasso_thaws_with_amount_zero);
     RUN(test_lasso_ignores_degenerate_and_hostile_polygons);

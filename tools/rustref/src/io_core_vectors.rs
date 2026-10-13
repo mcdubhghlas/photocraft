@@ -128,6 +128,9 @@ fn err_kind(e: &IoError) -> &'static str {
         IoError::Raw(_) => "raw",
         IoError::Svg(_) => "svg",
         IoError::Cancelled => "cancelled",
+        IoError::Pdn(_) => "pdn",
+        IoError::Ora(_) => "ora",
+        IoError::Kra(_) => "kra",
     }
 }
 
@@ -228,12 +231,16 @@ mod cm {
     use photocraft_color::{Color, ColorMode};
     use photocraft_doc::{AlphaChannel, ColorIndicates};
     const SPACE_RGB: u16 = 0;
+    const SPACE_HSB: u16 = 1;
     const SPACE_CMYK: u16 = 2;
     const SPACE_LAB: u16 = 7;
     const SPACE_GRAY: u16 = 8;
 
-    pub fn display_info(channels: &[&AlphaChannel]) -> Vec<u8> {
+    pub fn display_info(channels: &[&AlphaChannel], transparency: bool) -> Vec<u8> {
         let mut out = 1u32.to_be_bytes().to_vec();
+        if transparency {
+            out.extend_from_slice(&[0, 0, 0xff, 0xff, 0, 0, 0, 0, 0, 0, 0, 100, 1]);
+        }
         for c in channels {
             let (color, opacity, kind) = match c.spot {
                 Some((ink, solidity)) => (ink, solidity, 2u8),
@@ -246,14 +253,13 @@ mod cm {
             }
             out.extend_from_slice(&((opacity.clamp(0.0, 1.0) * 100.0).round() as u16).to_be_bytes());
             out.push(kind);
-            out.push(0);
         }
         out
     }
 
-    pub fn apply_display_info(data: &[u8], versioned: bool, channels: &mut [AlphaChannel]) {
-        let body = if versioned { data.get(4..).unwrap_or(&[]) } else { data };
-        for (c, rec) in channels.iter_mut().zip(body.as_chunks::<14>().0) {
+    pub fn apply_display_info(data: &[u8], versioned: bool, skip: usize, channels: &mut [AlphaChannel]) {
+        let (body, size) = if versioned { (data.get(4..).unwrap_or(&[]), 13) } else { (data, 14) };
+        for (c, rec) in channels.iter_mut().zip(body.chunks_exact(size).skip(skip)) {
             let u = |i: usize| u16::from_be_bytes([rec[i], rec[i + 1]]);
             let comps = [u(2), u(4), u(6), u(8)];
             let color = decode_color(u(0), comps);
@@ -261,6 +267,7 @@ mod cm {
             match rec[12] {
                 2 => c.spot = Some((color, opacity)),
                 k => {
+                    c.spot = None;
                     c.color = color;
                     c.opacity = opacity;
                     c.indicates = if k == 0 { ColorIndicates::SelectedAreas } else { ColorIndicates::MaskedAreas };
@@ -269,9 +276,28 @@ mod cm {
         }
     }
 
+    fn hsb_to_rgb(h: f32, s: f32, v: f32) -> [f32; 3] {
+        let h = if h.is_finite() { h.rem_euclid(360.0) / 60.0 } else { 0.0 };
+        let (s, v) = (s.clamp(0.0, 1.0), v.clamp(0.0, 1.0));
+        let f = h - h.floor();
+        let (p, q, t) = (v * (1.0 - s), v * (1.0 - s * f), v * (1.0 - s * (1.0 - f)));
+        match h.floor() as u8 {
+            0 => [v, t, p],
+            1 => [q, v, p],
+            2 => [p, v, t],
+            3 => [p, q, v],
+            4 => [t, p, v],
+            _ => [v, p, q],
+        }
+    }
+
     pub fn decode_color(space: u16, c: [u16; 4]) -> Color {
         let n = |v: u16| f32::from(v) / 65535.0;
         match space {
+            SPACE_HSB => {
+                let rgb = hsb_to_rgb(n(c[0]) * 360.0, n(c[1]), n(c[2]));
+                Color::rgb(rgb[0], rgb[1], rgb[2])
+            }
             SPACE_CMYK => {
                 let cmyk = Color { mode: ColorMode::Cmyk, c: [1.0 - n(c[0]), 1.0 - n(c[1]), 1.0 - n(c[2]), 1.0 - n(c[3])], alpha: 1.0 };
                 let rgb = cmyk.to_rgb();
@@ -321,23 +347,36 @@ fn cm_channels() -> Vec<AlphaChannel> {
 fn channel_map() {
     let chans = cm_channels();
     let refs: Vec<&AlphaChannel> = chans.iter().collect();
-    let di = cm::display_info(&refs);
+    let di = cm::display_info(&refs, false);
     println!("cm-di\tall\t{}", hexs(&di));
-    println!("cm-di\tnone\t{}", hexs(&cm::display_info(&[])));
+    println!("cm-di\tnone\t{}", hexs(&cm::display_info(&[], false)));
+    println!("cm-di\ttransp\t{}", hexs(&cm::display_info(&refs, true)));
     let fresh = || -> Vec<AlphaChannel> { (0..5).map(|i| AlphaChannel::new(format!("x{i}"), Surface::new(PixelFormat::GRAY8))).collect() };
-    let mut old = di[4..].to_vec();
-    old[12 + 14] = 1; // 1007 has no spot kind
-    let cases: Vec<(&str, Vec<u8>, bool)> = vec![
-        ("v", di.clone(), true),
-        ("old", old, false),
-        ("short", di[..10].to_vec(), true),
-        ("partial", di[..4 + 14 * 2 + 5].to_vec(), true),
-        ("tiny", vec![0, 0], true),
-        ("kinds", [vec![0, 0, 0, 1], vec![0, 8, 0x13, 0x88, 0, 0, 0, 0, 0, 0, 0, 250, 7, 0], vec![0, 7, 0x27, 0x10, 0x80, 0, 0x7f, 0xff, 0, 0, 0, 50, 2, 0]].concat(), true),
+    // 1007 (14-byte records): the 1077 records re-padded to 14 bytes, no version.
+    let mut old = Vec::new();
+    for rec in di[4..].chunks_exact(13) {
+        old.extend_from_slice(rec);
+        old.push(0);
+    }
+    old[12 + 14] = 1; // 1007 second record kind -> masked areas
+    let kinds = [
+        vec![0u8, 0, 0, 1],
+        vec![0, 8, 0x13, 0x88, 0, 0, 0, 0, 0, 0, 0, 250, 7],
+        vec![0, 7, 0x27, 0x10, 0x80, 0, 0x7f, 0xff, 0, 0, 0, 50, 2],
+    ]
+    .concat();
+    let cases: Vec<(&str, Vec<u8>, bool, usize)> = vec![
+        ("v", di.clone(), true, 0),
+        ("transp", cm::display_info(&refs, true), true, 1),
+        ("old", old, false, 0),
+        ("short", di[..10].to_vec(), true, 0),
+        ("partial", di[..4 + 13 * 2 + 5].to_vec(), true, 0),
+        ("tiny", vec![0, 0], true, 0),
+        ("kinds", kinds, true, 0),
     ];
-    for (name, data, versioned) in cases {
+    for (name, data, versioned, skip) in cases {
         let mut ch = fresh();
-        cm::apply_display_info(&data, versioned, &mut ch);
+        cm::apply_display_info(&data, versioned, skip, &mut ch);
         let s: Vec<String> = ch.iter().map(|c| format!("{}|{}|{}|{}", c.spot.as_ref().map_or("-".into(), |(col, s)| format!("{}@{}", color_s(col), fbits(*s))), color_s(&c.color), fbits(c.opacity), u8::from(c.indicates == ColorIndicates::SelectedAreas))).collect();
         println!("cm-apply\t{name}\t{}", s.join(";"));
     }
@@ -1108,7 +1147,7 @@ fn raws() {
         let r = photocraft_io::import(name, bytes);
         println!("rawi\t{name}\t{}", imp_s(&r, lossy));
         for (t, ti, e) in [(0.0f32, 0.0f32, 0.0f32), (25.0, -10.0, 0.5), (150.0, -150.0, -1.25), (0.0, 0.0, 10.5), (0.0, 0.0, f32::NAN), (-0.4, 0.4, -0.004)] {
-            let r = import_raw_tuned(name, bytes, &RawTuning { temperature: t, tint: ti, exposure: e });
+            let r = import_raw_tuned(name, bytes, &RawTuning { temperature: t, tint: ti, exposure: e, ..Default::default() });
             let s = match r {
                 Ok((r, applied)) => format!("{} {}", u8::from(applied), imp_s(&Ok(r), false)),
                 Err(e) => err_s(&e),

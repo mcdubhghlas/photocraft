@@ -57,7 +57,8 @@ static void test_constants_and_blend_channel(void)
     unsigned m;
     size_t a;
     size_t b;
-    for (m = 0; m < PC_BLEND_COUNT; m++) {
+    /* Pass Through + the Photoshop modes (rustref's sweep); Paint.NET modes: blend-pdn. */
+    for (m = 0; m < PC_BLEND_PSD_COUNT; m++) {
         for (a = 0; a < 19; a++) {
             for (b = 0; b < 19; b++) {
                 float o[2];
@@ -81,7 +82,7 @@ static void test_blend_rgb_and_composite(void)
     uint64_t hc = FNV0;
     lcg r = {7};
     unsigned m;
-    for (m = 0; m < PC_BLEND_COUNT; m++) {
+    for (m = 0; m < PC_BLEND_PSD_COUNT; m++) {
         pc_blend_mode mode = (pc_blend_mode)m;
         int i;
         size_t k;
@@ -138,8 +139,8 @@ static void test_blend_rgb_and_composite(void)
             h_f32(&hr, o, 3);
         }
     }
-    CHECK_EQ_UINT(hr, 0xe5d381419f53fdb0u);
-    CHECK_EQ_UINT(hc, 0x36b02f62a3927c98u);
+    CHECK_EQ_UINT(hr, 0x119aad840822706bu);
+    CHECK_EQ_UINT(hc, 0xe5be77554b8b1e6du);
 }
 
 static void test_transfer_and_conversions(void)
@@ -311,6 +312,140 @@ static void test_dither_samples_and_colors(void)
     CHECK_EQ_UINT(hq, 0xcddef6aeea8c40a6u);
 }
 
+static float draw5(lcg *r, int i)
+{
+    return i % 5 == 0 ? (next(r) * 1.4f - 0.2f) * 1.0f : next(r);
+}
+
+/* rustref color-vectors `blend-pdn`: the Paint.NET modes. */
+static void test_paint_net_modes(void)
+{
+    uint64_t h = FNV0;
+    lcg r = {23};
+    size_t m;
+    for (m = 0; m < PC_BLEND_PAINT_NET_MODE_COUNT; m++) {
+        pc_blend_mode mode = PC_BLEND_PAINT_NET_MODES[m];
+        size_t a;
+        size_t b;
+        int i;
+        for (a = 0; a < 19; a++) {
+            for (b = 0; b < 19; b++) {
+                float o[2];
+                o[0] = pc_blend_channel(mode, V[a], V[b]);
+                o[1] = pc_blend_channel_hdr(mode, V[a], V[b]);
+                h_f32(&h, o, 2);
+            }
+        }
+        for (i = 0; i < 2000; i++) {
+            float cb[3];
+            float cs[3];
+            float o[4];
+            float bd[4];
+            float sr[4];
+            float ab;
+            float as;
+            float op;
+            size_t k;
+            for (k = 0; k < 3; k++) {
+                cb[k] = draw5(&r, i);
+            }
+            for (k = 0; k < 3; k++) {
+                cs[k] = draw5(&r, i);
+            }
+            ab = draw5(&r, i);
+            as = draw5(&r, i);
+            op = draw5(&r, i);
+            pc_blend_rgb(mode, cb, cs, o);
+            h_f32(&h, o, 3);
+            pc_blend_rgb_hdr(mode, cb, cs, o);
+            h_f32(&h, o, 3);
+            memcpy(bd, cb, sizeof cb);
+            bd[3] = ab;
+            memcpy(sr, cs, sizeof cs);
+            sr[3] = as;
+            pc_blend_composite(mode, bd, sr, op, o);
+            h_f32(&h, o, 4);
+        }
+    }
+    CHECK_EQ_UINT(h, 0x9c7158d7c521f99du);
+}
+
+/* rustref color-vectors `blend-within`: Hue/Saturation/Color/Luminosity clipped at 1, 2 and
+ * FLT_MAX, HDR inputs and greys (the guarded ClipColor). */
+static void test_blend_rgb_within(void)
+{
+    static const pc_blend_mode modes[4] = {PC_BLEND_HUE, PC_BLEND_SATURATION, PC_BLEND_COLOR,
+                                           PC_BLEND_LUMINOSITY};
+    static const float tops[3] = {1.0f, 2.0f, FLT_MAX};
+    uint64_t h = FNV0;
+    lcg r = {29};
+    size_t m;
+    for (m = 0; m < 4; m++) {
+        int i;
+        size_t g;
+        for (i = 0; i < 3000; i++) {
+            float k = i % 3 == 0 ? 4.0f : 1.2f;
+            float cb[3];
+            float cs[3];
+            float o[3];
+            size_t c;
+            for (c = 0; c < 3; c++) {
+                cb[c] = next(&r) * k - 0.1f;
+            }
+            for (c = 0; c < 3; c++) {
+                cs[c] = next(&r) * k - 0.1f;
+            }
+            pc_blend_rgb_within(modes[m], cb, cs, tops[i % 3], o);
+            h_f32(&h, o, 3);
+        }
+        for (g = 0; g < 19; g++) {
+            size_t t;
+            for (t = 0; t < 3; t++) {
+                float grey[3] = {V[g], V[g], V[g]};
+                float col[3] = {0.5f, 0.25f, 0.125f};
+                float near[3] = {V[g], V[g], 1.999999f};
+                float o[3];
+                pc_blend_rgb_within(modes[m], grey, col, tops[t], o);
+                h_f32(&h, o, 3);
+                pc_blend_rgb_within(modes[m], col, near, tops[t], o);
+                h_f32(&h, o, 3);
+            }
+        }
+    }
+    CHECK_EQ_UINT(h, 0x4af56bf1f6d6d438u);
+}
+
+/* rustref color-vectors `in-mode`: pc_color_in_mode between every pair of modes. */
+static void test_color_in_mode(void)
+{
+    uint64_t h = FNV0;
+    lcg r = {31};
+    unsigned from;
+    unsigned to;
+    for (from = 0; from < PC_COLOR_MODE_COUNT; from++) {
+        for (to = 0; to < PC_COLOR_MODE_COUNT; to++) {
+            int i;
+            for (i = 0; i < 60; i++) {
+                pc_color c;
+                pc_color o;
+                uint8_t mb;
+                int k;
+                c.mode = (pc_color_mode)from;
+                for (k = 0; k < 4; k++) {
+                    c.c[k] = next(&r);
+                }
+                c.alpha = next(&r);
+                o = pc_color_in_mode(&c, (pc_color_mode)to);
+                mb = (uint8_t)o.mode;
+                fnv(&h, &mb, 1);
+                h_f32(&h, o.c, 4);
+                h_f32(&h, &o.alpha, 1);
+            }
+        }
+    }
+    CHECK_EQ_UINT(h, 0x6dbc8eed39540b66u);
+}
+
 int main(int argc, char **argv)
 {
     RUN(test_constants_and_blend_channel);
@@ -318,5 +453,8 @@ int main(int argc, char **argv)
     RUN(test_transfer_and_conversions);
     RUN(test_document_cmyk_space);
     RUN(test_dither_samples_and_colors);
+    RUN(test_paint_net_modes);
+    RUN(test_blend_rgb_within);
+    RUN(test_color_in_mode);
     return pc_t_finish();
 }

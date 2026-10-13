@@ -998,8 +998,17 @@ pc_status pc_cms_link_stages(const pc_profile *src, const pc_profile *dst, pc_in
     ends[1] = dst;
     for (i = 0; i < 2; i++) {
         uint32_t c = ends[i]->class_sig;
+        /* A Lab DeviceLink stands in for an abstract profile only when it also ends in Lab. */
+        bool lab_to_lab = ends[i]->space == PC_CS_LAB;
+        size_t k;
+        for (k = 0; k < 3; k++) {
+            if ((ends[i]->a2b[k] != NULL && ends[i]->a2b[k]->outputs != 3) ||
+                (ends[i]->b2a[k] != NULL && ends[i]->b2a[k]->inputs != 3)) {
+                lab_to_lab = false;
+            }
+        }
         if ((c == PC_CLASS_DEVICE_LINK || c == PC_CLASS_NAMED_COLOR || c == PC_CLASS_ABSTRACT) &&
-            ends[i]->space != PC_CS_LAB) {
+            !lab_to_lab) {
             char cn[32];
             pc_class_debug_name(c, cn);
             return cms_unsupported(err, "%s profiles cannot be used as a source or destination", cn);

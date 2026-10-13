@@ -42,7 +42,7 @@ static bool opacity_less(const void *a, const void *b)
     return total_key(((const pc_opacity_stop *)a)->pos) < total_key(((const pc_opacity_stop *)b)->pos);
 }
 
-pc_status pc_compose_ramp_init(const pc_fill *f, bool *found, pc_compose_ramp *out, pc_error *err)
+static pc_status ramp_init(const pc_fill *f, bool cmyk, bool *found, pc_compose_ramp *out, pc_error *err)
 {
     pc_compose_ramp r;
     size_t i;
@@ -52,6 +52,7 @@ pc_status pc_compose_ramp_init(const pc_fill *f, bool *found, pc_compose_ramp *o
         return PC_OK;
     }
     memset(&r, 0, sizeof r);
+    r.nch = cmyk ? 5 : 4;
     if (f->u.gradient.nstops > 0) {
         r.color = pc_malloc_array(f->u.gradient.nstops, sizeof *r.color);
         if (r.color == NULL) {
@@ -61,13 +62,20 @@ pc_status pc_compose_ramp_init(const pc_fill *f, bool *found, pc_compose_ramp *o
     }
     for (i = 0; i < r.ncolor; i++) {
         const pc_color_stop *s = &f->u.gradient.stops[i];
-        float rgb[3];
-        pc_color_to_rgb(&s->color, rgb);
         r.color[i].pos = s->pos;
-        r.color[i].c[0] = rgb[0];
-        r.color[i].c[1] = rgb[1];
-        r.color[i].c[2] = rgb[2];
-        r.color[i].c[3] = s->color.alpha;
+        if (cmyk) {
+            pc_color k = pc_color_in_mode(&s->color, PC_COLOR_MODE_CMYK);
+            memcpy(r.color[i].c, k.c, 4 * sizeof(float));
+            r.color[i].c[4] = k.alpha;
+        } else {
+            float rgb[3];
+            pc_color_to_rgb(&s->color, rgb);
+            r.color[i].c[0] = rgb[0];
+            r.color[i].c[1] = rgb[1];
+            r.color[i].c[2] = rgb[2];
+            r.color[i].c[3] = s->color.alpha;
+            r.color[i].c[4] = 0.0f;
+        }
     }
     if (f->u.gradient.nopacity_stops > 0) {
         r.opacity = pc_malloc_array(f->u.gradient.nopacity_stops, sizeof *r.opacity);
@@ -93,6 +101,16 @@ pc_status pc_compose_ramp_init(const pc_fill *f, bool *found, pc_compose_ramp *o
     return PC_OK;
 }
 
+pc_status pc_compose_ramp_init(const pc_fill *f, bool *found, pc_compose_ramp *out, pc_error *err)
+{
+    return ramp_init(f, false, found, out, err);
+}
+
+pc_status pc_compose_ramp_init_cmyk(const pc_fill *f, bool *found, pc_compose_ramp *out, pc_error *err)
+{
+    return ramp_init(f, true, found, out, err);
+}
+
 void pc_compose_ramp_fini(pc_compose_ramp *r)
 {
     if (r == NULL) {
@@ -115,16 +133,19 @@ float pc_compose_midpoint_remap(float u, float m)
     return 0.5f + 0.5f * (u - mm) / (1.0f - mm);
 }
 
-static void sample_color(const pc_compose_ramp *r, float t, float out[4])
+static void sample_color(const pc_compose_ramp *r, float t, float *out)
 {
+    size_t n = r->nch == 5 ? 5 : 4;
     size_t i;
-    int c;
+    size_t c;
     if (r->ncolor == 0) {
-        out[0] = out[1] = out[2] = out[3] = 0.0f;
+        for (c = 0; c < n; c++) {
+            out[c] = 0.0f;
+        }
         return;
     }
     if (t <= r->color[0].pos) {
-        memcpy(out, r->color[0].c, 4 * sizeof(float));
+        memcpy(out, r->color[0].c, n * sizeof(float));
         return;
     }
     for (i = 0; i + 1 < r->ncolor; i++) {
@@ -133,13 +154,13 @@ static void sample_color(const pc_compose_ramp *r, float t, float out[4])
         if (t <= b->pos) {
             float u = b->pos > a->pos ? (t - a->pos) / (b->pos - a->pos) : 0.0f;
             float k = pc_compose_midpoint_remap(u, i < r->nmids ? r->mids[i] : 0.5f);
-            for (c = 0; c < 4; c++) {
+            for (c = 0; c < n; c++) {
                 out[c] = a->c[c] + (b->c[c] - a->c[c]) * k;
             }
             return;
         }
     }
-    memcpy(out, r->color[r->ncolor - 1].c, 4 * sizeof(float));
+    memcpy(out, r->color[r->ncolor - 1].c, n * sizeof(float));
 }
 
 static float sample_opacity(const pc_opacity_stop *s, size_t n, float t)
@@ -160,21 +181,28 @@ static float sample_opacity(const pc_opacity_stop *s, size_t n, float t)
     return s[n - 1].opacity;
 }
 
-void pc_compose_ramp_sample(const pc_compose_ramp *r, float t, float out[4])
+void pc_compose_ramp_sample(const pc_compose_ramp *r, float t, float *out)
 {
+    size_t n = r->nch == 5 ? 5 : 4;
     sample_color(r, t, out);
-    if (r->nopacity > 0) {
-        out[3] *= sample_opacity(r->opacity, r->nopacity, t);
+    out[n - 1] *= sample_opacity(r->opacity, r->nopacity, t);
+}
+
+void pc_compose_gradient_dither_to(float *c, size_t n, int32_t x, int32_t y, bool has_quantum, float quantum)
+{
+    float d = (pc_dither_noise(x, y) - 0.5f) / 255.0f;
+    size_t i;
+    for (i = 0; i < n; i++) {
+        c[i] = pc_clampf(c[i] + d, 0.0f, 1.0f);
+        if (has_quantum) {
+            c[i] = floorf(c[i] * quantum + 0.5f) / quantum;
+        }
     }
 }
 
 void pc_compose_gradient_dither(float c[4], int32_t x, int32_t y)
 {
-    float n = (pc_dither_noise(x, y) - 0.5f) / 255.0f;
-    int i;
-    for (i = 0; i < 3; i++) {
-        c[i] = pc_clampf(c[i] + n, 0.0f, 1.0f);
-    }
+    pc_compose_gradient_dither_to(c, 3, x, y, false, 0.0f);
 }
 
 typedef struct render_job {
@@ -183,10 +211,13 @@ typedef struct render_job {
     pc_compose_gradient_geom g;
     bool reverse;
     bool dither;
+    bool has_quantum;
+    float quantum;
     pc_rect rect;
     pc_rect frame;
     size_t w;
-    float (*px)[4];
+    size_t nch; /* floats per pixel in px */
+    float *px;
 } render_job;
 
 static pc_status render_rows(void *ctx, size_t chunk, size_t begin, size_t end)
@@ -197,27 +228,49 @@ static pc_status render_rows(void *ctx, size_t chunk, size_t begin, size_t end)
     (void)chunk;
     for (row = begin; row < end; row++) {
         int32_t y = pc_i32_wrapping_add(j->rect.y0, (int32_t)row);
-        float (*out)[4] = j->px + row * j->w;
+        float *out = j->px + row * j->w * j->nch;
         for (i = 0; i < j->w; i++) {
             int32_t x = pc_i32_wrapping_add(j->rect.x0, (int32_t)i);
             float t = pc_compose_gradient_t(j->style, j->g.angle, j->g.scale, j->reverse, j->g.offset,
                                             j->frame, (float)x + 0.5f, (float)y + 0.5f);
-            pc_compose_ramp_sample(j->ramp, t, out[i]);
+            pc_compose_ramp_sample(j->ramp, t, out + i * j->nch);
             if (j->dither) {
-                pc_compose_gradient_dither(out[i], x, y);
+                pc_compose_gradient_dither_to(out + i * j->nch, j->nch - 1, x, y, j->has_quantum, j->quantum);
             }
         }
     }
     return PC_OK;
 }
 
-pc_status pc_compose_gradient_fill_render(const pc_fill *f, pc_rect rect, pc_rect frame,
-                                          pc_compose_buffer *out, pc_error *err)
+/* render_ramp: the ramp over rect (npx pixels of ramp->nch floats at px, zeroed). */
+static pc_status render_ramp(const pc_fill *f, pc_rect rect, pc_rect frame, const pc_compose_ramp *ramp,
+                             bool has_quantum, float quantum, float *px, size_t npx)
+{
+    render_job j;
+    /* Linear and Reflected end points on whole pixels, as Photoshop (fill_layout). */
+    j.ramp = ramp;
+    j.style = f->u.gradient.style;
+    j.g = pc_compose_gradient_layout(f->u.gradient.style, f->u.gradient.angle, f->u.gradient.scale,
+                                     f->u.gradient.offset, frame);
+    j.reverse = f->u.gradient.reverse;
+    j.dither = f->u.gradient.dither;
+    j.has_quantum = has_quantum;
+    j.quantum = quantum;
+    j.rect = rect;
+    j.frame = frame;
+    j.w = pc_cmp_w(rect);
+    j.nch = ramp->nch == 5 ? 5 : 4;
+    j.px = px;
+    return pc_pool_for(pc_pool_global(), npx / j.w, 1, render_rows, &j);
+}
+
+pc_status pc_compose_gradient_fill_render_quantized(const pc_fill *f, pc_rect rect, pc_rect frame,
+                                                    bool has_quantum, float quantum, pc_compose_buffer *out,
+                                                    pc_error *err)
 {
     pc_compose_buffer b;
     pc_compose_ramp ramp;
     bool found = false;
-    render_job j;
     pc_status st = pc_compose_buffer_transparent(rect, &b, err);
     if (st != PC_OK) {
         return st;
@@ -231,24 +284,65 @@ pc_status pc_compose_gradient_fill_render(const pc_fill *f, pc_rect rect, pc_rec
         pc_compose_buffer_fini(&b);
         return st;
     }
-    /* Linear and Reflected end points on whole pixels, as Photoshop (fill_layout). */
-    j.ramp = &ramp;
-    j.style = f->u.gradient.style;
-    j.g = pc_compose_gradient_layout(f->u.gradient.style, f->u.gradient.angle, f->u.gradient.scale,
-                                     f->u.gradient.offset, frame);
-    j.reverse = f->u.gradient.reverse;
-    j.dither = f->u.gradient.dither;
-    j.rect = rect;
-    j.frame = frame;
-    j.w = pc_cmp_w(rect);
-    j.px = b.px;
-    st = pc_pool_for(pc_pool_global(), b.len / j.w, 1, render_rows, &j);
+    st = render_ramp(f, rect, frame, &ramp, has_quantum, quantum, &b.px[0][0], b.len);
     pc_compose_ramp_fini(&ramp);
     if (st != PC_OK) {
         pc_compose_buffer_fini(&b);
         return st;
     }
     *out = b;
+    return PC_OK;
+}
+
+pc_status pc_compose_gradient_fill_render(const pc_fill *f, pc_rect rect, pc_rect frame,
+                                          pc_compose_buffer *out, pc_error *err)
+{
+    return pc_compose_gradient_fill_render_quantized(f, rect, frame, false, 0.0f, out, err);
+}
+
+pc_status pc_compose_render_cmyk_fill(const pc_fill *f, pc_rect rect, pc_rect frame, pc_sample_type depth,
+                                      bool *found, pc_surface *out, pc_error *err)
+{
+    pc_surface s;
+    pc_status st = PC_OK;
+    if (f->kind != PC_FILL_SOLID && f->kind != PC_FILL_GRADIENT) {
+        *found = false;
+        return PC_OK;
+    }
+    pc_surface_init(&s, (pc_pixel_format){PC_COLOR_MODE_CMYK, depth, true});
+    if (f->kind == PC_FILL_SOLID) {
+        pc_color k = pc_color_in_mode(&f->u.solid, PC_COLOR_MODE_CMYK);
+        const float px[5] = {k.c[0], k.c[1], k.c[2], k.c[3], k.alpha};
+        st = pc_surface_fill_rect(&s, rect, px, 5, err);
+    } else {
+        size_t n;
+        st = pc_cmp_rect_pixels(rect, &n, err);
+        if (st == PC_OK && n > 0 && pc_rect_width(rect) > 0) {
+            pc_compose_ramp ramp;
+            bool has = false;
+            float *px = pc_calloc_array(n, 5 * sizeof *px);
+            if (px == NULL) {
+                st = nomem(err);
+            } else {
+                st = ramp_init(f, true, &has, &ramp, err);
+                if (st == PC_OK) {
+                    st = render_ramp(f, rect, frame, &ramp, false, 0.0f, px, n);
+                    pc_compose_ramp_fini(&ramp);
+                }
+                if (st == PC_OK) {
+                    st = pc_surface_write_region(&s, rect, px, n * 5, err);
+                }
+                free(px);
+            }
+        }
+    }
+    if (st != PC_OK) {
+        pc_surface_fini(&s);
+        return st;
+    }
+    pc_surface_prune(&s);
+    *out = s;
+    *found = true;
     return PC_OK;
 }
 

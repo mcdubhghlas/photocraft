@@ -123,6 +123,17 @@ pc_status pc_ops_surfaces(const pc_document *d, pc_ops_surface_fn fn, void *ctx)
         if (st == PC_OK && l->has_mask) {
             st = fn(&l->mask.surface, ctx);
         }
+        if (st == PC_OK && l->has_video) {
+            /* Undo retains the whole clip, not only the displayed frame. Visit aliases too: the
+             * tile set tracks every owner and counts their shared allocations once. */
+            const pc_video_data *v = &l->video;
+            for (size_t k = 0; k < v->nframes && st == PC_OK; k++) {
+                st = fn(&v->frames[k], ctx);
+            }
+            for (size_t k = 0; v->has_original_frames && k < v->noriginal_frames && st == PC_OK; k++) {
+                st = fn(&v->original_frames[k], ctx);
+            }
+        }
         if (st == PC_OK && l->content.kind == PC_LAYER_GROUP && l->content.u.group.nchildren > 0) {
             if (len == cap) {
                 size_t ncap = cap;

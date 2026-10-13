@@ -1224,7 +1224,7 @@ pub fn run() {
         l!("ser", "BrushSettings", bj(b));
     }
     l!("ser", "Stroke", serde_json::to_string(&Stroke { brush: bs[9].clone(), points: sets[1].clone() }).unwrap());
-    l!("ser", "BrushPreset", serde_json::to_string(&BrushPreset { name: "x".into(), brush: bs[2].clone(), builtin: false, group: String::new() }).unwrap());
+    l!("ser", "BrushPreset", serde_json::to_string(&BrushPreset { name: "x".into(), brush: bs[2].clone(), builtin: false, group: String::new(), folder: Vec::new() }).unwrap());
     l!("ser", "GrayTile", serde_json::to_string(&gtile(5, 3, 1)).unwrap());
     for b in [&bs[1], &bs[7], &bs[24], &bs[40]] {
         l!("serv", "BrushSettings", bj(b), serde_json::to_string(&serde_json::to_value(b).unwrap()).unwrap());
@@ -1238,4 +1238,7 @@ pub fn run() {
     for (ty, s) in json_cases() {
         de_line(ty, &s);
     }
+    r7(&sets);
 }
+
+include!("paint_vectors_r7.rs");

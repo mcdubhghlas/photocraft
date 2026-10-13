@@ -30,7 +30,7 @@
 
 /* Writer identification: the reference writes `photocraft-format {CARGO_PKG_VERSION}`; the C
  * writer keeps the reference's version so both writers produce identical manifests. */
-#define PC_FORMAT_GENERATOR "photocraft-format 0.5.0"
+#define PC_FORMAT_GENERATOR "photocraft-format 0.8.0"
 
 typedef struct pc_mf_tile {
     int32_t tx;
@@ -68,9 +68,17 @@ typedef struct pc_mf_fill_cache {
     pc_mf_surface surface;
 } pc_mf_fill_cache;
 
+/* Vec<SurfaceM> as a value (inside an Option). */
+typedef struct pc_mf_surface_list {
+    pc_mf_surface *v;
+    size_t n;
+} pc_mf_surface_list;
+
 typedef struct pc_mf_video {
     pc_mf_surface *frames;
     size_t nframes;
+    bool has_original_frames; /* absent in bundles from before original frames were stored */
+    pc_mf_surface_list original_frames;
     pc_video_source source;
     float fps;
     bool show_altered;
@@ -142,6 +150,8 @@ typedef struct pc_mf_content {
     bool has_live;
     pc_live_shape live;
     /* smart */
+    bool has_contents_id; /* shared source identity; older bundles did not record it */
+    uint64_t contents_id;
     pc_mf_smart_source source;
     pc_smart_filter *smart_filters;
     size_t nsmart_filters;
@@ -264,6 +274,8 @@ typedef struct pc_mf_metadata {
     pc_str xmp;
     bool has_exif;
     pc_str exif;
+    pc_doc_text_entry *text;
+    size_t ntext;
     pc_mf_resource *psd_resources;
     size_t npsd_resources;
     pc_mf_global_block *psd_global_blocks;
@@ -295,6 +307,7 @@ typedef struct pc_mf_doc {
     pc_clipping_path clipping_path;
     bool has_quick_mask;
     pc_mf_channel quick_mask;
+    bool quick_mask_unselected;
     pc_mf_pattern *patterns;
     size_t npatterns;
     bool has_color_table;
@@ -310,6 +323,7 @@ typedef struct pc_mf_doc {
     pc_variables variables;
     bool has_timeline;
     pc_timeline timeline;
+    pc_file_encoding file_encoding;
     pc_measurement measurement;
     pc_note *notes;
     size_t nnotes;

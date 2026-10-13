@@ -12,6 +12,7 @@
 #include "base/mem.h"
 #include "base/num.h"
 #include "io/camera_raw_map.h"
+#include "io/displace_map.h"
 #include "io/effects_map.h"
 #include "io/smart_internal.h"
 #include "io/smart_map.h"
@@ -635,7 +636,7 @@ static pc_status adjustments(yyjson_mut_val *p, bool curves, pc_psd_value *out, 
             ok = strlen(allowed[i]) == kn && memcmp(allowed[i], ks, kn) == 0;
         }
         if (!ok) {
-            return REASON(err, "setting `%.*s` has no Photoshop equivalent", (int)(kn > 200 ? 200 : kn), ks);
+            return REASON(err, "setting `%.*s` has no PSD equivalent", (int)(kn > 200 ? 200 : kn), ks);
         }
     }
     memset(&list, 0, sizeof list);
@@ -772,7 +773,7 @@ static pc_status fltr_for(const known *k, yyjson_mut_val *p, bool *has, pc_psd_d
     if (is_blur_family(c)) {
         yyjson_mut_val *pr = jget(p, "preserve");
         if (yyjson_mut_is_str(pr) && yyjson_mut_equals_str(pr, "roundness")) {
-            return REASON(err, "\xE2\x80\x9Cpreserve roundness\xE2\x80\x9D has no Photoshop equivalent");
+            return REASON(err, "\xE2\x80\x9Cpreserve roundness\xE2\x80\x9D has no PSD equivalent");
         }
     }
     st = pc_psd_desc_init(&d, c, err);
@@ -870,6 +871,19 @@ pc_status pc_io_item_for_filter(const pc_smart_filter *f, pc_psd_desc *out, pc_e
         }
         return st;
     }
+    if (pc_str_eq_c(&f->command, PC_IO_DISPLACE_COMMAND)) {
+        st = pc_io_displace_export_item(&f->params, &d, err);
+        if (st == PC_OK) {
+            st = set_blend_enab(&d, f, err);
+            if (st != PC_OK) {
+                pc_psd_desc_fini(&d);
+            }
+        }
+        if (st == PC_OK) {
+            *out = d;
+        }
+        return st;
+    }
     if (pc_str_eq_c(&f->command, PC_IO_UNSUPPORTED_FILTER)) {
         yyjson_mut_val *hex = jget(p, "psd");
         uint8_t *raw = NULL;
@@ -877,14 +891,14 @@ pc_status pc_io_item_for_filter(const pc_smart_filter *f, pc_psd_desc *out, pc_e
         bool ok = false;
         pc_error pe;
         if (!yyjson_mut_is_str(hex)) {
-            return REASON(err, "its Photoshop data is missing");
+            return REASON(err, "its filter data is missing");
         }
         st = pc_io3_from_hex(yyjson_mut_get_str(hex), yyjson_mut_get_len(hex), &ok, &raw, &n, err);
         if (st != PC_OK) {
             return st;
         }
         if (!ok) {
-            return REASON(err, "its Photoshop data is missing");
+            return REASON(err, "its filter data is missing");
         }
         st = pc_psd_desc_parse(raw, n, &d, &pe);
         free(raw);
@@ -892,7 +906,7 @@ pc_status pc_io_item_for_filter(const pc_smart_filter *f, pc_psd_desc *out, pc_e
             return pc_fail(err, PC_ERR_NOMEM, "%s", pe.msg);
         }
         if (st != PC_OK) {
-            return REASON(err, "its Photoshop data is unreadable (%s)", pe.msg);
+            return REASON(err, "its filter data is unreadable (%s)", pe.msg);
         }
         st = set_blend_enab(&d, f, err);
         if (st != PC_OK) {
@@ -909,7 +923,7 @@ pc_status pc_io_item_for_filter(const pc_smart_filter *f, pc_psd_desc *out, pc_e
         }
     }
     if (k == NULL) {
-        return REASON(err, "Photoshop has no equivalent filter");
+        return REASON(err, "this filter has no PSD equivalent");
     }
     st = fltr_for(k, p, &has, &fl, err);
     if (st != PC_OK) {
@@ -1068,6 +1082,11 @@ pc_status pc_io_filter_from_item(const pc_psd_desc *item, pc_smart_filter *out, 
         bool found = false;
         st = pc_io_camera_raw_import_params(item, &found, &params, err);
         cmd = st == PC_OK && found ? PC_IO_CAMERA_RAW_COMMAND : NULL;
+    } else if (cls != NULL && cls_len == strlen(PC_IO_DISPLACE_CLASS) &&
+               memcmp(cls, PC_IO_DISPLACE_CLASS, cls_len) == 0) {
+        bool found = false;
+        st = pc_io_displace_import_params(item, &found, &params, err);
+        cmd = st == PC_OK && found ? PC_IO_DISPLACE_COMMAND : NULL;
     } else if (cls != NULL) {
         st = known_params(cls, cls_len, fltr, &cmd, &params, err);
     }

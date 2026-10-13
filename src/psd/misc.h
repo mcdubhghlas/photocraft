@@ -118,7 +118,14 @@ typedef struct pc_psd_node {
     size_t n;
 } pc_psd_node;
 
+/* The tree can be as deep as the file nests its groups; code that walks it recursively should use
+ * pc_psd_layer_tree_max_depth. */
 pc_status pc_psd_layer_tree(const struct pc_psd_file *f, pc_psd_node **roots, size_t *n, pc_error *err);
+/* At most max_depth levels of groups: a group nested max_depth or more groups deep (a root node is
+ * at depth 0) keeps its node but not its children, so the result is at most max_depth + 1 levels
+ * deep. Built iteratively. */
+pc_status pc_psd_layer_tree_max_depth(const struct pc_psd_file *f, size_t max_depth, pc_psd_node **roots,
+                                      size_t *n, pc_error *err);
 void pc_psd_nodes_free(pc_psd_node *nodes, size_t n);
 size_t pc_psd_node_count(const pc_psd_node *node); /* subtree size including itself */
 

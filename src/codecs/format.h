@@ -20,13 +20,15 @@ typedef enum pc_cformat {
     PC_CF_TGA,
     PC_CF_ICO,
     PC_CF_PNM, /* Netpbm: PBM/PGM/PPM (P1-P6), PAM (P7), PFM (PF/Pf) */
+    PC_CF_PCX, /* ZSoft Paintbrush: read-only (1/2/4-bit planar palettes, 8-bit indexed, 24-bit RGB) */
     PC_CF_QOI,
     PC_CF_EXR,
     PC_CF_HDR,  /* Radiance RGBE */
     PC_CF_AVIF, /* neither read nor written in this build */
-    PC_CF_HEIF  /* read-only (libheif) when built with it */
+    PC_CF_HEIF, /* read-only (libheif) when built with it */
+    PC_CF_FITS  /* Flexible Image Transport System (astronomy): gray or RGB */
 } pc_cformat;
-#define PC_CF_COUNT 14
+#define PC_CF_COUNT 16
 
 /* What a format can hold and what this build reads/writes for it. */
 typedef struct pc_ccaps {

@@ -1179,11 +1179,26 @@ bool pc_jstruct_write_fields(const jstruct *s, yyjson_mut_doc *d, yyjson_mut_val
             void *p;
             size_t n;
             get_vec(base, f->off, f->off2, &p, &n);
+            if (n == 0 && f->skip_none) {
+                continue;
+            }
             fv = pc_jvec_write(f->type, d, p, n, flags);
             break;
         }
         case JF_VAL:
         default:
+            if (f->skip_none) {
+                bool on = false;
+                if (f->skip != NULL) {
+                    on = f->skip(b + f->off);
+                } else {
+                    memcpy(&on, b + f->off, sizeof on);
+                    on = !on;
+                }
+                if (on) {
+                    continue;
+                }
+            }
             fv = f->type->write(f->type, d, b + f->off, flags);
             break;
         }

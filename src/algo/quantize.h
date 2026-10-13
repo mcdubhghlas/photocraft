@@ -73,8 +73,9 @@ typedef struct pc_algo_palette {
  * "uniform", "perceptual"/"localPerceptual", "selective"/"localSelective",
  * "adaptive"/"localAdaptive"); false for anything else. */
 bool pc_algo_palette_kind_from_id(const char *s, pc_algo_palette_kind *out);
-/* HalftoneShape::from_id: unknown ids are Round. */
-pc_algo_halftone_shape pc_algo_halftone_shape_from_id(const char *s);
+/* HalftoneShape::from_id ("round", "ellipse", "line", "square", "diamond", "cross"); false for
+ * anything else. */
+bool pc_algo_halftone_shape_from_id(const char *s, pc_algo_halftone_shape *out);
 
 /* The 216-colour web-safe cube, classic Mac OS (cube + red/green/blue/gray ramps, 256) and
  * Windows (20 static colours + cube + gray ramp, 256) palettes. */

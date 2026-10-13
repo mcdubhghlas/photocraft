@@ -344,6 +344,16 @@ fn cases() -> Vec<FilterParams> {
         }
     }
     v.push(F::NtscColors);
+    // R6 (resync): Color to Alpha.
+    for (color, t, o) in [
+        ([1.0, 1.0, 1.0, 1.0], 0.0, 1.0),
+        ([0.5, 0.25, 0.75, 1.0], 0.1, 0.9),
+        ([0.0, 0.0, 0.0, 0.3], 0.3, 0.2),
+        ([0.2, 0.6, 0.9, 1.0], 0.5, 0.5),
+        ([1.5, -0.5, 0.5, 1.0], -1.0, 2.0),
+    ] {
+        v.push(F::ColorToAlpha { color, transparency_threshold: t, opacity_threshold: o });
+    }
     v
 }
 
@@ -974,7 +984,7 @@ fn warp_vectors() {
         let src = surf(fmt, r, 8, false);
         for (aname, t) in &aff {
             for (wname, w) in &warps {
-                println!("place {} {} {} {:016x}", fname, aname, wname, hs(&warp::place_source(&src, r, t, w.as_ref())));
+                println!("place {} {} {} {:016x}", fname, aname, wname, warp::place_source(&src, r, t, w.as_ref()).as_ref().map_or(u64::MAX, hs));
             }
         }
         let homs = [
@@ -983,7 +993,7 @@ fn warp_vectors() {
         ];
         for (hname, hm) in &homs {
             for (wname, w) in &warps {
-                println!("placep {} {} {} {:016x}", fname, hname, wname, hs(&warp::place_source_projective(&src, r, hm, w.as_ref())));
+                println!("placep {} {} {} {:016x}", fname, hname, wname, warp::place_source_projective(&src, r, hm, w.as_ref()).as_ref().map_or(u64::MAX, hs));
             }
         }
     }

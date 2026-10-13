@@ -3,6 +3,7 @@
  * text chunks (with one shared UTF-8 budget) and APNG frame counts come from our own chunk walk.
  * Writing is own code: IHDR, ancillary chunks, IDAT (adaptive minimum-sum filter, deflated in
  * parallel bands for large images, or Adam7 with filter 0), IEND. */
+#include <math.h>
 #include <png.h>
 #include <setjmp.h>
 #include <stdlib.h>
@@ -16,6 +17,7 @@
 #include "base/utf8.h"
 #include "codecs/internal.h"
 #include "codecs/orientation.h"
+#include "codecs/resolution.h"
 
 #define F PC_CF_PNG
 #define XMP_KEYWORD "XML:com.adobe.xmp"
@@ -345,7 +347,8 @@ static pc_status read_text_metadata(const uint8_t *b, size_t n, size_t remaining
             st = cx_nomem(err);
             break;
         }
-        if (kind == 2 && key_len == sizeof XMP_KEYWORD - 1 && memcmp(key, XMP_KEYWORD, key_len) == 0) {
+        /* Some writers put XMP in Latin-1 text chunks instead of the usual iTXt. */
+        if (key_len == sizeof XMP_KEYWORD - 1 && memcmp(key, XMP_KEYWORD, key_len) == 0) {
             pc_buf_fini(&k);
             pc_meta_blob_fini(&meta->xmp);
             st = pc_meta_blob_set(&meta->xmp, text.data != NULL ? text.data : (const uint8_t *)"", text.len, err);
@@ -564,8 +567,24 @@ pc_status cx_png_decode(const uint8_t *b, size_t n, const pc_climits *l, pc_cima
     }
     /* The declared size is checked before anything is allocated (worst case 4 x 16 bit). */
     if (n >= 24 && memcmp(b + 12, "IHDR", 4) == 0) {
-        if ((st = cx_check_bytes(l, cx_be32(b + 16), cx_be32(b + 20), 8, err)) != PC_OK) {
+        uint32_t w = cx_be32(b + 16);
+        uint32_t h = cx_be32(b + 20);
+        if ((st = cx_check_bytes(l, w, h, 8, err)) != PC_OK) {
             return st;
+        }
+        /* zlib never beats 1032:1: refuse a file too small for the declared image before the output
+         * buffer exists, measured on the stored samples (before palette or bit expansion). */
+        if (n >= 26) {
+            static const uint8_t CHANNELS[7] = {1, 0, 3, 1, 2, 0, 4};
+            uint8_t depth = b[24];
+            uint8_t ct = b[25];
+            uint64_t bits = ct < 7 ? (uint64_t)CHANNELS[ct] * depth : 0;
+            uint64_t px = (uint64_t)w * h;
+            uint64_t stored = bits != 0 && px > UINT64_MAX / bits ? UINT64_MAX : px * bits;
+            stored = stored / 8 + (stored % 8 != 0);
+            if (bits != 0 && (st = cx_check_plausible(stored, n, 1100, err)) != PC_OK) {
+                return st;
+            }
         }
     }
     memset(&j, 0, sizeof j);
@@ -805,17 +824,19 @@ static pc_status band_fn(void *ctx, size_t idx, size_t b0, size_t b1)
     return st;
 }
 
+/* Filtered bytes per deflate band. The bands depend only on the image, never on the number of
+ * threads, so the same image and options give the same bytes whatever the machine's core count. */
+#define BAND_BYTES ((size_t)512 << 10)
+
 /* The zlib stream of a non-interlaced image: filtered rows deflated in bands (in parallel for
  * images of at least 4 MB), each band ending on a sync flush so the raw streams concatenate. */
-static pc_status idat_stream(const uint8_t *data, size_t w, size_t h, size_t bpp, pc_png_compression level,
-                             pc_buf *out, pc_error *err)
+pc_status cx_png_idat_stream(const uint8_t *data, size_t w, size_t h, size_t bpp, pc_png_compression level,
+                             pc_pool *pool, pc_buf *out, pc_error *err)
 {
     band_job j;
     size_t stride = w * bpp;
     size_t nb;
     size_t i;
-    pc_pool *pool = pc_pool_global();
-    size_t threads = pc_pool_threads(pool);
     uLong adler = 1L;
     pc_status st = PC_OK;
     static const uint8_t HDR[4][2] = {{0x78, 0x01}, {0x78, 0x01}, {0x78, 0x9C}, {0x78, 0xDA}};
@@ -825,9 +846,8 @@ static pc_status idat_stream(const uint8_t *data, size_t w, size_t h, size_t bpp
     j.h = h;
     j.level = zlevel(level);
     j.filter = level != PC_PNG_NONE;
-    if (stride * h >= ((size_t)4 << 20) && level != PC_PNG_NONE && threads >= 2) {
-        size_t t = threads > 32 ? 32 : threads;
-        j.band_rows = (h + t * 4 - 1) / (t * 4);
+    if (stride * h >= ((size_t)4 << 20) && level != PC_PNG_NONE) {
+        j.band_rows = BAND_BYTES / (stride + 1);
     } else {
         j.band_rows = h;
     }
@@ -995,6 +1015,8 @@ pc_status cx_png_encode(const pc_cimage *src, cx_plan p, const pc_cencode_opts *
     uint8_t ihdr[13];
     pc_buf idat = PC_BUF_INIT;
     size_t bpp;
+    float dpiv[2];
+    const float *dpi = NULL;
     pc_status st = pc_cimage_converted(src, p.layout, p.sample, &tmp, &img, err);
     if (st != PC_OK) {
         return st;
@@ -1068,12 +1090,17 @@ pc_status cx_png_encode(const pc_cimage *src, cx_plan p, const pc_cencode_opts *
             goto done;
         }
     }
+    if (img->meta.has_dpi) {
+        dpiv[0] = img->meta.dpi_x;
+        dpiv[1] = img->meta.dpi_y;
+        dpi = dpiv;
+    }
     if (o->embed_metadata) {
         if (img->meta.exif.has) {
             /* The pixels are written as they are shown: never let a viewer rotate them again. */
             uint8_t *up = NULL;
             size_t un = 0;
-            st = pc_upright_exif(img->meta.exif.data, img->meta.exif.len, &up, &un, err);
+            st = pc_export_exif(img->meta.exif.data, img->meta.exif.len, dpi, &up, &un, err);
             if (st != PC_OK) {
                 goto done;
             }
@@ -1116,7 +1143,7 @@ pc_status cx_png_encode(const pc_cimage *src, cx_plan p, const pc_cencode_opts *
         if (img->meta.xmp.has) {
             char *up = NULL;
             size_t un = 0;
-            st = pc_upright_xmp((const char *)img->meta.xmp.data, img->meta.xmp.len, &up, &un, err);
+            st = pc_export_xmp((const char *)img->meta.xmp.data, img->meta.xmp.len, dpi, &up, &un, err);
             if (st != PC_OK) {
                 goto done;
             }
@@ -1134,7 +1161,8 @@ pc_status cx_png_encode(const pc_cimage *src, cx_plan p, const pc_cencode_opts *
         if (o->png_interlaced) {
             st = adam7_stream(data, img->width, img->height, bpp, o->png_compression, &idat, err);
         } else {
-            st = idat_stream(data, img->width, img->height, bpp, o->png_compression, &idat, err);
+            st = cx_png_idat_stream(data, img->width, img->height, bpp, o->png_compression, pc_pool_global(),
+                                    &idat, err);
         }
         if (st != PC_OK) {
             goto done;
@@ -1153,6 +1181,13 @@ done:
 pc_status pc_cencode_png_indexed(uint32_t w, uint32_t h, const uint8_t *indices, size_t n,
                                  const uint8_t (*palette)[3], size_t npal, int transparent, pc_buf *out,
                                  pc_error *err)
+{
+    return pc_cencode_png_indexed_dpi(w, h, indices, n, palette, npal, transparent, NULL, out, err);
+}
+
+pc_status pc_cencode_png_indexed_dpi(uint32_t w, uint32_t h, const uint8_t *indices, size_t n,
+                                     const uint8_t (*palette)[3], size_t npal, int transparent,
+                                     const float *dpi, pc_buf *out, pc_error *err)
 {
     pc_buf b = PC_BUF_INIT;
     pc_buf idat = PC_BUF_INIT;
@@ -1180,6 +1215,17 @@ pc_status pc_cencode_png_indexed(uint32_t w, uint32_t h, const uint8_t *indices,
     ihdr[9] = 3;
     ihdr[10] = ihdr[11] = ihdr[12] = 0;
     put_chunk(&wr, "IHDR", ihdr, 13);
+    if (dpi != NULL && isfinite(dpi[0]) && isfinite(dpi[1]) && dpi[0] > 0.0f && dpi[1] > 0.0f) {
+        uint8_t phys[9];
+        uint32_t x = pc_f32_to_u32(roundf(dpi[0] / METERS_PER_INCH));
+        uint32_t y = pc_f32_to_u32(roundf(dpi[1] / METERS_PER_INCH));
+        for (i = 0; i < 4; i++) {
+            phys[i] = (uint8_t)(x >> (24 - 8 * i));
+            phys[4 + i] = (uint8_t)(y >> (24 - 8 * i));
+        }
+        phys[8] = 1;
+        put_chunk(&wr, "pHYs", phys, 9);
+    }
     put_chunk(&wr, "PLTE", palette[0], npal * 3);
     if (transparent >= 0 && (size_t)transparent < npal) {
         uint8_t trns[256];
@@ -1187,7 +1233,7 @@ pc_status pc_cencode_png_indexed(uint32_t w, uint32_t h, const uint8_t *indices,
         trns[transparent] = 0;
         put_chunk(&wr, "tRNS", trns, (size_t)transparent + 1);
     }
-    st = idat_stream(indices, w, h, 1, PC_PNG_DEFAULT, &idat, err);
+    st = cx_png_idat_stream(indices, w, h, 1, PC_PNG_DEFAULT, pc_pool_global(), &idat, err);
     if (st == PC_OK) {
         put_chunk(&wr, "IDAT", idat.data, idat.len);
         put_chunk(&wr, "IEND", NULL, 0);

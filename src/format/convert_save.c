@@ -35,28 +35,31 @@
  * tests/format/test_manifest.c also round-trips a document with every field set. */
 #if UINTPTR_MAX == UINT64_MAX && UINT_MAX == 0xFFFFFFFFu && SIZE_MAX == UINT64_MAX
 #define PC_DOC_FIELDS(T, size) _Static_assert(sizeof(T) == (size), #T " changed: update the .pcraft manifest")
-PC_DOC_FIELDS(pc_document, 1016);
-PC_DOC_FIELDS(pc_layer, 1040);
-PC_DOC_FIELDS(pc_layer_content, 512);
+PC_DOC_FIELDS(pc_document, 1064);
+PC_DOC_FIELDS(pc_layer, 1072);
+PC_DOC_FIELDS(pc_layer_content, 520);
 PC_DOC_FIELDS(pc_group, 88);
 PC_DOC_FIELDS(pc_text_layer, 288);
 PC_DOC_FIELDS(pc_shape_layer, 488);
-PC_DOC_FIELDS(pc_smart_object, 504);
+PC_DOC_FIELDS(pc_smart_object, 512);
 PC_DOC_FIELDS(pc_smart_source, 48);
 PC_DOC_FIELDS(pc_layer_mask, 80);
 PC_DOC_FIELDS(pc_fill_cache, 152);
-PC_DOC_FIELDS(pc_video_data, 48);
+PC_DOC_FIELDS(pc_video_data, 72);
 PC_DOC_FIELDS(pc_effects, 56);
 PC_DOC_FIELDS(pc_alpha_channel, 144);
 PC_DOC_FIELDS(pc_layer_comp, 64);
 PC_DOC_FIELDS(pc_comp_layer_state, 96);
 PC_DOC_FIELDS(pc_comp_appearance, 72);
-PC_DOC_FIELDS(pc_metadata, 64);
+PC_DOC_FIELDS(pc_metadata, 80);
 PC_DOC_FIELDS(pc_doc_psd_block, 16);
 PC_DOC_FIELDS(pc_doc_psd_resource, 32);
 PC_DOC_FIELDS(pc_doc_psd_global_block, 16);
 PC_DOC_FIELDS(pc_named_path, 48);
 PC_DOC_FIELDS(pc_pattern, 104);
+PC_DOC_FIELDS(pc_guides, 48);
+PC_DOC_FIELDS(pc_file_encoding, 6);
+PC_DOC_FIELDS(pc_doc_text_entry, 32);
 #undef PC_DOC_FIELDS
 #endif
 
@@ -414,6 +417,7 @@ static yyjson_mut_val *content_m(wb *w, const pc_layer_content *c, size_t depth)
         const pc_smart_object *s = &c->u.smart;
         yyjson_mut_val *src = obj(w);
         yyjson_mut_val *filters = arr(w);
+        put(w, o, "contents_id", ju64(w, s->contents_id));
         if (s->source.linked) {
             put(w, src, "kind", jcstr(w, "linked"));
             put(w, src, "path", jstr(w, &s->source.path));
@@ -508,6 +512,9 @@ static yyjson_mut_val *layer_m(wb *w, const pc_layer *l, size_t depth)
         const pc_video_data *v = &l->video;
         yyjson_mut_val *vo = obj(w);
         put(w, vo, "frames", surface_list(w, v->frames, v->nframes));
+        if (v->has_original_frames) {
+            put(w, vo, "original_frames", surface_list(w, v->original_frames, v->noriginal_frames));
+        }
         put(w, vo, "source", pc_video_source_to_json(w->d, &v->source, NF));
         put(w, vo, "fps", jf32(w, v->fps));
         put(w, vo, "show_altered", jbool(w, v->show_altered));
@@ -586,6 +593,16 @@ static yyjson_mut_val *metadata_m(wb *w, const pc_metadata *m)
     yyjson_mut_val *glob = arr(w);
     put(w, o, "xmp", OPT(m->has_xmp, jstr(w, &m->xmp)));
     put(w, o, "exif", opt_blob(w, m->exif));
+    if (m->ntext > 0) {
+        yyjson_mut_val *text = arr(w);
+        for (size_t i = 0; i < m->ntext && ok(w); i++) {
+            yyjson_mut_val *t = arr(w);
+            push(w, t, jstr(w, &m->text[i].key));
+            push(w, t, jstr(w, &m->text[i].value));
+            push(w, text, t);
+        }
+        put(w, o, "text", text);
+    }
     for (size_t i = 0; i < m->npsd_resources && ok(w); i++) {
         yyjson_mut_val *t = arr(w);
         push(w, t, ju64(w, m->psd_resources[i].id));
@@ -644,6 +661,9 @@ static yyjson_mut_val *doc_m(wb *w, const pc_document *d)
     put(w, o, "clipping_path",
         OPT(d->has_clipping_path, pc_clipping_path_to_json(w->d, &d->clipping_path, NF)));
     put(w, o, "quick_mask", d->has_quick_mask ? channel_m(w, &d->quick_mask) : jnull(w));
+    if (d->quick_mask_unselected) {
+        put(w, o, "quick_mask_unselected", jbool(w, true));
+    }
     a = arr(w);
     for (size_t i = 0; i < d->npatterns && ok(w); i++) {
         const pc_pattern *pt = &d->patterns[i];
@@ -668,6 +688,9 @@ static yyjson_mut_val *doc_m(wb *w, const pc_document *d)
         d->has_last_document_state ? comp_m(w, &d->last_document_state) : jnull(w));
     put(w, o, "variables", pc_variables_to_json(w->d, &d->variables, NF));
     put(w, o, "timeline", OPT(d->has_timeline, pc_timeline_to_json(w->d, &d->timeline, NF)));
+    if (!pc_file_encoding_is_empty(&d->file_encoding)) {
+        put(w, o, "file_encoding", pc_file_encoding_to_json(w->d, &d->file_encoding, NF));
+    }
     put(w, o, "measurement", pc_measurement_to_json(w->d, &d->measurement, NF));
     a = arr(w);
     for (size_t i = 0; i < d->nnotes && ok(w); i++) {

@@ -9,16 +9,16 @@
 
 /* ---- guides, channels, metadata ----------------------------------------------------------- */
 
-static float *dup_floats(const float *src, size_t n)
+static void *dup_array(const void *src, size_t n, size_t size)
 {
-    float *d = pc_malloc_array(n, sizeof *d);
+    void *d = pc_malloc_array(n, size);
     if (d != NULL && n > 0) {
-        memcpy(d, src, n * sizeof *d);
+        memcpy(d, src, n * size);
     }
     return d;
 }
 
-static bool floats_eq(const float *a, size_t na, const float *b, size_t nb)
+static bool doubles_eq(const double *a, size_t na, const double *b, size_t nb)
 {
     size_t i;
     if (na != nb) {
@@ -32,6 +32,11 @@ static bool floats_eq(const float *a, size_t na, const float *b, size_t nb)
     return true;
 }
 
+static bool guide_color_eq(const pc_guide_color *a, const pc_guide_color *b)
+{
+    return a->vertical == b->vertical && a->position == b->position && memcmp(a->rgb, b->rgb, 3) == 0;
+}
+
 void pc_guides_fini(pc_guides *g)
 {
     if (g == NULL) {
@@ -39,6 +44,7 @@ void pc_guides_fini(pc_guides *g)
     }
     free(g->horizontal);
     free(g->vertical);
+    free(g->colors);
     memset(g, 0, sizeof *g);
 }
 
@@ -47,14 +53,19 @@ pc_status pc_guides_clone(const pc_guides *g, pc_guides *out, pc_error *err)
     pc_guides c;
     memset(&c, 0, sizeof c);
     if (g->nhorizontal > 0) {
-        c.horizontal = dup_floats(g->horizontal, g->nhorizontal);
+        c.horizontal = dup_array(g->horizontal, g->nhorizontal, sizeof *c.horizontal);
         c.nhorizontal = g->nhorizontal;
     }
     if (g->nvertical > 0) {
-        c.vertical = dup_floats(g->vertical, g->nvertical);
+        c.vertical = dup_array(g->vertical, g->nvertical, sizeof *c.vertical);
         c.nvertical = g->nvertical;
     }
-    if ((g->nhorizontal > 0 && c.horizontal == NULL) || (g->nvertical > 0 && c.vertical == NULL)) {
+    if (g->ncolors > 0) {
+        c.colors = dup_array(g->colors, g->ncolors, sizeof *c.colors);
+        c.ncolors = g->ncolors;
+    }
+    if ((g->nhorizontal > 0 && c.horizontal == NULL) || (g->nvertical > 0 && c.vertical == NULL) ||
+        (g->ncolors > 0 && c.colors == NULL)) {
         pc_guides_fini(&c);
         return pc_fail(err, PC_ERR_NOMEM, "out of memory copying guides");
     }
@@ -64,8 +75,78 @@ pc_status pc_guides_clone(const pc_guides *g, pc_guides *out, pc_error *err)
 
 bool pc_guides_eq(const pc_guides *a, const pc_guides *b)
 {
-    return floats_eq(a->horizontal, a->nhorizontal, b->horizontal, b->nhorizontal) &&
-           floats_eq(a->vertical, a->nvertical, b->vertical, b->nvertical);
+    if (!doubles_eq(a->horizontal, a->nhorizontal, b->horizontal, b->nhorizontal) ||
+        !doubles_eq(a->vertical, a->nvertical, b->vertical, b->nvertical) || a->ncolors != b->ncolors) {
+        return false;
+    }
+    for (size_t i = 0; i < a->ncolors; i++) {
+        if (!guide_color_eq(&a->colors[i], &b->colors[i])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool pc_guides_color(const pc_guides *g, bool vertical, double position, uint8_t rgb[3])
+{
+    for (size_t i = 0; i < g->ncolors; i++) {
+        if (g->colors[i].vertical == vertical && g->colors[i].position == position) {
+            memcpy(rgb, g->colors[i].rgb, 3);
+            return true;
+        }
+    }
+    return false;
+}
+
+pc_status pc_guides_set_color(pc_guides *g, bool vertical, double position, const uint8_t *rgb, pc_error *err)
+{
+    size_t k = 0;
+    if (rgb != NULL) {
+        /* Grow first, so a failure leaves the colours untouched. */
+        size_t cap = g->ncolors;
+        pc_guide_color *v = pc_grow_array(g->colors, &cap, g->ncolors + 1, sizeof *v);
+        if (v == NULL) {
+            return pc_fail(err, PC_ERR_NOMEM, "out of memory setting a guide colour");
+        }
+        g->colors = v;
+    }
+    for (size_t i = 0; i < g->ncolors; i++) {
+        if (!(g->colors[i].vertical == vertical && g->colors[i].position == position)) {
+            g->colors[k++] = g->colors[i];
+        }
+    }
+    g->ncolors = k;
+    if (rgb != NULL) {
+        g->colors[k].vertical = vertical;
+        g->colors[k].position = position;
+        memcpy(g->colors[k].rgb, rgb, 3);
+        g->ncolors = k + 1;
+    }
+    return PC_OK;
+}
+
+static bool contains_double(const double *v, size_t n, double x)
+{
+    for (size_t i = 0; i < n; i++) {
+        if (v[i] == x) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void pc_guides_prune_colors(pc_guides *g)
+{
+    size_t k = 0;
+    for (size_t i = 0; i < g->ncolors; i++) {
+        const pc_guide_color *c = &g->colors[i];
+        bool keep = c->vertical ? contains_double(g->vertical, g->nvertical, c->position)
+                                : contains_double(g->horizontal, g->nhorizontal, c->position);
+        if (keep) {
+            g->colors[k++] = *c;
+        }
+    }
+    g->ncolors = k;
 }
 
 pc_status pc_alpha_channel_init(pc_alpha_channel *out, const char *name, pc_surface *surface, pc_error *err)
@@ -170,6 +251,49 @@ static bool global_block_eq(const pc_doc_psd_global_block *a, const pc_doc_psd_g
            pc_blob_eq(a->data, b->data);
 }
 
+static void text_entry_fini(pc_doc_text_entry *e)
+{
+    pc_str_fini(&e->key);
+    pc_str_fini(&e->value);
+}
+
+static pc_status text_entry_clone(const pc_doc_text_entry *e, pc_doc_text_entry *out, pc_error *err)
+{
+    pc_doc_text_entry c;
+    pc_status s;
+    memset(&c, 0, sizeof c);
+    s = pc_str_clone(&e->key, &c.key, err);
+    if (s == PC_OK) {
+        s = pc_str_clone(&e->value, &c.value, err);
+    }
+    if (s != PC_OK) {
+        text_entry_fini(&c);
+        return s;
+    }
+    *out = c;
+    return PC_OK;
+}
+
+static bool text_entry_eq(const pc_doc_text_entry *a, const pc_doc_text_entry *b)
+{
+    return pc_str_eq(&a->key, &b->key) && pc_str_eq(&a->value, &b->value);
+}
+
+bool pc_file_encoding_eq(const pc_file_encoding *a, const pc_file_encoding *b)
+{
+    return a->has_jpeg_quality == b->has_jpeg_quality &&
+           (!a->has_jpeg_quality || a->jpeg_quality == b->jpeg_quality) &&
+           a->has_webp_lossless == b->has_webp_lossless &&
+           (!a->has_webp_lossless || a->webp_lossless == b->webp_lossless) &&
+           a->has_webp_quality == b->has_webp_quality &&
+           (!a->has_webp_quality || a->webp_quality == b->webp_quality);
+}
+
+bool pc_file_encoding_is_empty(const pc_file_encoding *e)
+{
+    return !e->has_jpeg_quality && !e->has_webp_lossless && !e->has_webp_quality;
+}
+
 void pc_metadata_fini(pc_metadata *m)
 {
     if (m == NULL) {
@@ -177,6 +301,7 @@ void pc_metadata_fini(pc_metadata *m)
     }
     pc_str_fini(&m->xmp);
     pc_blob_release(m->exif);
+    PC_DOC_FINI_VEC(m->text, m->ntext, text_entry_fini);
     PC_DOC_FINI_VEC(m->psd_resources, m->npsd_resources, psd_resource_fini);
     PC_DOC_FINI_VEC(m->psd_global_blocks, m->npsd_global_blocks, global_block_fini);
     memset(m, 0, sizeof *m);
@@ -192,6 +317,11 @@ pc_status pc_metadata_clone(const pc_metadata *m, pc_metadata *out, pc_error *er
     if (s != PC_OK) {
         goto fail;
     }
+    PC_DOC_CLONE_VEC(s, m->text, m->ntext, c.text, text_entry_clone, text_entry_fini, err);
+    if (s != PC_OK) {
+        goto fail;
+    }
+    c.ntext = m->ntext;
     PC_DOC_CLONE_VEC(s, m->psd_resources, m->npsd_resources, c.psd_resources, psd_resource_clone,
                      psd_resource_fini, err);
     if (s != PC_OK) {
@@ -214,15 +344,17 @@ fail:
 
 bool pc_metadata_eq(const pc_metadata *a, const pc_metadata *b)
 {
+    bool r0;
     bool r1;
     bool r2;
     if (a->has_xmp != b->has_xmp || (a->has_xmp && !pc_str_eq(&a->xmp, &b->xmp)) ||
         !pc_blob_eq(a->exif, b->exif)) {
         return false;
     }
+    PC_DOC_EQ_VEC(r0, a->text, a->ntext, b->text, b->ntext, text_entry_eq);
     PC_DOC_EQ_VEC(r1, a->psd_resources, a->npsd_resources, b->psd_resources, b->npsd_resources,
                   psd_resource_eq);
     PC_DOC_EQ_VEC(r2, a->psd_global_blocks, a->npsd_global_blocks, b->psd_global_blocks,
                   b->npsd_global_blocks, global_block_eq);
-    return r1 && r2;
+    return r0 && r1 && r2;
 }

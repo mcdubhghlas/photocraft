@@ -275,10 +275,10 @@ static void test_hostile_display_info(void)
         for (size_t i = 0; i < sizeof junk; i++) {
             junk[i] = (uint8_t)(i * 37 + (size_t)seed * 101);
         }
-        pc_io_apply_display_info(junk, (size_t)seed % sizeof junk, seed % 2 == 0, ch, 3);
-        pc_io_apply_display_info(junk, sizeof junk, seed % 2 == 1, ch, 0);
+        pc_io_apply_display_info(junk, (size_t)seed % sizeof junk, seed % 2 == 0, (size_t)seed % 3, ch, 3);
+        pc_io_apply_display_info(junk, sizeof junk, seed % 2 == 1, 0, ch, 0);
     }
-    pc_io_apply_display_info(NULL, 0, true, ch, 3);
+    pc_io_apply_display_info(NULL, 0, true, 1, ch, 3);
     for (int i = 0; i < 3; i++) {
         CHECK(ch[i].opacity >= 0.0f && ch[i].opacity <= 1.0f);
         pc_alpha_channel_fini(&ch[i]);

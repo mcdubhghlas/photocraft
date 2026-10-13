@@ -388,6 +388,42 @@ static char *case_proxy(char **a)
     return out;
 }
 
+/* R6: render_full_resolution, the result flag then the output bytes. */
+static char *case_fullres(char **a)
+{
+    const char *js = "[{\"tool\":\"bloat\",\"size\":40,\"points\":[[48,32],[48,32],[48,32],[48,32]]},"
+                     "{\"tool\":\"forwardWarp\",\"size\":30,\"points\":[[20,20],[30,25],[60,40]]}]";
+    pc_pixel_format fmt = format_named(a[1]);
+    pc_rect canvas = pc_rect_make(0, 0, 96, 64), bounds = rect_of(a[2]), region = rect_of(a[3]), b;
+    pc_surface src;
+    pc_algo_liquify_stroke *st = NULL;
+    pc_algo_liquify_field f;
+    pc_algo_liquify_scratch scratch = {NULL, 0};
+    size_t n = 0, len;
+    uint8_t (*o)[4];
+    uint64_t h = H0, ok;
+    char *out = malloc(32);
+    snprintf(out, 32, "error");
+    surf(fmt, pc_rect_make(-10, -10, 140, 90), 5, false, &src);
+    if (!strokes_of(js, &st, &n) ||
+        pc_algo_liquify_field_from_strokes(canvas, 2.0, st, n, &f, NULL) != PC_OK) {
+        pc_surface_fini(&src);
+        return out;
+    }
+    b = pc_rect_intersect(bounds, f.bounds);
+    len = (size_t)pc_rect_width(b) * pc_rect_height(b);
+    o = calloc(len > 0 ? len : 1, sizeof *o);
+    ok = pc_algo_liquify_render_full_resolution(&src, &f, bounds, region, o, len, &scratch) ? 1u : 0u;
+    h64(&h, ok);
+    fnv(&h, o, len * 4);
+    snprintf(out, 32, "%016llx", (unsigned long long)h);
+    free(o), free(scratch.px);
+    pc_algo_liquify_field_fini(&f);
+    pc_algo_liquify_strokes_free(st, n);
+    pc_surface_fini(&src);
+    return out;
+}
+
 static char *dup_buf(pc_buf *b)
 {
     size_t len = 0;
@@ -879,6 +915,8 @@ static void test_warp_parity(void)
             got = case_apply(f);
         } else if (strcmp(f[0], "proxy") == 0) {
             got = case_proxy(f);
+        } else if (strcmp(f[0], "fullres") == 0) {
+            got = case_fullres(f);
         } else if (strcmp(f[0], "json.strokes") == 0) {
             got = json_result(0, f[1]);
         } else if (strcmp(f[0], "json.pins") == 0) {
@@ -923,6 +961,9 @@ static void test_warp_parity(void)
             if (bad <= 25) {
                 PC_T_FAIL("%s %s %s: got %s, want %s", f[0], nf > 1 ? f[1] : "", nf > 2 ? f[2] : "", got,
                           want);
+            }
+            if (getenv("PC_PARITY_KINDS") != NULL) {
+                fprintf(stderr, "mismatch %s\n", f[0]);
             }
         }
         pc_t_checks++;

@@ -286,6 +286,52 @@ fail:
     return s;
 }
 
+static uint64_t name_hash(const char *name, size_t len)
+{
+    uint64_t h = 0xcbf29ce484222325ull; /* FNV-1a */
+    for (size_t i = 0; i < len; i++) {
+        h ^= (uint8_t)name[i];
+        h *= 0x100000001b3ull;
+    }
+    return h ^ (h >> 29);
+}
+
+/* The name index; best effort (out of memory leaves r->index NULL: pc_zip_find scans). The first
+ * entry of a name wins, as with a front-to-back scan. */
+static void build_index(pc_zip_reader *r)
+{
+    size_t cap = 16;
+    r->index = NULL;
+    r->index_cap = 0;
+    if (r->count == 0) {
+        return;
+    }
+    while (cap / 2 < r->count) {
+        if (cap > SIZE_MAX / 4) {
+            return;
+        }
+        cap *= 2;
+    }
+    r->index = pc_calloc_array(cap, sizeof *r->index);
+    if (r->index == NULL) {
+        return;
+    }
+    r->index_cap = cap;
+    for (size_t k = 0; k < r->count; k++) {
+        const pc_str *nm = &r->entries[k].name;
+        for (size_t i = (size_t)name_hash(pc_str_c(nm), nm->len) & (cap - 1);; i = (i + 1) & (cap - 1)) {
+            size_t j = r->index[i];
+            if (j == 0) {
+                r->index[i] = k + 1;
+                break;
+            }
+            if (pc_str_eq_mem(&r->entries[j - 1].name, pc_str_c(nm), nm->len)) {
+                break; /* a duplicate name: the first entry stays */
+            }
+        }
+    }
+}
+
 pc_status pc_zip_reader_open(pc_zip_reader *r, const uint8_t *bytes, size_t len, pc_error *err)
 {
     size_t min;
@@ -350,6 +396,7 @@ pc_status pc_zip_reader_open(pc_zip_reader *r, const uint8_t *bytes, size_t len,
     r->len = len;
     r->entries = entries;
     r->count = n;
+    build_index(r);
     return PC_OK;
 fail:
     entries_free(entries, n);
@@ -360,13 +407,28 @@ void pc_zip_reader_close(pc_zip_reader *r)
 {
     if (r != NULL) {
         entries_free(r->entries, r->count);
+        free(r->index);
         r->entries = NULL;
         r->count = 0;
+        r->index = NULL;
+        r->index_cap = 0;
     }
 }
 
 const pc_zip_entry *pc_zip_find(const pc_zip_reader *r, const char *name, size_t len)
 {
+    if (r->index != NULL) {
+        size_t mask = r->index_cap - 1;
+        for (size_t i = (size_t)name_hash(name, len) & mask;; i = (i + 1) & mask) {
+            size_t k = r->index[i];
+            if (k == 0) {
+                return NULL;
+            }
+            if (pc_str_eq_mem(&r->entries[k - 1].name, name, len)) {
+                return &r->entries[k - 1];
+            }
+        }
+    }
     for (size_t i = 0; i < r->count; i++) {
         if (pc_str_eq_mem(&r->entries[i].name, name, len)) {
             return &r->entries[i];
@@ -377,7 +439,7 @@ const pc_zip_entry *pc_zip_find(const pc_zip_reader *r, const char *name, size_t
 
 pc_status pc_zip_read(const pc_zip_reader *r, const pc_zip_entry *e, size_t max, pc_buf *out, pc_error *err)
 {
-    const uint8_t *raw = r->bytes + e->data_offset;
+    const uint8_t *raw;
     const char *name = pc_str_c(&e->name);
     pc_buf data = PC_BUF_INIT;
     pc_status s;
@@ -385,6 +447,11 @@ pc_status pc_zip_read(const pc_zip_reader *r, const pc_zip_entry *e, size_t max,
     if (e->uncompressed > max) {
         return pc_format_limit(err, "zip entry `%s` is %zu bytes (max %zu)", name, e->uncompressed, max);
     }
+    /* Entries are public: one from another archive must not read out of range. */
+    if (e->data_offset > r->len || e->compressed > r->len - e->data_offset) {
+        return pc_format_corrupt(err, "zip entry `%s` out of range", name);
+    }
+    raw = r->bytes + e->data_offset;
     if (e->method == 0) {
         s = pc_buf_append(&data, raw, e->compressed, err);
         if (s != PC_OK) {

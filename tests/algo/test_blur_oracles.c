@@ -372,7 +372,7 @@ static void test_surfaces_exact_depth_models_alpha_selection_and_tile_boundaries
                                      : pc_algo_image_read(&surface, pc_rect_inflate(area, reach), &src,
                                                           NULL)) == PC_OK);
                             CHECK(pc_algo_conv_spans(&src, area, &ctx, &spans, expected, NULL) == PC_OK);
-                            pc_algo_mix_selection(expected, area, &sel, &src);
+                            pc_algo_mix_selection(expected, area, &sel, &src, al != 0);
                             CHECK(pc_surface_clone(&surface, &ref, NULL) == PC_OK);
                             CHECK(pc_surface_write_region(&ref, area, expected, na * n, NULL) == PC_OK);
                             CHECK(pc_surface_read_region(&ref, bounds, &rv, &rl, NULL) == PC_OK);
@@ -602,14 +602,16 @@ static float *oracle_smooth(const float *m, size_t w, size_t h, float r)
         o = oracle_box(m, w, h, rr);
     }
     for (i = 0; i < w * h; i++) {
-        o[i] = pc_clampf((o[i] - 0.5f) * 4.0f + 0.5f, 0.0f, 1.0f);
+        /* A hard threshold at a half, as in Photoshop. */
+        o[i] = o[i] >= 0.5f ? 1.0f : 0.0f;
     }
     return o;
 }
 
 static float *oracle_feather(const float *m, size_t w, size_t h, float radius)
 {
-    float sigma = pc_rs_maxf_k(radius, 0.0f) / 2.0f, s = 0.0f, *k, *tmp, *out;
+    /* Photoshop's feather radius is the Gaussian's sigma. */
+    float sigma = pc_rs_maxf_k(radius, 0.0f), s = 0.0f, *k, *tmp, *out;
     int64_t r, i, x, y;
     out = calloc(w * h + 1, sizeof(float));
     if (sigma < 0.1f) {
@@ -712,15 +714,59 @@ static void test_feather_and_smooth_match_direct_definitions(void)
                 }
             }
             for (k = 0; k < 8; k++) {
-                float e = sel_diff(false, m, dims[d][0], dims[d][1], sr[k]);
-                if (!(e <= 1.0f / 255.0f)) {
-                    PC_T_FAIL("smooth kind %d %zux%zu r %g: %g", kind, dims[d][0], dims[d][1], (double)sr[k],
-                              (double)e);
+                /* The threshold is hard: a pixel may only differ where the box average sits within
+                 * float rounding of a half (the running sum adds in another order). */
+                size_t w = dims[d][0], h = dims[d][1], i,
+                       rr = pc_f32_to_size(roundf(pc_rs_maxf_k(sr[k], 0.0f)));
+                float *fast = NULL, *slow = oracle_smooth(m, w, h, sr[k]), *avg;
+                if (rr == 0) {
+                    avg = malloc(w * h * sizeof(float));
+                    memcpy(avg, m, w * h * sizeof(float));
+                } else {
+                    avg = oracle_box(m, w, h, rr);
                 }
+                CHECK(pc_algo_selection_smooth(m, w * h, w, h, sr[k], &fast, NULL) == PC_OK);
+                for (i = 0; fast != NULL && i < w * h; i++) {
+                    if (!(fast[i] == slow[i] || fabsf(avg[i] - 0.5f) < 1e-4f)) {
+                        PC_T_FAIL("smooth kind %d %zux%zu r %g pixel %zu", kind, w, h, (double)sr[k], i);
+                        break;
+                    }
+                }
+                free(fast), free(slow), free(avg);
             }
             free(m);
         }
     }
+}
+
+/* Photoshop 27.11, measured: a 32x32 rectangle at (16,16) in 64x64, Feather 4 px / Smooth 8 px. */
+static void test_feather_and_smooth_match_photoshop(void)
+{
+    static const int row[17] = {7, 13, 22, 34, 50, 70, 92, 115, 140, 163, 185, 205, 221, 233, 242, 248, 252};
+    static const int diag[3][2] = {{16, 76}, {18, 134}, {20, 190}};
+    const size_t w = 64, h = 64;
+    float *m = malloc(w * h * sizeof(float)), *f = NULL, *sm = NULL;
+    size_t i, x, d;
+    for (i = 0; i < w * h; i++) {
+        m[i] = i % w >= 16 && i % w < 48 && i / w >= 16 && i / w < 48 ? 1.0f : 0.0f;
+    }
+    CHECK(pc_algo_selection_feather(m, w * h, w, h, 4.0f, &f, NULL) == PC_OK);
+    for (i = 0; i < 17; i++) {
+        int v = (int)roundf(f[32 * w + 8 + i] * 255.0f);
+        CHECK(abs(v - row[i]) <= 3);
+    }
+    for (i = 0; i < 3; i++) {
+        size_t p = (size_t)diag[i][0];
+        CHECK(abs((int)roundf(f[p * w + p] * 255.0f) - diag[i][1]) <= 4);
+    }
+    CHECK(pc_algo_selection_smooth(m, w * h, w, h, 8.0f, &sm, NULL) == PC_OK);
+    for (x = 8; x <= 24; x++) {
+        CHECK(sm[32 * w + x] == (x >= 16 ? 1.0f : 0.0f));
+    }
+    for (d = 16; d <= 24; d++) {
+        CHECK(sm[d * w + d] == (d >= 20 ? 1.0f : 0.0f));
+    }
+    free(m), free(f), free(sm);
 }
 
 static void test_selection_edge_cases(void)
@@ -849,6 +895,7 @@ int main(int argc, char **argv)
     RUN(test_hostile_shape_inputs_are_bounded);
     RUN(test_shape_tile_overrides_and_cancel_preserve_input);
     RUN(test_feather_and_smooth_match_direct_definitions);
+    RUN(test_feather_and_smooth_match_photoshop);
     RUN(test_selection_edge_cases);
     RUN(test_cosine_fit_is_used_and_accurate);
     RUN(test_hostile_parameters_never_crash);

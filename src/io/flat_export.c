@@ -570,6 +570,51 @@ static pc_status convert_rgb(const pc_cimage *img, const pc_profile *dst, pc_int
     return st;
 }
 
+/* Gray pixels converted from their profile (sGray when untagged) to dst, unclamped, untagged and
+ * stored as sample. *converted false when the image isn't gray or already holds dst's colours. */
+static pc_status convert_gray(const pc_cimage *img, const pc_profile *dst, pc_csample sample,
+                              bool *converted, pc_cimage *out, pc_error *err)
+{
+    pc_profile tmp;
+    bool own = false;
+    const pc_profile *src;
+    pc_transform *t = NULL;
+    pc_error e;
+    apply_ctx c;
+    pc_status st;
+    *converted = false;
+    if (!pc_clayout_is_gray(img->layout)) {
+        return PC_OK;
+    }
+    src = source_profile(&img->icc, PC_CS_GRAY, PC_BUILTIN_SGRAY, &tmp, &own);
+    if (src == NULL || dst == NULL) {
+        return pc_io_nomem(err, "building a colour profile");
+    }
+    if (pc_profile_same_colors(src, dst)) {
+        if (own) {
+            pc_profile_fini(&tmp);
+        }
+        return PC_OK;
+    }
+    st = pc_transform_new(src, dst, PC_INTENT_RELATIVE, false, &t, &e);
+    if (own) {
+        pc_profile_fini(&tmp);
+    }
+    if (st != PC_OK) {
+        return st == PC_ERR_NOMEM ? pc_io_nomem(err, "building a colour transform")
+                                  : pc_io_unsupported(err, "%s", e.msg);
+    }
+    c.t = t;
+    c.stride = pc_clayout_channels(img->layout);
+    st = map_bands(img, img->layout, sample, apply_band, &c, out, err);
+    pc_transform_release(t);
+    if (st == PC_OK) {
+        pc_meta_blob_fini(&out->icc);
+        *converted = true;
+    }
+    return st;
+}
+
 pc_status pc_io_cmyk_image_to_srgb(const pc_cimage *img, pc_cimage *out, pc_error *err)
 {
     pc_profile tmp;
@@ -729,9 +774,10 @@ static pc_status export_mode_specific(const pc_document *doc, pc_cformat format,
         memset(&r, 0, sizeof r);
         if (st == PC_OK) {
             pc_buf b = PC_BUF_INIT;
-            st = pc_cencode_png_indexed(doc->size.width, doc->size.height, c.idx, c.at,
-                                        (const uint8_t (*)[3])t->colors, t->ncolors,
-                                        t->has_transparent ? (int)t->transparent : -1, &b, err);
+            float dpi[2] = {doc->resolution_dpi, doc->resolution_dpi};
+            st = pc_cencode_png_indexed_dpi(doc->size.width, doc->size.height, c.idx, c.at,
+                                            (const uint8_t (*)[3])t->colors, t->ncolors,
+                                            t->has_transparent ? (int)t->transparent : -1, dpi, &b, err);
             if (st != PC_OK) {
                 st = pc_io_err_prefix(st, err, "codec: ");
             }
@@ -857,11 +903,17 @@ pc_status pc_io_export_flat(const pc_document *doc, pc_cformat format, const pc_
         }
     }
     if (st == PC_OK && (format == PC_CF_EXR || format == PC_CF_HDR)) {
-        /* OpenEXR and Radiance HDR store linear light (read back as linear sRGB). */
+        /* OpenEXR and Radiance HDR store linear light (read back as linear sRGB, or linear gray
+         * for a grayscale image). */
         st = convert_rgb(&img, pc_builtin_profile(PC_BUILTIN_LINEAR_SRGB), PC_INTENT_RELATIVE, false,
                          PC_CS_F32, &converted, &next, err);
         if (st == PC_OK && converted) {
             replace(&img, &next);
+        } else if (st == PC_OK) {
+            st = convert_gray(&img, pc_builtin_linear_gray(), PC_CS_F32, &converted, &next, err);
+            if (st == PC_OK && converted) {
+                replace(&img, &next);
+            }
         }
     } else if (st == PC_OK && !caps.icc) {
         /* Untagged files read back as sRGB: convert to it (as Quick Export does) rather than write

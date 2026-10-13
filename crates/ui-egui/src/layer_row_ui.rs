@@ -140,7 +140,7 @@ pub fn indicators(
     for &(kind, r) in &rects {
         match kind {
             Indicator::Lock => icons::paint(ui, Rect::from_center_size(r.center(), vec2(ICON_W, ICON_W)), "lock", 12.0, t.text_faint),
-            Indicator::Link => icons::paint(ui, Rect::from_center_size(r.center(), vec2(ICON_W, ICON_W)), "link", 12.0, t.text_faint),
+            Indicator::Link => icons::paint(ui, Rect::from_center_size(r.center(), vec2(ICON_W, ICON_W)), "link-2", 12.0, t.text_faint),
             Indicator::Fx => {
                 if let Some(g) = fx_galley.clone() {
                     painter.galley(pos2(r.left(), cy - g.size().y / 2.0), g, t.text_dim);
@@ -295,8 +295,20 @@ pub fn end_rename(ctx: &egui::Context, commit: bool) -> Option<(String, Value)> 
     if commit { r.commit_action() } else { None }
 }
 
+/// Where Tab or ⇧Tab sends a rename: the layer it left and whether the next one is above.
+fn next_rename_id() -> egui::Id {
+    egui::Id::new("layer-rename-next")
+}
+
+/// The rename that Tab (`up` false) or ⇧Tab (`up` true) just left on `layer`, for the Layers panel
+/// to continue on the layer below or above, as Photoshop does. Taken once.
+pub fn take_next_rename(ctx: &egui::Context) -> Option<(u64, bool)> {
+    ctx.data_mut(|d| d.remove_temp::<(u64, bool)>(next_rename_id()))
+}
+
 /// Draw the rename field of `layer` in `rect` when it is the one being renamed, and handle its
-/// keys and focus. Returns the rename command when it was committed this frame.
+/// keys and focus. Returns the rename command when it was committed this frame. Tab and ⇧Tab
+/// commit too and ask for the next rename ([`take_next_rename`]).
 pub fn rename_field(ui: &mut egui::Ui, layer: u64, rect: Rect) -> Option<(String, Value)> {
     let ctx = ui.ctx().clone();
     let mut r = rename(&ctx).filter(|r| r.layer == layer)?;
@@ -316,6 +328,10 @@ pub fn rename_field(ui: &mut egui::Ui, layer: u64, rect: Rect) -> Option<(String
         return None;
     }
     let (enter, tab, esc) = ctx.input(|i| (i.key_pressed(egui::Key::Enter), i.key_pressed(egui::Key::Tab), i.key_pressed(egui::Key::Escape)));
+    if tab {
+        let up = ctx.input(|i| i.modifiers.shift);
+        ctx.data_mut(|d| d.insert_temp(next_rename_id(), (layer, up)));
+    }
     if esc {
         store(&ctx, None);
         None

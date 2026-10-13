@@ -12,6 +12,7 @@
 #include "base/status.h"
 #include "geom/geom.h"
 #include "paint/brush.h"
+#include "paint/retouch.h"
 #include "raster/surface.h"
 
 /* serde names: "hue", "saturation", "color", "luminosity". */
@@ -62,6 +63,18 @@ bool pc_paint_limits_parse(const char *s, size_t len, pc_paint_limits *out);
 pc_status pc_paint_apply_color_replacement(pc_surface *target, const pc_paint_stroke *stroke,
                                            const pc_paint_replace_settings *rs, const pc_surface *selection,
                                            bool lock_transparency, pc_rect *damage, pc_error *err);
+
+/* One Color Replacement dab's edit of a working copy, matching against `pre` (the target before
+ * the stroke): shared by pc_paint_apply_color_replacement and live previews that run the dabs as
+ * they come, so both recolour the same pixels. new copies pre and rs; the state (Sampling Once's
+ * colour) carries from dab to dab. pc_paint_replace_effect_dab is a pc_paint_dab_effect taking
+ * the state as ctx. Single-owner. */
+typedef struct pc_paint_replace_effect pc_paint_replace_effect;
+pc_status pc_paint_replace_effect_new(const pc_surface *pre, const pc_paint_replace_settings *rs,
+                                      pc_paint_replace_effect **out, pc_error *err);
+void pc_paint_replace_effect_free(pc_paint_replace_effect *e); /* NULL-safe */
+pc_status pc_paint_replace_effect_dab(void *ctx, pc_paint_region *work, const pc_paint_footprint *fp,
+                                      pc_error *err);
 
 /* Shared with the Background Eraser: zero the w * h weights not 4-connected to (sx, sy) through
  * non-zero weights (none kept when the start is outside or zero). PC_ERR_NOMEM. */

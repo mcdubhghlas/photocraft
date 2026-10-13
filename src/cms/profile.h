@@ -33,6 +33,9 @@ typedef struct pc_lut {
     pc_cms_stages stages;
 } pc_lut;
 
+/* Frees a heap-allocated LUT (calloc'd, as the profile's a2b/b2a hold them). NULL-safe. */
+void pc_lut_free(pc_lut *l);
+
 /* Largest colour difference (dE*ab) for which two profiles count as the same colour space. */
 #define PC_SAME_COLORS_MAX_DELTA_E 0.5
 
@@ -90,6 +93,11 @@ pc_status pc_profile_gray_as_rgb(const pc_profile *p, pc_profile *out, bool *ok,
 bool pc_profile_is_matrix_shaper(const pc_profile *p);
 /* Whether p has a dedicated table for intent (matrix profiles support every intent). */
 bool pc_profile_supports_intent(const pc_profile *p, pc_intent intent, bool input);
+
+/* Whether colours can be converted into p for every intent. Input profiles with only AToB
+ * tables (Apple's Wide Color Sharing Profile on iPhone photos) can't: they describe a source but
+ * have no PCS -> device path. */
+bool pc_profile_can_be_destination(const pc_profile *p);
 
 /* Stages mapping normalised device values to the float PCS (*pcs says which). *out must be
  * empty; it is filled only on success. */

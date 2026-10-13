@@ -267,7 +267,7 @@ static void test_v6_settings_map_onto_brush_sections(void)
               b->scattering.scatter.control == PC_PAINT_CONTROL_FADE &&
               b->scattering.scatter.fade_steps == 40 && b->scattering.count_jitter.jitter == 0.5f);
         CHECK(b->texture.enabled && b->texture.each_tip && b->texture.invert && b->texture.scale == 1.5f &&
-              b->texture.brightness == -0.5f && b->texture.contrast == 0.5f &&
+              b->texture.brightness == -0.5f && b->texture.contrast == 0.25f &&
               b->texture.mode == PC_PAINT_MASK_COLOR_BURN && b->texture.depth == 0.6f);
         CHECK(b->texture.depth_jitter.jitter == 0.3f && b->texture.depth_jitter.minimum == 0.2f);
         CHECK(b->texture.pattern.kind == PC_PAINT_PATTERN_TILE && b->texture.pattern.tile.width == 4 &&
@@ -471,7 +471,7 @@ static void test_garbage_is_an_error(void)
     pc_error e = {0};
     static const uint8_t short6[4] = {0, 6, 0, 2};
     CHECK(pc_io_read_abr((const uint8_t *)"", 0, "g", &imp, &e) != PC_OK);
-    CHECK_CONTAINS(e.msg, "not a readable Photoshop brush file");
+    CHECK_CONTAINS(e.msg, "not a readable brush file (.abr)");
     CHECK(pc_io_read_abr((const uint8_t *)"8BPS not a brush", 16, "g", &imp, NULL) != PC_OK);
     CHECK(pc_io_read_abr(short6, 4, "g", &imp, NULL) != PC_OK);
 }

@@ -638,7 +638,7 @@ static pc_status read_record(psd_rd *r, pc_psd_version v, pc_psd_layer *out, uin
     CK(psd_u32(&x, &br_len, err));
     CK(psd_take_bytes(&x, br_len, &l.blending_ranges, err));
     CK(psd_read_pascal(&x, 4, &l.name, err));
-    CK(psd_read_blocks(&x, v, &l.blocks, &l.nblocks, &l.extra_trailing, err));
+    CK(psd_read_blocks(&x, v, 2, &l.blocks, &l.nblocks, &l.extra_trailing, err));
     *out = l;
     *lens = ln;
     return PC_OK;
@@ -682,7 +682,7 @@ static void write_record(psd_w *w, const pc_psd_layer *l, pc_psd_version v)
     psd_put_len(w, l->blending_ranges.len, false);
     psd_put(w, l->blending_ranges.data, l->blending_ranges.len);
     psd_write_pascal(w, l->name.data, l->name.len, 4);
-    psd_write_blocks(w, l->blocks, l->nblocks, v);
+    psd_write_blocks(w, l->blocks, l->nblocks, v, 2);
     psd_put(w, l->extra_trailing.data, l->extra_trailing.len);
     psd_end_len(w, at, false);
 }

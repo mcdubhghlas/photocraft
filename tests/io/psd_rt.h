@@ -294,7 +294,7 @@ static inline size_t rt_strict_block_errors(const uint8_t *bytes, size_t len)
     }
     for (size_t i = 0; i < f.nglobal; i++) {
         const pc_psd_block *b = &f.global_blocks[i];
-        size_t pad = b->padding.has ? b->padding.v.len : b->data.len % 2;
+        size_t pad = b->padding.has ? b->padding.v.len : (4 - b->data.len % 4) % 4;
         if ((b->data.len + pad) % 4 != 0 || pc_psd_block_check_structure(b, &e) != PC_OK) {
             (void)fprintf(stderr, "global %.4s: %zu + %zu (%s)\n", (const char *)b->key, b->data.len, pad,
                           e.msg);

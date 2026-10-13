@@ -157,5 +157,10 @@ pc_status pc_surface_translated(const pc_surface *s, int32_t dx, int32_t dy, pc_
                                 pc_error *err);
 /* Converted to another format (depth and/or model, via pc_convert_pixel). */
 pc_status pc_surface_convert(const pc_surface *s, pc_pixel_format to, pc_surface *out, pc_error *err);
+/* A new tile filled with the default pixel (what a missing tile reads as); caller releases it. */
+pc_status pc_surface_default_tile(const pc_surface *s, pc_raster_tile **out, pc_error *err);
+/* Applies f to every colour sample (not alpha), the default pixel included: a tone-curve change
+ * such as linearising when a document becomes 32-bit. On failure (PC_ERR_NOMEM) s is unchanged. */
+pc_status pc_surface_map_color(pc_surface *s, float (*f)(void *ctx, float v), void *ctx, pc_error *err);
 
 #endif

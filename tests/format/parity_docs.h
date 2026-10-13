@@ -354,6 +354,106 @@ static inline void pd_small(pc_document *d)
     d->icc_profile = t_blob(1, 10);
 }
 
+/* R4 (Phase 5R) literals, verbatim from format2_vectors.rs. */
+static const char J_PENCIL_CURVES[] =
+    "{\"Curves\":{\"master\":[{\"input\":0.0,\"output\":0.25},{\"input\":1.0,\"output\":0.75}],\"per_c"
+    "hannel\":[[],[{\"input\":0.5,\"output\":0.5}],[]],\"space\":\"Rgb\",\"black\":[],\"pencil\":true}}";
+static const char J_CORNER_SHADOW[] =
+    "{\"InnerShadow\":{\"common\":{\"enabled\":true,\"blend\":\"Multiply\",\"opacity\":0.5},\"color\""
+    ":{\"mode\":\"Rgb\",\"c\":[0.0,0.0,0.0,0.0],\"alpha\":1.0},\"angle\":90.0,\"use_global_light\":fal"
+    "se,\"distance\":3.0,\"spread\":0.1,\"size\":4.0,\"contour\":{\"Custom\":{\"name\":\"Notch\",\"poin"
+    "ts\":[{\"input\":0.0,\"output\":0.0},{\"input\":0.5,\"output\":1.0},{\"input\":1.0,\"output\":0.0"
+    "}],\"corners\":[false,true,false]}},\"anti_alias\":true,\"noise\":0.0,\"knocks_out\":true}}";
+static const char J_FILE_ENCODING[] = "{\"jpegQuality\":87,\"webpLossless\":false,\"webpQuality\":75}";
+static const char J_GUIDE_COLORS[] =
+    "[{\"vertical\":true,\"position\":100.25,\"rgb\":[51,102,255]},{\"vertical\":false,\"position\":20.5"
+    ",\"rgb\":[1,2,3]}]";
+
+/* A video frame for pd_resync: an 8x6 block of (v, 0.5, 1 - v). */
+static inline void pd_frame(pc_pixel_format fmt, float v, pc_surface *out)
+{
+    float rgba[4] = {v, 0.5f, 1.0f - v, 1.0f};
+    float px[PC_RASTER_MAX_CHANNELS];
+    size_t n = pc_from_rgba(fmt, rgba, px);
+    pc_rect r = {0, 0, 8, 6};
+    pc_surface_init(out, fmt);
+    CHECK(pc_surface_fill_rect(out, r, px, n, NULL) == PC_OK);
+}
+
+/* resync_doc(): every field upstream added after efa62efa, on a rich document. */
+static inline void pd_resync(pc_document *d)
+{
+    static const char *const TEXT[3][2] = {
+        {"Author", "Synthetic \xc3\xa9 \xe9\x9b\xaa"}, {"Comment", "first"}, {"Comment", "second"}};
+    static const char *const NAMES[3] = {"L1", "L2", "L3"};
+    pc_layer_content c;
+    pc_layer l;
+    pc_effect *fx;
+    pc_smart_contents_id shared;
+    pc_pixel_format fmt;
+    pc_surface *frames;
+    pc_surface *orig;
+    t_rich_doc(PC_COLOR_MODE_RGB, PC_SAMPLE_TYPE_U8, d);
+    T_JSON_ARRAY(pc_guide_color, J_GUIDE_COLORS, &d->guides.colors, &d->guides.ncolors);
+    d->metadata.text = calloc(3, sizeof *d->metadata.text);
+    if (d->metadata.text != NULL) {
+        d->metadata.ntext = 3;
+        for (size_t i = 0; i < 3; i++) {
+            t_str(&d->metadata.text[i].key, TEXT[i][0]);
+            t_str(&d->metadata.text[i].value, TEXT[i][1]);
+        }
+    }
+    d->quick_mask_unselected = true;
+    T_JSON(pc_file_encoding, J_FILE_ENCODING, &d->file_encoding);
+    fx = realloc(d->layers[1].effects.items, (d->layers[1].effects.nitems + 1) * sizeof *fx);
+    if (fx != NULL) {
+        d->layers[1].effects.items = fx;
+        T_JSON(pc_effect, J_CORNER_SHADOW, &fx[d->layers[1].effects.nitems]);
+        d->layers[1].effects.nitems++;
+    }
+    memset(&c, 0, sizeof c);
+    c.kind = PC_LAYER_ADJUSTMENT;
+    T_JSON(pc_adjustment, J_PENCIL_CURVES, &c.u.adjustment);
+    t_layer(&l, "Pencil", &c);
+    t_push_layer(d, &l);
+    shared = pc_smart_contents_id_fresh();
+    for (size_t i = 0; i < 3; i++) {
+        pc_smart_source src;
+        memset(&src, 0, sizeof src);
+        src.linked = true;
+        t_str(&src.path, "/tmp/shared.psd");
+        memset(&c, 0, sizeof c);
+        c.kind = PC_LAYER_SMART;
+        pc_smart_object_init(&c.u.smart, &src, PC_AFFINE_IDENTITY, NULL);
+        if (i < 2) {
+            c.u.smart.contents_id = shared;
+        }
+        t_layer(&l, NAMES[i], &c);
+        t_push_layer(d, &l);
+    }
+    fmt = pc_document_pixel_format(d);
+    CHECK(pc_layer_raster(&l, "Footage", fmt, NULL) == PC_OK);
+    frames = calloc(2, sizeof *frames);
+    orig = calloc(2, sizeof *orig);
+    if (frames != NULL && orig != NULL) {
+        pd_frame(fmt, 0.0f, &frames[0]);
+        pd_frame(fmt, 1.0f, &frames[1]);
+        pd_frame(fmt, 0.0f, &orig[0]);
+        pd_frame(fmt, 0.25f, &orig[1]);
+        pc_video_data_init(&l.video, frames, 2, 12.0f);
+        l.video.has_original_frames = true;
+        l.video.original_frames = orig;
+        l.video.noriginal_frames = 2;
+        l.has_video = true;
+        l.video.source.is_file = true;
+        t_str(&l.video.source.path, "/tmp/footage");
+    } else {
+        free(frames);
+        free(orig);
+    }
+    t_push_layer(d, &l);
+}
+
 /* docs(), ids renumbered. v holds at least 32 entries. */
 static inline size_t pd_docs(named_doc *v)
 {
@@ -386,6 +486,7 @@ static inline size_t pd_docs(named_doc *v)
     pd_exhausted(&nd_add(v, &n, "exhausted")->doc);
     t_nested_doc(40, PC_SAMPLE_TYPE_U8, &nd_add(v, &n, "deep40")->doc);
     t_nested_doc(PC_MAX_GROUP_DEPTH, PC_SAMPLE_TYPE_U16, &nd_add(v, &n, "deep100")->doc);
+    pd_resync(&nd_add(v, &n, "resync")->doc);
     for (size_t i = 0; i < n; i++) {
         t_renumber(&v[i].doc);
     }
@@ -436,7 +537,7 @@ static inline size_t pd_bad_docs(named_doc *v)
     d = &nd_add(v, &n, "nan-guide")->doc;
     t_rich_doc(PC_COLOR_MODE_RGB, PC_SAMPLE_TYPE_U8, d);
     {
-        float *g = realloc(d->guides.vertical, (d->guides.nvertical + 1) * sizeof *g);
+        double *g = realloc(d->guides.vertical, (d->guides.nvertical + 1) * sizeof *g);
         if (g != NULL) {
             g[d->guides.nvertical++] = NAN;
             d->guides.vertical = g;

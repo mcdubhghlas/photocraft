@@ -80,6 +80,7 @@ FWD(pc_note)
 FWD(pc_text_styles)
 FWD(pc_slices)
 FWD(pc_color_indicates)
+FWD(pc_file_encoding)
 
 /* ---- geom::warp::Warp (camelCase) ---- */
 
@@ -166,8 +167,19 @@ static const jstruct fill_cache_s = {"struct FillCacheM", fill_cache_f, JCOUNT(f
                                      sizeof(pc_mf_fill_cache)};
 static const jtype jt_fill_cache = JT_STRUCT(pc_mf_fill_cache, fill_cache_s);
 
+/* Option<Vec<SurfaceM>>: the Vec as a value. */
+static const jvecpair surfaces_pair = {offsetof(pc_mf_surface_list, v), offsetof(pc_mf_surface_list, n)};
+static const jtype jt_surfaces = {sizeof(pc_mf_surface_list),
+                                  pc_jt_vecval_read,
+                                  pc_jt_vecval_write,
+                                  pc_jt_vecval_fini,
+                                  &jt_surface,
+                                  0,
+                                  &surfaces_pair};
+
 static const jfield video_f[] = {
     JFVEC("frames", pc_mf_video, frames, nframes, jt_surface),
+    JFOSKIP("original_frames", pc_mf_video, original_frames, has_original_frames, jt_surfaces, JD_ZERO),
     JFV("source", pc_mf_video, source, jt_pc_video_source),
     JFV("fps", pc_mf_video, fps, pc_jt_f32),
     JFVD("show_altered", pc_mf_video, show_altered, pc_jt_bool, JD_ZERO),
@@ -285,6 +297,7 @@ static const jfield content_shape_f[] = {
     JFO("live", C, live, has_live, jt_pc_live_shape, JD_ZERO),
 };
 static const jfield content_smart_f[] = {
+    JFO("contents_id", C, contents_id, has_contents_id, pc_jt_u64, JD_ZERO),
     JFV("source", C, source, jt_source),
     JFV("transform", C, transform, pc_jt_affine),
     JFVEC("smart_filters", C, smart_filters, nsmart_filters, jt_pc_smart_filter),
@@ -493,9 +506,17 @@ static const jtuple_el global_block_el[] = {
 static const jtuple global_block_tu = {global_block_el, 3};
 static const jtype jt_global_block = JT_TUPLE(pc_mf_global_block, global_block_tu);
 
+static const jtuple_el text_entry_el[] = {
+    {&pc_jt_str, offsetof(pc_doc_text_entry, key)},
+    {&pc_jt_str, offsetof(pc_doc_text_entry, value)},
+};
+static const jtuple text_entry_tu = {text_entry_el, 2};
+static const jtype jt_text_entry = JT_TUPLE(pc_doc_text_entry, text_entry_tu);
+
 static const jfield metadata_f[] = {
     JFO("xmp", pc_mf_metadata, xmp, has_xmp, pc_jt_str, JD_REQ),
     JFO("exif", pc_mf_metadata, exif, has_exif, pc_jt_str, JD_REQ),
+    JFVECSKIP("text", pc_mf_metadata, text, ntext, jt_text_entry, JD_ZERO),
     JFVEC("psd_resources", pc_mf_metadata, psd_resources, npsd_resources, jt_resource),
     JFVEC("psd_global_blocks", pc_mf_metadata, psd_global_blocks, npsd_global_blocks, jt_global_block),
 };
@@ -517,6 +538,11 @@ static pc_status doc_defaults(void *out, pc_error *err)
     return st;
 }
 
+static bool file_encoding_empty(const void *slot)
+{
+    return pc_file_encoding_is_empty(slot);
+}
+
 #define D pc_mf_doc
 static const jfield doc_f[] = {
     JFV("id", D, id, pc_jt_u64),
@@ -536,6 +562,7 @@ static const jfield doc_f[] = {
     JFO("work_path", D, work_path, has_work_path, pc_jt_path, JD_ZERO),
     JFO("clipping_path", D, clipping_path, has_clipping_path, jt_pc_clipping_path, JD_ZERO),
     JFO("quick_mask", D, quick_mask, has_quick_mask, jt_channel, JD_ZERO),
+    JFVSKIP("quick_mask_unselected", D, quick_mask_unselected, pc_jt_bool, JD_ZERO, NULL),
     JFVECD("patterns", D, patterns, npatterns, jt_pattern, JD_ZERO),
     JFO("color_table", D, color_table, has_color_table, jt_pc_color_table, JD_ZERO),
     JFO("duotone", D, duotone, has_duotone, jt_pc_duotone, JD_ZERO),
@@ -544,6 +571,7 @@ static const jfield doc_f[] = {
     JFO("last_document_state", D, last_document_state, has_last_document_state, jt_comp, JD_ZERO),
     JFVD("variables", D, variables, jt_pc_variables, JD_ZERO),
     JFO("timeline", D, timeline, has_timeline, jt_pc_timeline, JD_ZERO),
+    JFVSKIP("file_encoding", D, file_encoding, jt_pc_file_encoding, JD_ZERO, file_encoding_empty),
     JFVD("measurement", D, measurement, jt_pc_measurement, JD_CONT),
     JFVECD("notes", D, notes, nnotes, jt_pc_note, JD_ZERO),
     JFVD("text_styles", D, text_styles, jt_pc_text_styles, JD_CONT),

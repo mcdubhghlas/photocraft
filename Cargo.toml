@@ -4,12 +4,13 @@ members = ["crates/*", "apps/*", "xtask"]
 default-members = ["crates/*", "apps/photocraft", "apps/photocraft-cli", "xtask"]
 
 [workspace.package]
-version = "0.5.0"
+version = "0.8.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 rust-version = "1.95"
 
 [workspace.dependencies]
+craft-ui = { git = "https://github.com/storytold/craft-libs", rev = "5c874d51eeb3de70e735c8ce87a59a7dedd47675", features = ["serde"] }
 # internal
 photocraft-geom = { path = "crates/geom" }
 photocraft-color = { path = "crates/color" }
@@ -44,6 +45,9 @@ arc-swap = "1"
 bytemuck = { version = "1", features = ["derive"] }
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 image = { version = "0.25", default-features = false }
+# Baseline-JPEG decode of lossy DNG tiles (compression 34892), shared with zune-jpeg.
+zune-core = "0.5"
+zune-jpeg = "0.5"
 proptest = "1"
 eframe = { version = "0.36", default-features = false }
 egui = "0.36"
@@ -66,6 +70,10 @@ opt-level = 2
 
 [profile.dev]
 opt-level = 1
+# Line tables keep file:line in panic backtraces but drop variable info, which roughly halves link
+# time and PDB size for the ~260 test binaries (#2204). CI sets the same through
+# CARGO_PROFILE_DEV_DEBUG. To inspect locals in a debugger, build with CARGO_PROFILE_DEV_DEBUG=true.
+debug = "line-tables-only"
 
 [profile.release]
 lto = "thin"
@@ -73,11 +81,10 @@ codegen-units = 1
 
 # The browser build (apps/photocraft-web, `data-cargo-profile` in its index.html). Hosts cap the
 # size of a single file (Cloudflare Pages/Workers: 25 MiB), and the wasm is downloaded on every
-# visit, so this profile optimizes for size: fat LTO, and opt-level "s" for everything except the
-# pixel-processing crates, which keep opt-level 3 so filters and compositing stay fast. panic
+# visit, so this profile optimizes for size: fat LTO, opt-level "z" for the UI, command, and I/O
+# shells, and "s" for other crates except pixel processing, which keeps opt-level 3. panic
 # stays the target default (wasm32-unknown-unknown aborts; AGENTS.md's `panic = "unwind"` is for
-# the native app shell). packaging/web/package.sh fails the build above 24 MiB. Issue #198:
-# this took the wasm from 26.3 MiB (release profile) to 18.8 MiB.
+# the native app shell). packaging/web/package.sh fails the build above 24 MiB.
 [profile.wasm-release]
 inherits = "release"
 opt-level = "s"
@@ -87,6 +94,20 @@ strip = "debuginfo"
 
 [profile.wasm-release.package."*"]
 opt-level = "s"
+
+# Keep the browser shell compact as shared panel controls grow. Pixel-processing crates below
+# retain their speed-oriented optimization level.
+[profile.wasm-release.package.photocraft-ui-egui]
+opt-level = "z"
+
+# Keep browser command dispatch, import/export glue, and the entry point compact. Native
+# builds and the speed-oriented pixel-processing overrides below retain their settings.
+[profile.wasm-release.package.photocraft-engine]
+opt-level = "z"
+[profile.wasm-release.package.photocraft-io]
+opt-level = "z"
+[profile.wasm-release.package.photocraft-web]
+opt-level = "z"
 
 [profile.wasm-release.package.photocraft-raster]
 opt-level = 3

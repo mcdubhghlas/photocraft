@@ -1,8 +1,8 @@
 /* Font database (port of crates/text/src/fonts.rs and the fontique 0.11 collection it used):
  * bundled fonts (Inter, JetBrains Mono; always available), the optional craft-fonts Japanese
- * fonts (craft_fonts.h), system fonts found by scanning the platform font directories (no
- * fontconfig), user-registered font data, CSS font matching, and PostScript-name lookup for PSD
- * import.
+ * fonts (craft_fonts.h), system fonts found by scanning the platform font directories plus
+ * Fontconfig's file list on Linux (`fc-list`, when installed; not linked), user-registered font
+ * data, CSS font matching, exact named faces, and PostScript-name lookup for PSD import.
  *
  * Families are keyed by their Unicode-lowercased name (fontique's NameKey). A face's family is
  * its typographic family name (name id 16), else its family name (id 1), chosen by fontique's
@@ -21,7 +21,9 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "base/buf.h"
 #include "base/status.h"
+#include "doc/text.h"
 #include "text/cjk.h"
 #include "text/font.h"
 #include "text/sfnt.h"
@@ -47,6 +49,8 @@ typedef struct pc_strlist {
 } pc_strlist;
 
 void pc_strlist_fini(pc_strlist *l);
+/* Appends a copy of s[0..len) to l. */
+pc_status pc_strlist_push(pc_strlist *l, const char *s, size_t len, pc_error *err);
 
 typedef struct pc_fontdb pc_fontdb;
 
@@ -80,6 +84,11 @@ bool pc_fontdb_has_family(const pc_fontdb *db, const char *name, size_t len);
 /* One face of a family (for font menus). */
 typedef struct pc_face_info {
     char *family;
+    /* OpenType typographic subfamily (name 17), or legacy subfamily (name 2), else a name from
+     * the weight and slope ("SemiBold Italic"). */
+    char *style;
+    /* Stable face identity (name 6), also for faces that share CSS attributes; NULL when none. */
+    char *postscript_name;
     float weight; /* CSS weight; variable fonts report their default */
     bool italic;
     pc_font_axis *axes;
@@ -90,6 +99,57 @@ typedef struct pc_face_info {
 pc_status pc_fontdb_faces(pc_fontdb *db, const char *family, size_t len, pc_face_info **out, size_t *n,
                           pc_error *err);
 void pc_face_infos_free(pc_face_info *f, size_t n);
+/* The face of `family` whose style name is `style` (ASCII case-insensitive). *found false when
+ * there is none (out untouched). Free with pc_face_infos_free(out, 1). */
+pc_status pc_fontdb_named_face(pc_fontdb *db, const char *family, const char *style, pc_face_info **out,
+                               bool *found, pc_error *err);
+/* Selects an exact face for shaping (select_named_face): the face of style->font_family whose
+ * PostScript name is the style's, else whose style name, weight and slope are the style's. Such a
+ * face is registered once under a private alias family (".PhotoCraft-face-<id>-<index>", runtime
+ * only, never listed), which replaces style->font_family; weight and italic become the face's.
+ * Otherwise the style is unchanged. CSS matching alone can't tell apart, e.g., numeric
+ * subfamilies that all declare weight 400. */
+pc_status pc_fontdb_select_named_face(pc_fontdb *db, pc_char_style *style, pc_error *err);
+/* A collection's face `index` as a one-face collection (only the face directory changes; table
+ * offsets are absolute); a single font for index 0 as is. *ok false for unreadable data, a bad
+ * index or a collection over 256 MiB. *out (when ok) holds a new reference. */
+pc_status pc_text_isolated_face(pc_blob *blob, uint32_t index, pc_blob **out, bool *ok, pc_error *err);
+/* A style name from a weight and slope ("Regular", "Italic", "SemiBold Italic"; static). */
+const char *pc_text_fallback_style(float weight, bool italic, char buf[32]);
+/* Each listed family's localized (non-English) family name, as (english, localized) pairs in
+ * out (2 strings per family; families without one are absent): Show Font Names in English off. */
+pc_status pc_fontdb_localized_family_names(pc_fontdb *db, pc_strlist *out, pc_error *err);
+/* localized_name: the first name whose language is known, not English and not empty, that isn't
+ * blank and differs from `english`; NULL when none. `langs` holds each name's language tag (NULL
+ * for none). Borrowed from names. */
+const char *pc_text_localized_name(const char *english, const char *const *names, const char *const *langs,
+                                   size_t n);
+/* Changes whenever font data is registered in any database (font menus compare it). */
+uint64_t pc_text_fonts_generation(void);
+
+/* Preferences > Type > Missing Glyph Protection (on by default): off, only the default family
+ * is in the fallback stack. */
+void pc_fontdb_set_missing_glyph_protection(pc_fontdb *db, bool on);
+bool pc_fontdb_missing_glyph_protection(const pc_fontdb *db);
+
+/* Southeast Asian fallback families (NULL-terminated, static), tried after FALLBACK_CANDIDATES. */
+extern const char *const PC_TEXT_THAI_FAMILIES[];
+extern const char *const PC_TEXT_KHMER_FAMILIES[];
+extern const char *const PC_TEXT_LAO_FAMILIES[];
+extern const char *const PC_TEXT_MYANMAR_FAMILIES[];
+
+/* ---- Fontconfig helpers (Linux; fonts_scan.c) ---- */
+
+/* Runs argv (PATH lookup, no shell) with stdin/stderr on /dev/null and appends its standard output
+ * (at most `max` bytes) to out. *ok: it ran, exited 0 and its output fit. Fails only when out of
+ * memory. */
+pc_status pc_text_run_capture(const char *const *argv, size_t max, pc_buf *out, bool *ok, pc_error *err);
+/* A path whose file name has a font extension (ttf/otf/ttc/otc, any case). */
+bool pc_text_font_path_ext(const char *path, size_t len);
+/* The unique absolute font paths of `fc-list --format=%{file}\n` output, canonicalised where
+ * possible, in order. */
+pc_status pc_text_fontconfig_paths_from_output(const uint8_t *data, size_t len, pc_strlist *out,
+                                               pc_error *err);
 
 /* Result of a PostScript-name lookup. */
 typedef struct pc_resolved_font {
@@ -120,7 +180,8 @@ bool pc_text_is_hidden_family(const char *name, size_t len);
 pc_status pc_text_fallback_candidates(const pc_cjk_script order[4], const char ***out, size_t *n,
                                       pc_error *err);
 /* Families tried after a style's own: the default family, then the installed candidates for
- * the UI locale (borrowed until the database changes). */
+ * the UI locale and the served script fallbacks that arrived (borrowed until the database
+ * changes); only the default family with missing glyph protection off. */
 size_t pc_fontdb_fallback_count(const pc_fontdb *db);
 const char *pc_fontdb_fallback(const pc_fontdb *db, size_t i);
 /* Family set for a CSS generic ("sans-serif", "serif", "system-ui", "ui-sans-serif",
@@ -132,6 +193,10 @@ const char *pc_fontdb_generic(const pc_fontdb *db, const char *generic);
  * NULL for an unknown family (free()). (glyphs.rs) */
 pc_status pc_fontdb_charmap(pc_fontdb *db, const char *family, size_t len, uint16_t weight, bool italic,
                             uint32_t **out, size_t *n, pc_error *err);
+/* charmap_for_style: the character coverage of the exact named face the type tool uses
+ * (pc_fontdb_select_named_face, then pc_fontdb_charmap). */
+pc_status pc_fontdb_charmap_for_style(pc_fontdb *db, const pc_char_style *style, uint32_t **out, size_t *n,
+                                      pc_error *err);
 /* Whether the face selected for a character style has GSUB feature `tag`. Unknown or empty
  * families use the default family. */
 bool pc_fontdb_selected_face_has_feature(pc_fontdb *db, const char *family, size_t len, uint16_t weight,

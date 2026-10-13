@@ -43,6 +43,17 @@ bool pc_curve_eq(const pc_curve *a, const pc_curve *b);
 pc_status pc_curve_identity(pc_curve *out, pc_error *err); /* the two-point line */
 bool pc_curve_is_identity(const pc_curve_point *pts, size_t n);
 
+/* Entries in a pencil-drawn Curves map (one per 8-bit level, as in PSD `curv` maps). */
+#define PC_CURVE_MAP_LEN 256
+/* A pencil-mode curve from its map: outputs[k] (0..1) is the output at input k / 255. Missing
+ * entries repeat the last one (non-finite ones too); extra entries are ignored. *out gets
+ * PC_CURVE_MAP_LEN points. */
+pc_status pc_curve_map(const float *outputs, size_t n, pc_curve *out, pc_error *err);
+/* The PC_CURVE_MAP_LEN outputs (0..1) of pts read as a pencil-mode curve: straight segments
+ * between the (finite) points, constant outside the first/last, identity without two points. */
+pc_status pc_curve_map_outputs(const pc_curve_point *pts, size_t n, float out[PC_CURVE_MAP_LEN],
+                               pc_error *err);
+
 /* Values in the table of a size^3 Color Lookup (size^3 * 3). False for size < 2 or a length
  * that overflows usize (a stored size is untrusted). */
 bool pc_lut3d_len(uint32_t size, size_t *out);
@@ -119,6 +130,9 @@ typedef struct pc_adjustment {
             pc_curve per_channel[3];
             pc_tone_space space;
             pc_curve black;
+            /* Drawn with the pencil (PSD `curv` map form): every curve is a PC_CURVE_MAP_LEN
+             * map (pc_curve_map) evaluated piecewise-linearly instead of a spline. */
+            bool pencil;
         } curves;
         struct {
             float exposure;

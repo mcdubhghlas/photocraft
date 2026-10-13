@@ -388,6 +388,7 @@ static inline void t_rich_doc(pc_color_mode mode, pc_sample_type depth, pc_docum
         static const double persp[9] = {1.0, 0.1, 2.0, 0.05, 1.0, 3.0, 0.001, 0.0005, 1.0};
         float one = 1.0f;
         pc_mesh mesh;
+        s->contents_id = pc_smart_contents_id_fresh();
         t_str(&s->source.file_name, "inner.png");
         s->source.bytes = t_blob(11, 2000);
         s->transform = pc_affine_scale(0.5);
@@ -412,6 +413,7 @@ static inline void t_rich_doc(pc_color_mode mode, pc_sample_type depth, pc_docum
     t_layer(&smart, "Smart", &c);
     memset(&c, 0, sizeof c);
     c.kind = PC_LAYER_SMART;
+    c.u.smart.contents_id = pc_smart_contents_id_fresh();
     c.u.smart.source.linked = true;
     t_str(&c.u.smart.source.path, "/tmp/linked.psd");
     c.u.smart.transform = PC_AFFINE_IDENTITY;
@@ -558,12 +560,44 @@ static inline void t_renumber_layers(pc_layer *layers, size_t n, uint64_t *next)
     }
 }
 
-/* The parity vectors' renumbering: document 7, layers 100, 101, ... in pre-order. */
+/* Smart-object contents ids by first appearance in pre-order: 5000, 5001, ..., shared ids staying
+ * shared (map: old ids seen so far, *n of them, at most cap). Fresh ids depend on how many the
+ * process minted before, so the parity vectors normalise them (format2_vectors.rs
+ * renumber_contents). */
+static inline void t_renumber_contents_in(pc_layer *layers, size_t n, uint64_t *map, size_t *nmap, size_t cap)
+{
+    for (size_t i = 0; i < n; i++) {
+        pc_layer_content *c = &layers[i].content;
+        if (c->kind == PC_LAYER_GROUP) {
+            t_renumber_contents_in(c->u.group.children, c->u.group.nchildren, map, nmap, cap);
+        } else if (c->kind == PC_LAYER_SMART) {
+            size_t k = 0;
+            while (k < *nmap && map[k] != c->u.smart.contents_id) {
+                k++;
+            }
+            if (k == *nmap && *nmap < cap) {
+                map[(*nmap)++] = c->u.smart.contents_id;
+            }
+            c->u.smart.contents_id = 5000 + (uint64_t)k;
+        }
+    }
+}
+
+static inline void t_renumber_contents(pc_document *d)
+{
+    uint64_t map[256];
+    size_t n = 0;
+    t_renumber_contents_in(d->layers, d->nlayers, map, &n, sizeof map / sizeof map[0]);
+}
+
+/* The parity vectors' renumbering: document 7, layers 100, 101, ... in pre-order; contents ids
+ * as t_renumber_contents. */
 static inline void t_renumber(pc_document *d)
 {
     uint64_t next = 100;
     d->id = 7;
     t_renumber_layers(d->layers, d->nlayers, &next);
+    t_renumber_contents(d);
 }
 
 #endif

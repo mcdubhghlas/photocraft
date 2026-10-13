@@ -82,6 +82,7 @@ void pc_psd_abr_fini(pc_psd_abr *f)
         pc_psd_desc_fini(&f->presets[i]);
     }
     free(f->presets);
+    pc_psd_abr_folders_free(f->folders, f->nfolders);
     pc_psd_warnings_fini(&f->warnings);
     memset(f, 0, sizeof *f);
 }
@@ -427,6 +428,8 @@ static pc_status parse_v6(psd_rd *r, parse_state *ps, pc_error *err)
     if (st != PC_OK) {
         return st;
     }
+    const uint8_t *phry = NULL;
+    size_t phry_len = 0;
     if (out->subversion != 1 && out->subversion != 2) {
         return psd_unsupported(err, "brush file subversion %u", (unsigned)out->subversion);
     }
@@ -441,7 +444,11 @@ static pc_status parse_v6(psd_rd *r, parse_state *ps, pc_error *err)
             return st;
         }
         if (memcmp(sig, "8BIM", 4) != 0) {
-            return psd_warn(&out->warnings, err, "unexpected data at offset %zu ignored", r->pos - 4);
+            if ((st = psd_warn(&out->warnings, err, "unexpected data at offset %zu ignored", r->pos - 4)) !=
+                PC_OK) {
+                return st;
+            }
+            break;
         }
         if ((st = psd_arr4(r, key, err)) != PC_OK || (st = psd_u32(r, &len, err)) != PC_OK) {
             return st;
@@ -495,8 +502,12 @@ static pc_status parse_v6(psd_rd *r, parse_state *ps, pc_error *err)
             }
         } else if (memcmp(key, "desc", 4) == 0) {
             st = read_desc(data, dlen, ps, err);
-        } else if (memcmp(key, "phry", 4) == 0 || memcmp(key, "lPdc", 4) == 0) {
-            /* Preset hierarchy (groups) and tool presets: not needed for the tips. */
+        } else if (memcmp(key, "phry", 4) == 0) {
+            /* Read once desc gives the preset count; phry may come first. */
+            phry = data;
+            phry_len = dlen;
+        } else if (memcmp(key, "lPdc", 4) == 0) {
+            /* Tool presets: not needed for the brushes. */
         } else {
             pc_psd_str k = {NULL, 0};
             if ((st = lossy(key, 4, &k, err)) != PC_OK) {
@@ -508,6 +519,10 @@ static pc_status parse_v6(psd_rd *r, parse_state *ps, pc_error *err)
         if (st != PC_OK) {
             return st;
         }
+    }
+    if (phry != NULL) {
+        return psd_abr_read_phry(phry, phry_len, out->npresets, &out->warnings, &out->folders, &out->nfolders,
+                                 err);
     }
     return PC_OK;
 }
@@ -670,6 +685,16 @@ pc_status pc_psd_abr_write_v6(uint16_t subversion, const pc_psd_abr_sample *s, s
                               size_t np, const pc_psd_desc *presets, size_t npresets, bool rle, pc_psd_bytes *out,
                               pc_error *err)
 {
+    return pc_psd_abr_write_v6_folders(subversion, s, ns, p, np, presets, npresets, NULL, 0, rle, out, err);
+}
+
+pc_status pc_psd_abr_write_v6_folders(uint16_t subversion, const pc_psd_abr_sample *s, size_t ns,
+                                      const pc_psd_pattern *p, size_t np, const pc_psd_desc *presets,
+                                      size_t npresets, const pc_psd_abr_folder *folders, size_t nfolders,
+                                      bool rle, pc_psd_bytes *out, pc_error *err)
+{
+    pc_psd_bytes hb = {NULL, 0};
+    bool any_folder = false;
     psd_w o;
     psd_w samp;
     pc_psd_bytes sb = {NULL, 0};
@@ -679,8 +704,14 @@ pc_status pc_psd_abr_write_v6(uint16_t subversion, const pc_psd_abr_sample *s, s
     pc_psd_value list;
     size_t i;
     pc_status st;
+    if (nfolders != 0 && nfolders != npresets) {
+        return psd_misuse(err, "%zu folder paths for %zu brush presets", nfolders, npresets);
+    }
     if (subversion != 1 && subversion != 2) {
         return psd_unsupported(err, "brush file subversion %u", (unsigned)subversion);
+    }
+    for (i = 0; i < nfolders; i++) {
+        any_folder = any_folder || folders[i].n > 0;
     }
     psd_w_init(&samp, err);
     for (i = 0; i < ns && psd_w_ok(&samp); i++) {
@@ -730,11 +761,15 @@ pc_status pc_psd_abr_write_v6(uint16_t subversion, const pc_psd_abr_sample *s, s
     if (st == PC_OK) {
         st = pc_psd_vdesc_to_bytes(&root, &db, err);
     }
+    if (st == PC_OK && any_folder) {
+        st = psd_abr_phry_bytes(folders, nfolders, &hb, err);
+    }
     pc_psd_value_fini(&list);
     pc_psd_desc_fini(&root);
     if (st != PC_OK) {
         pc_psd_bytes_fini(&sb);
         pc_psd_bytes_fini(&pb);
+        pc_psd_bytes_fini(&db);
         return st;
     }
     psd_w_init(&o, err);
@@ -745,8 +780,12 @@ pc_status pc_psd_abr_write_v6(uint16_t subversion, const pc_psd_abr_sample *s, s
         section(&o, "patt", &pb);
     }
     section(&o, "desc", &db);
+    if (any_folder) {
+        section(&o, "phry", &hb);
+    }
     pc_psd_bytes_fini(&sb);
     pc_psd_bytes_fini(&pb);
     pc_psd_bytes_fini(&db);
+    pc_psd_bytes_fini(&hb);
     return psd_w_finish(&o, out);
 }

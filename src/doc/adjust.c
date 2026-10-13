@@ -71,6 +71,109 @@ bool pc_curve_is_identity(const pc_curve_point *pts, size_t n)
     return n < 2;
 }
 
+pc_status pc_curve_map(const float *outputs, size_t n, pc_curve *out, pc_error *err)
+{
+    const float last = (float)(PC_CURVE_MAP_LEN - 1);
+    pc_curve_point *p = pc_malloc_array(PC_CURVE_MAP_LEN, sizeof *p);
+    float prev = 0.0f;
+    if (p == NULL) {
+        return pc_fail(err, PC_ERR_NOMEM, "out of memory");
+    }
+    for (size_t k = 0; k < PC_CURVE_MAP_LEN; k++) {
+        float o = prev;
+        if (outputs != NULL && k < n && isfinite(outputs[k])) {
+            o = pc_clampf(outputs[k], 0.0f, 1.0f);
+        }
+        prev = o;
+        p[k] = (pc_curve_point){(float)k / last, o};
+    }
+    out->pts = p;
+    out->len = PC_CURVE_MAP_LEN;
+    return PC_OK;
+}
+
+/* f32::total_cmp as a signed integer key. */
+static int32_t total_key(float f)
+{
+    uint32_t u;
+    int32_t k;
+    memcpy(&u, &f, sizeof u);
+    u ^= ((u >> 31) != 0 ? 0xffffffffu : 0u) >> 1;
+    memcpy(&k, &u, sizeof k);
+    return k;
+}
+
+typedef struct map_pt {
+    float in, out;
+    size_t idx;
+} map_pt;
+
+static int map_pt_cmp(const void *a, const void *b)
+{
+    const map_pt *x = a;
+    const map_pt *y = b;
+    int32_t kx = total_key(x->in);
+    int32_t ky = total_key(y->in);
+    if (kx != ky) {
+        return kx < ky ? -1 : 1;
+    }
+    return x->idx < y->idx ? -1 : x->idx > y->idx ? 1 : 0; /* sort_by is stable */
+}
+
+pc_status pc_curve_map_outputs(const pc_curve_point *pts, size_t n, float out[PC_CURVE_MAP_LEN],
+                               pc_error *err)
+{
+    const float last = (float)(PC_CURVE_MAP_LEN - 1);
+    map_pt *v = pc_malloc_array(n > 0 ? n : 1, sizeof *v);
+    size_t m = 0;
+    if (v == NULL) {
+        return pc_fail(err, PC_ERR_NOMEM, "out of memory");
+    }
+    for (size_t i = 0; i < n; i++) {
+        if (isfinite(pts[i].input) && isfinite(pts[i].output)) {
+            v[m] = (map_pt){pts[i].input, pts[i].output, m};
+            m++;
+        }
+    }
+    qsort(v, m, sizeof *v, map_pt_cmp);
+    for (size_t k = 0; k < PC_CURVE_MAP_LEN; k++) {
+        float x = (float)k / last;
+        float y = x;
+        if (m >= 2) {
+            const map_pt *a = &v[0];
+            const map_pt *b = &v[m - 1];
+            if (x <= a->in) {
+                y = a->out;
+            } else if (x >= b->in) {
+                y = b->out;
+            } else {
+                size_t lo = 0;
+                size_t hi = m; /* partition_point(|p| p.in < x) */
+                while (lo < hi) {
+                    size_t mid = lo + (hi - lo) / 2;
+                    if (v[mid].in < x) {
+                        lo = mid + 1;
+                    } else {
+                        hi = mid;
+                    }
+                }
+                if (lo >= 1 && lo < m && v[lo].in > v[lo - 1].in) {
+                    const map_pt *p0 = &v[lo - 1];
+                    const map_pt *p1 = &v[lo];
+                    y = p0->out + (p1->out - p0->out) * (x - p0->in) / (p1->in - p0->in);
+                } else if (lo < m) {
+                    y = v[lo].out;
+                } else {
+                    y = b->out;
+                }
+            }
+        }
+        out[k] = pc_clampf(y, 0.0f, 1.0f);
+    }
+    free(v);
+    return PC_OK;
+}
+
 bool pc_lut3d_len(uint32_t size, size_t *out)
 {
     size_t s = (size_t)size;
@@ -358,7 +461,9 @@ bool pc_adjustment_eq(const pc_adjustment *a, const pc_adjustment *b)
                 return false;
             }
         }
-        return a->u.curves.space == b->u.curves.space && pc_curve_eq(&a->u.curves.black, &b->u.curves.black);
+        return a->u.curves.space == b->u.curves.space &&
+               pc_curve_eq(&a->u.curves.black, &b->u.curves.black) &&
+               a->u.curves.pencil == b->u.curves.pencil;
     case PC_ADJ_EXPOSURE:
         return a->u.exposure.exposure == b->u.exposure.exposure && a->u.exposure.offset == b->u.exposure.offset &&
                a->u.exposure.gamma == b->u.exposure.gamma;

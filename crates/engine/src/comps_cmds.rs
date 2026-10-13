@@ -161,11 +161,28 @@ fn update_comp(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"updated": ids}))
 }
 
+/// Whether the live layout still matches the properties the last applied comp restores.
+/// Compare only on comp application: ordinary edits must not scan pixel bounds each frame.
+fn matches_last_comp(doc: &Document, now: &[CompLayerState]) -> bool {
+    let Some(comp) = doc.last_applied_comp.and_then(|id| doc.comp(id)) else { return false };
+    let saved: std::collections::HashMap<_, _> = comp.states.iter().map(|st| (st.layer, st)).collect();
+    now.len() == saved.len()
+        && now.iter().all(|live| {
+            saved.get(&live.layer).is_some_and(|saved| {
+                (!comp.apply_visibility || saved.visible.is_none() || saved.visible == live.visible)
+                    && (!comp.apply_position || saved.position.is_none() || saved.position == live.position)
+                    && (!comp.apply_appearance || saved.appearance.is_none() || saved.appearance == live.appearance)
+            })
+        })
+}
+
 fn apply(s: &mut Session, id: u32, label: &str) -> Result<Value> {
     s.edit(label, |doc, _| {
         let comp = doc.comp(id).cloned().ok_or_else(|| EngineError::Other(format!("no layer comp with id {id}")))?;
-        // Applying over the document's own state first remembers it as the Last Document State.
-        if doc.last_applied_comp.is_none_or(|c| doc.comp(c).is_none()) {
+        // Ordinary edits can leave last_applied_comp pointing at an outdated layout (#919).
+        // Preserve the edited layout, but keep the original backup while cycling unedited comps.
+        let states = capture_states(doc);
+        if !matches_last_comp(doc, &states) {
             doc.last_document_state = Some(LayerComp {
                 id: 0,
                 name: "Last Document State".into(),
@@ -173,7 +190,7 @@ fn apply(s: &mut Session, id: u32, label: &str) -> Result<Value> {
                 apply_visibility: true,
                 apply_position: true,
                 apply_appearance: true,
-                states: capture_states(doc),
+                states,
             });
         }
         apply_comp(doc, &comp, false);
@@ -350,6 +367,7 @@ fn comps_to_files(s: &mut Session, p: &Value) -> Result<Value> {
     let cmd = "file.export.layerCompsToFiles";
     let dir = str_param(p, "dir", cmd).or_else(|_| str_param(p, "output", cmd))?.to_string();
     let format = p.get("format").and_then(Value::as_str).unwrap_or("png").trim_start_matches('.').to_ascii_lowercase();
+    let save = SaveOpts::from_params(s, p, cmd)?;
     let d = s.active().ok_or(EngineError::NoDocument)?;
     let prefix = p.get("prefix").and_then(Value::as_str).map(str::to_string).unwrap_or_else(|| stem(&d.doc.name));
     let doc = d.doc.clone();
@@ -364,7 +382,7 @@ fn comps_to_files(s: &mut Session, p: &Value) -> Result<Value> {
         apply_comp(&mut one, c, false);
         one.last_applied_comp = Some(c.id);
         let path = join(&dir, &format!("{}_{:04}_{}.{format}", sanitize(&prefix), i, sanitize(&c.name)));
-        save_doc(&one, &path, SaveOpts::from_params(p))?;
+        save_doc(&one, &path, save)?;
         files.push(path);
     }
     if files.is_empty() {

@@ -57,12 +57,24 @@ pc_paint_dynamic pc_paint_dynamic_jitter(float jitter);
 bool pc_paint_dynamic_is_active(const pc_paint_dynamic *d);
 bool pc_paint_dynamic_eq(const pc_paint_dynamic *a, const pc_paint_dynamic *b);
 
-/* The brush tip bitmap source. */
-typedef enum pc_paint_tip_kind { PC_PAINT_TIP_ROUND, PC_PAINT_TIP_SAMPLED } pc_paint_tip_kind;
+/* The brush tip bitmap source. A STORED tip is a sampled tip its owner keeps outside the
+ * settings (tile.h); once loaded it serialises as `sampled` (its full bitmap). */
+typedef enum pc_paint_tip_kind {
+    PC_PAINT_TIP_ROUND,
+    PC_PAINT_TIP_SAMPLED,
+    PC_PAINT_TIP_STORED
+} pc_paint_tip_kind;
 typedef struct pc_paint_tip {
     pc_paint_tip_kind kind;
-    pc_paint_gray_tile tile; /* SAMPLED: 1 = full paint, scaled so its larger side = size */
+    pc_paint_gray_tile tile;     /* SAMPLED: 1 = full paint, scaled so its larger side = size */
+    pc_paint_stored_tile stored; /* STORED */
 } pc_paint_tip;
+
+/* The bitmap a sampled tip paints with (a stored tip's full bitmap, or its preview while it
+ * isn't loaded); NULL for a computed tip. Borrowed from t. */
+const pc_paint_gray_tile *pc_paint_tip_bitmap(const pc_paint_tip *t);
+/* The tip's real pixel size (a stored tip's, not its preview's); false for a computed tip. */
+bool pc_paint_tip_bitmap_size(const pc_paint_tip *t, uint32_t *w, uint32_t *h);
 
 typedef struct pc_paint_shape_dynamics {
     bool enabled;
@@ -108,9 +120,11 @@ typedef enum pc_paint_pattern_style {
 #define PC_PAINT_PATTERN_STYLE_COUNT 4
 
 /* A texture pattern: a procedural generator or an explicit grayscale tile (tiled infinitely). */
+/* A STORED tile is kept by its owner (tile.h); once loaded it serialises as `tile`. */
 typedef enum pc_paint_pattern_kind {
     PC_PAINT_PATTERN_PROCEDURAL,
-    PC_PAINT_PATTERN_TILE
+    PC_PAINT_PATTERN_TILE,
+    PC_PAINT_PATTERN_STORED
 } pc_paint_pattern_kind;
 typedef struct pc_paint_pattern {
     pc_paint_pattern_kind kind;
@@ -118,20 +132,31 @@ typedef struct pc_paint_pattern {
     uint32_t size;                /* PROCEDURAL */
     uint32_t seed;                /* PROCEDURAL */
     pc_paint_gray_tile tile;      /* TILE */
+    pc_paint_stored_tile stored;  /* STORED */
 } pc_paint_pattern;
+
+/* The tile a bitmap pattern textures with (a stored tile's full bitmap or its preview); NULL for
+ * a procedural pattern. Borrowed from p. */
+const pc_paint_gray_tile *pc_paint_pattern_bitmap(const pc_paint_pattern *p);
 
 typedef struct pc_paint_texture {
     bool enabled;
     pc_paint_pattern pattern;
     bool invert;
     float scale;      /* 1 = 100 % */
-    float brightness; /* -1..1 */
-    float contrast;   /* -1..1 */
+    float brightness; /* -1..1 (Photoshop's -150..150) */
+    float contrast;   /* -1..1: Photoshop's -50..0 mapped to -1..0 and its 0..100 to 0..1 */
     bool each_tip;    /* texture every dab (enables depth jitter) instead of the stroke */
     pc_paint_mask_mode mode;
     float depth; /* 0..1 */
     pc_paint_dynamic depth_jitter;
 } pc_paint_texture;
+
+/* A pattern value (0..1) after Brightness, Contrast and Invert (Texture::level, measured against
+ * Photoshop): Brightness shifts by brightness * 150/255, positive Contrast steepens around
+ * mid-grey by 1 / (1 - c) after the shift, negative Contrast flattens by 1 + c/2 before it,
+ * Invert is last. Non-finite settings count as 0; a non-finite result is 0.5. */
+float pc_paint_texture_level(const pc_paint_texture *t, float v);
 
 typedef struct pc_paint_dual_brush {
     bool enabled;
@@ -214,6 +239,7 @@ typedef struct pc_paint_brush {
     float roundness;
     bool flip_x, flip_y;
     bool aliased; /* Pencil: coverage is 0 or 1 */
+    bool square;  /* with aliased: the dab's whole-pixel square (the Eraser's Block mode) */
     pc_paint_shape_dynamics shape_dynamics;
     pc_paint_scattering scattering;
     pc_paint_texture texture;
@@ -357,6 +383,12 @@ void pc_paint_dab_vec_fini(pc_paint_dab_vec *a);
 pc_status pc_paint_point_vec_push(pc_paint_point_vec *a, const pc_paint_point *p, pc_error *err);
 void pc_paint_point_vec_fini(pc_paint_point_vec *a);
 
+/* Opacity of a round tip at distance d from its centre without edge anti-aliasing: 1 in the hard
+ * core (hardness of the radius), then (1 - t^2)^4 down to exactly 0 at the radius. */
+float pc_paint_tip_falloff(float d, float radius, float hardness);
+/* Distance from the centre where pc_paint_tip_falloff drops to 50 % (the Normal Brush Tip
+ * cursor); a NaN hardness counts as 0. */
+float pc_paint_half_coverage_radius(float radius, float hardness);
 /* Coverage of a round dab at distance d from its centre (anti-aliased edge, hardness falloff). */
 float pc_paint_dab_coverage(float d, float radius, float hardness);
 

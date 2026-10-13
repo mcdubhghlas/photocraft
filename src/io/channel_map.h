@@ -24,14 +24,20 @@ enum {
     PC_IO_QUICK_MASK_INFO = 1022 /* channel id (u16) and an "initially empty" flag (u8) */
 };
 
-/* Resource 1077 for channels (in file order); *out replaced. */
-pc_status pc_io_display_info(const pc_alpha_channel *const *channels, size_t n, pc_buf *out, pc_error *err);
-/* Applies a DisplayInfo resource (versioned = 1077) to the channels in order; short or
+/* Resource 1077 for channels (in file order): a version, then 13 bytes per channel. When
+ * `transparency`, the merged image's transparency channel gets a leading record. *out replaced. */
+pc_status pc_io_display_info(const pc_alpha_channel *const *channels, size_t n, bool transparency,
+                             pc_buf *out, pc_error *err);
+/* Applies a DisplayInfo resource (versioned = 1077: 13-byte records after a version; else 1007
+ * with 14-byte records) to the channels in order, after skipping `skip` records; short or
  * truncated records are ignored. */
-void pc_io_apply_display_info(const uint8_t *data, size_t len, bool versioned, pc_alpha_channel *channels,
-                              size_t n);
+void pc_io_apply_display_info(const uint8_t *data, size_t len, bool versioned, size_t skip,
+                              pc_alpha_channel *channels, size_t n);
 /* A Photoshop colour structure (space + four u16 components) as an RGB colour. */
 pc_color pc_io_decode_color(uint16_t space, const uint16_t c[4]);
+/* A colour structure in a known space (0 RGB, 1 HSB, 2 CMYK, 7 Lab, 8 Gray) as RGB, written to
+ * *out; false (out untouched) for any other space id. */
+bool pc_io_decode_known_color(uint16_t space, const uint16_t c[4], pc_color *out);
 
 /* Fills doc (already Multichannel at the file depth) from the merged planes `all` (planar,
  * big-endian, as decoded): one spot channel per plane, named from names[k] (n names; empty or

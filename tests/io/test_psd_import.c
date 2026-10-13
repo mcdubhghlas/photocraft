@@ -799,11 +799,11 @@ static void test_guides_and_alpha_names_roundtrip(void)
     pc_document d2;
     static const char *const names[2] = {"Spot \xc3\xa9", "Alpha 2"};
     must(pc_document_init(&d, "g", pc_size_make(8, 8), PC_COLOR_MODE_RGB, PC_SAMPLE_TYPE_U8, NULL));
-    d.guides.horizontal = xmalloc(2 * sizeof(float));
+    d.guides.horizontal = xmalloc(2 * sizeof(double));
     d.guides.horizontal[0] = 1.0f;
     d.guides.horizontal[1] = 2.5f;
     d.guides.nhorizontal = 2;
-    d.guides.vertical = xmalloc(sizeof(float));
+    d.guides.vertical = xmalloc(sizeof(double));
     d.guides.vertical[0] = 7.03125f;
     d.guides.nvertical = 1;
     for (size_t i = 0; i < 2; i++) {
@@ -982,7 +982,8 @@ static void test_vector_rendered_mask_not_doubled_on_shapes(void)
 
 static void test_every_blend_mode_maps_both_ways(void)
 {
-    for (int m = 0; m < PC_BLEND_COUNT; m++) {
+    /* Pass Through and the Photoshop modes (the Paint.NET ones have no PSD key: "norm"). */
+    for (int m = 0; m < PC_BLEND_PSD_COUNT; m++) {
         const char *k = pc_blend_psd_key((pc_blend_mode)m);
         pc_blend_mode back;
         CHECK(pc_psd_blend_index((const uint8_t *)k) >= 0);

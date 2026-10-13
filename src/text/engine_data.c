@@ -1022,3 +1022,30 @@ pc_status pc_ed_write(const pc_ed_value *v, pc_buf *out, pc_error *err)
     }
     return w.st;
 }
+
+pc_status pc_ed_write_bare(const pc_ed_value *dict, pc_buf *out, pc_error *err)
+{
+    size_t start = out->len, k;
+    wr w;
+    w.b = out;
+    w.st = PC_OK;
+    w.err = err;
+    put(&w, "\n\n", 2);
+    for (k = 0; dict != NULL && dict->kind == PC_ED_DICT && k < dict->n; k++) {
+        const pc_ed_entry *e = &dict->entries[k];
+        putc_(&w, '/');
+        put(&w, pc_str_c(&e->key), e->key.len);
+        if (is_container(&e->value)) {
+            putc_(&w, '\n');
+            indent(&w, 1);
+        } else {
+            putc_(&w, ' ');
+        }
+        write_value(&w, &e->value, 1, 1);
+        putc_(&w, '\n');
+    }
+    if (w.st != PC_OK) {
+        pc_buf_truncate(out, start);
+    }
+    return w.st;
+}

@@ -2,7 +2,7 @@
  * BrushPreset). Built-ins are our own designs; their sampled tips and textures are generated
  * procedurally. Grouped like Photoshop's default Brushes panel folders.
  *
- * Ownership: a preset owns its name, group and brush (pc_paint_preset_fini). A preset list owns
+ * Ownership: a preset owns its name, group, folders and brush (pc_paint_preset_fini). A preset list owns
  * its presets. Thread-safe as plain data. Failure: PC_ERR_NOMEM; outputs written on success. */
 #ifndef PC_PAINT_PRESETS_H
 #define PC_PAINT_PRESETS_H
@@ -18,11 +18,24 @@
 /* Preset groups, in panel order: "General", "Dry Media", "Wet Media", "Special Effects". */
 extern const char *const PC_PAINT_GROUPS[PC_PAINT_GROUP_COUNT];
 
+/* An owned list of strings (Vec<String>). Zero-initialised = empty. */
+typedef struct pc_paint_str_list {
+    pc_str *v;
+    size_t len;
+} pc_paint_str_list;
+
+void pc_paint_str_list_fini(pc_paint_str_list *l); /* NULL-safe */
+pc_status pc_paint_str_list_clone(const pc_paint_str_list *src, pc_paint_str_list *out, pc_error *err);
+bool pc_paint_str_list_eq(const pc_paint_str_list *a, const pc_paint_str_list *b);
+
 typedef struct pc_paint_preset {
     pc_str name;
     pc_paint_brush brush;
     bool builtin; /* shipped with PhotoCraft (regenerated on reset) */
     pc_str group; /* folder in the Brushes panel; "" = none (not serialised) */
+    /* Folders inside `group`, outermost first (empty = directly in the group; not serialised
+     * when empty), like an imported .abr file's own folders. */
+    pc_paint_str_list folder;
 } pc_paint_preset;
 
 /* An empty preset with a default brush. */

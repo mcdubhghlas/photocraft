@@ -14,6 +14,12 @@
 
 /* Energy added per unit of protection: far above any gradient magnitude. */
 #define PROTECT_ENERGY 1.0e4f
+/* Keep full horizontal detail while reducing the height used to find vertical seams: at a 24 MP
+ * working size this cuts the dynamic-programming work about four times without quantising the
+ * output pixels or changing the requested output dimensions. */
+#define SEAM_SEARCH_MAX_HEIGHT ((size_t)512)
+#define PROXY_SHRINK_MIN_HEIGHT ((size_t)2048)
+#define PROXY_SHRINK_MIN_SEAMS ((size_t)64)
 /* Seam carving costs about (seams x pixels): a 24 MP image shrunk or enlarged by half its width is
  * near 2^37. Past this the reference would run for hours (plan section 7). */
 #define MAX_WORK ((uint64_t)1 << 40)
@@ -372,6 +378,111 @@ static int cmp_size(const void *a, const void *b)
     return x < y ? -1 : (x > y ? 1 : 0);
 }
 
+/* Rows y0..y1 of src (each `row` floats) averaged into out (row floats, zeroed by the caller),
+ * as the reference sums `sample / divisor` in row order. */
+static void average_rows(float *out, const float *src, size_t row, size_t y0, size_t y1)
+{
+    float divisor = (float)(y1 - y0);
+    size_t y, i;
+    for (y = y0; y < y1; y++) {
+        const float *in = &src[y * row];
+        for (i = 0; i < row; i++) {
+            out[i] += in[i] / divisor;
+        }
+    }
+}
+
+/* Large shrinks: find the seams on vertically averaged rows, then apply those paths (interpolated
+ * between proxy rows) to the original pixels. The proxy has the same width, so each seam still
+ * removes exactly one source pixel per row and output pixels stay at full resolution. */
+static pc_status carve_width_proxy_height(size_t w, size_t h, size_t ch, const float *img,
+                                          const float *protect, size_t new_w, const pc_interrupt *ctl,
+                                          float **out, size_t *out_len, pc_error *err)
+{
+    size_t step = (h + SEAM_SEARCH_MAX_HEIGHT - 1) / SEAM_SEARCH_MAX_HEIGHT;
+    size_t proxy_h = (h + step - 1) / step, row_len = w * ch, seam_count = w - new_w, removed_n = 0;
+    size_t py, y, i, *removed = NULL, *by_row = NULL, *columns = NULL;
+    float *proxy = NULL, *pprot = NULL, *o = NULL, *op;
+    pc_status st = PC_OK;
+    carver c;
+    bool have_carver = false;
+    proxy = pc_calloc_array(proxy_h * row_len, sizeof *proxy);
+    if (protect != NULL) {
+        pprot = pc_calloc_array(proxy_h * w, sizeof *pprot);
+    }
+    removed = pc_malloc_array(seam_count, proxy_h * sizeof *removed);
+    by_row = pc_malloc_array(proxy_h, seam_count * sizeof *by_row);
+    columns = pc_malloc_array(seam_count, sizeof *columns);
+    o = pc_malloc_array(new_w * h, ch * sizeof *o);
+    if (proxy == NULL || (protect != NULL && pprot == NULL) || removed == NULL || by_row == NULL ||
+        columns == NULL || o == NULL) {
+        free(proxy), free(pprot);
+        st = pc_fail(err, PC_ERR_NOMEM, "out of memory");
+        goto cleanup;
+    }
+    for (py = 0; py < proxy_h; py++) {
+        size_t y0 = py * step, y1 = y0 + step < h ? y0 + step : h;
+        average_rows(&proxy[py * row_len], img, row_len, y0, y1);
+        if (pprot != NULL) {
+            average_rows(&pprot[py * w], protect, w, y0, y1);
+        }
+    }
+    if ((st = carver_new(&c, w, proxy_h, ch, proxy, pprot, true, err)) != PC_OK) {
+        goto cleanup;
+    }
+    have_carver = true;
+    while (c.cw > new_w) {
+        if ((st = pc_interrupt_check(ctl, err)) != PC_OK) {
+            goto cleanup;
+        }
+        carver_remove(&c, &removed[removed_n * proxy_h]);
+        removed_n++;
+        pc_interrupt_progress(ctl, (float)removed_n / (float)seam_count);
+    }
+    for (py = 0; py < proxy_h; py++) {
+        size_t *cols = &by_row[py * seam_count];
+        for (i = 0; i < seam_count; i++) {
+            cols[i] = removed[i * proxy_h + py];
+        }
+        qsort(cols, seam_count, sizeof *cols, cmp_size);
+    }
+    op = o;
+    for (y = 0; y < h; y++) {
+        size_t pyy = y / step < proxy_h - 1 ? y / step : proxy_h - 1;
+        size_t next_py = pyy + 1 < proxy_h - 1 ? pyy + 1 : proxy_h - 1, min_x = 0, next = 0, x;
+        float blend = (float)(y % step) / (float)step;
+        const size_t *lower = &by_row[pyy * seam_count], *upper = &by_row[next_py * seam_count];
+        const float *row = &img[y * row_len];
+        if ((st = pc_interrupt_check(ctl, err)) != PC_OK) {
+            goto cleanup;
+        }
+        for (i = 0; i < seam_count; i++) {
+            float lo = (float)lower[i];
+            float interpolated = lo + ((float)upper[i] - lo) * blend;
+            size_t max_x = w - (seam_count - i), v = pc_f32_to_size(roundf(interpolated));
+            columns[i] = v < min_x ? min_x : (v > max_x ? max_x : v);
+            min_x = columns[i] == SIZE_MAX ? SIZE_MAX : columns[i] + 1;
+        }
+        for (x = 0; x < w; x++) {
+            if (next < seam_count && columns[next] == x) {
+                next++;
+            } else {
+                memcpy(op, &row[x * ch], ch * sizeof *op);
+                op += ch;
+            }
+        }
+    }
+    pc_interrupt_progress(ctl, 1.0f);
+    *out = o, *out_len = new_w * h * ch;
+    o = NULL;
+cleanup:
+    if (have_carver) {
+        carver_free(&c);
+    }
+    free(removed), free(by_row), free(columns), free(o);
+    return st;
+}
+
 static pc_status carve_width_impl(size_t w, size_t h, size_t ch, const float *img, const float *protect,
                                   size_t new_w, const pc_interrupt *ctl, float **out, size_t *out_len,
                                   pc_error *err)
@@ -394,6 +505,9 @@ static pc_status carve_width_impl(size_t w, size_t h, size_t ch, const float *im
     }
     seams = (float)(new_w > w ? new_w - w : w - new_w);
     seams = seams > 1.0f ? seams : 1.0f;
+    if (new_w < w && h >= PROXY_SHRINK_MIN_HEIGHT && w - new_w >= PROXY_SHRINK_MIN_SEAMS) {
+        return carve_width_proxy_height(w, h, ch, img, protect, new_w, ctl, out, out_len, err);
+    }
     cur = dup_floats(img, n * ch);
     prot = protect != NULL ? dup_floats(protect, n) : NULL;
     if (cur == NULL || (protect != NULL && prot == NULL)) {

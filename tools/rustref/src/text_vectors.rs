@@ -17,31 +17,31 @@ use photocraft_text::raster::{rect_to, Bounds, Coverage, Xform};
 use photocraft_text::render::{self, PathEl};
 use photocraft_text::{cjk, craft_fonts, fonts, glyphs, optical, FontDb, TextEngine};
 
-const H0: u64 = 0xcbf29ce484222325;
+pub(crate) const H0: u64 = 0xcbf29ce484222325;
 
-fn fnv(h: &mut u64, b: &[u8]) {
+pub(crate) fn fnv(h: &mut u64, b: &[u8]) {
     for &x in b {
         *h ^= u64::from(x);
         *h = h.wrapping_mul(0x100000001b3);
     }
 }
-fn hf32(h: &mut u64, v: f32) {
+pub(crate) fn hf32(h: &mut u64, v: f32) {
     fnv(h, &v.to_bits().to_le_bytes());
 }
 fn hf64(h: &mut u64, v: f64) {
     fnv(h, &v.to_bits().to_le_bytes());
 }
-fn hu32(h: &mut u64, v: u32) {
+pub(crate) fn hu32(h: &mut u64, v: u32) {
     fnv(h, &v.to_le_bytes());
 }
-fn x32(v: f32) -> String {
+pub(crate) fn x32(v: f32) -> String {
     format!("{:08x}", v.to_bits())
 }
 fn x64(v: f64) -> String {
     format!("{:016x}", v.to_bits())
 }
 /// Spaces and other awkward bytes in names are written as `\xNN` so lines stay space separated.
-fn esc(s: &str) -> String {
+pub(crate) fn esc(s: &str) -> String {
     let mut o = String::new();
     for b in s.bytes() {
         if b <= b' ' || b == b'\\' || b == b'|' || b >= 0x7f {
@@ -67,6 +67,7 @@ pub fn run() {
     }
     l13();
     l14();
+    crate::text_r8_vectors::run();
 }
 
 fn ranges(pred: impl Fn(char) -> bool) -> Vec<(u32, u32)> {
@@ -117,7 +118,7 @@ fn unicode_tables() {
 // L13: fonts, Craft fonts, glyph outlines, rasterisation, optical kerning.
 
 /// Synthetic TrueType collection of the given fonts (table offsets rebased).
-fn make_ttc(fonts: &[&[u8]]) -> Vec<u8> {
+pub(crate) fn make_ttc(fonts: &[&[u8]]) -> Vec<u8> {
     let head = 12 + 4 * fonts.len();
     let mut out = Vec::new();
     out.extend_from_slice(b"ttcf");
@@ -147,9 +148,9 @@ fn make_ttc(fonts: &[&[u8]]) -> Vec<u8> {
 }
 
 /// Candidate font files: (spec, bytes). Specs are `bundled:NAME`, `ttc:inter+mono` or a path.
-fn font_files() -> Vec<(String, Vec<u8>)> {
+pub(crate) fn font_files() -> Vec<(String, Vec<u8>)> {
     let mut v: Vec<(String, Vec<u8>)> = fonts::BUNDLED.iter().map(|(n, b)| (format!("bundled:{n}"), b.to_vec())).collect();
-    v.push(("ttc:inter+mono".into(), make_ttc(&[fonts::INTER_REGULAR, fonts::JETBRAINS_MONO_REGULAR])));
+    v.push(("ttc:inter+mono".into(), make_ttc(&[fonts::INTER_REGULAR.as_slice(), fonts::JETBRAINS_MONO_REGULAR.as_slice()])));
     for p in [
         "/usr/share/fonts/dejavu/DejaVuSans.ttf",
         "/usr/share/fonts/dejavu/DejaVuSerif-BoldItalic.ttf",
@@ -269,7 +270,7 @@ fn l13_fontdb() {
     }
     // A face of the synthetic collection resolved by PostScript name.
     let mut d = FontDb::new();
-    d.register_font_data(make_ttc(&[fonts::INTER_MEDIUM, fonts::JETBRAINS_MONO_REGULAR]));
+    d.register_font_data(make_ttc(&[fonts::INTER_MEDIUM.as_slice(), fonts::JETBRAINS_MONO_REGULAR.as_slice()]));
     print_resolved("resolve+ttc", "Inter-Medium", &d.resolve_postscript("Inter-Medium"));
     println!("hidden .Hiragino => {} {}", u8::from(fonts::is_hidden_family(".Hiragino")), u8::from(fonts::is_hidden_family("Hiragino")));
     // System fonts: only comparable on a machine with the same font files.
@@ -293,7 +294,7 @@ fn l13_fontdb() {
     }
 }
 
-fn hex(b: &[u8]) -> String {
+pub(crate) fn hex(b: &[u8]) -> String {
     if b.is_empty() {
         return "-".into();
     }
@@ -347,9 +348,9 @@ fn l13_cjk() {
     for s in [CjkScript::Japanese, CjkScript::SimplifiedChinese, CjkScript::TraditionalChinese, CjkScript::Korean] {
         println!("cjkfamilies {} => {}", name(s), cjk::families(s).iter().map(|f| esc(f)).collect::<Vec<_>>().join(" "));
         let files = cjk::font_files(s);
-        println!("cjkfiles {} => {}", name(s), files.iter().map(|f| format!("{}#{}", esc(&f.path.display().to_string()), esc(f.family))).collect::<Vec<_>>().join(" "));
+        println!("cjkfiles {} => {}", name(s), files.iter().map(|f| format!("{}#{}", esc(&f.path.display().to_string()), esc(&f.family))).collect::<Vec<_>>().join(" "));
     }
-    println!("lastresort => {}", cjk::last_resort_files().iter().map(|f| format!("{}#{}", esc(&f.path.display().to_string()), esc(f.family))).collect::<Vec<_>>().join(" "));
+    println!("lastresort => {}", cjk::last_resort_files().iter().map(|f| format!("{}#{}", esc(&f.path.display().to_string()), esc(&f.family))).collect::<Vec<_>>().join(" "));
     let mut h = H0;
     for u in 0..0x40000u32 {
         let Some(c) = char::from_u32(u) else { continue };
@@ -363,13 +364,13 @@ fn l13_cjk() {
         fnv(&mut h, &[v]);
     }
     println!("classify => {h:016x}");
-    let ttc = make_ttc(&[fonts::INTER_REGULAR, fonts::JETBRAINS_MONO_REGULAR]);
+    let ttc = make_ttc(&[fonts::INTER_REGULAR.as_slice(), fonts::JETBRAINS_MONO_REGULAR.as_slice()]);
     for fam in ["", "Inter", "JetBrains Mono", "jetbrains mono", "Nope"] {
         println!(
             "faceindex {} => {} {}",
             esc(fam),
             cjk::face_index_for_family(&ttc, fam),
-            cjk::face_index_for_family(fonts::JETBRAINS_MONO_REGULAR, fam)
+            cjk::face_index_for_family(fonts::JETBRAINS_MONO_REGULAR.as_slice(), fam)
         );
     }
     // Serif detection and the craft-font helpers (no craft fonts in this build).
@@ -727,8 +728,8 @@ fn l13_render() {
         files.iter().find(|(_, b)| f.font.data.as_ref() == &b[..]).map(|(s, _)| s.clone())
     };
     let mut engine = TextEngine::new();
-    let inter = face_for(&mut engine, fonts::INTER_REGULAR, 0).expect("inter");
-    let mono = face_for(&mut engine, fonts::JETBRAINS_MONO_REGULAR, 0).expect("mono");
+    let inter = face_for(&mut engine, fonts::INTER_REGULAR.as_slice(), 0).expect("inter");
+    let mono = face_for(&mut engine, fonts::JETBRAINS_MONO_REGULAR.as_slice(), 0).expect("mono");
     let mut layouts: Vec<TextLayout> = Vec::new();
     let red = Color { mode: ColorMode::Rgb, c: [1.0, 0.0, 0.0, 0.0], alpha: 0.5 };
     let base = CharStyle::default();
@@ -1002,7 +1003,7 @@ fn l14_upper_tables() {
     println!("}};");
 }
 
-fn hu64(h: &mut u64, v: u64) {
+pub(crate) fn hu64(h: &mut u64, v: u64) {
     fnv(h, &v.to_le_bytes());
 }
 
@@ -1020,28 +1021,28 @@ struct L14Case {
     render: bool,
 }
 
-fn st(size: f32) -> CharStyle {
+pub(crate) fn st(size: f32) -> CharStyle {
     CharStyle { size_pt: size, ..Default::default() }
 }
 
-fn fam(f: &str, size: f32) -> CharStyle {
+pub(crate) fn fam(f: &str, size: f32) -> CharStyle {
     CharStyle { font_family: f.into(), size_pt: size, ..Default::default() }
 }
 
-fn runs_layer(text: &str, runs: Vec<(usize, CharStyle)>) -> TextLayer {
+pub(crate) fn runs_layer(text: &str, runs: Vec<(usize, CharStyle)>) -> TextLayer {
     TextLayer { text: text.into(), runs: runs.into_iter().map(|(len, style)| TextRun { len, style }).collect(), ..Default::default() }
 }
 
-fn one(text: &str, s: CharStyle) -> TextLayer {
+pub(crate) fn one(text: &str, s: CharStyle) -> TextLayer {
     runs_layer(text, vec![(text.len(), s)])
 }
 
-fn para(mut t: TextLayer, p: ParagraphStyle) -> TextLayer {
+pub(crate) fn para(mut t: TextLayer, p: ParagraphStyle) -> TextLayer {
     t.paragraphs = vec![ParagraphRun { len: t.text.len(), style: p }];
     t
 }
 
-fn boxed(mut t: TextLayer, x: f32, y: f32, w: f32, h: f32) -> TextLayer {
+pub(crate) fn boxed(mut t: TextLayer, x: f32, y: f32, w: f32, h: f32) -> TextLayer {
     t.shape = TextShape::Box { x, y, width: w, height: h };
     t
 }
@@ -1051,7 +1052,7 @@ fn vert(mut t: TextLayer) -> TextLayer {
     t
 }
 
-fn al(a: TextAlign) -> ParagraphStyle {
+pub(crate) fn al(a: TextAlign) -> ParagraphStyle {
     ParagraphStyle { align: a, ..Default::default() }
 }
 
@@ -1248,11 +1249,49 @@ fn l14_cases() -> Vec<L14Case> {
     add("box_lead_space", 'b', TextLayer { paragraphs: vec![ParagraphRun { len: 12, style: ParagraphStyle { space_before_pt: 10.0, space_after_pt: 3.0, ..Default::default() } }, ParagraphRun { len: 99, style: ParagraphStyle { space_before_pt: 8.0, auto_leading: 1.6, align: TextAlign::Center, ..Default::default() } }], ..boxed(one("First para.\nSecond paragraph wraps here and there.\n\nFourth.", CharStyle { leading_pt: Some(18.0), ..st(12.0) }), 3.0, 4.0, 110.0, 500.0) }, 72.0, false);
     add("trailing_spaces_box", 'b', para(boxed(one("trailing   \n  spaces   here    ", st(14.0)), 0.0, 0.0, 70.0, 500.0), al(TextAlign::Right)), 72.0, false);
     add("tab_box", 'b', boxed(one("a\tb\tc d\te", st(14.0)), 0.0, 0.0, 40.0, 500.0), 72.0, false);
+    // R8 (upstream after L14): tabs advance to 36 pt stops, navigation at wrap boundaries, box
+    // lines whose descent hangs below the box, exact named faces.
+    add("r8_tab_point", 'b', one("a\tb", st(20.0)), 72.0, true);
+    add("r8_tab_144", 'b', one("a\tb", st(20.0)), 144.0, false);
+    add("r8_tab_two", 'b', one("a\t\tb", st(20.0)), 72.0, false);
+    add("r8_tab_past", 'b', one("MMM\tb", st(20.0)), 72.0, false);
+    add("r8_tab_lead", 'b', one("\tb", st(20.0)), 72.0, false);
+    add("r8_tab_boxedge", 'b', boxed(one("a\tb", st(20.0)), 10.0, 0.0, 300.0, 100.0), 72.0, false);
+    add("r8_tab_wrap", 'b', boxed(one("a\tb\tc\td\te\tf\tg", st(20.0)), 0.0, 0.0, 100.0, 1000.0), 72.0, true);
+    add("r8_tab_right", 'b', para(one("a\tb", st(20.0)), al(TextAlign::Right)), 72.0, false);
+    add("r8_tab_center", 'b', para(one("x\ty\tz", st(16.0)), al(TextAlign::Center)), 72.0, false);
+    add("r8_tab_box_right", 'b', para(boxed(one("a\tb", st(20.0)), 0.0, 0.0, 200.0, 100.0), al(TextAlign::Right)), 72.0, false);
+    add("r8_tab_box_trail", 'b', para(boxed(one("a\tb\t", st(20.0)), 0.0, 0.0, 200.0, 100.0), al(TextAlign::Right)), 72.0, false);
+    add("r8_tab_box_center", 'b', para(boxed(one("Name\tValue\n\tIndented\tmore", st(14.0)), 5.0, 5.0, 160.0, 300.0), al(TextAlign::Center)), 72.0, false);
+    add("r8_tab_indent", 'b', TextLayer { paragraphs: vec![ParagraphRun { len: 99, style: ParagraphStyle { first_line_indent_pt: 13.0, start_indent_pt: 4.0, ..Default::default() } }], ..boxed(one("col\tcol\tcol\tcol\tcol", st(12.0)), 0.0, 0.0, 120.0, 300.0) }, 72.0, false);
+    add("r8_tab_hscale", 'b', boxed(one("a\tb\tc\td", CharStyle { horizontal_scale: 2.0, ..st(14.0) }), 0.0, 0.0, 150.0, 300.0), 72.0, false);
+    add("r8_tab_kern", 'b', one("A\tV", CharStyle { kerning: Kerning::Optical, kern: 50.0, ..st(20.0) }), 72.0, false);
+    add("r8_tab_rtl", 's', one("שלום\tעולם", fam("DejaVu Sans", 16.0)), 72.0, false);
+    add("r8_tab_vert", 'b', vert(one("ab\tcd", st(16.0))), 72.0, false);
+    add("r8_lead40", 'b', one("ab\ncd", CharStyle { leading_pt: Some(40.0), ..fam("Inter", 12.0) }), 72.0, false);
+    add("r8_wrap_boundary", 'b', boxed(one("ab cd", st(12.0)), 0.0, 0.0, 20.0, 70.0), 72.0, false);
+    add("r8_forced", 'b', one("a\u{3}b", st(12.0)), 72.0, false);
+    add("r8_descent_kept", 'b', boxed(one("one\ntwo\nthree", CharStyle { leading_pt: Some(35.0), ..st(25.0) }), 0.0, 0.0, 300.0, 91.27), 72.0, false);
+    add("r8_descent_cut", 'b', boxed(one("one\ntwo\nthree", CharStyle { leading_pt: Some(35.0), ..st(25.0) }), 0.0, 0.0, 300.0, 80.0), 72.0, false);
+    add("r8_ps_family", 'b', one("Named", CharStyle { postscript_name: Some("Inter-Medium".into()), font_family: "Inter".into(), ..st(20.0) }), 72.0, false);
+    add("r8_style_named", 'b', one("Styled", CharStyle { font_style: "SemiBold".into(), weight: 600, font_family: "Inter".into(), ..st(20.0) }), 72.0, false);
+    add("r8_style_stale", 'b', one("Stale", CharStyle { font_style: "Regular".into(), weight: 600, font_family: "Inter".into(), ..st(20.0) }), 72.0, false);
+    add("r8_ps_mono", 'b', one("Mono", CharStyle { postscript_name: Some("JetBrainsMono-Regular".into()), font_family: "JetBrains Mono".into(), ..st(20.0) }), 72.0, false);
     add("caps_mixed", 'b', runs_layer("Mixed CAPS smallcaps", vec![(6, CharStyle { caps: Caps::AllCaps, ..st(20.0) }), (5, st(20.0)), (9, CharStyle { caps: Caps::SmallCaps, tracking: 40.0, ..st(20.0) })]), 72.0, false);
     v
 }
 
-fn hash_layout(l: &TextLayout) -> [u64; 6] {
+/// A runtime face alias (`.PhotoCraft-face-<family id>-<index>`, see `FontDb::select_named_face`)
+/// without its family id: that id is process-global state (fontique's FamilyId counter), so it
+/// depends on what ran before. Other names unchanged.
+pub(crate) fn face_alias_name(f: &str) -> String {
+    match f.strip_prefix(".PhotoCraft-face-").and_then(|rest| rest.find('-').map(|i| &rest[i + 1..])) {
+        Some(index) => format!(".PhotoCraft-face-{index}"),
+        None => f.to_string(),
+    }
+}
+
+pub(crate) fn hash_layout(l: &TextLayout) -> [u64; 6] {
     let mut h = [H0; 6];
     for f in &l.faces {
         hu64(&mut h[0], f.font.data.as_ref().len() as u64);
@@ -1296,7 +1335,7 @@ fn hash_layout(l: &TextLayout) -> [u64; 6] {
         fnv(&mut h[4], &[u8::from(c.rtl)]);
     }
     for s in &l.styles {
-        fnv(&mut h[5], s.font_family.as_bytes());
+        fnv(&mut h[5], face_alias_name(&s.font_family).as_bytes());
         hu32(&mut h[5], u32::from(s.weight));
         fnv(&mut h[5], &[u8::from(s.italic)]);
     }

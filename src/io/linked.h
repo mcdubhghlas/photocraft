@@ -64,4 +64,11 @@ pc_status pc_io_rebuild_linked_block(const uint8_t *data, size_t len, pc_io_keep
 /* The uuids of every item in a linked-layer block; *out initialised on success. */
 pc_status pc_io_linked_block_uuids(const uint8_t *data, size_t len, pc_io_strs *out, pc_error *err);
 
+/* Copies one linked item under a new UUID (its embedded/external/alias payload preserved),
+ * appending the rebuilt item to out. *found false (out untouched) when uuid is absent or the item
+ * is malformed. */
+pc_status pc_io_copy_linked_item(const uint8_t *data, size_t len, const char *uuid, size_t uuid_len,
+                                 const char *new_uuid, size_t new_uuid_len, bool *found, pc_buf *out,
+                                 pc_error *err);
+
 #endif

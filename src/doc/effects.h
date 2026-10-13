@@ -52,11 +52,17 @@ typedef struct pc_contour {
     bool custom;
     pc_str name;
     pc_curve points;
+    /* Corner (non-continuous) flags parallel to points: the curve bends sharply there.
+     * Missing entries are smooth. */
+    bool *corners;
+    size_t ncorners;
 } pc_contour;
 
 void pc_contour_fini(pc_contour *c);
 pc_status pc_contour_clone(const pc_contour *c, pc_contour *out, pc_error *err);
 bool pc_contour_eq(const pc_contour *a, const pc_contour *b);
+/* Whether point i of a custom contour is a corner (false for Linear or past the flags). */
+bool pc_contour_is_corner(const pc_contour *c, size_t i);
 
 typedef enum pc_fx_paint_kind { PC_FX_PAINT_COLOR, PC_FX_PAINT_GRADIENT, PC_FX_PAINT_PATTERN } pc_fx_paint_kind;
 
@@ -237,6 +243,11 @@ void pc_effect_fini(pc_effect *e);
 pc_status pc_effect_clone(const pc_effect *e, pc_effect *out, pc_error *err);
 bool pc_effect_eq(const pc_effect *a, const pc_effect *b);
 bool pc_effect_enabled(const pc_effect *e);
+/* Switches the instance on or off, keeping its settings. */
+void pc_effect_set_enabled(pc_effect *e, bool on);
+/* Converts the effect's colours to mode's model in place (pc_color_in_mode): a layer's effect
+ * colours are in its document's mode, as Image > Mode keeps them. Never fails. */
+void pc_effect_in_mode(pc_effect *e, pc_color_mode mode);
 const char *pc_effect_label(const pc_effect *e); /* "Drop Shadow", ... */
 void pc_effect_default_drop_shadow(pc_effect *out);
 

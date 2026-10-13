@@ -36,18 +36,30 @@ typedef struct pc_compose_pattern_tile pc_compose_pattern_tile;
 pc_status pc_compose_patterns_new(const pc_pattern *patterns, size_t n, size_t budget,
                                   pc_compose_patterns **out, pc_error *err);
 void pc_compose_patterns_free(pc_compose_patterns *p); /* NULL-safe */
+/* PreparedPatterns::in_mode: patterns painted into a document of colour mode (RGB by default; see
+ * pc_compose_pattern_rgba). Set before the first lookup. NULL-safe. */
+void pc_compose_patterns_set_mode(pc_compose_patterns *p, pc_color_mode mode);
 /* The borrowed source slice (PreparedPatterns::source); NULL / 0 for a NULL object. */
 const pc_pattern *pc_compose_patterns_source(const pc_compose_patterns *p, size_t *n);
 /* PreparedPatterns::get: the tile of the pattern found by id, else stored name, else display
  * name (pc_pattern_find), as a new reference in *out; *out = NULL when there is no such pattern
- * or it is empty. Fails only on PC_ERR_NOMEM, or PC_ERR_LIMIT for a pattern over
- * PC_COMPOSE_MAX_PIXELS (the reference aborts). p may be NULL (nothing found). */
+ * or it isn't paintable (pc_pattern_is_paintable: empty, or too large to paint; nothing is
+ * allocated for those). Fails only on PC_ERR_NOMEM. p may be NULL (nothing found). */
 pc_status pc_compose_patterns_get(const pc_compose_patterns *p, const char *id, size_t id_len,
                                   const char *name, size_t name_len, pc_compose_pattern_tile **out,
                                   pc_error *err);
 
-/* Tile::new: *out = NULL for an empty pattern. The tile starts with one reference. */
+/* pattern::pattern_rgba: a pattern's pixels (straight RGBA, row-major, malloc'd) as they look
+ * painted into a document of colour mode: in a Grayscale, Bitmap, Duotone or CMYK document a
+ * pattern of another mode paints that mode's colours. *out = NULL, *len = 0 for a pattern that
+ * isn't paintable. */
+pc_status pc_compose_pattern_rgba(const pc_pattern *p, pc_color_mode mode, float (**out)[4], size_t *len,
+                                  pc_error *err);
+/* Tile::new / Tile::new_in: *out = NULL for a pattern that isn't paintable. The tile starts with
+ * one reference. */
 pc_status pc_compose_pattern_tile_new(const pc_pattern *p, pc_compose_pattern_tile **out, pc_error *err);
+pc_status pc_compose_pattern_tile_new_in(const pc_pattern *p, pc_color_mode mode,
+                                         pc_compose_pattern_tile **out, pc_error *err);
 pc_compose_pattern_tile *pc_compose_pattern_tile_retain(pc_compose_pattern_tile *t); /* NULL-safe */
 void pc_compose_pattern_tile_release(pc_compose_pattern_tile *t);                    /* NULL-safe */
 /* Bilinear, wrapping sample at continuous tile coordinates (pixel centres at i + 0.5), as

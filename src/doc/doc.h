@@ -30,9 +30,15 @@
 typedef uint64_t pc_layer_id;
 typedef uint64_t pc_doc_id;
 
-/* Fresh ids from one process-wide atomic counter shared by layers and documents (from 1). */
+/* Identity of the source contents shared by smart-object instances, independent of their bytes:
+ * ordinary layer duplicates share it, independent contents get a fresh one. */
+typedef uint64_t pc_smart_contents_id;
+
+/* Fresh ids from one process-wide atomic counter shared by layers, documents and smart contents
+ * (from 1). */
 pc_layer_id pc_layer_id_fresh(void);
 pc_doc_id pc_doc_id_fresh(void);
+pc_smart_contents_id pc_smart_contents_id_fresh(void);
 /* Advance the counter past max (saturating), so loaded ids never collide; never moves back. */
 void pc_ensure_ids_above(uint64_t max);
 
@@ -143,10 +149,11 @@ typedef struct pc_smart_object {
     pc_stack_mode stack_mode;
     bool has_perspective;
     double perspective[9]; /* row-major 3x3, source -> document */
+    pc_smart_contents_id contents_id;
 } pc_smart_object;
 
-/* No filters, no PSD data, filters enabled. Takes over *source and *cache (moved; cache may be
- * NULL for none). Never fails. */
+/* A fresh contents id, no filters, no PSD data, filters enabled. Takes over *source and *cache (moved; cache
+ * may be NULL for none). Never fails. */
 void pc_smart_object_init(pc_smart_object *out, pc_smart_source *source, pc_affine transform, pc_surface *cache);
 void pc_smart_object_fini(pc_smart_object *s);
 pc_status pc_smart_object_clone(const pc_smart_object *s, pc_smart_object *out, pc_error *err);
@@ -246,17 +253,40 @@ const pc_layer *pc_layer_children(const pc_layer *l, size_t *n);
 const pc_surface *pc_layer_surface(const pc_layer *l);
 /* Raster content only. */
 pc_surface *pc_layer_surface_mut(pc_layer *l);
+/* The Background's own properties: an unclipped pixel layer with transparency and position
+ * locked. Only the bottom layer of a document with them is the Background (see
+ * pc_document_background). */
+bool pc_layer_has_background_traits(const pc_layer *l);
 
+/* One guide's own colour, keyed by orientation and position (not index), so code that drops or
+ * reorders guides never moves a colour onto another guide. */
+typedef struct pc_guide_color {
+    bool vertical;
+    double position;
+    uint8_t rgb[3]; /* sRGB, 0-255 */
+} pc_guide_color;
+
+/* Ruler guides in document pixels (f64: ruler units and PSD 1/32 px positions stay exact). */
 typedef struct pc_guides {
-    float *horizontal;
+    double *horizontal;
     size_t nhorizontal;
-    float *vertical;
+    double *vertical;
     size_t nvertical;
+    /* Guides with their own colour (New Guide > Color); the rest use the preference colour. */
+    pc_guide_color *colors;
+    size_t ncolors;
 } pc_guides;
 
 void pc_guides_fini(pc_guides *g);
 pc_status pc_guides_clone(const pc_guides *g, pc_guides *out, pc_error *err);
 bool pc_guides_eq(const pc_guides *a, const pc_guides *b);
+/* The guide's own colour into rgb (false when it has none). */
+bool pc_guides_color(const pc_guides *g, bool vertical, double position, uint8_t rgb[3]);
+/* Give the guide at position its own colour (rgb NULL returns it to the preference colour). */
+pc_status pc_guides_set_color(pc_guides *g, bool vertical, double position, const uint8_t *rgb,
+                              pc_error *err);
+/* Drop colours whose guide no longer exists. */
+void pc_guides_prune_colors(pc_guides *g);
 
 typedef enum pc_color_indicates { PC_INDICATES_MASKED_AREAS, PC_INDICATES_SELECTED_AREAS } pc_color_indicates;
 
@@ -293,10 +323,18 @@ typedef struct pc_doc_psd_global_block {
     pc_blob *data;
 } pc_doc_psd_global_block;
 
+/* A free-form image text entry (PNG tEXt/zTXt/iTXt, TIFF ASCII tags). */
+typedef struct pc_doc_text_entry {
+    pc_str key;
+    pc_str value;
+} pc_doc_text_entry;
+
 typedef struct pc_metadata {
     bool has_xmp;
     pc_str xmp;
     pc_blob *exif; /* NULL = None */
+    pc_doc_text_entry *text; /* in file order, duplicate keys allowed */
+    size_t ntext;
     pc_doc_psd_resource *psd_resources;
     size_t npsd_resources;
     pc_doc_psd_global_block *psd_global_blocks;
@@ -306,6 +344,20 @@ typedef struct pc_metadata {
 void pc_metadata_fini(pc_metadata *m);
 pc_status pc_metadata_clone(const pc_metadata *m, pc_metadata *out, pc_error *err);
 bool pc_metadata_eq(const pc_metadata *a, const pc_metadata *b);
+
+/* The encoder settings a document's file was opened or saved with (what File > Save and the Save
+ * As defaults reuse). Empty for a new document. Qualities are on the codecs' 1-100 scale. */
+typedef struct pc_file_encoding {
+    bool has_jpeg_quality; /* estimated from the quantisation tables on open */
+    uint8_t jpeg_quality;
+    bool has_webp_lossless; /* true lossless (VP8L), false lossy at webp_quality */
+    bool webp_lossless;
+    bool has_webp_quality;
+    uint8_t webp_quality;
+} pc_file_encoding;
+
+bool pc_file_encoding_eq(const pc_file_encoding *a, const pc_file_encoding *b);
+bool pc_file_encoding_is_empty(const pc_file_encoding *e);
 
 /* Adding a field? See the note above struct pc_layer (src/format/convert_save.c). */
 struct pc_document {
@@ -333,6 +385,8 @@ struct pc_document {
     pc_clipping_path clipping_path;
     bool has_quick_mask;
     pc_alpha_channel quick_mask;
+    /* Quick Mask was entered with no selection: an untouched white mask leaves no selection. */
+    bool quick_mask_unselected;
     pc_pattern *patterns;
     size_t npatterns;
     bool has_color_table;
@@ -353,6 +407,7 @@ struct pc_document {
     pc_variables variables;
     bool has_timeline;
     pc_timeline timeline;
+    pc_file_encoding file_encoding; /* how the lossy file was encoded, reused by File > Save */
 };
 
 /* An empty document at 72 dpi with a fresh id. */
@@ -405,6 +460,11 @@ pc_status pc_document_path_of(const pc_document *d, pc_layer_id id, pc_layer_pat
 pc_locks pc_document_locks_at(const pc_document *d, const size_t *path, size_t n);
 pc_locks pc_document_effective_locks(const pc_document *d, pc_layer_id id);
 const pc_layer *pc_document_layer(const pc_document *d, pc_layer_id id);
+/* The Background layer, identified structurally (never by name): the bottom root layer when it
+ * has pc_layer_has_background_traits; NULL otherwise. */
+const pc_layer *pc_document_background(const pc_document *d);
+pc_layer *pc_document_background_mut(pc_document *d);
+bool pc_document_is_background(const pc_document *d, pc_layer_id id);
 pc_layer *pc_document_layer_mut(pc_document *d, pc_layer_id id);
 const pc_layer *pc_document_layer_at(const pc_document *d, const size_t *path, size_t n);
 pc_layer *pc_document_layer_at_mut(pc_document *d, const size_t *path, size_t n);

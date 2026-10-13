@@ -152,7 +152,9 @@ pc_status pc_paint_keep_connected(float *weight, size_t w, size_t h, size_t sx, 
     return PC_OK;
 }
 
-typedef struct rep_ctx {
+struct pc_paint_replace_effect {
+    pc_paint_replace_settings rs_own;
+    pc_surface pre_own;
     const pc_paint_replace_settings *rs;
     const pc_surface *pre;
     pc_pixel_format fmt;
@@ -163,7 +165,8 @@ typedef struct rep_ctx {
     bool soft;
     bool has_once;
     float once[3];
-} rep_ctx;
+};
+typedef struct pc_paint_replace_effect rep_ctx;
 
 static float rgb_dist(const float a[4], const float b[3])
 {
@@ -264,28 +267,69 @@ static pc_status replace_dab(void *vctx, pc_paint_region *work, const pc_paint_f
     return st;
 }
 
+static const pc_blend_mode MODES[4] = {PC_BLEND_HUE, PC_BLEND_SATURATION, PC_BLEND_COLOR,
+                                       PC_BLEND_LUMINOSITY};
+
+/* Fills c's derived settings from *rs and *pre (both borrowed). */
+static void rep_setup(rep_ctx *c, const pc_paint_replace_settings *rs, const pc_surface *pre)
+{
+    c->rs = rs;
+    c->pre = pre;
+    c->fmt = pc_surface_format(pre);
+    c->n = pc_pixel_format_channels(c->fmt);
+    c->mode = (unsigned)rs->mode < 4 ? MODES[rs->mode] : PC_BLEND_COLOR;
+    memcpy(c->fg, rs->color, sizeof c->fg);
+    c->tol = pc_clampf(rs->tolerance, 0.0f, 1.0f);
+    c->soft = rs->anti_alias && rs->limits != PC_PAINT_LIMITS_FIND_EDGES;
+}
+
+pc_status pc_paint_replace_effect_new(const pc_surface *pre, const pc_paint_replace_settings *rs,
+                                      pc_paint_replace_effect **out, pc_error *err)
+{
+    rep_ctx *c = calloc(1, sizeof *c);
+    pc_status st;
+    if (c == NULL) {
+        return pc_fail(err, PC_ERR_NOMEM, "out of memory for colour replacement");
+    }
+    st = pc_surface_clone(pre, &c->pre_own, err);
+    if (st != PC_OK) {
+        free(c);
+        return st;
+    }
+    c->rs_own = *rs;
+    rep_setup(c, &c->rs_own, &c->pre_own);
+    *out = c;
+    return PC_OK;
+}
+
+void pc_paint_replace_effect_free(pc_paint_replace_effect *e)
+{
+    if (e == NULL) {
+        return;
+    }
+    pc_surface_fini(&e->pre_own);
+    free(e);
+}
+
+pc_status pc_paint_replace_effect_dab(void *ctx, pc_paint_region *work, const pc_paint_footprint *fp,
+                                      pc_error *err)
+{
+    return replace_dab(ctx, work, fp, err);
+}
+
 pc_status pc_paint_apply_color_replacement(pc_surface *target, const pc_paint_stroke *stroke,
                                            const pc_paint_replace_settings *rs, const pc_surface *selection,
                                            bool lock_transparency, pc_rect *damage, pc_error *err)
 {
-    static const pc_blend_mode modes[4] = {PC_BLEND_HUE, PC_BLEND_SATURATION, PC_BLEND_COLOR,
-                                           PC_BLEND_LUMINOSITY};
     rep_ctx c;
     pc_surface pre;
     pc_status st;
     memset(&c, 0, sizeof c);
-    c.rs = rs;
-    c.fmt = pc_surface_format(target);
-    c.n = pc_pixel_format_channels(c.fmt);
-    c.mode = (unsigned)rs->mode < 4 ? modes[rs->mode] : PC_BLEND_COLOR;
-    memcpy(c.fg, rs->color, sizeof c.fg);
-    c.tol = pc_clampf(rs->tolerance, 0.0f, 1.0f);
-    c.soft = rs->anti_alias && rs->limits != PC_PAINT_LIMITS_FIND_EDGES;
     st = pc_surface_clone(target, &pre, err);
     if (st != PC_OK) {
         return st;
     }
-    c.pre = &pre;
+    rep_setup(&c, rs, &pre);
     st = pc_paint_apply_dab_stroke(target, stroke, selection, lock_transparency, 0, replace_dab, &c, damage,
                                    err);
     pc_surface_fini(&pre);

@@ -460,7 +460,17 @@ static void hash_layout(const pc_text_layout *l, uint64_t h[6])
         hu8(&h[4], c->rtl ? 1 : 0);
     }
     for (i = 0; i < l->nstyles; i++) {
-        fnv(&h[5], pc_str_c(&l->styles[i].font_family), l->styles[i].font_family.len);
+        /* A runtime face alias (".PhotoCraft-face-<family id>-<index>") without its family id:
+         * the id is process-wide state, so the reference hashes ".PhotoCraft-face-<index>". */
+        const char *f = pc_str_c(&l->styles[i].font_family), *dash;
+        size_t fl = l->styles[i].font_family.len;
+        if (fl > 17 && memcmp(f, ".PhotoCraft-face-", 17) == 0 &&
+            (dash = memchr(f + 17, '-', fl - 17)) != NULL) {
+            fnv(&h[5], ".PhotoCraft-face-", 17);
+            fnv(&h[5], dash + 1, fl - (size_t)(dash + 1 - f));
+        } else {
+            fnv(&h[5], f, fl);
+        }
         hu32(&h[5], l->styles[i].weight);
         hu8(&h[5], l->styles[i].italic ? 1 : 0);
     }

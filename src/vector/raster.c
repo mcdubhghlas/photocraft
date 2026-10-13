@@ -33,6 +33,9 @@
  * the row is swept as a single sub-band. Real geometry peaks at 1.1M (parity corpus). */
 #define ROW_SCAN_BUDGET ((size_t)1 << 24)
 #define STRIP 32u
+/* Coverage below this is f32 round-off in the cell prefix sum, not area: it is well under half a
+ * 16-bit step (7.6e-6), so 8- and 16-bit output is unchanged by dropping it. */
+#define RESIDUE 1e-6f
 
 void pc_vec_rasterizer_init(pc_vec_rasterizer *r, bool inverted)
 {
@@ -611,7 +614,9 @@ static pc_status render_rows(const pc_vec_rasterizer *r, pc_rect rect, float *ou
         }
         for (k = 0; k < w; k++) {
             sum += st->acc[k];
-            row_out[k] = pc_clampf(sum, 0.0f, 1.0f);
+            /* Opposite boundaries don't cancel exactly in f32, leaving ~1e-7 just past a shape's
+             * right edge, which would count as content; snap it (and a NaN) to 0. */
+            row_out[k] = sum >= RESIDUE ? pc_rs_minf_k(sum, 1.0f) : 0.0f;
         }
     }
     return PC_OK;

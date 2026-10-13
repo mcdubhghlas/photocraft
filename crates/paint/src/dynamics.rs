@@ -12,10 +12,15 @@ use crate::{Dab, StrokePoint};
 
 /// Maximum pulled-string length at 100 % smoothing, in screen pixels.
 pub const MAX_STRING_PX: f64 = 100.0;
+/// Stroke time over which exponential smoothing moves its fraction of the way to the pointer.
+pub const SMOOTHING_STEP_MS: f64 = 16.0;
 
 /// With Spacing unchecked, one dab per this many milliseconds of stroke time, so faster strokes
 /// space their dabs further apart (Photoshop: "the speed of the cursor determines the spacing").
 pub const SPEED_SPACING_MS: f64 = 8.0;
+
+/// Longest pixel-grid segment (in pixels) before falling back to distance spacing.
+const MAX_GRID_STEPS: f64 = 1e7;
 
 /// Densest speed spacing, in pixels between dabs (a slow, long stroke never floods the buffer).
 const MIN_SPEED_STEP: f64 = 0.5;
@@ -88,18 +93,47 @@ impl Smoother {
             }
             return;
         }
-        // Exponential: each iteration moves `a` of the way towards the pointer.
+        // Exponential: every SMOOTHING_STEP_MS of stroke time moves `a` of the way towards the
+        // pointer, so the feel doesn't depend on how often the device reports. Input without
+        // timestamps takes one step per point.
         let a = 1.0 - amount.min(0.95);
-        let iters = match prev_input {
-            Some(q) if self.cfg.catch_up && p.time > q.time => ((p.time - q.time) / 16.0).round().clamp(1.0, 64.0) as usize,
-            _ => 1,
+        let dt = prev_input.map_or(0.0, |q| p.time - q.time);
+        let still = prev_input.is_some_and(|q| q.x == p.x && q.y == p.y);
+        if still && !self.cfg.catch_up {
+            // Without Stroke Catch-Up the brush stops while the pointer pauses (Photoshop).
+            return;
+        }
+        let (iters, step) = if dt > 0.0 && dt.is_finite() {
+            let steps = dt / SMOOTHING_STEP_MS;
+            let iters = steps.ceil().clamp(1.0, 64.0);
+            // Each of `iters` moves covers `steps / iters` steps' worth of pull.
+            (iters as usize, 1.0 - (1.0 - a).powf(steps.min(64.0) / iters))
+        } else {
+            (1, a)
         };
         let mut cur = pos;
         for _ in 0..iters {
-            cur = StrokePoint { x: cur.x + (p.x - cur.x) * a, y: cur.y + (p.y - cur.y) * a, ..p };
+            cur = StrokePoint { x: cur.x + (p.x - cur.x) * step, y: cur.y + (p.y - cur.y) * step, ..p };
             out.push(cur);
         }
         self.pos = Some(cur);
+    }
+
+    /// Is Stroke Catch-Up still pulling the brush towards a pointer that has stopped? Then the
+    /// stroke needs time to keep passing (repeats of the last point) while the pointer is held.
+    pub fn lagging(&self) -> bool {
+        match (self.active() && self.cfg.catch_up && !self.cfg.pulled_string, self.pos, self.last_input) {
+            (true, Some(pos), Some(last)) => (pos.x - last.x).abs() + (pos.y - last.y).abs() > 0.01,
+            _ => false,
+        }
+    }
+
+    /// The string between the brush and the pointer: `(brush, pointer)` document positions while
+    /// smoothing holds the brush back from the last input point, `None` when they coincide (or
+    /// smoothing is off). The canvas draws it, as Photoshop does for Pulled String Mode.
+    pub fn string(&self) -> Option<([f64; 2], [f64; 2])> {
+        let (pos, last) = (self.pos?, self.last_input?);
+        (self.active() && (pos.x != last.x || pos.y != last.y)).then_some(([pos.x, pos.y], [last.x, last.y]))
     }
 
     /// End of stroke: with Catch-Up On Stroke End the brush finishes at the last pointer position.
@@ -159,6 +193,9 @@ pub struct PathWalker {
     /// Speed spacing (Spacing unchecked): one step per this many ms of stroke time.
     speed: Option<f64>,
     speed_acc: f64,
+    /// Pixel-grid stepping for small aliased tips: the dab-centre offset inside a pixel (see
+    /// [`PathWalker::pixel_grid`]).
+    grid: Option<f64>,
 }
 
 impl PathWalker {
@@ -174,7 +211,39 @@ impl PathWalker {
             time_acc: 0.0,
             speed: None,
             speed_acc: 0.0,
+            grid: None,
         }
+    }
+
+    /// Step pixel by pixel instead of by distance: one step per pixel along the segment's major
+    /// axis, on the line between the pixels holding its ends, each at the pixel's dab centre
+    /// (`offset` 0.5 for odd tip diameters, 0 for even ones, as `render::grid_center` snaps). A
+    /// small aliased tip (the Pencil) then draws a clean 8-connected staircase: stepping by
+    /// distance put two dabs in a row wherever the line crossed a pixel corner (#2139).
+    pub fn pixel_grid(mut self, offset: f64) -> Self {
+        self.grid = Some(offset);
+        self
+    }
+
+    /// Emits the pixel steps from `a` to `p` (see [`PathWalker::pixel_grid`]). False, emitting
+    /// nothing, when the span is not finite or implausibly long: distance spacing takes over.
+    fn grid_steps(&mut self, a: &StrokePoint, p: &StrokePoint, offset: f64, out: &mut impl FnMut(StepInput)) -> bool {
+        let cell = |v: f64| if offset > 0.0 { v.floor() } else { v.round() };
+        let (x0, y0) = (cell(a.x), cell(a.y));
+        let (dx, dy) = (cell(p.x) - x0, cell(p.y) - y0);
+        let n = dx.abs().max(dy.abs());
+        if !n.is_finite() || n > MAX_GRID_STEPS {
+            return false;
+        }
+        let steps = n as u64;
+        for i in 1..=steps {
+            let i = i as f64;
+            let mut q = lerp_pt(a, p, i / n);
+            q.x = x0 + (dx * i / n).round() + offset;
+            q.y = y0 + (dy * i / n).round() + offset;
+            self.emit(q, out);
+        }
+        true
     }
 
     /// Space steps by stroke time instead of distance ([`SPEED_SPACING_MS`]): faster movement
@@ -214,12 +283,14 @@ impl PathWalker {
             let dt = p.time - a.time;
             match self.speed.filter(|_| dt > 0.0 && dt.is_finite()) {
                 None => {
-                    while self.next_at <= len + 1e-9 {
-                        let q = lerp_pt(&a, &p, (self.next_at / len).min(1.0));
-                        self.emit(q, out);
-                        self.next_at += step_len(&q).max(0.25);
+                    if !self.grid.is_some_and(|g| self.grid_steps(&a, &p, g, out)) {
+                        while self.next_at <= len + 1e-9 {
+                            let q = lerp_pt(&a, &p, (self.next_at / len).min(1.0));
+                            self.emit(q, out);
+                            self.next_at += step_len(&q).max(0.25);
+                        }
+                        self.next_at -= len;
                     }
-                    self.next_at -= len;
                 }
                 Some(iv) => {
                     self.speed_acc += dt;
@@ -599,13 +670,29 @@ pub struct DabGenerator {
 }
 
 impl DabGenerator {
+    /// Does the stroke change with time while the pointer is held still (airbrush Build-up, or
+    /// smoothing still catching up)? The canvas then keeps feeding it the held point.
+    pub fn wants_time(&self) -> bool {
+        self.walker.interval.is_some() || self.smoother.lagging()
+    }
+
+    /// See [`Smoother::string`].
+    pub fn smoothing_string(&self) -> Option<([f64; 2], [f64; 2])> {
+        self.smoother.string()
+    }
+
     pub fn new(brush: &BrushSettings, zoom: f32) -> Self {
         let brush = brush.bounded_for_render();
         let interval = brush.build_up.then(|| 1000.0 / f64::from(brush.build_up_rate.clamp(0.1, 1000.0)));
         let dual_on = brush.dual_brush.enabled;
+        let mut walker = if brush.spacing_enabled { PathWalker::new(interval) } else { PathWalker::new(interval).speed_spacing(SPEED_SPACING_MS) };
+        // A small aliased tip whose dabs are at most a pixel apart steps pixel by pixel (#2139).
+        if brush.aliased && brush.size * brush.spacing.max(0.01) <= 1.0 {
+            walker = walker.pixel_grid(f64::from(crate::render::grid_center(0.0, 0.0, brush.size).0));
+        }
         Self {
             smoother: Smoother::new(&brush.smoothing, zoom),
-            walker: if brush.spacing_enabled { PathWalker::new(interval) } else { PathWalker::new(interval).speed_spacing(SPEED_SPACING_MS) },
+            walker,
             dual_walker: dual_on.then(|| PathWalker::new(None)),
             builder: DabBuilder::new(&brush),
             dual: dual_on.then(|| DualBuilder::new(&brush)),

@@ -1,6 +1,7 @@
-/* Point-level path editing, Photoshop's Direct Selection and Convert Point tools (port of
- * crates/vector/src/edit.rs): move anchors, drag direction handles, reshape a segment by
- * dragging it, convert between smooth and corner points, and hit-test a path's parts. The
+/* Point-level path editing, Photoshop's Direct Selection, Convert Point and Add / Delete Anchor
+ * Point tools (port of crates/vector/src/edit.rs): move anchors, drag direction handles, reshape a
+ * segment by dragging it, convert between smooth and corner points, insert and remove anchors,
+ * build Curvature Pen knots, and hit-test a path's parts. The
  * engine's path edit commands and the canvas previews share it. */
 #include <math.h>
 #include <stdlib.h>
@@ -232,6 +233,195 @@ pc_status pc_vec_bend_segment(pc_path *path, pc_vec_knot_ref knot, double t, con
     return PC_OK;
 }
 
+static pc_point lerp(pc_point a, pc_point b, double t)
+{
+    return pc_point_make(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t);
+}
+
+pc_status pc_vec_add_anchor(pc_path *path, pc_vec_knot_ref knot, double t, pc_vec_knot_ref *out,
+                            pc_error *err)
+{
+    pc_vec_knot_ref end;
+    pc_knot *ka;
+    pc_knot *kb;
+    pc_knot nk;
+    pc_subpath *sp;
+    pc_knot *grown;
+    size_t cap;
+    size_t at;
+    pc_status st;
+    if (!(isfinite(t) && t > 0.0 && t < 1.0)) {
+        return pc_fail(err, PC_ERR_INVALID, "`t` must be strictly between 0 and 1");
+    }
+    st = segment_end(path, knot, &end, err);
+    if (st != PC_OK) {
+        return st;
+    }
+    if (knot_at(path, knot, err) == NULL || knot_at(path, end, err) == NULL) {
+        return PC_ERR_INVALID;
+    }
+    /* Grow first, so a failure leaves the path unchanged. segment_end succeeded, so knot.knot
+     * < nknots and at <= nknots. */
+    sp = &path->subpaths[knot.sub];
+    at = knot.knot + 1;
+    cap = sp->nknots;
+    grown = pc_grow_array(sp->knots, &cap, sp->nknots + 1, sizeof *sp->knots);
+    if (grown == NULL) {
+        return pc_fail(err, PC_ERR_NOMEM, "vector: out of memory");
+    }
+    sp->knots = grown;
+    ka = &sp->knots[knot.knot];
+    kb = &sp->knots[end.knot];
+    if (dist(ka->out_ctrl, ka->anchor) < 1e-9 && dist(kb->in_ctrl, kb->anchor) < 1e-9) {
+        /* Hit testing and hover feedback use the cubic parameter, which is not linear even when
+         * both handles are retracted: keep the inserted corner at that same point. */
+        pc_point seg[4];
+        pc_point p;
+        seg[0] = ka->anchor;
+        seg[1] = ka->out_ctrl;
+        seg[2] = kb->in_ctrl;
+        seg[3] = kb->anchor;
+        p = pc_vec_eval(seg, t);
+        nk = pc_knot_corner(p.x, p.y);
+    } else {
+        pc_point p01 = lerp(ka->anchor, ka->out_ctrl, t);
+        pc_point p12 = lerp(ka->out_ctrl, kb->in_ctrl, t);
+        pc_point p23 = lerp(kb->in_ctrl, kb->anchor, t);
+        pc_point p012 = lerp(p01, p12, t);
+        pc_point p123 = lerp(p12, p23, t);
+        ka->out_ctrl = p01;
+        kb->in_ctrl = p23;
+        nk = pc_knot_smooth(lerp(p012, p123, t), p012, p123);
+    }
+    memmove(&sp->knots[at + 1], &sp->knots[at], (sp->nknots - at) * sizeof *sp->knots);
+    sp->knots[at] = nk;
+    sp->nknots++;
+    out->sub = knot.sub;
+    out->knot = at;
+    return PC_OK;
+}
+
+pc_status pc_vec_delete_anchor(pc_path *path, pc_vec_knot_ref knot, bool *removed_subpath, pc_error *err)
+{
+    size_t total = 0;
+    size_t i;
+    pc_subpath *sp;
+    if (knot_at(path, knot, err) == NULL) {
+        return PC_ERR_INVALID;
+    }
+    for (i = 0; i < path->nsubpaths; i++) {
+        size_t k = path->subpaths[i].nknots;
+        total = total > SIZE_MAX - k ? SIZE_MAX : total + k;
+    }
+    if (total <= 1) {
+        return pc_fail(err, PC_ERR_INVALID,
+                       "can't delete the path's only anchor point; delete the path instead");
+    }
+    sp = &path->subpaths[knot.sub];
+    if (sp->nknots <= 1) {
+        pc_subpath_fini(sp);
+        memmove(&path->subpaths[knot.sub], &path->subpaths[knot.sub + 1],
+                (path->nsubpaths - knot.sub - 1) * sizeof *path->subpaths);
+        path->nsubpaths--;
+        *removed_subpath = true;
+        return PC_OK;
+    }
+    memmove(&sp->knots[knot.knot], &sp->knots[knot.knot + 1],
+            (sp->nknots - knot.knot - 1) * sizeof *sp->knots);
+    sp->nknots--;
+    *removed_subpath = false;
+    return PC_OK;
+}
+
+static double dist2(const double a[2], const double b[2])
+{
+    return hypot(b[0] - a[0], b[1] - a[1]);
+}
+
+/* Unit vector from a to b; false when they (nearly) coincide. */
+static bool unit2(const double a[2], const double b[2], double out[2])
+{
+    double l = dist2(a, b);
+    if (!(l > 1e-9)) {
+        return false;
+    }
+    out[0] = (b[0] - a[0]) / l;
+    out[1] = (b[1] - a[1]) / l;
+    return true;
+}
+
+void pc_vec_curvature_knots(const double (*anchors)[2], size_t n, const bool *corners, size_t ncorners,
+                            bool closed, double (*out)[3][2])
+{
+    size_t i;
+    size_t e;
+    for (i = 0; i < n; i++) {
+        size_t j;
+        for (j = 0; j < 3; j++) {
+            out[i][j][0] = anchors[i][0];
+            out[i][j][1] = anchors[i][1];
+        }
+    }
+    for (i = 0; i < n; i++) {
+        const double *p = anchors[i];
+        const double *prev;
+        const double *next;
+        double d[2];
+        double li;
+        double lo;
+        bool corner = i < ncorners && corners[i];
+        bool inner = closed || (i > 0 && i + 1 < n);
+        if (n < 3 || corner || !inner) {
+            continue;
+        }
+        prev = anchors[(i + n - 1) % n];
+        next = anchors[(i + 1) % n];
+        if (!unit2(prev, next, d) && !unit2(p, next, d)) {
+            continue;
+        }
+        li = dist2(prev, p) / 3.0;
+        lo = dist2(p, next) / 3.0;
+        out[i][1][0] = p[0] - d[0] * li;
+        out[i][1][1] = p[1] - d[1] * li;
+        out[i][2][0] = p[0] + d[0] * lo;
+        out[i][2][1] = p[1] + d[1] * lo;
+    }
+    if (closed || n < 3) {
+        return;
+    }
+    for (e = 0; e < 2; e++) {
+        bool take_in = e == 0;
+        size_t end = take_in ? 0 : n - 1;
+        size_t nb = take_in ? 1 : n - 2;
+        const double *p = anchors[end];
+        double aim[2];
+        double d[2];
+        double l;
+        if (end < ncorners && corners[end]) {
+            continue;
+        }
+        aim[0] = out[nb][take_in ? 1 : 2][0];
+        aim[1] = out[nb][take_in ? 1 : 2][1];
+        if (!unit2(p, aim, d)) {
+            continue;
+        }
+        l = dist2(p, anchors[nb]) / 3.0;
+        out[end][take_in ? 2 : 1][0] = p[0] + d[0] * l;
+        out[end][take_in ? 2 : 1][1] = p[1] + d[1] * l;
+    }
+}
+
+pc_point pc_vec_eval(const pc_point seg[4], double t)
+{
+    double u = 1.0 - t;
+    double a = u * u * u;
+    double b = 3.0 * u * u * t;
+    double c = 3.0 * u * t * t;
+    double d = t * t * t;
+    return pc_point_make(a * seg[0].x + b * seg[1].x + c * seg[2].x + d * seg[3].x,
+                         a * seg[0].y + b * seg[1].y + c * seg[2].y + d * seg[3].y);
+}
+
 pc_status pc_vec_subpath_anchors(const pc_path *path, size_t s, pc_vec_knot_ref **out, size_t *n,
                                  pc_error *err)
 {
@@ -288,17 +478,6 @@ pc_status pc_vec_anchors_in(const pc_path *path, const double box[4], pc_vec_kno
     *out = v;
     *n = m;
     return PC_OK;
-}
-
-static pc_point eval(const pc_point seg[4], double t)
-{
-    double u = 1.0 - t;
-    double a = u * u * u;
-    double b = 3.0 * u * u * t;
-    double c = 3.0 * u * t * t;
-    double d = t * t * t;
-    return pc_point_make(a * seg[0].x + b * seg[1].x + c * seg[2].x + d * seg[3].x,
-                         a * seg[0].y + b * seg[1].y + c * seg[2].y + d * seg[3].y);
 }
 
 bool pc_vec_hit_test(const pc_path *path, pc_point p, double tol, const pc_vec_handle_ref *handles,
@@ -367,7 +546,7 @@ bool pc_vec_hit_test(const pc_path *path, pc_point p, double tol, const pc_vec_h
                 pc_subpath_segment(sp, k, seg);
                 for (j = 0; j <= N; j++) {
                     double t = (double)j / (double)N;
-                    double d = dist(eval(seg, t), p);
+                    double d = dist(pc_vec_eval(seg, t), p);
                     if (j == 0 || pc_vec_total_cmp(d, bd) < 0) {
                         bd = d;
                         bt = t;
@@ -378,7 +557,7 @@ bool pc_vec_hit_test(const pc_path *path, pc_point p, double tol, const pc_vec_h
                     double fd = bd;
                     for (j = 0; j <= 16; j++) {
                         double t = pc_clampd(bt - step + 2.0 * step * (double)j / 16.0, 0.0, 1.0);
-                        double d = dist(eval(seg, t), p);
+                        double d = dist(pc_vec_eval(seg, t), p);
                         if (d < fd) {
                             fd = d;
                             ft = t;

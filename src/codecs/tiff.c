@@ -27,6 +27,7 @@
 #include "base/pool.h"
 #include "base/utf8.h"
 #include "codecs/internal.h"
+#include "codecs/resolution.h"
 #include "codecs/orientation.h"
 #include "codecs/tiff_ifd.h"
 
@@ -2183,9 +2184,12 @@ pc_status cx_tiff_encode(const pc_cimage *src, cx_plan p, const pc_cencode_opts 
     if (st != PC_OK) {
         return st;
     }
-    /* TIFF writes no Orientation tag (= 1): keep the XMP from contradicting it. */
+    /* TIFF writes no Orientation tag (= 1): keep the XMP from contradicting it, and its resolution
+     * from contradicting the tags'. */
     if (o->embed_metadata && img->meta.xmp.has) {
-        st = pc_upright_xmp((const char *)img->meta.xmp.data, img->meta.xmp.len, &xmp, &xmp_len, err);
+        float dpiv[2] = {img->meta.dpi_x, img->meta.dpi_y};
+        st = pc_export_xmp((const char *)img->meta.xmp.data, img->meta.xmp.len,
+                           img->meta.has_dpi ? dpiv : NULL, &xmp, &xmp_len, err);
         if (st != PC_OK) {
             pc_cimage_fini(&tmp);
             return st;

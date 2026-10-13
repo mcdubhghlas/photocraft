@@ -55,13 +55,11 @@ bool pc_warp_style_is_preset(pc_warp_style s);
  * text is UTF-8 of `len` bytes. False (out untouched) when nothing matches. */
 bool pc_warp_style_parse(const char *text, size_t len, pc_warp_style *out);
 
-/* A preset prepared for one box. Plain data. */
+/* A preset prepared for one box: one bicubic Bezier patch. Plain data. */
 typedef struct pc_style_warp {
-    pc_warp_style style;
-    double b, hd, vd; /* bend, horizontal / vertical distortion, -1..1 */
-    bool vertical;    /* warp along the vertical axis */
-    double cx, cy;    /* box centre */
-    double hw, hh;    /* half width / height */
+    double grid[4][4][2]; /* control grid in box units (0..1, y down), [row][column] */
+    double ox, oy;        /* box origin */
+    double w, h;          /* box size */
 } pc_style_warp;
 
 /* Prepare style with bend/distortions in percent (-100..100, non-finite = 0) for
@@ -87,6 +85,10 @@ typedef struct pc_mesh {
     pc_point *points;
     size_t npoints;
 } pc_mesh;
+
+/* The preset as one Bezier patch over its box (every preset is one exactly). *out is written
+ * only on success; caller frees with pc_mesh_fini. */
+pc_status pc_style_warp_mesh(const pc_style_warp *w, pc_mesh *out, pc_error *err);
 
 /* Normalised (s, t) -> output point. */
 typedef pc_point (*pc_mesh_map_fn)(void *ctx, double s, double t);
@@ -130,6 +132,22 @@ pc_status pc_mesh_map_points(const pc_mesh *m, pc_point_map_fn f, void *ctx, pc_
 /* Normalised (s, t) whose surface point is nearest p (coarse search, then Newton steps). */
 void pc_mesh_param_at(const pc_mesh *m, pc_point p, double *s, double *t);
 
+/* Pulls the surface point at normalised (s, t) by d, as dragging the grid anywhere inside a patch
+ * does: the surrounding interior anchors follow with a fading share, the outer border stays
+ * pinned unless the grab is within 12% of it, and the grabbed patch's inner points (and corner
+ * blocks / border handles) close the gap so the point lands exactly at its start + d. `base`
+ * (nbase points) is the grid at the start of the drag; a pull replaces, not adds to, an earlier
+ * one. A base of the wrong size or a non-finite d leaves the mesh unchanged (PC_OK).
+ * PC_ERR_INVALID for a malformed mesh, PC_ERR_NOMEM. */
+pc_status pc_mesh_pull(pc_mesh *m, const pc_point *base, size_t nbase, double s, double t, pc_point d,
+                       pc_error *err);
+/* Drags control point `index` by d from the grid `base` it had when the drag began, keeping the
+ * surface smooth across grid lines: an anchor moves with its 3 x 3 block; a handle takes the two
+ * points beside it across its line and the opposite handle turns the other way. Ignored (mesh
+ * unchanged) for a malformed mesh, a base of the wrong size, an index out of range or a
+ * non-finite d. */
+void pc_mesh_drag_point(pc_mesh *m, const pc_point *base, size_t nbase, size_t index, pc_point d);
+
 /* Bounding box {x0, y0, x1, y1} of the control points (the surface lies inside it). */
 void pc_mesh_control_bounds(const pc_mesh *m, double out[4]);
 
@@ -159,8 +177,8 @@ bool pc_warp_eq(const pc_warp *a, const pc_warp *b);
 bool pc_warp_is_identity(const pc_warp *w);
 /* Map a source point to output space. */
 pc_point pc_warp_map(const pc_warp *w, double x, double y);
-/* The warp as a control mesh: presets are fitted with cols x rows patches (clamped 1..64);
- * custom warps return a copy of their mesh. */
+/* The warp as a control mesh: a preset is its own Bezier patch split exactly into cols x rows
+ * (clamped 1..64); custom warps return a copy of their mesh. */
 pc_status pc_warp_to_mesh(const pc_warp *w, size_t cols, size_t rows, pc_mesh *out, pc_error *err);
 /* The warp followed by the affine map m = {a, b, c, d, e, f}, as a custom warp. *out must be
  * empty (fresh or finalised) or the same object as w, which is then replaced. */

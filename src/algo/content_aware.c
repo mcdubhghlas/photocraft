@@ -1,10 +1,12 @@
-/* Content-Aware Fill (port of crates/algo/src/content_aware.rs); see content_aware.h. */
+/* Content-Aware Fill (port of crates/algo/src/content_aware.rs); see content_aware.h. The Auto
+ * sampling area is in content_aware_auto.c. */
 #include "algo/content_aware.h"
 
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include "algo/fxutil.h"
 #include "algo/inpaint.h"
 #include "algo/poisson.h"
 #include "base/mem.h"
@@ -13,7 +15,8 @@
 
 pc_algo_ca_fill_options pc_algo_ca_fill_options_default(void)
 {
-    return (pc_algo_ca_fill_options){0.35f, NULL, 0, false, false, 1};
+    pc_algo_ca_fill_options o = {pc_algo_ca_color_level("default"), NULL, 0, false, false, 1};
+    return o;
 }
 
 size_t pc_algo_ca_rotation_level(const char *level, float out[3])
@@ -40,19 +43,62 @@ size_t pc_algo_ca_rotation_level(const char *level, float out[3])
     return 0;
 }
 
-float pc_algo_ca_color_level(const char *level)
+pc_algo_adapt pc_algo_ca_color_level(const char *level)
 {
     if (level != NULL && strcmp(level, "none") == 0) {
-        return 0.0f;
+        return PC_ALGO_ADAPT_NONE;
     }
     if (level != NULL && strcmp(level, "high") == 0) {
-        return 0.65f;
+        return (pc_algo_adapt){0.8f, 1.25f, 0.08f};
     }
     if (level != NULL && strcmp(level, "veryHigh") == 0) {
-        return 0.9f;
+        return (pc_algo_adapt){0.67f, 1.5f, 0.14f};
     }
-    return 0.35f;
+    return (pc_algo_adapt){0.9f, 1.1f, 0.04f};
 }
+
+pc_algo_adapt pc_algo_ca_color_amount(uint8_t color)
+{
+    float c;
+    if (color == 0) {
+        return PC_ALGO_ADAPT_NONE;
+    }
+    c = (float)(color < 10 ? color : 10);
+    return (pc_algo_adapt){1.0f - 0.033f * c, 1.0f + 0.05f * c, 0.04f * c};
+}
+
+/* One axis of the sampling window: twice the centre c2, the selection's extent, the canvas lo..hi. */
+static void span(int64_t side, int64_t c2, uint32_t extent, int32_t lo32, int32_t hi32, int32_t *a0, int32_t *a1)
+{
+    int64_t lo = lo32, hi = hi32, a;
+    side = side > (int64_t)extent ? side : (int64_t)extent;
+    if (side >= hi - lo) {
+        *a0 = lo32, *a1 = hi32;
+        return;
+    }
+    a = (c2 - side) / 2;
+    a = a < lo ? lo : (a > hi - side ? hi - side : a);
+    *a0 = (int32_t)a, *a1 = (int32_t)(a + side);
+}
+
+pc_rect pc_algo_ca_sampling_window(pc_rect hole, pc_rect canvas)
+{
+    double w, h, sd;
+    int64_t side;
+    pc_rect r;
+    if (pc_rect_is_empty(hole) || pc_rect_is_empty(canvas)) {
+        return PC_RECT_EMPTY;
+    }
+    w = (double)(pc_rect_width(hole) > 50 ? pc_rect_width(hole) : 50);
+    h = (double)(pc_rect_height(hole) > 50 ? pc_rect_height(hole) : 50);
+    sd = pc_rs_min_k(round(4.0 * sqrt(w * h)), (double)INT32_MAX);
+    side = (int64_t)sd;
+    span(side, (int64_t)hole.x0 + hole.x1, pc_rect_width(hole), canvas.x0, canvas.x1, &r.x0, &r.x1);
+    span(side, (int64_t)hole.y0 + hole.y1, pc_rect_height(hole), canvas.y0, canvas.y1, &r.y0, &r.y1);
+    return r;
+}
+
+/* ---- variants ------------------------------------------------------------------------------------ */
 
 /* Sample the source bilinearly at (x, y); false when any tap is unusable. */
 static bool sample(size_t w, size_t h, size_t ch, const float *img, const bool *ok, float x, float y,
@@ -80,22 +126,62 @@ static bool sample(size_t w, size_t h, size_t ch, const float *img, const bool *
     return true;
 }
 
+typedef struct var_job {
+    size_t w, h, ch, ow;
+    const float *img;
+    const bool *ok;
+    float s, c, scale, icx, icy, ocx, ocy;
+    bool mirror;
+    float *vi;
+    bool *vo;
+    const pc_interrupt *ctl;
+} var_job;
+
+static pc_status var_rows(void *ctx, size_t chunk, size_t begin, size_t end)
+{
+    const var_job *j = ctx;
+    float px[PC_ALGO_HEAL_MAX_CH];
+    size_t x, y;
+    (void)chunk;
+    for (y = begin; y < end; y++) {
+        if (pc_interrupt_cancelled(j->ctl)) {
+            continue;
+        }
+        for (x = 0; x < j->ow; x++) {
+            float dx = ((float)x - j->ocx) / j->scale, dy = ((float)y - j->ocy) / j->scale;
+            float sx = j->icx + dx * j->c - dy * j->s;
+            float sy = j->icy + dx * j->s + dy * j->c;
+            if (j->mirror) {
+                sx = ((float)j->w - 1.0f) - sx;
+            }
+            if (sample(j->w, j->h, j->ch, j->img, j->ok, sx, sy, px)) {
+                size_t i = y * j->ow + x;
+                j->vo[i] = true;
+                memcpy(&j->vi[i * j->ch], px, j->ch * sizeof(float));
+            }
+        }
+    }
+    return PC_OK;
+}
+
 pc_status pc_algo_ca_variant(size_t w, size_t h, size_t ch, const float *img, const bool *ok, float deg,
-                             float scale, bool mirror, size_t *ow_out, size_t *oh_out, float **out_img,
-                             bool **out_ok, pc_error *err)
+                             float scale, bool mirror, const pc_interrupt *ctl, size_t *ow_out, size_t *oh_out,
+                             float **out_img, bool **out_ok, pc_error *err)
 {
     /* f32::to_radians multiplies by the f32 constant PI / 180. */
     float a = -(deg * (3.14159265358979323846f / 180.0f));
-    float s = sinf(a), c = cosf(a), fw, fh, icx, icy, ocx, ocy, px[PC_ALGO_HEAL_MAX_CH];
-    size_t ow, oh, x, y, n;
-    float *vi;
-    bool *vo;
+    float s = sinf(a), c = cosf(a), fw, fh;
+    size_t ow, oh, n;
+    var_job j;
     pc_status st = pc_algo_heal_dims(w, h, ch, SIZE_MAX, NULL, err);
     if (st != PC_OK) {
         return st;
     }
     if (w == 0 || h == 0) {
         return pc_fail(err, PC_ERR_INVALID, "empty source");
+    }
+    if (!(scale > 0.0f) || !isfinite(scale) || !isfinite(deg)) {
+        return pc_fail(err, PC_ERR_INVALID, "invalid variant transform");
     }
     /* Output size: the rotated, scaled bounding box. */
     fw = (float)w * scale, fh = (float)h * scale;
@@ -106,144 +192,38 @@ pc_status pc_algo_ca_variant(size_t w, size_t h, size_t ch, const float *img, co
     if ((st = pc_algo_heal_dims(ow, oh, ch, SIZE_MAX, &n, err)) != PC_OK) {
         return st;
     }
-    vi = pc_calloc_array(n * ch, sizeof *vi);
-    vo = pc_calloc_array(n, sizeof *vo);
-    if (vi == NULL || vo == NULL) {
-        free(vi);
-        free(vo);
+    j.vi = pc_calloc_array(n * ch, sizeof *j.vi);
+    j.vo = pc_calloc_array(n, sizeof *j.vo);
+    if (j.vi == NULL || j.vo == NULL) {
+        free(j.vi);
+        free(j.vo);
         return pc_fail(err, PC_ERR_NOMEM, "out of memory");
     }
-    icx = ((float)w - 1.0f) / 2.0f, icy = ((float)h - 1.0f) / 2.0f;
-    ocx = ((float)ow - 1.0f) / 2.0f, ocy = ((float)oh - 1.0f) / 2.0f;
-    for (y = 0; y < oh; y++) {
-        for (x = 0; x < ow; x++) {
-            float dx = ((float)x - ocx) / scale, dy = ((float)y - ocy) / scale;
-            float sx = icx + dx * c - dy * s;
-            float sy = icy + dx * s + dy * c;
-            if (mirror) {
-                sx = ((float)w - 1.0f) - sx;
-            }
-            if (sample(w, h, ch, img, ok, sx, sy, px)) {
-                size_t i = y * ow + x;
-                vo[i] = true;
-                memcpy(&vi[i * ch], px, ch * sizeof(float));
-            }
-        }
-    }
-    *ow_out = ow, *oh_out = oh, *out_img = vi, *out_ok = vo;
-    return PC_OK;
-}
-
-/* Separable box blur of radius r (edge-clamped), in place through a scratch buffer. */
-static pc_status box_blur(size_t w, size_t h, size_t ch, float *v, size_t r, pc_error *err)
-{
-    size_t len = w * h * ch, pass;
-    float *tmp, norm;
-    if (r == 0) {
-        return PC_OK;
-    }
-    tmp = pc_malloc_array(len, sizeof *tmp);
-    if (tmp == NULL) {
-        return pc_fail(err, PC_ERR_NOMEM, "out of memory");
-    }
-    norm = 1.0f / (float)(2 * r + 1);
-    for (pass = 0; pass < 2; pass++) {
-        bool horizontal = pass == 0;
-        const float *src = horizontal ? v : tmp;
-        float *dst = horizontal ? tmp : v;
-        size_t nl = horizontal ? h : w, m = horizontal ? w : h, line, c, k;
-        int64_t ri = (int64_t)r, mm = (int64_t)m - 1;
-        for (line = 0; line < nl; line++) {
-            for (c = 0; c < ch; c++) {
-                float acc = -0.0f;
-                int64_t q;
-#define AT(kk)                                                                                               \
-    src[((horizontal ? line * w + (size_t)pc_clamp_i64((kk), 0, mm)                                          \
-                     : (size_t)pc_clamp_i64((kk), 0, mm) * w + line)) *                                      \
-            ch +                                                                                             \
-        c]
-                for (q = -ri; q <= ri; q++) {
-                    acc += AT(q);
-                }
-                for (k = 0; k < m; k++) {
-                    size_t di = horizontal ? line * w + k : k * w + line;
-                    dst[di * ch + c] = acc * norm;
-                    acc += AT((int64_t)k + ri + 1) - AT((int64_t)k - ri);
-                }
-#undef AT
-            }
-        }
-    }
-    free(tmp);
-    return PC_OK;
-}
-
-/* Wraps the caller's interrupt for the completion: same cancel, progress scaled into 0..0.9. */
-typedef struct scaled_ctl {
-    const pc_interrupt *outer;
-    float scale;
-} scaled_ctl;
-
-static bool scaled_cancel(void *ctx)
-{
-    const scaled_ctl *s = ctx;
-    return pc_interrupt_cancelled(s->outer);
-}
-
-static void scaled_progress(void *ctx, float f)
-{
-    const scaled_ctl *s = ctx;
-    pc_interrupt_progress(s->outer, f * s->scale);
-}
-
-/* Pull the fill's low frequencies towards the membrane interpolation of the hole boundary. */
-static pc_status adapt_colors(size_t w, size_t h, size_t ch, const float *img, const bool *hole, float *out,
-                              float k, const pc_interrupt *ctl, pc_error *err)
-{
-    size_t x0 = w, y0 = h, x1 = 0, y1 = 0, x, y, r, i, c, n = w * h;
-    float *membrane = NULL, *low;
-    pc_status st;
-    for (y = 0; y < h; y++) {
-        for (x = 0; x < w; x++) {
-            if (hole[y * w + x]) {
-                x0 = x < x0 ? x : x0, y0 = y < y0 ? y : y0;
-                x1 = x + 1 > x1 ? x + 1 : x1, y1 = y + 1 > y1 ? y + 1 : y1;
-            }
-        }
-    }
-    r = (x1 - x0 > y1 - y0 ? x1 - x0 : y1 - y0) / 6;
-    r = r < 1 ? 1 : (r > 32 ? 32 : r);
-    st = pc_algo_poisson_membrane_fill(w, h, ch, img, n * ch, hole, n, ctl, &membrane, err);
-    if (st != PC_OK) {
-        return st;
-    }
-    pc_interrupt_progress(ctl, 0.97f);
+    j.w = w, j.h = h, j.ch = ch, j.ow = ow, j.img = img, j.ok = ok, j.s = s, j.c = c, j.scale = scale;
+    j.icx = ((float)w - 1.0f) / 2.0f, j.icy = ((float)h - 1.0f) / 2.0f;
+    j.ocx = ((float)ow - 1.0f) / 2.0f, j.ocy = ((float)oh - 1.0f) / 2.0f;
+    j.mirror = mirror, j.ctl = ctl;
+    (void)pc_algo_par_for(oh, 1, var_rows, &j);
     if ((st = pc_interrupt_check(ctl, err)) != PC_OK) {
-        free(membrane);
+        free(j.vi);
+        free(j.vo);
         return st;
     }
-    low = pc_malloc_array(n * ch, sizeof *low);
-    if (low == NULL) {
-        free(membrane);
-        return pc_fail(err, PC_ERR_NOMEM, "out of memory");
-    }
-    memcpy(low, out, n * ch * sizeof *low);
-    if ((st = box_blur(w, h, ch, low, r, err)) != PC_OK) {
-        free(membrane);
-        free(low);
-        return st;
-    }
-    for (i = 0; i < n; i++) {
-        if (hole[i]) {
-            for (c = 0; c < ch; c++) {
-                size_t j = i * ch + c;
-                out[j] = pc_clampf(out[j] + k * (membrane[j] - low[j]), 0.0f, 1.0f);
-            }
-        }
-    }
-    free(membrane);
-    free(low);
+    *ow_out = ow, *oh_out = oh, *out_img = j.vi, *out_ok = j.vo;
     return PC_OK;
+}
+
+/* ---- the fill ------------------------------------------------------------------------------------ */
+
+/* The caller's interrupt for the completion: same cancel, progress scaled into 0..0.99. */
+static bool inner_cancel(void *ctx)
+{
+    return pc_interrupt_cancelled(ctx);
+}
+
+static void inner_progress(void *ctx, float f)
+{
+    pc_interrupt_progress(ctx, f * 0.99f);
 }
 
 typedef struct variant {
@@ -252,48 +232,62 @@ typedef struct variant {
     bool *ok;
 } variant;
 
-pc_status pc_algo_ca_fill(size_t w, size_t h, size_t ch, const float *img, size_t len, const bool *hole,
-                          const bool *source, size_t mask_len, const pc_algo_ca_fill_options *opts,
-                          const pc_interrupt *ctl, float **out, pc_error *err)
+/* Fill the hole pixels of img from the membrane (nothing to copy from). */
+static pc_status membrane_into(size_t w, size_t h, size_t ch, float *img, const bool *hole, const pc_interrupt *ctl,
+                               pc_error *err)
+{
+    size_t n = w * h, i;
+    float *m = NULL;
+    pc_status st = pc_algo_poisson_membrane_fill(w, h, ch, img, n * ch, hole, n, ctl, &m, err);
+    if (st != PC_OK) {
+        return st;
+    }
+    for (i = 0; i < n; i++) {
+        if (hole[i]) {
+            memcpy(&img[i * ch], &m[i * ch], ch * sizeof(float));
+        }
+    }
+    free(m);
+    return PC_OK;
+}
+
+pc_status pc_algo_ca_fill_inplace(size_t w, size_t h, size_t ch, float *img, size_t len, const bool *hole,
+                                  const bool *source, size_t mask_len, const pc_algo_ca_fill_options *opts,
+                                  const pc_interrupt *ctl, pc_error *err)
 {
     pc_algo_complete_params params = pc_algo_complete_params_default();
-    variant extra[PC_ALGO_CA_MAX_ROTATIONS + 3];
-    size_t n, nextra = 0, gap, i, x, y, col_w = 0, col_h = 0, mw, mh, mn, oy, e;
-    bool *ok = NULL, *unknown = NULL, any = false;
-    float *mimg = NULL, *filled = NULL, *o = NULL;
-    scaled_ctl sc;
-    pc_interrupt inner;
+    size_t n, i, nv = 0, gap, k, x, y, mw = w, mh = h, mn;
+    variant vars[PC_ALGO_CA_MAX_ROTATIONS + 3];
+    bool *ok = NULL, any = false, filled = false;
+    uint8_t *roles = NULL;
+    float *mimg = NULL, *f = NULL;
+    pc_interrupt inner = {inner_cancel, inner_progress, (void *)(uintptr_t)ctl};
     pc_status st = pc_algo_heal_dims(w, h, ch, len, &n, err);
     if (st != PC_OK) {
         return st;
     }
-    if (opts == NULL || mask_len != n || (n > 0 && (img == NULL || hole == NULL || source == NULL))) {
+    if (opts == NULL || mask_len != n || (n > 0 && (img == NULL || hole == NULL || source == NULL)) ||
+        (opts->rotation_count > 0 && opts->rotations == NULL)) {
         return pc_fail(err, PC_ERR_INVALID, "masks hold %zu entries, expected %zu", mask_len, n);
     }
-    if (opts->rotation_count > PC_ALGO_CA_MAX_ROTATIONS ||
-        (opts->rotation_count > 0 && opts->rotations == NULL)) {
-        return pc_fail(err, PC_ERR_LIMIT, "too many source rotations (%zu)", opts->rotation_count);
+    if (opts->rotation_count > PC_ALGO_CA_MAX_ROTATIONS) {
+        return pc_fail(err, PC_ERR_LIMIT, "%zu rotations is too many", opts->rotation_count);
+    }
+    if ((st = pc_algo_adapt_check(opts->color_adaptation, err)) != PC_OK) {
+        return st;
     }
     for (i = 0; i < n && !any; i++) {
         any = hole[i];
     }
-    o = pc_malloc_array(n * ch, sizeof *o);
-    if (o == NULL) {
-        return pc_fail(err, PC_ERR_NOMEM, "out of memory");
-    }
-    if (n > 0) {
-        memcpy(o, img, n * ch * sizeof *o);
-    }
     if (!any) {
-        *out = o;
         return PC_OK;
     }
     params.seed = opts->seed;
+    params.adapt = opts->color_adaptation;
     gap = 2 * params.patch_radius + 2;
     ok = pc_malloc_array(n, sizeof *ok);
     if (ok == NULL) {
-        st = pc_fail(err, PC_ERR_NOMEM, "out of memory");
-        goto cleanup;
+        return pc_fail(err, PC_ERR_NOMEM, "out of memory");
     }
     for (i = 0; i < n; i++) {
         ok[i] = !hole[i] && source[i];
@@ -302,110 +296,187 @@ pc_status pc_algo_ca_fill(size_t w, size_t h, size_t ch, const float *img, size_
     {
         float degs[PC_ALGO_CA_MAX_ROTATIONS + 3], scales[PC_ALGO_CA_MAX_ROTATIONS + 3];
         bool mirrors[PC_ALGO_CA_MAX_ROTATIONS + 3];
-        size_t nv = 0, k;
+        size_t want = 0;
         if (opts->mirror) {
-            degs[nv] = 0.0f, scales[nv] = 1.0f, mirrors[nv++] = true;
+            degs[want] = 0.0f, scales[want] = 1.0f, mirrors[want++] = true;
         }
         for (k = 0; k < opts->rotation_count; k++) {
-            degs[nv] = opts->rotations[k], scales[nv] = 1.0f, mirrors[nv++] = false;
+            degs[want] = opts->rotations[k], scales[want] = 1.0f, mirrors[want++] = false;
         }
         if (opts->scale) {
-            degs[nv] = 0.0f, scales[nv] = 0.8f, mirrors[nv++] = false;
-            degs[nv] = 0.0f, scales[nv] = 1.25f, mirrors[nv++] = false;
+            degs[want] = 0.0f, scales[want] = 0.8f, mirrors[want++] = false;
+            degs[want] = 0.0f, scales[want] = 1.25f, mirrors[want++] = false;
         }
-        for (k = 0; k < nv; k++) {
-            variant *v = &extra[nextra];
-            st = pc_algo_ca_variant(w, h, ch, img, ok, degs[k], scales[k], mirrors[k], &v->w, &v->h, &v->img,
-                                    &v->ok, err);
-            if (st != PC_OK) {
+        for (k = 0; k < want; k++) {
+            if ((st = pc_algo_ca_variant(w, h, ch, img, ok, degs[k], scales[k], mirrors[k], ctl, &vars[nv].w,
+                                         &vars[nv].h, &vars[nv].img, &vars[nv].ok, err)) != PC_OK) {
                 goto cleanup;
             }
-            nextra++;
-            col_w = v->w > col_w ? v->w : col_w;
-            col_h += v->h + gap;
+            nv++;
         }
     }
-    /* Mosaic: identity at the left, variants in a column to its right. */
-    mw = nextra == 0 ? w : w + gap + col_w;
-    mh = h > col_h ? h : col_h;
+    if (nv > 0) {
+        size_t col_w = 0, col_h = 0;
+        for (k = 0; k < nv; k++) {
+            col_w = vars[k].w > col_w ? vars[k].w : col_w;
+            col_h += vars[k].h + gap;
+        }
+        mw = w + gap + col_w;
+        mh = h > col_h ? h : col_h;
+    }
     if ((st = pc_algo_heal_dims(mw, mh, ch, SIZE_MAX, &mn, err)) != PC_OK) {
         goto cleanup;
     }
-    mimg = pc_calloc_array(mn * ch, sizeof *mimg);
-    unknown = pc_malloc_array(mn, sizeof *unknown);
-    if (mimg == NULL || unknown == NULL) {
+    roles = pc_calloc_array(mn, 1);
+    if (roles == NULL) {
         st = pc_fail(err, PC_ERR_NOMEM, "out of memory");
         goto cleanup;
     }
-    for (i = 0; i < mn; i++) {
-        unknown[i] = true;
-    }
     for (y = 0; y < h; y++) {
         for (x = 0; x < w; x++) {
-            size_t s = y * w + x, d = y * mw + x;
-            memcpy(&mimg[d * ch], &img[s * ch], ch * sizeof(float));
-            unknown[d] = !ok[s];
+            size_t s = y * w + x;
+            roles[y * mw + x] = hole[s] ? PC_ALGO_PX_HOLE : (ok[s] ? PC_ALGO_PX_SOURCE : PC_ALGO_PX_KNOWN);
         }
     }
-    oy = 0;
-    for (e = 0; e < nextra; e++) {
-        const variant *v = &extra[e];
-        for (y = 0; y < v->h; y++) {
-            for (x = 0; x < v->w; x++) {
-                size_t s = y * v->w + x, d = (oy + y) * mw + w + gap + x;
-                memcpy(&mimg[d * ch], &v->img[s * ch], ch * sizeof(float));
-                unknown[d] = !v->ok[s];
-            }
-        }
-        oy += v->h + gap;
-    }
-    if ((st = pc_interrupt_check(ctl, err)) != PC_OK) {
-        goto cleanup;
-    }
-    /* The completion is nearly all the work: it reports 0-90 %. */
-    sc = (scaled_ctl){ctl, 0.9f};
-    inner = (pc_interrupt){scaled_cancel, scaled_progress, &sc};
-    st = pc_algo_inpaint_complete(mw, mh, ch, mimg, mn * ch, unknown, mn, &params, &inner, &filled, err);
-    if (st != PC_OK) {
-        goto cleanup;
-    }
-    if (filled != NULL) {
-        for (y = 0; y < h; y++) {
-            for (x = 0; x < w; x++) {
-                if (hole[y * w + x]) {
-                    memcpy(&o[(y * w + x) * ch], &filled[(y * mw + x) * ch], ch * sizeof(float));
-                }
-            }
-        }
-    } else {
-        float *m = NULL;
-        if ((st = pc_algo_poisson_membrane_fill(w, h, ch, img, len, hole, n, ctl, &m, err)) != PC_OK) {
+    if (nv > 0) {
+        size_t oy = 0;
+        /* Mosaic: identity at the left, variants in a column to its right, gaps that are no image. */
+        mimg = pc_calloc_array(mn * ch, sizeof *mimg);
+        if (mimg == NULL) {
+            st = pc_fail(err, PC_ERR_NOMEM, "out of memory");
             goto cleanup;
         }
-        free(o);
-        o = m;
+        for (y = 0; y < h; y++) {
+            memcpy(&mimg[y * mw * ch], &img[y * w * ch], w * ch * sizeof(float));
+        }
+        for (k = 0; k < nv; k++) {
+            const variant *v = &vars[k];
+            if ((st = pc_interrupt_check(ctl, err)) != PC_OK) {
+                goto cleanup;
+            }
+            for (y = 0; y < v->h; y++) {
+                for (x = 0; x < v->w; x++) {
+                    size_t s = y * v->w + x, d = (oy + y) * mw + w + gap + x;
+                    memcpy(&mimg[d * ch], &v->img[s * ch], ch * sizeof(float));
+                    if (v->ok[s]) {
+                        roles[d] = PC_ALGO_PX_SOURCE;
+                    }
+                }
+            }
+            oy += v->h + gap;
+        }
     }
+    for (k = 0; k < nv; k++) {
+        free(vars[k].img);
+        free(vars[k].ok);
+    }
+    nv = 0;
+    free(ok);
+    ok = NULL;
     if ((st = pc_interrupt_check(ctl, err)) != PC_OK) {
         goto cleanup;
     }
-    if (opts->color_adaptation > 0.0f &&
-        (st = adapt_colors(w, h, ch, img, hole, o, opts->color_adaptation, ctl, err)) != PC_OK) {
-        goto cleanup;
+    if (mimg == NULL) {
+        /* Without variants the image itself is completed (it changes only in the hole). */
+        st = pc_algo_inpaint_complete_masked_inplace(w, h, ch, img, len, roles, n, &params, &inner, &filled, err);
+        if (st == PC_OK && !filled) {
+            st = membrane_into(w, h, ch, img, hole, ctl, err);
+        }
+    } else {
+        st = pc_algo_inpaint_complete_masked(mw, mh, ch, mimg, mn * ch, roles, mn, &params, &inner, &f, err);
+        if (st == PC_OK && f != NULL) {
+            for (y = 0; y < h; y++) {
+                for (x = 0; x < w; x++) {
+                    if (hole[y * w + x]) {
+                        memcpy(&img[(y * w + x) * ch], &f[(y * mw + x) * ch], ch * sizeof(float));
+                    }
+                }
+            }
+        } else if (st == PC_OK) {
+            st = membrane_into(w, h, ch, img, hole, ctl, err);
+        }
     }
-    pc_interrupt_progress(ctl, 1.0f);
+    if (st == PC_OK && (st = pc_interrupt_check(ctl, err)) == PC_OK) {
+        pc_interrupt_progress(ctl, 1.0f);
+    }
 cleanup:
-    for (e = 0; e < nextra; e++) {
-        free(extra[e].img);
-        free(extra[e].ok);
+    for (k = 0; k < nv; k++) {
+        free(vars[k].img);
+        free(vars[k].ok);
     }
     free(ok);
-    free(unknown);
+    free(roles);
     free(mimg);
-    free(filled);
+    free(f);
+    return st;
+}
+
+pc_status pc_algo_ca_fill(size_t w, size_t h, size_t ch, const float *img, size_t len, const bool *hole,
+                          const bool *source, size_t mask_len, const pc_algo_ca_fill_options *opts,
+                          const pc_interrupt *ctl, float **out, pc_error *err)
+{
+    size_t n;
+    float *o;
+    pc_status st = pc_algo_heal_dims(w, h, ch, len, &n, err);
+    if (st != PC_OK) {
+        return st;
+    }
+    if (n > 0 && img == NULL) {
+        return pc_fail(err, PC_ERR_INVALID, "missing buffer");
+    }
+    o = pc_malloc_array(n * ch > 0 ? n * ch : 1, sizeof *o);
+    if (o == NULL) {
+        return pc_fail(err, PC_ERR_NOMEM, "out of memory");
+    }
+    if (n > 0) {
+        memcpy(o, img, n * ch * sizeof *o);
+    }
+    st = pc_algo_ca_fill_inplace(w, h, ch, o, len, hole, source, mask_len, opts, ctl, err);
     if (st != PC_OK) {
         free(o);
         return st;
     }
     *out = o;
+    return PC_OK;
+}
+
+/* ---- level transform ------------------------------------------------------------------------------ */
+
+static void moments64(const float *v, size_t nv, size_t ch, size_t c, double *s, double *s2, double *n)
+{
+    size_t i;
+    *s = 0.0, *s2 = 0.0, *n = 0.0;
+    for (i = 0; i + ch <= nv; i += ch) {
+        double x = (double)v[i + c];
+        *s += x;
+        *s2 += x * x;
+        *n += 1.0;
+    }
+}
+
+pc_status pc_algo_ca_level_transform(size_t ch, const float *from, size_t nfrom, const float *to, size_t nto,
+                                     pc_algo_adapt a, float (*out)[2], pc_error *err)
+{
+    size_t c, step = ch > 1 ? ch : 1;
+    pc_status st;
+    if ((nfrom > 0 && from == NULL) || (nto > 0 && to == NULL) || (ch > 0 && out == NULL)) {
+        return pc_fail(err, PC_ERR_INVALID, "missing samples");
+    }
+    if ((st = pc_algo_adapt_check(a, err)) != PC_OK) {
+        return st;
+    }
+    for (c = 0; c < ch; c++) {
+        double fs, fs2, fnn, ts, ts2, tn, k;
+        moments64(from, nfrom, step, c, &fs, &fs2, &fnn);
+        moments64(to, nto, step, c, &ts, &ts2, &tn);
+        if (pc_algo_adapt_is_none(a) || fnn == 0.0 || tn == 0.0) {
+            out[c][0] = 1.0f, out[c][1] = 0.0f;
+            continue;
+        }
+        /* Both sets scaled to the same count for the fit. */
+        k = fnn / tn;
+        pc_algo_adapt_fit(a, (float)fnn, (float)(ts * k), (float)(ts2 * k), (float)fs, (float)fs2, &out[c][0],
+                          &out[c][1]);
+    }
     return PC_OK;
 }

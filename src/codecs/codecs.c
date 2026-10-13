@@ -66,7 +66,7 @@ pc_climits pc_climits_default(void)
     l.max_width = 1u << 18;
     l.max_height = 1u << 18;
     l.max_pixels = 1ull << 30;
-    l.max_alloc = SIZE_MAX > 0xFFFFFFFFu ? 8ull << 30 : 2ull << 30;
+    l.max_alloc = SIZE_MAX > 0xFFFFFFFFu ? 8ull << 30 : 1ull << 30;
     return l;
 }
 
@@ -111,6 +111,19 @@ pc_status pc_climits_check(const pc_climits *l, uint32_t w, uint32_t h, pc_clayo
                            pc_error *err)
 {
     return cx_check_bytes(l, w, h, (uint64_t)(pc_clayout_channels(layout) * pc_csample_bytes(s)), err);
+}
+
+pc_status cx_check_plausible(uint64_t declared_bytes, size_t file_len, uint64_t max_ratio, pc_error *err)
+{
+    uint64_t cap = max_ratio != 0 && (uint64_t)file_len > UINT64_MAX / max_ratio
+                       ? UINT64_MAX
+                       : (uint64_t)file_len * max_ratio;
+    cap = cap > UINT64_MAX - (1u << 20) ? UINT64_MAX : cap + (1u << 20);
+    if (declared_bytes > cap) {
+        return cx_limit(err, "a %zu byte file cannot hold %llu bytes of image data", file_len,
+                        (unsigned long long)declared_bytes);
+    }
+    return PC_OK;
 }
 
 size_t cx_alloc_usize(const pc_climits *l) { return l->max_alloc > SIZE_MAX ? SIZE_MAX : (size_t)l->max_alloc; }
@@ -422,13 +435,13 @@ size_t pc_cfidelity_warnings_with(const pc_cimage *img, pc_cformat f, const pc_c
         }
         if (f == PC_CF_JPEG) {
             pc_buf seg = PC_BUF_INIT;
-            if (m->exif.has && !cx_jpeg_exif_segment(m->exif.data, m->exif.len, &seg)) {
+            if (m->exif.has && !cx_jpeg_exif_segment(m->exif.data, m->exif.len, NULL, &seg)) {
                 pc_cfidelity w = W(PC_FW_METADATA_TOO_LARGE);
                 w.what = "EXIF";
                 w.bytes = m->exif.len;
                 push(&l, w);
             }
-            if (m->xmp.has && !cx_jpeg_xmp_segment(m->xmp.data, m->xmp.len, &seg)) {
+            if (m->xmp.has && !cx_jpeg_xmp_segment(m->xmp.data, m->xmp.len, NULL, &seg)) {
                 pc_cfidelity w = W(PC_FW_METADATA_TOO_LARGE);
                 w.what = "XMP";
                 w.bytes = m->xmp.len;
@@ -517,6 +530,12 @@ pc_status pc_cdecode_as_with(pc_cformat f, const uint8_t *b, size_t n, const pc_
     case PC_CF_PNM:
         st = cx_pnm_decode(b, n, l, &img, err);
         break;
+    case PC_CF_PCX:
+        st = cx_pcx_decode(b, n, l, &img, err);
+        break;
+    case PC_CF_FITS:
+        st = cx_fits_decode(b, n, l, &img, err);
+        break;
     case PC_CF_EXR:
         st = cx_exr_decode(b, n, l, &img, err);
         break;
@@ -548,6 +567,12 @@ pc_status pc_cdecode_as_with(pc_cformat f, const uint8_t *b, size_t n, const pc_
         pc_cimage_fini(&img);
         return st;
     }
+    /* Without a resolution of the format's own (PNG pHYs, TIFF tags, JPEG's metadata), the XMP or
+     * EXIF one counts, like Photoshop: a WebP, HEIF or PNG from a camera opens at its recorded
+     * resolution, not at the 72 ppi default. */
+    if (!img.meta.has_dpi && f != PC_CF_TIFF) {
+        img.meta.has_dpi = cx_resolution_from_metadata(&img.meta, &img.meta.dpi_x, &img.meta.dpi_y);
+    }
     /* Turn the pixels upright: a TIFF records it in the decoded page's directory, the others in
      * their EXIF block. HEIF's decoder has already applied its container's. */
     if (f == PC_CF_TIFF) {
@@ -575,6 +600,34 @@ pc_status pc_cdecode_tiff_page(const uint8_t *b, size_t n, size_t page, const pc
 }
 
 uint16_t pc_ctiff_orientation(const uint8_t *b, size_t n) { return cx_tiff_orientation(b, n, false, 0); }
+
+pc_status pc_cdecode_exr_part(const uint8_t *b, size_t n, size_t part, const pc_cdecode_opts *o,
+                              pc_cimage *out, pc_error *err)
+{
+    pc_cimage img;
+    pc_status st;
+    pc_cimage_init(&img);
+    st = cx_exr_decode_part(b, n, part, &o->limits, &img, err);
+    if (st != PC_OK) {
+        pc_cimage_fini(&img);
+        return st;
+    }
+    return finish_decode(&img, 1, o, out, err);
+}
+
+pc_status pc_cdecode_exr_channels(const uint8_t *b, size_t n, size_t part, const char *const *names,
+                                  size_t nnames, const pc_cdecode_opts *o, pc_cimage *out, pc_error *err)
+{
+    pc_cimage img;
+    pc_status st;
+    pc_cimage_init(&img);
+    st = cx_exr_decode_channels(b, n, part, names, nnames, &o->limits, &img, err);
+    if (st != PC_OK) {
+        pc_cimage_fini(&img);
+        return st;
+    }
+    return finish_decode(&img, 1, o, out, err);
+}
 
 uint16_t pc_ctiff_page_orientation(const uint8_t *b, size_t n, size_t page)
 {
@@ -618,6 +671,9 @@ pc_status pc_cencode(const pc_cimage *img, pc_cformat f, const pc_cencode_opts *
         break;
     case PC_CF_PNM:
         st = cx_pnm_encode(img, p, o, &b, err);
+        break;
+    case PC_CF_FITS:
+        st = cx_fits_encode(img, p, o, &b, err);
         break;
     case PC_CF_EXR:
         st = cx_exr_encode(img, p, o, &b, err);

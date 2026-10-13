@@ -96,7 +96,7 @@ static int64_t kern_units(float v)
     return isfinite(v) ? pc_f32_to_i64(pc_clampf(roundf(v), -10000.0f, 10000.0f)) : 0;
 }
 
-static bool manual(const pc_char_style *s)
+bool psd_manual(const pc_char_style *s)
 {
     return s->kerning == PC_KERNING_OFF || kern_units(s->kern) != 0;
 }
@@ -408,7 +408,7 @@ static pc_status pair_runs(const pc_str *ed_text, const pc_text_run *runs, size_
          * doesn't say so already; harmless (and Photoshop's own form) next to a kern on j. */
         if (j >= 2) {
             const pc_char_style *p2 = own_ri[j - 2] < nruns ? &runs[own_ri[j - 2]].style : NULL;
-            off = p2 != NULL && manual(p2) && (kern_units(p2->kern) == 0 || k != 0);
+            off = p2 != NULL && psd_manual(p2) && (kern_units(p2->kern) == 0 || k != 0);
         } else {
             off = k != 0;
         }
@@ -720,23 +720,24 @@ static pc_status fill_engine_dict(pc_ed_value *dict, const pc_text_layer *layer,
     case PC_AA_NONE:
         aa = 0;
         break;
-    case PC_AA_SHARP:
+    case PC_AA_CRISP:
         aa = 1;
         break;
-    case PC_AA_CRISP:
+    case PC_AA_STRONG:
         aa = 2;
         break;
-    case PC_AA_STRONG:
+    case PC_AA_SMOOTH:
         aa = 3;
         break;
-    case PC_AA_SMOOTH:
+    case PC_AA_SHARP:
         aa = 4;
         break;
-    /* EngineData has no platform modes; the `AntA` descriptor carries the exact value. */
+    /* No Photoshop file confirms the platform modes' numbers here; the `AntA` descriptor carries
+     * the exact mode, and Smooth is the closest. */
     case PC_AA_WINDOWS:
     case PC_AA_WINDOWS_LCD:
     default:
-        aa = 1;
+        aa = 3;
         break;
     }
     if (st == PC_OK) {
@@ -1080,6 +1081,13 @@ static bool warp_is_none(const pc_psd_desc *w)
     return n == 8 && memcmp(b, "warpNone", 8) == 0;
 }
 
+/* The warp's `warpStyle` is an enumeration other than warpNone. */
+static bool warp_has_style(const pc_psd_desc *w)
+{
+    const pc_psd_value *v = pc_psd_desc_get(w, "warpStyle");
+    return v != NULL && v->kind == PC_PSD_V_ENUMERATED && !warp_is_none(w);
+}
+
 /* The text descriptor items build_tysh patches. */
 static pc_status patch_text(pc_psd_desc *text, const pc_text_layer *layer, const float b[4], const pc_buf *ed,
                             pc_error *err)
@@ -1207,10 +1215,13 @@ pc_status pc_text_build_tysh(const pc_text_layer *layer, float dpi, const float 
     }
     if (st == PC_OK) {
         t.transform = layer->transform;
-        t.bounds[0] = pc_f32_to_i32(floorf(b[0]));
-        t.bounds[1] = pc_f32_to_i32(floorf(b[1]));
-        t.bounds[2] = pc_f32_to_i32(ceilf(b[2]));
-        t.bounds[3] = pc_f32_to_i32(ceilf(b[3]));
+        /* Photoshop's trailing bounds: zeros for unwarped type, the text-space bounds when
+         * warped. */
+        bool warped = t.has_warp && warp_has_style(&t.warp);
+        size_t q;
+        for (q = 0; q < 4; q++) {
+            t.bounds[q] = warped ? b[q] : 0.0f;
+        }
         st = pc_tysh_write(&t, out, err);
     }
     pc_tysh_fini(&t);

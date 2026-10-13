@@ -369,7 +369,7 @@ static void test_fetch_errors(void)
     o.max_blob_bytes = 999;
     CHECK(pc_format_fetch_new(src, &o, &f, NULL) == PC_OK);
     CHECK(pc_format_fetch_blob(f, hash, &b, &e) == PC_ERR_LIMIT);
-    CHECK_EQ_STR(e.msg + strlen(e.msg) - strlen("exceeds max_blob_bytes"), "exceeds max_blob_bytes");
+    CHECK_EQ_STR(e.msg + strlen(e.msg) - strlen(".zst exceeds 999 bytes"), ".zst exceeds 999 bytes");
     pc_format_fetch_free(f);
     o.max_blob_bytes = 5; /* smaller than the compressed entry: the zip layer refuses it */
     CHECK(pc_format_fetch_new(src, &o, &f, NULL) == PC_OK);
@@ -399,11 +399,12 @@ static void test_dir_source_hostile(void)
     CHECK(pc_format_read_manifest_raw(src, 100, &got, NULL) == PC_OK);
     CHECK(got.len == 6);
     CHECK(pc_format_read_manifest_raw(src, 5, &got, &e) == PC_ERR_LIMIT);
-    CHECK_EQ_STR(e.msg, "limit exceeded: `manifest.json` is 6 bytes (max 5)");
-    /* A symlink to an endless device is bounded by max, not read for ever. */
+    CHECK_EQ_STR(e.msg, "limit exceeded: `manifest.json` exceeds 5 bytes");
+    /* A symlink to an endless device is not a regular file. */
     (void)unlink(p);
     if (symlink("/dev/zero", p) == 0) {
-        CHECK(pc_format_read_manifest_raw(src, 1000, &got, &e) == PC_ERR_LIMIT);
+        CHECK(pc_format_read_manifest_raw(src, 1000, &got, &e) == PC_ERR_FORMAT);
+        CHECK_EQ_STR(e.msg, "corrupt .pcraft bundle: `manifest.json` is not a regular file");
         (void)unlink(p);
     }
     /* A FIFO fails instead of blocking the load. */
@@ -415,7 +416,7 @@ static void test_dir_source_hostile(void)
     /* A directory where a file should be. */
     CHECK(mkdir(p, 0755) == 0);
     CHECK(pc_format_read_manifest_raw(src, 1 << 20, &got, &e) != PC_OK);
-    CHECK(pc_format_error_kind(e.code, &e) == PC_FORMAT_ERR_IO);
+    CHECK(pc_format_error_kind(e.code, &e) == PC_FORMAT_ERR_CORRUPT);
     pc_format_source_free(src);
     t_rm_rf(dir);
     pc_buf_fini(&got);

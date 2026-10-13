@@ -150,8 +150,8 @@ pc_status pc_psd_version_info_resource(bool has_real_merged_data, pc_psd_resourc
     v.version = 1;
     v.has_real_merged_data = has_real_merged_data;
     v.file_version = 1;
-    CK(pc_psd_ustr_from_utf8("Adobe Photoshop", true, &v.writer, err));
-    CK(pc_psd_ustr_from_utf8("Adobe Photoshop CS6", true, &v.reader, err));
+    CK(pc_psd_ustr_from_utf8("Adobe Photoshop", false, &v.writer, err));
+    CK(pc_psd_ustr_from_utf8("Adobe Photoshop 2026", false, &v.reader, err));
     CK(pc_psd_version_info_to_bytes(&v, &data, err));
     memset(out, 0, sizeof *out);
     memcpy(out->signature, "8BIM", 4);

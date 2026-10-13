@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
-use photocraft_doc::{Pattern, Rect};
+use photocraft_doc::{ColorMode, Pattern, PixelFormat, Rect, SampleType};
 
 pub(crate) const PREPARED_PATTERN_BYTES: usize = 64 << 20;
 const MAX_PREPARED_PATTERNS: usize = 64;
@@ -23,12 +23,20 @@ struct PreparedState {
 pub(crate) struct PreparedPatterns<'a> {
     patterns: &'a [Pattern],
     budget: usize,
+    /// The colour mode the patterns are painted into (see [`pattern_rgba`]).
+    mode: ColorMode,
     state: Mutex<PreparedState>,
 }
 
 impl<'a> PreparedPatterns<'a> {
     pub(crate) fn new(patterns: &'a [Pattern], budget: usize) -> Self {
-        Self { patterns, budget, state: Mutex::new(PreparedState { slots: HashMap::new(), reserved_bytes: 0 }) }
+        Self { patterns, budget, mode: ColorMode::Rgb, state: Mutex::new(PreparedState { slots: HashMap::new(), reserved_bytes: 0 }) }
+    }
+
+    /// Patterns painted into a document of colour mode `mode`.
+    pub(crate) fn in_mode(mut self, mode: ColorMode) -> Self {
+        self.mode = mode;
+        self
     }
 
     pub(crate) fn source(&self) -> &'a [Pattern] {
@@ -37,7 +45,7 @@ impl<'a> PreparedPatterns<'a> {
 
     pub(crate) fn get(&self, id: &str, name: &str) -> Option<Arc<Tile>> {
         let p = photocraft_doc::pattern::find(self.patterns, id, name)?;
-        if p.is_empty() {
+        if !p.is_paintable() {
             return None;
         }
         let bytes = usize::try_from(p.width)
@@ -68,11 +76,35 @@ impl<'a> PreparedPatterns<'a> {
                 // Conversion must stay serial: Rayon work stealing can re-enter this slot
                 // while its initializer is running inside an effect-map OnceLock.
                 // Run on the requesting worker to preserve its active CMYK profile.
-                slot.get_or_init(|| Tile::new(p).map(Arc::new)).clone()
+                slot.get_or_init(|| Tile::new_in(p, self.mode).map(Arc::new)).clone()
             }
-            None => Tile::new(p).map(Arc::new),
+            None => Tile::new_in(p, self.mode).map(Arc::new),
         }
     }
+}
+
+/// A pattern's pixels (straight-alpha RGBA, row-major) as they look painted into a document of
+/// colour mode `mode`. A pattern keeps its own colours (an RGB pattern stays RGB, in the
+/// library and in the document), but in a Grayscale or CMYK document it paints that mode's
+/// colours: what Edit › Fill writes into the document's pixels, and what Photoshop shows (the
+/// pattern in colour in its picker, filled in grey). Empty for a pattern that isn't
+/// [paintable](Pattern::is_paintable).
+pub fn pattern_rgba(p: &Pattern, mode: ColorMode) -> Vec<[f32; 4]> {
+    let Some(n) = p.is_paintable().then(|| usize::try_from(p.pixel_count()).ok()).flatten() else {
+        return Vec::new();
+    };
+    let mut px = vec![[0.0f32; 4]; n];
+    p.surface.read_rgba_into(p.rect(), &mut px);
+    let paints_in = matches!(mode, ColorMode::Grayscale | ColorMode::Bitmap | ColorMode::Duotone | ColorMode::Cmyk);
+    if paints_in && p.surface.format().mode != mode {
+        let fmt = PixelFormat::new(mode, SampleType::F32, true);
+        let mut v = [0.0f32; 5];
+        for q in &mut px {
+            let n = photocraft_raster::from_rgba_into(&fmt, *q, &mut v);
+            *q = photocraft_raster::to_rgba(&fmt, v.get(..n).unwrap_or_default());
+        }
+    }
+    px
 }
 
 /// A pattern converted once to straight-alpha RGBA for sampling.
@@ -85,12 +117,17 @@ pub struct Tile {
 
 impl Tile {
     pub fn new(p: &Pattern) -> Option<Tile> {
-        if p.is_empty() {
+        Tile::new_in(p, ColorMode::Rgb)
+    }
+
+    /// The tile of `p` painted into a document of colour mode `mode` (see [`pattern_rgba`]).
+    /// `None` when the pattern isn't [paintable](Pattern::is_paintable).
+    pub fn new_in(p: &Pattern, mode: ColorMode) -> Option<Tile> {
+        if !p.is_paintable() {
             return None;
         }
         let (w, h) = (p.width as usize, p.height as usize);
-        let mut px = vec![[0.0f32; 4]; w * h];
-        p.surface.read_rgba_into(p.rect(), &mut px);
+        let mut px = pattern_rgba(p, mode);
         for q in &mut px {
             for c in 0..3 {
                 q[c] *= q[3];
@@ -221,6 +258,17 @@ mod tests {
         assert_eq!(px[0], [0.0, 0.0, 1.0, 1.0]); // x = -4 wraps to 0
         assert_eq!(px[6], [1.0, 0.0, 0.0, 1.0]); // x = 2
         assert_eq!(px[8], [0.0, 0.0, 1.0, 1.0]); // x = 4
+    }
+
+    #[test]
+    fn patterns_too_large_to_paint_are_skipped_without_allocating() {
+        // Only the size is declared (no tiles): a hostile file can claim any size.
+        let p = Pattern { id: "big".into(), name: "Big".into(), width: 9000, height: 8000, surface: Surface::new(PixelFormat::RGBA8) };
+        assert!(!p.is_paintable());
+        assert!(Tile::new(&p).is_none());
+        assert!(pattern_rgba(&p, ColorMode::Rgb).is_empty());
+        let list = [p];
+        assert!(PreparedPatterns::new(&list, 0).get("big", "").is_none());
     }
 
     #[test]

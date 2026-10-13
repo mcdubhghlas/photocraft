@@ -65,6 +65,17 @@ pc_status pc_recover(const pc_recovery_entry *e, pc_document *out, pc_error *err
 /* Delete a recovery entry (its bundle and sidecar). */
 pc_status pc_discard_recovery(const char *dir, const pc_recovery_entry *e, pc_error *err);
 
+/* How long recovery data must be untouched before a sweep may remove it (24 h): far longer than
+ * any save, so another instance's in-progress first autosave is never taken for an orphan. */
+#define PC_RECOVERY_ORPHAN_AGE_S ((int64_t)24 * 60 * 60)
+
+/* Best-effort removal of recovery data nothing can load or clean up, untouched for at least
+ * min_age_s seconds: <key>.pcraft bundle folders with no <key>.json sidecar (a crash during a
+ * first autosave) and *.pcsave.tmp files of another process left by an interrupted atomic write
+ * (in dir and in the kept bundles, their tiles/ and blobs/). Bundles with a sidecar (anything at
+ * its path), symlinks and anything outside dir are never touched; errors are ignored. */
+void pc_recovery_sweep_orphans(const char *dir, int64_t min_age_s);
+
 /* ---- one document's background autosaver ----
  *
  * Requests are coalesced: if saves arrive faster than they complete, only the newest snapshot is
@@ -115,6 +126,8 @@ pc_status pc_autosaver_discard(pc_autosaver *a, pc_error *err);
  * place and saving or closing it removes the entry. */
 typedef struct pc_recovery_store pc_recovery_store;
 
+/* Sweeps orphans older than PC_RECOVERY_ORPHAN_AGE_S from recovery_dir first
+ * (pc_recovery_sweep_orphans). */
 pc_status pc_recovery_store_new(const char *recovery_dir, pc_recovery_store **out, pc_error *err);
 /* Stops every worker (after their pending saves), then frees. NULL-safe. */
 void pc_recovery_store_free(pc_recovery_store *s);

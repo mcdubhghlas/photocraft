@@ -2,31 +2,36 @@ pu_solve_dense 883102060c4d336c
 pu_sparse 14e76d523478ba0f
 pu_misc 0802f4f1852d66f5
 exif_build_0 177 18023b90ff95157b
-exif_read_0 ab643dea6a52d740 3f20624dd2f1a9fc
-exif_cut_0 11b04fdb569623fc
-exif_mut_0 0e7fa369f41bf3cd
-exif_misc_0 db646f65904c662d
+exif_read_0 fe5a0dfe61f09298 3f20624dd2f1a9fc
+exif_cut_0 48c4109857ed3dbc
+exif_mut_0 3ca02d06ff389fd5
+exif_misc_0 4e76f1b46a6d560d
 exif_build_1 76 bc7f12505d552298
-exif_read_1 5d5def9d587e7045 406b4db3721d53ce
-exif_cut_1 99502d1a6de4ab1c
-exif_mut_1 c39db70a2895bcb6
-exif_misc_1 5c708e2d8796083c
+exif_read_1 345c6e4bfa2beddd 406b4db3721d53ce
+exif_cut_1 969c4ede67f30d14
+exif_mut_1 2836b2f58015c961
+exif_misc_1 1c565815e103d98c
 exif_build_2 85 1bc6a330d33c0bff
-exif_read_2 94ea7a96aff9f128 ffffffffffffffff
-exif_cut_2 5764646aea013291
-exif_mut_2 94f7b6bdd3422f1e
-exif_misc_2 8becd07393cc1091
+exif_read_2 808389f3f9d757a0 ffffffffffffffff
+exif_cut_2 2bc34fd696004391
+exif_mut_2 11dfecc1ab105906
+exif_misc_2 91d325d3142d8831
 exif_build_3 32 e9c33b3064e11f5f
-exif_read_3 0a7758315e36a184 ffffffffffffffff
-exif_cut_3 b7138b6b2ca4a984
-exif_mut_3 f4acebbc29ec5b25
-exif_misc_3 7d32c92b9e6caba5
+exif_read_3 ece4c0768620029c ffffffffffffffff
+exif_cut_3 0da00509e13dd99c
+exif_mut_3 bdc791f29f3be425
+exif_misc_3 1b689e80fe5536b5
 exif_build_4 117 9779bbc665e60b71
-exif_read_4 830d77324aa0f384 ffffffffffffffff
-exif_cut_4 e0f590bedea8df6d
-exif_mut_4 ae22967e90a78e42
-exif_misc_4 ce4198b6827a82cd
-exif_garbage bb75739289fd8725
+exif_read_4 693d002981c21c7c ffffffffffffffff
+exif_cut_4 28e97b85df89dccd
+exif_mut_4 e3615a9458d673b6
+exif_misc_4 3d412e92577bec8d
+exif_build_5 101 c53e61581cd4c866
+exif_read_5 a8c08a9afebc65c9 3f70624dd2f1a9fc
+exif_cut_5 bb4b194941fcc806
+exif_mut_5 e1be0d75a03a7ad4
+exif_misc_5 6cdcc73281c93ce6
+exif_garbage e547e133dedc5fa5
 vectorscope 4651 88d1bd56066b46d4
 hue_saturation f95fd769bd070d4c
 harris_50_6 8a734f418c424b30
@@ -319,3 +324,19 @@ scancrop_big 2 153edb402d32f889
 scancrop_one 1 5bc633934517b3f6
 scancrop_noise 1 13d8e9841af386c2
 scancrop_blank 0 cbf29ce484222325
+r5_palette sel256 255 fc0508d075dd0bba
+r5_quantize sel256 grad 5ba6186a67ddbc00
+r5_quantize sel256 noisy fa6ed2cd70c68107
+r5_palette ada128 128 d0bfff3c31159909
+r5_quantize ada128 grad 25810c5529374ffd
+r5_quantize ada128 noisy 5cec3a30dd43dca1
+r5_palette per65 65 f8127c2a7e1e16c2
+r5_quantize per65 grad 30072a31d0fb7480
+r5_quantize per65 noisy d803e2ce3a2ae88a
+r5_palette mac 256 3bcbe7c37030da36
+r5_quantize mac grad 570d95026b5dc5e2
+r5_quantize mac noisy 03764147f69f6abd
+r5_palette web 216 153c0bc534356ee1
+r5_quantize web grad 8419d8573298aa84
+r5_quantize web noisy 4c2f21d89634d0dc
+r5_halftone_from_id 082d648401832de2

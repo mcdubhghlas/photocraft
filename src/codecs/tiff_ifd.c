@@ -428,7 +428,28 @@ typedef struct walk {
     size_t cap;
     bool complete;
     bool oom;
+    /* Directory entries that may still be parsed. Real directory tables are disjoint, so their
+     * total size is bounded by the file; overlapping tables (a hostile file) would otherwise make
+     * every one of thousands of directories cost a full 65,535-entry parse. */
+    uint64_t entry_budget;
 } walk;
+
+/* The declared entry count of the directory at `at`, before its table is parsed. */
+static bool entry_count(const tiff_file *f, uint64_t at, uint64_t *n)
+{
+    uint16_t v16;
+    if (at < tiff_header_len(f)) {
+        return false;
+    }
+    if (f->big) {
+        return tiff_u64_at(f, at, n);
+    }
+    if (!tiff_u16_at(f, at, &v16)) {
+        return false;
+    }
+    *n = v16;
+    return true;
+}
 
 /* Inserts at into the sorted seen-set; false when it was already there. */
 static bool seen_insert(walk *w, uint64_t at)
@@ -479,10 +500,16 @@ static void chain(walk *w, uint64_t at, bool has_parent, size_t parent, int dept
         tiff_dir d;
         size_t index;
         pc_tiff_page *g;
+        uint64_t count;
         if (w->n >= TIFF_MAX_IFDS || !seen_insert(w, at)) {
             w->complete = false;
             return;
         }
+        if (!entry_count(w->f, at, &count) || count > w->entry_budget) {
+            w->complete = false;
+            return;
+        }
+        w->entry_budget -= count;
         if (!tiff_dir_read(w->f, at, &d)) {
             w->complete = false;
             return;
@@ -516,6 +543,7 @@ pc_status tiff_info_of(const tiff_file *f, pc_tiff_info *out, pc_error *err)
     memset(&w, 0, sizeof w);
     w.f = f;
     w.complete = true;
+    w.entry_budget = (uint64_t)f->n / 12 + 64;
     w.seen = malloc((TIFF_MAX_IFDS + 1) * sizeof *w.seen);
     if (w.seen == NULL) {
         return cx_nomem(err);

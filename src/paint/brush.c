@@ -165,22 +165,79 @@ void pc_paint_tip_copy(pc_paint_tip *dst, const pc_paint_tip *src)
 {
     dst->kind = src->kind;
     pc_paint_gray_tile_copy(&dst->tile, &src->tile);
+    pc_paint_stored_tile_copy(&dst->stored, &src->stored);
 }
 
 void pc_paint_tip_fini(pc_paint_tip *t)
 {
     pc_paint_gray_tile_fini(&t->tile);
+    pc_paint_stored_tile_fini(&t->stored);
 }
 
 void pc_paint_pattern_copy(pc_paint_pattern *dst, const pc_paint_pattern *src)
 {
     *dst = *src;
     pc_paint_gray_tile_copy(&dst->tile, &src->tile);
+    pc_paint_stored_tile_copy(&dst->stored, &src->stored);
 }
 
 void pc_paint_pattern_fini(pc_paint_pattern *p)
 {
     pc_paint_gray_tile_fini(&p->tile);
+    pc_paint_stored_tile_fini(&p->stored);
+}
+
+const pc_paint_gray_tile *pc_paint_tip_bitmap(const pc_paint_tip *t)
+{
+    switch (t->kind) {
+    case PC_PAINT_TIP_SAMPLED:
+        return &t->tile;
+    case PC_PAINT_TIP_STORED:
+        return pc_paint_stored_tile_bitmap(&t->stored);
+    default:
+        return NULL;
+    }
+}
+
+bool pc_paint_tip_bitmap_size(const pc_paint_tip *t, uint32_t *w, uint32_t *h)
+{
+    switch (t->kind) {
+    case PC_PAINT_TIP_SAMPLED:
+        *w = t->tile.width;
+        *h = t->tile.height;
+        return true;
+    case PC_PAINT_TIP_STORED:
+        *w = t->stored.width;
+        *h = t->stored.height;
+        return true;
+    default:
+        return false;
+    }
+}
+
+const pc_paint_gray_tile *pc_paint_pattern_bitmap(const pc_paint_pattern *p)
+{
+    switch (p->kind) {
+    case PC_PAINT_PATTERN_TILE:
+        return &p->tile;
+    case PC_PAINT_PATTERN_STORED:
+        return pc_paint_stored_tile_bitmap(&p->stored);
+    default:
+        return NULL;
+    }
+}
+
+float pc_paint_texture_level(const pc_paint_texture *t, float v)
+{
+    float b = isfinite(t->brightness) ? pc_clampf(t->brightness, -1.0f, 1.0f) * (150.0f / 255.0f) : 0.0f;
+    float c = isfinite(t->contrast) ? pc_clampf(t->contrast, -1.0f, 1.0f) : 0.0f, x;
+    if (c >= 0.0f) {
+        x = (v + b - 0.5f) / pc_paint_maxf_k(1.0f - c, 1e-4f) + 0.5f;
+    } else {
+        x = (v - 0.5f) * (1.0f + c / 2.0f) + 0.5f + b;
+    }
+    x = isfinite(x) ? pc_clampf(x, 0.0f, 1.0f) : 0.5f;
+    return t->invert ? 1.0f - x : x;
 }
 
 void pc_paint_texture_copy(pc_paint_texture *dst, const pc_paint_texture *src)
@@ -279,7 +336,13 @@ bool pc_paint_dynamic_eq(const pc_paint_dynamic *a, const pc_paint_dynamic *b)
 
 bool pc_paint_tip_eq(const pc_paint_tip *a, const pc_paint_tip *b)
 {
-    return a->kind == b->kind && (a->kind == PC_PAINT_TIP_ROUND || pc_paint_gray_tile_eq(&a->tile, &b->tile));
+    if (a->kind != b->kind) {
+        return false;
+    }
+    if (a->kind == PC_PAINT_TIP_STORED) {
+        return pc_paint_stored_tile_eq(&a->stored, &b->stored);
+    }
+    return a->kind == PC_PAINT_TIP_ROUND || pc_paint_gray_tile_eq(&a->tile, &b->tile);
 }
 
 bool pc_paint_shape_dynamics_eq(const pc_paint_shape_dynamics *a, const pc_paint_shape_dynamics *b)
@@ -304,6 +367,9 @@ bool pc_paint_pattern_eq(const pc_paint_pattern *a, const pc_paint_pattern *b)
     }
     if (a->kind == PC_PAINT_PATTERN_TILE) {
         return pc_paint_gray_tile_eq(&a->tile, &b->tile);
+    }
+    if (a->kind == PC_PAINT_PATTERN_STORED) {
+        return pc_paint_stored_tile_eq(&a->stored, &b->stored);
     }
     return a->style == b->style && a->size == b->size && a->seed == b->seed;
 }
@@ -375,7 +441,8 @@ bool pc_paint_brush_eq(const pc_paint_brush *a, const pc_paint_brush *b)
            f4_eq(a->color, b->color) && f4_eq(a->background, b->background) && a->erase == b->erase &&
            a->mode == b->mode && pc_paint_tip_eq(&a->tip, &b->tip) && a->angle == b->angle &&
            a->roundness == b->roundness && a->flip_x == b->flip_x && a->flip_y == b->flip_y &&
-           a->aliased == b->aliased && pc_paint_shape_dynamics_eq(&a->shape_dynamics, &b->shape_dynamics) &&
+           a->aliased == b->aliased && a->square == b->square &&
+           pc_paint_shape_dynamics_eq(&a->shape_dynamics, &b->shape_dynamics) &&
            pc_paint_scattering_eq(&a->scattering, &b->scattering) &&
            pc_paint_texture_eq(&a->texture, &b->texture) &&
            pc_paint_dual_brush_eq(&a->dual_brush, &b->dual_brush) &&
@@ -575,9 +642,28 @@ void pc_paint_point_vec_fini(pc_paint_point_vec *a)
     a->cap = 0;
 }
 
+float pc_paint_tip_falloff(float d, float radius, float hardness)
+{
+    float inner = radius * pc_clampf(hardness, 0.0f, 1.0f), t, s, s2;
+    if (d <= inner || radius - inner < 1e-3f) {
+        return 1.0f;
+    }
+    t = pc_clampf((d - inner) / (radius - inner), 0.0f, 1.0f);
+    s = 1.0f - t * t;
+    s2 = s * s;
+    return s2 * s2;
+}
+
+float pc_paint_half_coverage_radius(float radius, float hardness)
+{
+    float h = isnan(hardness) ? 0.0f : pc_clampf(hardness, 0.0f, 1.0f);
+    float t = sqrtf(1.0f - sqrtf(sqrtf(0.5f)));
+    return radius * (h + t * (1.0f - h));
+}
+
 float pc_paint_dab_coverage(float d, float radius, float hardness)
 {
-    float edge, h, inner, falloff;
+    float edge;
     if (d >= radius + 0.5f) {
         return 0.0f;
     }
@@ -585,15 +671,7 @@ float pc_paint_dab_coverage(float d, float radius, float hardness)
      * folds a literal min over a clamp into a NaN-propagating minss. */
     edge = radius + 0.5f - d;
     edge = isnan(edge) ? 1.0f : pc_clampf(edge, 0.0f, 1.0f);
-    h = pc_clampf(hardness, 0.0f, 1.0f);
-    inner = radius * h;
-    if (d <= inner || radius - inner < 1e-3f) {
-        falloff = 1.0f;
-    } else {
-        float t = pc_clampf((d - inner) / (radius - inner), 0.0f, 1.0f);
-        falloff = 1.0f - t * t * (3.0f - 2.0f * t); /* smoothstep falloff */
-    }
-    return edge * falloff;
+    return edge * pc_paint_tip_falloff(d, radius, hardness);
 }
 
 pc_status pc_paint_smooth(const pc_paint_point *pts, size_t n, float amount, pc_paint_point_vec *out,

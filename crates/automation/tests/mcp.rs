@@ -79,6 +79,10 @@ async fn lists_expected_tools() {
         "session_list",
         "doc_open",
         "doc_new",
+        "doc_place",
+        "doc_export_layers",
+        "doc_export_data_sets",
+        "doc_import_data_sets",
         "doc_save",
         "doc_export",
         "doc_inspect",
@@ -166,6 +170,69 @@ async fn command_list_filters() {
     let enabled = json_of(&call(&client, "command_list", json!({"enabled_only": true})).await);
     assert!(enabled.as_array().unwrap().iter().any(|c| c["id"] == "file.new"));
     assert!(!enabled.as_array().unwrap().iter().any(|c| c["id"] == "layer.new.layer"), "needs a document");
+    // The full list says why a document command is off with no document open (#3664).
+    let layer = all.as_array().unwrap().iter().find(|c| c["id"] == "layer.new.layer").unwrap();
+    assert_eq!((layer["enabled"].clone(), layer["needsDocument"].clone()), (json!(false), json!(true)), "{layer}");
+    assert!(layer["disabledReason"].as_str().is_some_and(|r| r.starts_with("no document")), "{layer}");
+    let new = all.as_array().unwrap().iter().find(|c| c["id"] == "file.new").unwrap();
+    assert_eq!((new["needsDocument"].clone(), new["disabledReason"].clone()), (json!(false), Value::Null), "{new}");
+    client.cancel().await.unwrap();
+}
+
+/// Constructs strict tool-schema validators reject: a `$ref` / `$defs`, or a boolean in a schema
+/// position (`items: true`), anywhere in `schema`.
+fn strict_schema_problems(path: &str, schema: &Value, out: &mut Vec<String>) {
+    let Value::Object(m) = schema else {
+        if schema.is_boolean() {
+            out.push(format!("{path}: boolean schema {schema}"));
+        }
+        return;
+    };
+    for key in ["$ref", "$defs", "definitions"] {
+        if m.contains_key(key) {
+            out.push(format!("{path}: {key}"));
+        }
+    }
+    if let Some(Value::Object(props)) = m.get("properties") {
+        for (k, v) in props {
+            strict_schema_problems(&format!("{path}.properties.{k}"), v, out);
+        }
+    }
+    for key in ["items", "not"] {
+        if let Some(v) = m.get(key) {
+            strict_schema_problems(&format!("{path}.{key}"), v, out);
+        }
+    }
+    for key in ["anyOf", "oneOf", "allOf", "prefixItems"] {
+        for (i, v) in m.get(key).and_then(Value::as_array).into_iter().flatten().enumerate() {
+            strict_schema_problems(&format!("{path}.{key}[{i}]"), v, out);
+        }
+    }
+    if let Some(v) = m.get("additionalProperties").filter(|v| v.is_object()) {
+        strict_schema_problems(&format!("{path}.additionalProperties"), v, out);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn tool_schemas_pass_strict_validators() {
+    // #1782: `ui_pointer`'s `items: true` and `command_batch`'s `$ref`/`$defs` made strict
+    // providers (e.g. Moonshot via Volcano Ark) reject the whole request.
+    let client = connect(PhotocraftMcp::headless()).await;
+    let tools = client.list_all_tools().await.unwrap();
+    let mut problems = Vec::new();
+    for t in &tools {
+        strict_schema_problems(&t.name, &Value::Object((*t.input_schema).clone()), &mut problems);
+    }
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+    let schema = |name: &str| Value::Object((*tools.iter().find(|t| t.name == name).unwrap().input_schema).clone());
+    // The inlined shapes still describe the arguments.
+    let event = &schema("ui_pointer")["properties"]["events"]["items"];
+    assert_eq!(event["type"], "object", "{event}");
+    for k in ["kind", "x", "y", "pressure"] {
+        assert!(event["properties"][k].is_object(), "ui_pointer event field {k}: {event}");
+    }
+    let step = &schema("command_batch")["properties"]["steps"]["items"];
+    assert!(step["properties"]["id"]["description"].as_str().is_some_and(|d| d.contains("layer.new.layer")), "{step}");
     client.cancel().await.unwrap();
 }
 
@@ -239,7 +306,7 @@ async fn errors_are_tool_errors_not_crashes() {
     let r = call(&client, "command_run", json!({"id": "no.such.command"})).await;
     assert_eq!(r.is_error, Some(true));
     assert!(text(&r).contains("unknown command"));
-    let r = call(&client, "doc_inspect", json!({})).await;
+    let r = call(&client, "doc_inspect", json!({"index": 0})).await;
     assert_eq!(r.is_error, Some(true));
     let r = call(&client, "doc_open", json!({"path": "/definitely/missing.png"})).await;
     assert_eq!(r.is_error, Some(true));
@@ -300,6 +367,49 @@ async fn bridge_doc_save_without_path_forwards_app_save_for_write_back() {
     assert_eq!(saved, json!({"saved": {"path": "out.psd"}}));
     client.cancel().await.unwrap();
     app.abort();
+}
+
+/// `tgaBits` reaches the app's `app.save` through the bridge; a value other than 24 or 32 is
+/// refused before anything is sent.
+#[tokio::test(flavor = "multi_thread")]
+async fn bridge_doc_save_forwards_targa_bits() {
+    let (addr, app) = fake_app().await;
+    let client = connect(PhotocraftMcp::bridge(&addr, CONTROL_TOKEN).unwrap()).await;
+    let saved = json_of(&call(&client, "doc_save", json!({"path": "out.tga", "tgaBits": 24})).await);
+    assert_eq!(saved, json!({"saved": {"path": "out.tga", "tgaBits": 24}}));
+    let r = call(&client, "doc_save", json!({"path": "out.tga", "tgaBits": 16})).await;
+    assert_eq!(r.is_error, Some(true), "{}", text(&r));
+    assert!(text(&r).contains("24 or 32"), "{}", text(&r));
+    client.cancel().await.unwrap();
+    app.abort();
+}
+
+/// Headless `doc_save`/`doc_export` write the TGA bits per pixel asked for (byte 16 of the
+/// header); unset, a document with an alpha channel is written as 32-bit.
+#[tokio::test(flavor = "multi_thread")]
+async fn headless_doc_save_writes_targa_bits() {
+    let dir = tmp("tga-bits");
+    let client = connect(headless_in(&dir)).await;
+    call(&client, "doc_new", json!({"width": 16, "height": 8, "background": "white"})).await;
+    for id in ["select.all", "select.saveSelection"] {
+        let r = call(&client, "command_run", json!({"id": id, "params": {}})).await;
+        assert_ne!(r.is_error, Some(true), "{}", text(&r));
+    }
+    for (tool, params, bpp) in [
+        ("doc_export", json!({"path": "auto.tga"}), 32),
+        ("doc_export", json!({"path": "flat.tga", "tgaBits": 24}), 24),
+        ("doc_save", json!({"path": "alpha.tga", "tgaBits": 32}), 32),
+    ] {
+        let r = call(&client, tool, params.clone()).await;
+        assert_ne!(r.is_error, Some(true), "{params}: {}", text(&r));
+        let bytes = std::fs::read(dir.join(params["path"].as_str().unwrap())).unwrap();
+        assert_eq!(bytes[16], bpp, "{params}");
+    }
+    let r = call(&client, "doc_export", json!({"path": "bad.tga", "tgaBits": 8})).await;
+    assert_eq!(r.is_error, Some(true), "{}", text(&r));
+    assert!(!dir.join("bad.tga").exists());
+    client.cancel().await.unwrap();
+    cleanup(&dir);
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -488,6 +598,9 @@ async fn filesystem_policy_rejects_absolute_and_escaping_paths_before_effects() 
     let client = connect(headless_in(&root)).await;
 
     assert_ne!(call(&client, "doc_open", json!({"path": "inside.png"})).await.is_error, Some(true));
+    // An absolute path beneath the root is the same file (#2176).
+    let inside = call(&client, "doc_open", json!({"path": root.join("inside.png").to_string_lossy()})).await;
+    assert_ne!(inside.is_error, Some(true), "{}", text(&inside));
     let absolute = outside.join("absolute.png");
     let response = call(&client, "doc_save", json!({"path": absolute.to_string_lossy()})).await;
     assert_eq!(response.is_error, Some(true));
@@ -506,6 +619,169 @@ async fn filesystem_policy_rejects_absolute_and_escaping_paths_before_effects() 
     assert!(text(&response).contains("ambient filesystem paths"), "{}", text(&response));
     client.cancel().await.unwrap();
     cleanup(&base);
+}
+
+/// #2810: a file from the read root places as a Smart Object layer; `file.placeEmbedded` itself
+/// stays refused, so `doc_place` is the only way in and the root is still the scope.
+#[tokio::test(flavor = "multi_thread")]
+async fn doc_place_is_capability_scoped() {
+    let base = tmp("place");
+    let root = base.join("workspace");
+    let outside = base.join("outside");
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::create_dir_all(&outside).unwrap();
+    let img = photocraft_codecs::Image::from_u8(8, 6, photocraft_codecs::ChannelLayout::Rgb, vec![42; 144]).unwrap();
+    let bytes = photocraft_codecs::encode(&img, photocraft_codecs::Format::Png, &Default::default()).unwrap();
+    std::fs::write(root.join("inside.png"), &bytes).unwrap();
+    std::fs::write(outside.join("outside.png"), bytes).unwrap();
+    let client = connect(headless_in(&root)).await;
+
+    json_of(&call(&client, "doc_new", json!({"width": 40, "height": 30})).await);
+    let placed = call(&client, "doc_place", json!({"path": "inside.png", "center": [10, 10]})).await;
+    assert_ne!(placed.is_error, Some(true), "{}", text(&placed));
+    let layers = json_of(&call(&client, "doc_inspect", json!({})).await)["layers"].as_array().unwrap().len();
+    assert_eq!(layers, 2, "the placed layer is in the document");
+    // An absolute path beneath the root is the same file (#2176), so it places too; outside it,
+    // nothing.
+    let inside = call(&client, "doc_place", json!({"path": root.join("inside.png").to_string_lossy()})).await;
+    assert_ne!(inside.is_error, Some(true), "{}", text(&inside));
+    let placed = json_of(&call(&client, "doc_inspect", json!({})).await)["layers"].as_array().unwrap().len();
+    assert_eq!(placed, 3, "the absolute path beneath the root places as well");
+    let refused = call(&client, "doc_place", json!({"path": outside.join("outside.png").to_string_lossy()})).await;
+    assert_eq!(refused.is_error, Some(true));
+    assert!(text(&refused).contains("must be inside the automation root"), "{}", text(&refused));
+    let after = json_of(&call(&client, "doc_inspect", json!({})).await)["layers"].as_array().unwrap().len();
+    assert_eq!(after, placed, "nothing outside the root was placed");
+    // The ambient command keeps its refusal: the capability-scoped method is the only way in.
+    let ambient = call(&client, "command_run", json!({"id": "file.placeEmbedded", "params": {"path": "inside.png"}})).await;
+    assert_eq!(ambient.is_error, Some(true));
+    assert!(text(&ambient).contains("ambient filesystem paths"), "{}", text(&ambient));
+    client.cancel().await.unwrap();
+    cleanup(&base);
+}
+
+/// #3216: the export half of #2810. The write root scopes both exports, the read root the CSV,
+/// and the three ambient commands keep their refusal.
+#[tokio::test(flavor = "multi_thread")]
+async fn doc_exports_and_data_set_import_are_capability_scoped() {
+    let base = tmp("export");
+    let root = base.join("workspace");
+    std::fs::create_dir_all(&root).unwrap();
+    let client = connect(headless_in(&root)).await;
+
+    json_of(&call(&client, "doc_new", json!({"width": 10, "height": 6, "background": "white", "name": "card"})).await);
+    let inspected = json_of(&call(&client, "doc_inspect", json!({})).await);
+    let layer = inspected["layers"][0]["id"].clone();
+    json_of(
+        &call(&client, "command_run", json!({"id": "image.variables.define", "params": {"defs": [{"name": "show", "layer": layer, "type": "visibility"}]}}))
+            .await,
+    );
+    json_of(
+        &call(
+            &client,
+            "command_run",
+            json!({"id": "image.variables.dataSets", "params": {"dataSets": [
+                {"name": "one", "values": [{"variable": "show", "kind": "visibility", "value": true}]},
+                {"name": "two", "values": [{"variable": "show", "kind": "visibility", "value": false}]},
+            ]}}),
+        )
+        .await,
+    );
+
+    let layers = call(&client, "doc_export_layers", json!({"dir": "layers", "prefix": "card"})).await;
+    assert_ne!(layers.is_error, Some(true), "{}", text(&layers));
+    assert_eq!(json_of(&layers)["count"], 1, "{}", text(&layers));
+    assert_eq!(std::fs::read_dir(root.join("layers")).unwrap().count(), 1);
+    let sets = call(&client, "doc_export_data_sets", json!({"dir": "sets", "format": "png"})).await;
+    assert_ne!(sets.is_error, Some(true), "{}", text(&sets));
+    assert_eq!(json_of(&sets)["count"], 2, "{}", text(&sets));
+    assert_eq!(std::fs::read_dir(root.join("sets")).unwrap().count(), 2);
+    // A colliding template is refused before any file of the batch is written.
+    let clash = call(&client, "doc_export_data_sets", json!({"dir": "clash", "naming": "{document}"})).await;
+    assert_eq!(clash.is_error, Some(true), "{}", text(&clash));
+    assert_eq!(std::fs::read_dir(root.join("clash")).unwrap().count(), 0);
+    // A CSV from the read root.
+    std::fs::write(root.join("sets.csv"), "Data Set,show\none,true\n").unwrap();
+    let imported = call(&client, "doc_import_data_sets", json!({"path": "sets.csv"})).await;
+    assert_ne!(imported.is_error, Some(true), "{}", text(&imported));
+    assert_eq!(json_of(&imported)["imported"], 1, "{}", text(&imported));
+
+    // Outside the roots nothing happens at all.
+    let escaped = call(&client, "doc_export_layers", json!({"dir": base.join("escaped").to_string_lossy()})).await;
+    assert_eq!(escaped.is_error, Some(true), "{}", text(&escaped));
+    assert!(!base.join("escaped").exists());
+    std::fs::write(base.join("outside.csv"), "Data Set,show\none,true\n").unwrap();
+    let outside = call(&client, "doc_import_data_sets", json!({"path": base.join("outside.csv").to_string_lossy()})).await;
+    assert_eq!(outside.is_error, Some(true), "{}", text(&outside));
+    for command in ["file.export.layersToFiles", "file.export.dataSetsAsFiles", "file.import.variableDataSets"] {
+        let refused = call(&client, "command_run", json!({"id": command, "params": {}})).await;
+        assert_eq!(refused.is_error, Some(true), "{command}");
+        assert!(text(&refused).contains("ambient filesystem paths"), "{}", text(&refused));
+    }
+    client.cancel().await.unwrap();
+    cleanup(&base);
+}
+
+/// The template workflow stays in memory, including saving nested contents back to the parent.
+#[tokio::test(flavor = "multi_thread")]
+async fn embedded_smart_objects_can_be_edited_saved_and_unpacked_without_file_authority() {
+    let client = connect(PhotocraftMcp::headless()).await;
+    let run = async |id: &str, params: Value| json_of(&call(&client, "command_run", json!({"id": id, "params": params})).await);
+    json_of(&call(&client, "doc_new", json!({"width": 16, "height": 12, "background": "white"})).await);
+    run("layer.smartObjects.convertToSmartObject", json!({})).await;
+    let outer = run("layer.smartObjects.convertToSmartObject", json!({})).await["layer"].clone();
+    // An explicit target works even with a regular pixel layer selected.
+    run("layer.new.layer", json!({"name": "Other layer"})).await;
+    assert_eq!(run("layer.smartObjects.editContents", json!({"layer": outer})).await["document"], 1);
+    assert_eq!(run("layer.smartObjects.editContents", json!({})).await["document"], 2);
+    run("layer.setProps", json!({"name": "Edited photo", "opacity": 0.5})).await;
+    assert_eq!(run("layer.smartObjects.saveContents", json!({})).await["updated"], true);
+    json_of(&call(&client, "doc_close", json!({})).await);
+    run("layer.smartObjects.saveContents", json!({})).await;
+    json_of(&call(&client, "doc_close", json!({})).await);
+    assert_eq!(json_of(&call(&client, "session_list", json!({})).await)["documents"].as_array().unwrap().len(), 1);
+
+    // Reopening the saved nested source proves both in-memory parent updates survived closing.
+    run("layer.smartObjects.editContents", json!({"layer": outer})).await;
+    run("layer.smartObjects.editContents", json!({})).await;
+    let doc = json_of(&call(&client, "doc_inspect", json!({})).await);
+    assert_eq!(doc["layers"][0]["name"], "Edited photo");
+    assert_eq!(doc["layers"][0]["opacity"], 0.5);
+    json_of(&call(&client, "doc_close", json!({})).await);
+    json_of(&call(&client, "doc_close", json!({})).await);
+    let unpacked = run("layer.smartObjects.convertToLayers", json!({"layer": outer})).await["layer"].clone();
+    run("layer.smartObjects.convertToLayers", json!({"layer": unpacked})).await;
+    let doc = json_of(&call(&client, "doc_inspect", json!({})).await);
+    assert!(doc["layers"].as_array().unwrap().iter().all(|l| l["kind"] == "Pixel"));
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn smart_object_commands_refuse_real_linked_files_without_changing_the_session() {
+    use photocraft_engine::doc::{LayerContent, SmartSource};
+
+    let dir = tmp("linked-smart-object");
+    let original = write_image(&dir, "external.png", photocraft_codecs::Format::Png);
+    let mut session = photocraft_engine::Session::new();
+    session.execute("file.new", json!({"width": 16, "height": 8, "background": "white"})).unwrap();
+    let layer = session.execute("layer.smartObjects.convertToSmartObject", json!({})).unwrap()["layer"].clone();
+    let state = session.active_mut().unwrap();
+    let LayerContent::Smart(smart) = &mut std::sync::Arc::make_mut(&mut state.doc).layers[0].content else { panic!("smart object") };
+    smart.source = SmartSource::Linked { path: dir.join("external.png").to_string_lossy().into_owned() };
+    std::fs::write(dir.join("parent.pcraft"), photocraft_engine::smart_cmds::encode_source(&state.doc).unwrap()).unwrap();
+    let client = connect(headless_in(&dir)).await;
+    json_of(&call(&client, "doc_open", json!({"path": "parent.pcraft"})).await);
+    let before = json_of(&call(&client, "doc_inspect", json!({})).await);
+    for id in ["layer.smartObjects.editContents", "layer.smartObjects.convertToLayers"] {
+        let response = call(&client, "command_run", json!({"id": id, "params": {"layer": layer}})).await;
+        assert_eq!(response.is_error, Some(true));
+        assert!(text(&response).contains("ambient filesystem paths"), "{}", text(&response));
+        assert_eq!(json_of(&call(&client, "doc_inspect", json!({})).await), before);
+        assert_eq!(json_of(&call(&client, "session_list", json!({})).await)["documents"].as_array().unwrap().len(), 1);
+    }
+    assert_eq!(std::fs::read(dir.join("external.png")).unwrap(), original);
+    client.cancel().await.unwrap();
+    cleanup(&dir);
 }
 
 // ---------------------------------------------------------------------------
@@ -771,6 +1047,18 @@ async fn bridge_reports_unreachable_app() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn command_batch_description_exposes_non_atomic_semantics_when_tools_are_listed() {
+    let client = connect(PhotocraftMcp::headless()).await;
+    let tools = client.list_all_tools().await.unwrap();
+    let tool = tools.iter().find(|tool| tool.name == "command_batch").expect("command_batch tool");
+    let description = tool.description.as_deref().expect("command_batch description");
+    for contract in ["in order", "Not an atomic transaction", "first error", "stop_on_error is false", "no rollback"] {
+        assert!(description.contains(contract), "command_batch description omits `{contract}`: {description}");
+    }
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn command_batch_runs_steps_in_order() {
     let client = connect(PhotocraftMcp::headless()).await;
     json_of(&call(&client, "doc_new", json!({"width": 32, "height": 32})).await);
@@ -892,5 +1180,76 @@ async fn command_batch_rejects_too_many_steps() {
     let r = call(&client, "command_batch", json!({"steps": steps})).await;
     assert_eq!(r.is_error, Some(true));
     assert!(text(&r).contains("maximum is 256"), "{}", text(&r));
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn convention_tools_have_titles_hints_and_strict_schemas() {
+    let client = connect(PhotocraftMcp::headless()).await;
+    let tools = client.list_all_tools().await.unwrap();
+    assert!(tools.iter().any(|t| t.name == "render_preview"));
+    // The existing documented spelling remains listed.
+    assert!(tools.iter().any(|t| t.name == "doc_render_preview"));
+    for tool in tools {
+        let value = serde_json::to_value(&tool).unwrap();
+        assert!(value["title"].as_str().is_some_and(|s| !s.is_empty()), "{value}");
+        for hint in ["readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"] {
+            assert!(value["annotations"][hint].is_boolean(), "{value}");
+        }
+        assert_eq!(value["inputSchema"]["additionalProperties"], false, "{value}");
+    }
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn convention_unknown_arguments_name_the_key_without_side_effects() {
+    let client = connect(PhotocraftMcp::headless()).await;
+    for (name, args) in [
+        ("doc_new", json!({"widht": 8})),
+        ("session_list", json!({"surprise": true})),
+        ("command_run", json!({"id":"file.new", "surprise":true})),
+        ("command_batch", json!({"steps":[{"id":"file.new", "surprise":true}]})),
+    ] {
+        let key = if name == "doc_new" { "widht" } else { "surprise" };
+        let result = client.call_tool(CallToolRequestParams::new(name).with_arguments(args.as_object().unwrap().clone())).await;
+        let error = result.expect_err("unknown key must fail before execution").to_string();
+        assert!(error.contains("-32602") && error.contains(key), "{error}");
+    }
+    assert_eq!(json_of(&call(&client, "session_list", json!({})).await)["documents"], json!([]));
+    client.cancel().await.unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn convention_resources_are_live_json() {
+    let client = connect(PhotocraftMcp::headless()).await;
+    let resources = client.list_all_resources().await.unwrap();
+    for uri in ["photocraft://document", "photocraft://commands"] {
+        assert!(resources.iter().any(|r| r.uri == uri));
+    }
+    let read = async |uri: &str| {
+        let r = client.read_resource(rmcp::model::ReadResourceRequestParams::new(uri)).await.unwrap();
+        let v = serde_json::to_value(r).unwrap();
+        serde_json::from_str::<Value>(v["contents"][0]["text"].as_str().unwrap()).unwrap()
+    };
+    assert!(read("photocraft://document").await["document"].is_null());
+    json_of(&call(&client, "doc_new", json!({"width":8,"height":6})).await);
+    assert_eq!(read("photocraft://document").await["width"], 8);
+    // Edit › Purge › All is enabled while the process-wide effect, mask and stack caches hold
+    // anything, and the other tests in this binary fill and purge those caches concurrently, so
+    // its `enabled` flag can flip between the two reads. Every other field must match exactly.
+    let stable = |mut v: Value| {
+        for c in v.as_array_mut().into_iter().flatten() {
+            if c["id"] == "edit.purge.all" {
+                c.as_object_mut().map(|o| o.remove("enabled"));
+            }
+        }
+        v
+    };
+    let commands = stable(read("photocraft://commands").await);
+    assert!(commands.as_array().is_some_and(|a| a.len() > 100), "{commands}");
+    assert_eq!(commands, stable(json_of(&call(&client, "command_list", json!({})).await)));
+    assert!(client.read_resource(rmcp::model::ReadResourceRequestParams::new("photocraft://missing")).await.is_err());
+    let preview = call(&client, "render_preview", json!({"max_side":4})).await;
+    assert!(preview.content.iter().any(|c| c.as_image().is_some()));
     client.cancel().await.unwrap();
 }

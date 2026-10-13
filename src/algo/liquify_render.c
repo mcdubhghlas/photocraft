@@ -552,3 +552,162 @@ void pc_algo_liquify_proxy_rect(const pc_algo_liquify_proxy *p, pc_rect r, size_
     out[2] = a < p->w ? a : p->w;
     out[3] = b < p->h ? b : p->h;
 }
+
+/* ---- full-resolution preview ---- */
+
+#define MAX_FULL_RES_SOURCE_PIXELS ((size_t)8 * 1024 * 1024)
+
+typedef struct full_ctx {
+    const pc_algo_liquify_field *field;
+    pc_rect bounds, canvas, src_rect;
+    const float (*scratch)[4];
+    size_t sw, width, x0, x1, y0;
+    uint8_t (*out)[4];
+} full_ctx;
+
+static void full_source_at(const full_ctx *c, double x, double y, float out[4])
+{
+    pc_rect cv = c->canvas, sr = c->src_rect;
+    double fx = pc_clampd(x - 0.5, (double)cv.x0, (double)(cv.x1 - 1));
+    double fy = pc_clampd(y - 0.5, (double)cv.y0, (double)(cv.y1 - 1));
+    double ix = floor(fx), iy = floor(fy);
+    float tx = pc_f64_to_f32(fx - ix), ty = pc_f64_to_f32(fy - iy);
+    int32_t sx0 = pc_clamp_i32(pc_f64_to_i32(ix), sr.x0, sr.x1 - 1);
+    int32_t sy0 = pc_clamp_i32(pc_f64_to_i32(iy), sr.y0, sr.y1 - 1);
+    int32_t sx1 = sx0 + 1 < sr.x1 - 1 ? sx0 + 1 : sr.x1 - 1;
+    int32_t sy1 = sy0 + 1 < sr.y1 - 1 ? sy0 + 1 : sr.y1 - 1;
+    const float *q[4];
+    int32_t xs[2] = {sx0, sx1}, ys[2] = {sy0, sy1};
+    int i;
+    for (i = 0; i < 4; i++) {
+        q[i] = c->scratch[(size_t)(ys[i / 2] - sr.y0) * c->sw + (size_t)(xs[i % 2] - sr.x0)];
+    }
+    for (i = 0; i < 4; i++) {
+        out[i] = (q[0][i] * (1.0f - tx) + q[1][i] * tx) * (1.0f - ty) +
+                 (q[2][i] * (1.0f - tx) + q[3][i] * tx) * ty;
+    }
+}
+
+static pc_status full_chunk(void *ctx, size_t chunk, size_t begin, size_t end)
+{
+    const full_ctx *c = ctx;
+    size_t r, x;
+    (void)chunk;
+    for (r = begin; r < end; r++) {
+        size_t yo = c->y0 + r;
+        int32_t y = c->bounds.y0 + (int32_t)yo;
+        for (x = c->x0; x < c->x1; x++) {
+            double p[2], d[2];
+            float rgba[4];
+            int k;
+            p[0] = (double)(c->bounds.x0 + (int32_t)x) + 0.5;
+            p[1] = (double)y + 0.5;
+            pc_algo_liquify_sample(c->field, p[0], p[1], d);
+            full_source_at(c, p[0] + d[0], p[1] + d[1], rgba);
+            for (k = 0; k < 4; k++) {
+                c->out[yo * c->width + x][k] = pc_f32_to_u8(pc_clampf(rgba[k], 0.0f, 1.0f) * 255.0f + 0.5f);
+            }
+        }
+    }
+    return PC_OK;
+}
+
+bool pc_algo_liquify_render_full_resolution(const pc_surface *src, const pc_algo_liquify_field *field,
+                                            pc_rect bounds, pc_rect region, uint8_t (*out)[4], size_t out_len,
+                                            pc_algo_liquify_scratch *scratch)
+{
+    float min_dx = INFINITY, min_dy = INFINITY, max_dx = -INFINITY, max_dy = -INFINITY;
+    double gx0, gy0, gx1, gy1, x0, y0, x1, y1;
+    size_t width, height, need, i0, j0, i1, j1, i, j, source_len, k;
+    full_ctx c;
+    pc_error err;
+    bounds = pc_rect_intersect(bounds, field->bounds);
+    region = pc_rect_intersect(region, bounds);
+    width = pc_rect_width(bounds);
+    height = pc_rect_height(bounds);
+    if (!pc_size_mul(width, height, &need) || pc_rect_is_empty(region) || out_len != need || width == 0 ||
+        height == 0) {
+        return false;
+    }
+    /* Bilinear field interpolation is a convex combination of its surrounding nodes, so their
+     * extrema bound every source sample in this output rectangle. */
+    gx0 = ((double)region.x0 + 0.5 - (double)field->bounds.x0 - 0.5) / field->cell;
+    gy0 = ((double)region.y0 + 0.5 - (double)field->bounds.y0 - 0.5) / field->cell;
+    gx1 = ((double)region.x1 - 0.5 - (double)field->bounds.x0 - 0.5) / field->cell;
+    gy1 = ((double)region.y1 - 0.5 - (double)field->bounds.y0 - 0.5) / field->cell;
+    i0 = pc_f64_to_size(pc_rs_max_k(floor(gx0), 0.0));
+    j0 = pc_f64_to_size(pc_rs_max_k(floor(gy0), 0.0));
+    i1 = pc_f64_to_size(pc_rs_max_k(ceil(gx1), 0.0));
+    j1 = pc_f64_to_size(pc_rs_max_k(ceil(gy1), 0.0));
+    if (field->w > 0 && field->h > 0) {
+        size_t je = j1 < field->h - 1 ? j1 : field->h - 1, ie = i1 < field->w - 1 ? i1 : field->w - 1;
+        for (j = j0; j <= je; j++) {
+            for (i = i0; i <= ie; i++) {
+                const float *v = field->d[j * field->w + i];
+                min_dx = pc_rs_minf(min_dx, v[0]);
+                min_dy = pc_rs_minf(min_dy, v[1]);
+                max_dx = pc_rs_maxf(max_dx, v[0]);
+                max_dy = pc_rs_maxf(max_dy, v[1]);
+            }
+        }
+    }
+    if (!isfinite(min_dx) || !isfinite(min_dy) || !isfinite(max_dx) || !isfinite(max_dy)) {
+        return false;
+    }
+    /* Source coordinates are pixel centres: one more sample on each side for bilinear, clamped to
+     * the document as the regular proxy renderer does. */
+    x0 = floor((double)region.x0 + (double)min_dx) - 1.0;
+    y0 = floor((double)region.y0 + (double)min_dy) - 1.0;
+    x1 = ceil((double)(region.x1 - 1) + (double)max_dx) + 2.0;
+    y1 = ceil((double)(region.y1 - 1) + (double)max_dy) + 2.0;
+    c.canvas = field->bounds;
+    c.src_rect =
+        pc_rect_make(pc_f64_to_i32(pc_rs_min(pc_rs_max(x0, (double)c.canvas.x0), (double)c.canvas.x1)),
+                     pc_f64_to_i32(pc_rs_min(pc_rs_max(y0, (double)c.canvas.y0), (double)c.canvas.y1)),
+                     pc_f64_to_i32(pc_rs_min(pc_rs_max(x1, (double)c.canvas.x0), (double)c.canvas.x1)),
+                     pc_f64_to_i32(pc_rs_min(pc_rs_max(y1, (double)c.canvas.y0), (double)c.canvas.y1)));
+    if (pc_rect_is_empty(c.src_rect)) {
+        return false;
+    }
+    c.sw = pc_rect_width(c.src_rect);
+    if (!pc_size_mul(c.sw, pc_rect_height(c.src_rect), &source_len) ||
+        source_len > MAX_FULL_RES_SOURCE_PIXELS) {
+        return false;
+    }
+    if (scratch->cap < source_len) {
+        float (*grown)[4] = realloc(scratch->px, source_len * sizeof *grown);
+        if (grown == NULL) {
+            return false;
+        }
+        scratch->px = grown;
+        scratch->cap = source_len;
+    }
+    memset(scratch->px, 0, source_len * sizeof *scratch->px);
+    if (pc_surface_read_rgba_into(src, c.src_rect, scratch->px, source_len, &err) != PC_OK) {
+        return false;
+    }
+    if (!pc_surface_format(src).alpha) {
+        for (k = 0; k < source_len; k++) {
+            scratch->px[k][3] = 1.0f;
+        }
+    }
+    for (k = 0; k < source_len; k++) {
+        float a = scratch->px[k][3];
+        scratch->px[k][0] *= a;
+        scratch->px[k][1] *= a;
+        scratch->px[k][2] *= a;
+    }
+    c.field = field;
+    c.bounds = bounds;
+    c.scratch = (const float (*)[4])scratch->px;
+    c.width = width;
+    c.x0 = (size_t)(region.x0 - bounds.x0);
+    c.x1 = (size_t)(region.x1 - bounds.x0);
+    c.y0 = (size_t)(region.y0 - bounds.y0);
+    c.out = out;
+    j = (size_t)(region.y1 - bounds.y0) - c.y0;
+    if ((c.x1 - c.x0) * j > 150000) {
+        return pc_algo_par_for(j, 1, full_chunk, &c) == PC_OK;
+    }
+    return full_chunk(&c, 0, 0, j) == PC_OK;
+}

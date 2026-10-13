@@ -18,7 +18,7 @@ static pc_psd_bytes write_blocks(const pc_psd_block *b, size_t n, pc_psd_version
     psd_w w;
     pc_psd_bytes out = {NULL, 0};
     psd_w_init(&w, NULL);
-    psd_write_blocks(&w, b, n, v);
+    psd_write_blocks(&w, b, n, v, 2);
     CHECK_EQ_INT(psd_w_finish(&w, &out), PC_OK);
     return out;
 }
@@ -31,7 +31,7 @@ static pc_psd_bytes rt_blocks(const pc_psd_block *b, size_t n, pc_psd_version v)
     pc_psd_block *back = NULL;
     size_t nb = 0;
     pc_psd_bytes trailing = {NULL, 0};
-    CHECK_EQ_INT(psd_read_blocks(&r, v, &back, &nb, &trailing, NULL), PC_OK);
+    CHECK_EQ_INT(psd_read_blocks(&r, v, 2, &back, &nb, &trailing, NULL), PC_OK);
     CHECK(pc_psd_blocks_eq(back, nb, b, n));
     CHECK_EQ_UINT(trailing.len, 0);
     pc_psd_blocks_free(back, nb);
@@ -169,12 +169,12 @@ static void test_padding_rules(void)
     out.data = realloc(out.data, out.len + 8);
     memset(out.data + out.len, 0, 8);
     r = psd_rd_make(out.data, out.len + 8);
-    CHECK_EQ_INT(psd_read_blocks(&r, PC_PSD_V1, &back, &nb, &trailing, NULL), PC_OK);
+    CHECK_EQ_INT(psd_read_blocks(&r, PC_PSD_V1, 2, &back, &nb, &trailing, NULL), PC_OK);
     CHECK(nb == 1 && trailing.len == 8);
     pc_psd_blocks_free(back, nb);
     pc_psd_bytes_fini(&trailing);
     r = psd_rd_make(out.data, out.len + 2);
-    CHECK_EQ_INT(psd_read_blocks(&r, PC_PSD_V1, &back, &nb, &trailing, NULL), PC_OK);
+    CHECK_EQ_INT(psd_read_blocks(&r, PC_PSD_V1, 2, &back, &nb, &trailing, NULL), PC_OK);
     CHECK(nb == 1 && back[0].padding.has && back[0].padding.v.len == 2 && trailing.len == 0);
     pc_psd_blocks_free(back, nb);
     pc_psd_bytes_fini(&trailing);
@@ -212,7 +212,7 @@ static void test_psb_long_keys_and_overlong(void)
     psd_put_zeros(&w, 4);
     psd_w_finish(&w, &out);
     r = psd_rd_make(out.data, out.len);
-    CHECK(psd_read_blocks(&r, PC_PSD_V1, &back, &nb, &trailing, NULL) != PC_OK);
+    CHECK(psd_read_blocks(&r, PC_PSD_V1, 2, &back, &nb, &trailing, NULL) != PC_OK);
     pc_psd_bytes_fini(&out);
 }
 

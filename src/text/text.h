@@ -31,6 +31,8 @@
 #include "text/psd.h"
 #include "text/raster.h"
 #include "text/render.h"
+#include "text/scripts.h"
+#include "text/served.h"
 #include "text/sfnt.h"
 #include "text/spell.h"
 #include "text/unicode.h"

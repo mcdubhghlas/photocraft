@@ -30,7 +30,20 @@ typedef struct pc_io_imp {
     size_t nfx;
     const pc_interrupt *ctl; /* may be NULL */
     size_t done;             /* layer records decoded so far, out of nlayers (progress) */
+    /* Placed layers that name the same (non-empty) source identity share one contents id, as
+     * crates/io does (psd_import.rs's `smart_contents`): so re-export embeds the source once. */
+    struct pc_io_smart_contents {
+        char *id;
+        pc_smart_contents_id contents;
+    } *smart_contents;
+    size_t nsmart_contents;
+    size_t capsmart_contents;
 } pc_io_imp;
+
+/* The shared contents id for a placed layer whose source identity is `id` (an empty id gets a
+ * fresh one): entry(id).or_insert_with(fresh). *out set on success. */
+pc_status pc_io_imp_contents_id(pc_io_imp *cx, const char *id, size_t len, pc_smart_contents_id *out,
+                                pc_error *err);
 
 /* Imports the layer tree into *layers / *n (bottom to top). PC_ERR_CANCELLED when ctl cancels;
  * fails otherwise only on out of memory and on functions of later chunks that are not ported. */

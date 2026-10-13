@@ -1206,7 +1206,9 @@ static void test_tysh_layout(void)
     build(&t, 72.0f, ink, &b);
     CHECK(b.len > 60 && pc_load_be16(b.data) == 1 && pc_load_be16(b.data + 50) == 50);
     CHECK(pc_tysh_parse(b.data, b.len, &ty, NULL) == PC_OK);
-    CHECK(ty.has_warp && ty.bounds[0] == 1 && ty.bounds[1] == -3 && ty.bounds[2] == 41 && ty.bounds[3] == 20);
+    /* Unwarped type: Photoshop writes zero trailing bounds (f32). */
+    CHECK(ty.has_warp && ty.bounds[0] == 0.0f && ty.bounds[1] == 0.0f && ty.bounds[2] == 0.0f &&
+          ty.bounds[3] == 0.0f);
     /* write(parse(b)) == b, and a missing warp writes the default one. */
     CHECK(pc_tysh_write(&ty, &w, NULL) == PC_OK && w.len == b.len && memcmp(w.data, b.data, b.len) == 0);
     pc_psd_bytes_fini(&w);

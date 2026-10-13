@@ -19,6 +19,11 @@ bool pc_video_source_eq(const pc_video_source *a, const pc_video_source *b);
 typedef struct pc_video_data {
     pc_surface *frames;
     size_t nframes;
+    /* Immutable original footage of a file-backed sequence (COW surfaces share unchanged
+     * tiles with the edited frames); None for blank video layers. */
+    bool has_original_frames;
+    pc_surface *original_frames;
+    size_t noriginal_frames;
     pc_video_source source;
     float fps;
     bool show_altered;
@@ -28,7 +33,8 @@ typedef struct pc_video_data {
 void pc_video_data_init(pc_video_data *out, pc_surface *frames, size_t nframes, float fps);
 void pc_video_data_fini(pc_video_data *v);
 pc_status pc_video_data_clone(const pc_video_data *v, pc_video_data *out, pc_error *err);
-/* By shape, not pixels: frame count, source, fps, show_altered (the reference's PartialEq). */
+/* By shape, not pixels: frame count, original frame count (or None), source, fps, show_altered
+ * (the reference's PartialEq). */
 bool pc_video_data_eq(const pc_video_data *a, const pc_video_data *b);
 
 /* The document playhead. */

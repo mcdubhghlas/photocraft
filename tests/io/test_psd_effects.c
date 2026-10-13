@@ -215,7 +215,8 @@ static void test_multi_instances_use_multi_keys(void)
 static void test_blend_names_are_unique(void)
 {
     /* Every mode's four-character / long id maps back to that mode only. */
-    for (int m = 0; m < PC_BLEND_COUNT; m++) {
+    /* Pass Through and the Photoshop modes (the Paint.NET ones have no PSD key: "norm"). */
+    for (int m = 0; m < PC_BLEND_PSD_COUNT; m++) {
         pc_psd_value v;
         pc_blend_mode back;
         size_t n = 0;

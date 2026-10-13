@@ -46,6 +46,98 @@ static float halftone_value(const halftone_ctx *h, float x, float y, size_t c)
     return acc / 5.0f;
 }
 
+/* pixelate::screen: tile-local memo of each screen cell's dot radius, in rotated screen
+ * coordinates. A cell's radius doesn't depend on the output pixel (the five taps included), so
+ * the result is the direct computation's. */
+typedef struct screen_memo {
+    int32_t x0, y0;
+    size_t width, height;
+    float *radii; /* NaN: not computed yet */
+} screen_memo;
+
+static bool screen_new(screen_memo *m, pc_rect out, float ox, float oy, float s, float co, float cell)
+{
+    float lo_x = INFINITY, lo_y = INFINITY, hi_x = -INFINITY, hi_y = -INFINITY;
+    int32_t ys[2], xs[2];
+    int64_t width, height;
+    size_t len, i;
+    int a, b;
+    m->radii = NULL;
+    if (pc_rect_is_empty(out) || !isfinite(cell) || cell < 1.0f) {
+        return false;
+    }
+    ys[0] = out.y0, ys[1] = out.y1 - 1;
+    xs[0] = out.x0, xs[1] = out.x1 - 1;
+    for (a = 0; a < 2; a++) {
+        for (b = 0; b < 2; b++) {
+            float fx = (float)xs[b] + 0.5f - ox, fy = (float)ys[a] + 0.5f - oy;
+            float u = (fx * co + fy * s) / cell, v = (-fx * s + fy * co) / cell;
+            if (!isfinite(u) || !isfinite(v) || fabsf(u) > 4000000.0f || fabsf(v) > 4000000.0f) {
+                return false;
+            }
+            lo_x = pc_rs_minf(lo_x, u);
+            lo_y = pc_rs_minf(lo_y, v);
+            hi_x = pc_rs_maxf(hi_x, u);
+            hi_y = pc_rs_maxf(hi_y, v);
+        }
+    }
+    /* Include the neighbouring dots and a rounding margin; a key outside is computed directly. */
+    m->x0 = pc_f32_to_i32(floorf(lo_x)) - 2;
+    m->y0 = pc_f32_to_i32(floorf(lo_y)) - 2;
+    width = (int64_t)pc_f32_to_i32(floorf(hi_x)) + 3 - m->x0;
+    height = (int64_t)pc_f32_to_i32(floorf(hi_y)) + 3 - m->y0;
+    if (width < 0 || height < 0) {
+        return false;
+    }
+    m->width = (size_t)width;
+    m->height = (size_t)height;
+    len = m->width * m->height;
+    /* At most 1 MiB per channel, even for an explicit oversized tile. */
+    if (len > 256 * 1024) {
+        return false;
+    }
+    m->radii = pc_malloc_array(len > 0 ? len : 1, sizeof *m->radii);
+    if (m->radii == NULL) {
+        return false;
+    }
+    for (i = 0; i < len; i++) {
+        m->radii[i] = NAN;
+    }
+    return true;
+}
+
+/* The memo slot of screen cell (x, y), or NULL when it has none. Keys must be exact integers:
+ * non-finite or large coordinates are never aliased onto other cells. */
+static float *screen_slot(const screen_memo *m, float x, float y)
+{
+    int64_t cx, cy;
+    if (m->radii == NULL || !isfinite(x) || !isfinite(y) || fabsf(x) > 4000001.0f || fabsf(y) > 4000001.0f) {
+        return NULL;
+    }
+    cx = (int64_t)pc_f32_to_i32(x) - m->x0;
+    cy = (int64_t)pc_f32_to_i32(y) - m->y0;
+    if (cx < 0 || cy < 0 || (uint64_t)cx >= m->width || (uint64_t)cy >= m->height) {
+        return NULL;
+    }
+    return &m->radii[(size_t)cy * m->width + (size_t)cx];
+}
+
+/* A dot's radius for the cell centred at (mu, mv) in screen space. */
+static float halftone_radius(const halftone_ctx *h, float mu, float mv, float s, float co, float ox, float oy,
+                             size_t c, bool sub)
+{
+    float cell = h->cell, raw, ink;
+    const float touch = PC_FX_FRAC_PI_4;
+    /* Back to document space to read the cell's value. */
+    raw = pc_clampf(halftone_value(h, mu * co - mv * s + ox, mu * s + mv * co + oy, c), 0.0f, 1.0f);
+    ink = sub && !h->rgb ? raw : 1.0f - raw;
+    /* Dot area tracks ink: pi r^2 = ink cell^2 until dots touch, then grow to cover the corners. */
+    if (ink <= touch) {
+        return cell * sqrtf(ink / PC_FX_PI);
+    }
+    return cell * (0.5f + (ink - touch) / (1.0f - touch) * (PC_FX_FRAC_1_SQRT_2 - 0.5f));
+}
+
 /* Each channel is screened at its own angle into dots whose area follows the channel's ink
  * (1 - value in additive models). */
 static pc_status halftone_k(const void *p, const void *prep, const pc_algo_image *src, pc_rect out,
@@ -58,6 +150,7 @@ static pc_status halftone_k(const void *p, const void *prep, const pc_algo_image
     pc_rect b = ctx->bounds;
     float ox = (float)b.x0, oy = (float)b.y0;
     halftone_ctx h;
+    screen_memo screens[PC_ALGO_MAXC];
     (void)prep, (void)err;
     pc_algo_image_crop_into(src, out, dst);
     if (n == 0 || n > PC_ALGO_MAXC) {
@@ -79,6 +172,13 @@ static pc_status halftone_k(const void *p, const void *prep, const pc_algo_image
         return PC_OK;
     }
     chans = h.rgb ? 3 : cc;
+    /* Keep the memo metadata on the stack; only the optional, bounded tables allocate. */
+    for (c = 0; c < PC_ALGO_MAXC; c++) {
+        screens[c].radii = NULL;
+        if (c < chans && c < nrot && !pc_algo_fx_direct_only()) {
+            (void)screen_new(&screens[c], out, ox, oy, rs[c], rc[c], h.cell);
+        }
+    }
     for (i = 0; i < pc_fx_npx(out); i++) {
         float *px = dst + i * n;
         int32_t x, y;
@@ -95,21 +195,18 @@ static pc_status halftone_k(const void *p, const void *prep, const pc_algo_image
             for (dj = -1; dj <= 1; dj++) {
                 for (di = -1; di <= 1; di++) {
                     float mu = (cu + (float)di + 0.5f) * cell, mv = (cv + (float)dj + 0.5f) * cell;
-                    float d = sqrtf(pc_fx_sq(u - mu) + pc_fx_sq(w2 - mv)), raw, ink, r;
-                    const float touch = PC_FX_FRAC_PI_4;
+                    float d = sqrtf(pc_fx_sq(u - mu) + pc_fx_sq(w2 - mv)), r, *slot;
                     if (d >= rmax + 0.5f) {
                         continue;
                     }
-                    /* Back to document space to read the cell's value. */
-                    raw = pc_clampf(halftone_value(&h, mu * co - mv * s + ox, mu * s + mv * co + oy, c), 0.0f,
-                                    1.0f);
-                    ink = sub && !h.rgb ? raw : 1.0f - raw;
-                    /* Dot area tracks ink: pi r^2 = ink cell^2 until dots touch, then grow to cover the
-                     * corners. */
-                    if (ink <= touch) {
-                        r = cell * sqrtf(ink / PC_FX_PI);
+                    slot = screen_slot(&screens[c], cu + (float)di, cv + (float)dj);
+                    if (slot != NULL && !isnan(*slot)) {
+                        r = *slot;
                     } else {
-                        r = cell * (0.5f + (ink - touch) / (1.0f - touch) * (PC_FX_FRAC_1_SQRT_2 - 0.5f));
+                        r = halftone_radius(&h, mu, mv, s, co, ox, oy, c, sub);
+                        if (slot != NULL) {
+                            *slot = r;
+                        }
                     }
                     /* Tiny dots cannot cover more than their own area. */
                     cov = pc_rs_maxf(cov, pc_rs_minf(pc_clampf(r - d + 0.5f, 0.0f, 1.0f), PC_FX_PI * r * r));
@@ -124,6 +221,9 @@ static pc_status halftone_k(const void *p, const void *prep, const pc_algo_image
         } else {
             memcpy(px, vals, cc * sizeof(float));
         }
+    }
+    for (c = 0; c < PC_ALGO_MAXC; c++) {
+        free(screens[c].radii);
     }
     return PC_OK;
 }
@@ -251,6 +351,117 @@ static pc_status crystallize_k(const void *p, const void *prep, const pc_algo_im
 
 /* ---- Facet ---- */
 
+typedef struct quadrant {
+    float variance;
+    float mean[PC_ALGO_MAXC];
+} quadrant;
+
+/* One row of 3x3 quadrant statistics (window row y .. y + 2), in the direct path's nine-sample
+ * addition order (reassociating the sums can change variance ties). */
+static void facet_row(const pc_algo_image *src, pc_rect win, const float *lum, size_t y, quadrant *line)
+{
+    size_t n = src->ch, w = pc_rect_width(win), qw = w - 2, x, dy, dx, c;
+    size_t stride = (size_t)pc_rect_width(src->rect) * n, offset = (size_t)(win.x0 - src->rect.x0) * n;
+    for (x = 0; x < qw; x++) {
+        float sum[PC_ALGO_MAXC] = {0}, s = 0.0f, s2 = 0.0f;
+        for (dy = 0; dy < 3; dy++) {
+            const float *row =
+                src->data + (size_t)(win.y0 + (int32_t)(y + dy) - src->rect.y0) * stride + offset;
+            for (dx = 0; dx < 3; dx++) {
+                const float *px = row + (x + dx) * n;
+                float l = lum[(y + dy) * w + x + dx];
+                for (c = 0; c < n; c++) {
+                    sum[c] += px[c];
+                }
+                s += l;
+                s2 += l * l;
+            }
+        }
+        for (c = 0; c < PC_ALGO_MAXC; c++) {
+            sum[c] /= 9.0f;
+        }
+        line[x].variance = s2 / 9.0f - pc_fx_sq(s / 9.0f);
+        memcpy(line[x].mean, sum, sizeof sum);
+    }
+}
+
+/* pixelate::facet::run: reuses each 3x3 quadrant at its four output pixels. False when the
+ * source doesn't cover the window or scratch is out of bounds; *nomem on allocation failure. */
+static bool facet_run(const pc_algo_image *src, pc_rect out, const pc_algo_ctx *ctx, float *dst, bool *nomem)
+{
+    size_t n = src->ch, w, h, len, qw, width, height, x, y, k;
+    int64_t wx0 = (int64_t)out.x0 - 2, wy0 = (int64_t)out.y0 - 2, wx1 = (int64_t)out.x1 + 2,
+            wy1 = (int64_t)out.y1 + 2;
+    pc_rect win;
+    float *lum;
+    quadrant *q[3], *rot;
+    *nomem = false;
+    if (n == 0 || n > PC_ALGO_MAXC || pc_rect_is_empty(out) || wx0 < INT32_MIN || wy0 < INT32_MIN ||
+        wx1 > INT32_MAX || wy1 > INT32_MAX) {
+        return false;
+    }
+    win = pc_rect_make((int32_t)wx0, (int32_t)wy0, (int32_t)wx1, (int32_t)wy1);
+    if (!pc_rect_eq(pc_rect_intersect(win, src->rect), win)) {
+        return false;
+    }
+    w = pc_rect_width(win);
+    h = pc_rect_height(win);
+    len = w * h;
+    /* A normal 256 px tile needs 264 KiB. Bound scratch for explicit tile overrides. */
+    if (len > 1024 * 1024) {
+        return false;
+    }
+    lum = pc_malloc_array(len, sizeof *lum);
+    qw = w - 2;
+    q[0] = pc_malloc_array(qw, sizeof *q[0]);
+    q[1] = pc_malloc_array(qw, sizeof *q[1]);
+    q[2] = pc_malloc_array(qw, sizeof *q[2]);
+    if (lum == NULL || q[0] == NULL || q[1] == NULL || q[2] == NULL) {
+        free(lum), free(q[0]), free(q[1]), free(q[2]);
+        *nomem = true;
+        return false;
+    }
+    {
+        size_t stride = (size_t)pc_rect_width(src->rect) * n, offset = (size_t)(win.x0 - src->rect.x0) * n;
+        for (y = 0; y < h; y++) {
+            const float *row = src->data + (size_t)(win.y0 + (int32_t)y - src->rect.y0) * stride + offset;
+            for (x = 0; x < w; x++) {
+                lum[y * w + x] = pc_algo_luma(ctx, row + x * n, n);
+            }
+        }
+    }
+    facet_row(src, win, lum, 0, q[0]);
+    facet_row(src, win, lum, 1, q[1]);
+    width = pc_rect_width(out);
+    height = pc_rect_height(out);
+    for (y = 0; y < height; y++) {
+        facet_row(src, win, lum, y + 2, q[2]);
+        for (x = 0; x < width; x++) {
+            const quadrant *cand[4] = {&q[0][x], &q[0][x + 2], &q[2][x], &q[2][x + 2]};
+            float best = FLT_MAX;
+            const float *mean = NULL;
+            /* Preserve quadrant order, including exact ties and non-finite variances. */
+            for (k = 0; k < 4; k++) {
+                if (cand[k]->variance < best) {
+                    best = cand[k]->variance;
+                    mean = cand[k]->mean;
+                }
+            }
+            if (mean != NULL) {
+                memcpy(dst + (y * width + x) * n, mean, n * sizeof(float));
+            } else {
+                memset(dst + (y * width + x) * n, 0, n * sizeof(float));
+            }
+        }
+        rot = q[0];
+        q[0] = q[1];
+        q[1] = q[2];
+        q[2] = rot;
+    }
+    free(lum), free(q[0]), free(q[1]), free(q[2]);
+    return true;
+}
+
 /* A Kuwahara filter (radius 2): each pixel takes the mean of the least-varied of its four
  * overlapping quadrants, clumping similar colours into flat facets while keeping edges. */
 static pc_status facet_k(const void *p, const void *prep, const pc_algo_image *src, pc_rect out,
@@ -259,7 +470,15 @@ static pc_status facet_k(const void *p, const void *prep, const pc_algo_image *s
     static const int32_t quads[4][2] = {{-2, -2}, {0, -2}, {-2, 0}, {0, 0}};
     const int32_t r = 2;
     size_t n = src->ch, i, c, q;
-    (void)p, (void)prep, (void)err;
+    bool nomem;
+    (void)p, (void)prep;
+    nomem = false;
+    if (!pc_algo_fx_direct_only() && facet_run(src, out, ctx, dst, &nomem)) {
+        return PC_OK;
+    }
+    if (nomem) {
+        return pc_fail(err, PC_ERR_NOMEM, "out of memory for Facet");
+    }
     pc_algo_image_crop_into(src, out, dst);
     if (n == 0 || n > PC_ALGO_MAXC) {
         return PC_OK;

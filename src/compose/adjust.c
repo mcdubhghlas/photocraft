@@ -41,6 +41,9 @@ float pc_compose_transfer_decode(pc_compose_transfer t, float v)
     if (t.kind == PC_COMPOSE_TRANSFER_SRGB) {
         return pc_srgb_to_linear(pc_rs_maxf_k(v, 0.0f));
     }
+    if (t.gamma == 1.0f) {
+        return pc_rs_maxf_k(v, 0.0f);
+    }
     return powf(pc_rs_maxf_k(v, 0.0f), t.gamma);
 }
 
@@ -48,6 +51,9 @@ float pc_compose_transfer_encode(pc_compose_transfer t, float v)
 {
     if (t.kind == PC_COMPOSE_TRANSFER_SRGB) {
         return pc_linear_to_srgb(pc_rs_maxf_k(v, 0.0f));
+    }
+    if (t.gamma == 1.0f) {
+        return pc_rs_maxf_k(v, 0.0f);
     }
     return powf(pc_rs_maxf_k(v, 0.0f), 1.0f / t.gamma);
 }
@@ -140,30 +146,36 @@ void pc_compose_hue_range_tables(const pc_hue_range ranges[6], float *out)
     }
 }
 
+static float lighten(float v, float l)
+{
+    return l > 0.0f ? v + (1.0f - v) * l : v * (1.0f + l);
+}
+
 void pc_compose_hue_saturation(const float c[3], float hue, float s, float l, bool colorize, float out[3])
 {
     float hh;
     float ss;
     float ll;
-    float rgb[3];
+    float lc[3];
     int i;
-    pc_compose_rgb_to_hsl(c, &hh, &ss, &ll);
     if (colorize) {
-        hh = rem_euclid(hue, 360.0f) / 360.0f;
-        ss = pc_rs_maxf_k(fabsf(s), 0.25f);
-    } else {
-        hh = rem_euclid(hh + hue / 360.0f, 1.0f);
-        ss = pc_clampf(ss * (1.0f + s), 0.0f, 1.0f);
+        /* Colorize builds the colour at the lightened (or darkened) lightness, so black with
+         * Lightness +30 becomes a 30 % lightness colour, not grey (Photoshop 27.11); at 0 %
+         * saturation only the lightness is left (#2326). */
+        pc_compose_rgb_to_hsl(c, &hh, &ss, &ll);
+        pc_compose_hsl_to_rgb(rem_euclid(hue, 360.0f) / 360.0f, pc_rs_minf_k(fabsf(s), 1.0f), lighten(ll, l),
+                              out);
+        return;
     }
-    pc_compose_hsl_to_rgb(hh, ss, ll, rgb);
+    /* Lightness first, then the hue rotates and the saturation of the result scales: raising it
+     * divides by 1 - s, lowering multiplies by 1 + s (Photoshop 27.11). */
     for (i = 0; i < 3; i++) {
-        if (l > 0.0f) {
-            rgb[i] = rgb[i] + (1.0f - rgb[i]) * l;
-        } else if (l < 0.0f) {
-            rgb[i] = rgb[i] * (1.0f + l);
-        }
-        out[i] = rgb[i];
+        lc[i] = lighten(c[i], l);
     }
+    pc_compose_rgb_to_hsl(lc, &hh, &ss, &ll);
+    hh = rem_euclid(hh + hue / 360.0f, 1.0f);
+    ss = pc_clampf(s > 0.0f ? ss / pc_rs_maxf_k(1.0f - s, 1.0f / 512.0f) : ss * (1.0f + s), 0.0f, 1.0f);
+    pc_compose_hsl_to_rgb(hh, ss, ll, out);
 }
 
 float pc_compose_black_white_gray(const float c[3], const float weights[6])
@@ -307,8 +319,17 @@ void pc_compose_selective_color(const float c[3], bool relative, const float adj
             a[i] = adj[r][i] / 100.0f;
         }
         for (i = 0; i < 3; i++) {
+            /* Absolute mode scales the shift by the room the ink has: adding ink by
+             * min(1, 2 (1 - ink)), removing it by min(1, 2 ink) (Photoshop 27.11). */
             float ink = 1.0f - c[i];
-            float d = relative ? (a[i] + a[3]) * ink : a[i] + a[3];
+            float d = a[i] + a[3];
+            if (relative) {
+                d = d * ink;
+            } else if (d > 0.0f) {
+                d = d * pc_rs_minf_k(2.0f * (1.0f - ink), 1.0f);
+            } else {
+                d = d * pc_rs_minf_k(2.0f * ink, 1.0f);
+            }
             delta[i] += d * w[r];
         }
     }
@@ -424,6 +445,25 @@ void pc_compose_vibrance_lin(const float c[3], float v, float out[3])
     }
 }
 
+/* Transfer::decode / encode as rustc compiles them inlined into vibrance_px: for Gamma(1) the
+ * vectorised v.max(0.0) gives +0.0 for a -0.0 red or blue (second operand wins) but keeps green's
+ * -0.0 (first wins). Only the sign of zero differs, but hash sweeps see it (measured; §7). */
+static float vib_decode(pc_compose_transfer t, float v, int ch)
+{
+    if (ch == 1 && t.kind == PC_COMPOSE_TRANSFER_GAMMA && t.gamma == 1.0f) {
+        return pc_rs_maxf(v, 0.0f);
+    }
+    return pc_compose_transfer_decode(t, v);
+}
+
+static float vib_encode(pc_compose_transfer t, float v, int ch)
+{
+    if (ch == 1 && t.kind == PC_COMPOSE_TRANSFER_GAMMA && t.gamma == 1.0f) {
+        return pc_rs_maxf(v, 0.0f);
+    }
+    return pc_compose_transfer_encode(t, v);
+}
+
 void pc_compose_vibrance_px(const float c[3], float v, float s, pc_compose_transfer transfer, float hi,
                             float out[3])
 {
@@ -432,7 +472,7 @@ void pc_compose_vibrance_px(const float c[3], float v, float s, pc_compose_trans
     float l[3];
     int i;
     for (i = 0; i < 3; i++) {
-        l[i] = pc_compose_transfer_decode(transfer, c[i]);
+        l[i] = vib_decode(transfer, c[i], i);
     }
     if (v != 0.0f) {
         float t[3];
@@ -446,7 +486,7 @@ void pc_compose_vibrance_px(const float c[3], float v, float s, pc_compose_trans
         }
     }
     for (i = 0; i < 3; i++) {
-        out[i] = pc_compose_transfer_encode(transfer, pc_clampf(l[i], 0.0f, hi));
+        out[i] = vib_encode(transfer, pc_clampf(l[i], 0.0f, hi), i);
     }
 }
 
@@ -545,16 +585,36 @@ static void f_posterize(void *ctx, const float c[3], float out[3])
 
 typedef struct bc_ctx {
     float b;
-    float k; /* legacy */
     float c; /* modern */
+    pc_cmp_legacy_bc legacy;
 } bc_ctx;
+
+pc_cmp_legacy_bc pc_cmp_legacy_bc_new(float brightness, float contrast)
+{
+    /* Contrast scales around 128/255, brightness added before it when contrast is raised and after
+     * it when lowered (Photoshop 27.11: +40 / +30 maps 128 to 185; psd-tools -23 / -26 needs
+     * contrast first). */
+    pc_cmp_legacy_bc l;
+    float b = brightness / 255.0f;
+    float c = pc_clampf(contrast, -100.0f, 99.0f);
+    l.k = c >= 0.0f ? 1.0f / (1.0f - c / 100.0f) : 1.0f + c / 100.0f;
+    l.pre = c >= 0.0f ? b : 0.0f;
+    l.post = c >= 0.0f ? 0.0f : b;
+    return l;
+}
+
+float pc_cmp_legacy_bc_apply(const pc_cmp_legacy_bc *l, float v)
+{
+    return pc_clampf((v + l->pre - PC_COMPOSE_LEGACY_PIVOT) * l->k + PC_COMPOSE_LEGACY_PIVOT + l->post, 0.0f,
+                     1.0f);
+}
 
 static void f_legacy_bc(void *ctx, const float c[3], float out[3])
 {
     const bc_ctx *x = ctx;
     int i;
     for (i = 0; i < 3; i++) {
-        out[i] = pc_clampf((c[i] - 0.5f) * x->k + 0.5f + x->b, 0.0f, 1.0f);
+        out[i] = pc_cmp_legacy_bc_apply(&x->legacy, c[i]);
     }
 }
 
@@ -573,7 +633,14 @@ typedef struct exposure_ctx {
     float offset;
     float g;
     pc_compose_transfer t;
+    bool hdr;
 } exposure_ctx;
+
+/* f32::signum: NaN stays NaN, the sign of zero counts. */
+static float signum(float x)
+{
+    return isnan(x) ? x : copysignf(1.0f, x);
+}
 
 static void f_exposure(void *ctx, const float c[3], float out[3])
 {
@@ -581,15 +648,49 @@ static void f_exposure(void *ctx, const float c[3], float out[3])
     const exposure_ctx *x = ctx;
     int i;
     for (i = 0; i < 3; i++) {
-        float lin =
-            powf(pc_rs_maxf_k(pc_compose_transfer_decode(x->t, c[i]) * x->m + x->offset, 0.0f), 1.0f / x->g);
+        float lin;
+        if (x->hdr) {
+            /* Float documents store linear samples; Photoshop's 32-bit Exposure also keeps
+             * negative results, with a signed gamma. */
+            lin = c[i] * x->m + x->offset;
+            out[i] = x->g == 1.0f ? lin : signum(lin) * powf(fabsf(lin), 1.0f / x->g);
+            continue;
+        }
+        lin = pc_rs_maxf_k(pc_compose_transfer_decode(x->t, c[i]) * x->m + x->offset, 0.0f);
+        if (x->g != 1.0f) {
+            lin = powf(lin, 1.0f / x->g);
+        }
         out[i] = pc_clampf(pc_compose_transfer_encode(x->t, lin), 0.0f, 1.0f);
     }
+}
+
+typedef struct levels_f32_ctx {
+    const pc_levels_channel *master;
+    const pc_levels_channel *per_channel;
+    bool master_identity;
+    bool channel_identity[3];
+} levels_f32_ctx;
+
+static void f_levels_f32(void *ctx, const float c[3], float out[3])
+{
+    const levels_f32_ctx *x = ctx;
+    int i;
+    for (i = 0; i < 3; i++) {
+        float v = x->channel_identity[i] ? c[i] : pc_compose_levels_float(&x->per_channel[i], c[i]);
+        out[i] = x->master_identity ? v : pc_compose_levels_float(x->master, v);
+    }
+}
+
+static bool levels_is_default(const pc_levels_channel *ch)
+{
+    return ch->in_black == 0.0f && ch->in_white == 1.0f && ch->gamma == 1.0f && ch->out_black == 0.0f &&
+           ch->out_white == 1.0f;
 }
 
 typedef struct tone_ctx {
     const float *luts;
     pc_tone_space space;
+    bool identity[3];
 } tone_ctx;
 
 static void f_tone(void *ctx, const float c[3], float out[3])
@@ -598,7 +699,7 @@ static void f_tone(void *ctx, const float c[3], float out[3])
     if (x->space == PC_TONE_RGB) {
         int i;
         for (i = 0; i < 3; i++) {
-            out[i] = pc_cmp_lut(x->luts + (size_t)i * LUT, LUT, c[i]);
+            out[i] = x->identity[i] ? c[i] : pc_cmp_lut(x->luts + (size_t)i * LUT, LUT, c[i]);
         }
         return;
     }
@@ -632,8 +733,12 @@ static void f_hue_sat(void *ctx, const float c[3], float out[3])
         ds = pc_cmp_lut(x->table + LUT, LUT, h0) * chroma;
         dl = pc_cmp_lut(x->table + 2 * LUT, LUT, h0) * chroma;
     }
-    pc_compose_hue_saturation(c, x->hue + dh, pc_clampf(x->saturation / 100.0f + ds, -1.0f, 1.0f),
-                              pc_clampf(x->lightness / 100.0f + dl, -1.0f, 1.0f), x->colorize, out);
+    {
+        float o[3];
+        pc_compose_hue_saturation(c, x->hue + dh, pc_clampf(x->saturation / 100.0f + ds, -1.0f, 1.0f),
+                                  pc_clampf(x->lightness / 100.0f, -1.0f, 1.0f), x->colorize, o);
+        pc_compose_range_lightness(o, dl, out);
+    }
 }
 
 typedef struct vib_ctx {
@@ -710,33 +815,33 @@ static void f_black_white(void *ctx, const float c[3], float out[3])
     const bw_ctx *x = ctx;
     float g = pc_compose_black_white_gray(c, x->weights);
     int i;
-    for (i = 0; i < 3; i++) {
-        out[i] = x->tint != NULL ? pc_clampf(g * x->tint[i] * 2.0f, 0.0f, 1.0f) * 0.5f + g * 0.5f : g;
+    if (x->tint != NULL) {
+        /* Photoshop tints like the Color blend mode: the tint's hue and saturation at the grey's
+         * luminosity (SetLum + ClipColor, Photoshop 27.11). */
+        float t[3];
+        pc_blend_set_lum(x->tint, g, t);
+        for (i = 0; i < 3; i++) {
+            out[i] = pc_clampf(t[i], 0.0f, 1.0f);
+        }
+        return;
     }
+    out[0] = out[1] = out[2] = g;
 }
 
 static void f_color_balance(void *ctx, const float c[3], float out[3])
 {
     const pc_adjustment *a = ctx;
-    const float *sh = a->u.color_balance.shadows;
-    const float *mi = a->u.color_balance.midtones;
-    const float *hi = a->u.color_balance.highlights;
-    float l = pc_rgb_to_gray(c);
-    float ws = pc_clampf(1.0f - l * 2.0f, 0.0f, 1.0f);
-    float wh = pc_clampf(l * 2.0f - 1.0f, 0.0f, 1.0f);
-    float wm = 1.0f - ws - wh;
-    float o[3];
+    float tones[3][3];
     int i;
     for (i = 0; i < 3; i++) {
-        o[i] = pc_clampf(c[i] + (sh[i] * ws + mi[i] * wm + hi[i] * wh) / 100.0f * 0.5f, 0.0f, 1.0f);
+        tones[0][i] = a->u.color_balance.shadows[i];
+        tones[1][i] = a->u.color_balance.midtones[i];
+        tones[2][i] = a->u.color_balance.highlights[i];
     }
-    if (a->u.color_balance.preserve_luminosity) {
-        float l1 = pc_rs_maxf_k(pc_rgb_to_gray(o), 1e-6f);
-        for (i = 0; i < 3; i++) {
-            o[i] = pc_clampf(o[i] * l / l1, 0.0f, 1.0f);
-        }
+    for (i = 0; i < 3; i++) {
+        out[i] = pc_compose_color_balance_channel((const float (*)[3])tones,
+                                                  a->u.color_balance.preserve_luminosity, i, c[i]);
     }
-    memcpy(out, o, sizeof o);
 }
 
 static void f_selective(void *ctx, const float c[3], float out[3])
@@ -745,7 +850,7 @@ static void f_selective(void *ctx, const float c[3], float out[3])
     pc_compose_selective_color(c, a->u.selective_color.relative, a->u.selective_color.adjustments, out);
 }
 
-static void gradient_map_color(const pc_gradient_map_stop *s, size_t n, float t, float out[3])
+void pc_cmp_gradient_map_color(const pc_gradient_map_stop *s, size_t n, float t, float out[3])
 {
     size_t i;
     int c;
@@ -788,7 +893,7 @@ static void map_dithered(pc_compose_buffer *buf, const pc_adjustment *adj, const
             if (adj->u.gradient_map.reverse) {
                 t = 1.0f - t;
             }
-            gradient_map_color(adj->u.gradient_map.stops, adj->u.gradient_map.nstops, t, o);
+            pc_cmp_gradient_map_color(adj->u.gradient_map.stops, adj->u.gradient_map.nstops, t, o);
         } else {
             pc_compose_lut3d_sample(lut, lut_len, adj->u.color_lookup.size, p,
                                     adj->u.color_lookup.tetrahedral, o);
@@ -826,18 +931,13 @@ pc_status pc_compose_adjust_apply_depth(const pc_adjustment *adj, pc_compose_buf
     }
     case PC_ADJ_BRIGHTNESS_CONTRAST: {
         bc_ctx x;
+        x.b = adj->u.brightness_contrast.brightness;
+        x.c = adj->u.brightness_contrast.contrast;
+        x.legacy = pc_cmp_legacy_bc_new(x.b, x.c);
         if (adj->u.brightness_contrast.legacy) {
-            /* Legacy: contrast scales around mid-grey, then brightness is added. */
-            float c = pc_clampf(adj->u.brightness_contrast.contrast, -100.0f, 99.0f);
-            x.b = adj->u.brightness_contrast.brightness / 255.0f;
-            x.k = c >= 0.0f ? 1.0f / (1.0f - c / 100.0f) : 1.0f + c / 100.0f;
-            x.c = 0.0f;
             map_rgb(buf, f_legacy_bc, &x);
         } else {
             /* Modern (CS3+): smooth curves pinning black and white, brightness then contrast. */
-            x.b = adj->u.brightness_contrast.brightness;
-            x.c = adj->u.brightness_contrast.contrast;
-            x.k = 0.0f;
             map_rgb(buf, f_modern_bc, &x);
         }
         return PC_OK;
@@ -849,12 +949,30 @@ pc_status pc_compose_adjust_apply_depth(const pc_adjustment *adj, pc_compose_buf
         x.offset = adj->u.exposure.offset;
         x.g = pc_rs_maxf_k(adj->u.exposure.gamma, 0.01f);
         x.t = pc_compose_transfer_for_exposure(transfer);
+        x.hdr = f32;
         map_rgb(buf, f_exposure, &x);
         return PC_OK;
     }
     case PC_ADJ_LEVELS:
     case PC_ADJ_CURVES: {
         tone_ctx x;
+        if (adj->kind == PC_ADJ_LEVELS && adj->u.levels.space == PC_TONE_RGB && f32) {
+            /* A 0..1 lookup table cannot represent signed, unbounded float samples. */
+            levels_f32_ctx lx;
+            int c;
+            bool any = false;
+            lx.master = &adj->u.levels.master;
+            lx.per_channel = adj->u.levels.per_channel;
+            lx.master_identity = levels_is_default(lx.master);
+            for (c = 0; c < 3; c++) {
+                lx.channel_identity[c] = levels_is_default(&lx.per_channel[c]);
+                any = any || !lx.channel_identity[c];
+            }
+            if (!lx.master_identity || any) {
+                map_rgb(buf, f_levels_f32, &lx);
+            }
+            return PC_OK;
+        }
         float *luts = pc_malloc_array(4 * LUT, sizeof *luts);
         pc_status st;
         if (luts == NULL) {
@@ -864,6 +982,7 @@ pc_status pc_compose_adjust_apply_depth(const pc_adjustment *adj, pc_compose_buf
         if (st == PC_OK) {
             x.luts = luts;
             x.space = adj->kind == PC_ADJ_LEVELS ? adj->u.levels.space : adj->u.curves.space;
+            pc_compose_float_tone_identity(adj, has_depth, depth, x.identity);
             map_rgb(buf, f_tone, &x);
         }
         free(luts);

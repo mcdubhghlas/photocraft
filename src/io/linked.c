@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "base/blob.h"
+#include "base/bytes.h"
 #include "base/mem.h"
 #include "base/num.h"
 #include "base/utf8.h"
@@ -526,6 +527,65 @@ pc_status pc_io_rebuild_linked_block(const uint8_t *data, size_t len, pc_io_keep
     *out = b;
     *changed = true;
     return PC_OK;
+}
+
+pc_status pc_io_copy_linked_item(const uint8_t *data, size_t len, const char *uuid, size_t uuid_len,
+                                 const char *new_uuid, size_t new_uuid_len, bool *found, pc_buf *out,
+                                 pc_error *err)
+{
+    piece *items = NULL;
+    size_t n = 0;
+    pc_status st = split_items(data, len, &items, &n, err);
+    *found = false;
+    if (st != PC_OK) {
+        return st;
+    }
+    for (size_t i = 0; i < n && st == PC_OK && !*found; i++) {
+        const uint8_t *raw;
+        const uint8_t *item;
+        size_t l;
+        size_t idn;
+        size_t old_end;
+        uint8_t hdr[8];
+        pc_buf ni = PC_BUF_INIT;
+        if (!items[i].has_uuid || !pc_str_eq_mem(&items[i].uuid, uuid, uuid_len)) {
+            continue;
+        }
+        raw = items[i].bytes;
+        if (!to_size(be64(raw), &l) || l < 9 || new_uuid_len > 255) {
+            break; /* None */
+        }
+        item = raw + 8;
+        idn = item[8];
+        old_end = 9 + idn;
+        if (old_end > l) {
+            break;
+        }
+        st = pc_buf_append(&ni, item, 8, err);
+        if (st == PC_OK) {
+            st = pc_buf_append_byte(&ni, (uint8_t)new_uuid_len, err);
+        }
+        if (st == PC_OK) {
+            st = pc_buf_append(&ni, new_uuid, new_uuid_len, err);
+        }
+        if (st == PC_OK) {
+            st = pc_buf_append(&ni, item + old_end, l - old_end, err);
+        }
+        if (st == PC_OK) {
+            pc_store_be64(hdr, ni.len);
+            st = pc_buf_append(out, hdr, 8, err);
+        }
+        if (st == PC_OK) {
+            st = pc_buf_append(out, ni.data, ni.len, err);
+        }
+        while (st == PC_OK && out->len % 4 != 0) {
+            st = pc_buf_append_byte(out, 0, err);
+        }
+        *found = st == PC_OK;
+        pc_buf_fini(&ni);
+    }
+    pieces_free(items, n);
+    return st;
 }
 
 pc_status pc_io_linked_block_uuids(const uint8_t *data, size_t len, pc_io_strs *out, pc_error *err)

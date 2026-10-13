@@ -165,8 +165,33 @@ static void test_hostile_scenes_never_crash(void)
     pc_surface_fini(&img);
 }
 
+static void test_plane_check_and_corner_order(void)
+{
+    const double c[2] = {400.0, 300.0};
+    pc_algo_vp_plane fq = floor_quad(500.0, c), sq = {{{10, 10}, {110, 10}, {110, 110}, {10, 110}}};
+    pc_algo_vp_plane bowtie = {{{10, 10}, {110, 110}, {110, 10}, {10, 110}}};
+    pc_algo_vp_plane dent = {{{10, 10}, {110, 10}, {40, 40}, {10, 110}}};
+    pc_algo_vp_plane sliver = {{{10, 10}, {300, 10}, {300, 40}, {200, 40}}};
+    pc_algo_vp_plane nan = {{{NAN, 10}, {110, 10}, {110, 110}, {10, 110}}};
+    pc_algo_vp_plane ccw = {{{110, 110}, {110, 10}, {10, 10}, {10, 110}}}, n;
+    int k;
+    CHECK(pc_algo_vp_plane_check_at(&fq, c) == PC_ALGO_VP_VALID);
+    CHECK(pc_algo_vp_plane_check_at(&sq, c) == PC_ALGO_VP_VALID); /* fronto-parallel */
+    CHECK(pc_algo_vp_plane_check_at(&bowtie, c) == PC_ALGO_VP_INVALID);
+    CHECK(pc_algo_vp_plane_check_at(&dent, c) == PC_ALGO_VP_INVALID); /* concave */
+    CHECK(pc_algo_vp_plane_check_at(&sliver, c) == PC_ALGO_VP_QUESTIONABLE);
+    CHECK(pc_algo_vp_plane_check_at(&nan, c) == PC_ALGO_VP_INVALID);
+    CHECK(strcmp(pc_algo_vp_plane_check_name(PC_ALGO_VP_QUESTIONABLE), "questionable") == 0);
+    /* Clicked counter-clockwise from the bottom-right: clockwise from the top-left. */
+    n = pc_algo_vp_plane_normalized(&ccw);
+    for (k = 0; k < 4; k++) {
+        CHECK(n.corners[k][0] == sq.corners[k][0] && n.corners[k][1] == sq.corners[k][1]);
+    }
+}
+
 int main(int argc, char **argv)
 {
+    RUN(test_plane_check_and_corner_order);
     RUN(test_focal_and_metric_aspect_from_one_plane);
     RUN(test_tear_off_is_perpendicular_and_shares_the_edge);
     RUN(test_paste_and_clone_in_perspective);

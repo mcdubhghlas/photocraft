@@ -160,6 +160,40 @@ static pc_status plane(const owned_px *p, size_t c, size_t n, pc_psd_bytes *out,
     return PC_OK;
 }
 
+/* Merged composite plane: Photoshop stores transparent RGB composites against white (layer channels
+ * stay straight); other planes as `plane`. */
+static pc_status composite_plane(const owned_px *p, size_t c, size_t n, pc_psd_bytes *out, pc_error *err)
+{
+    bool wide = p->kind == PC_PSD_PX_RGBA16;
+    uint8_t *o;
+    size_t i;
+    if ((p->kind != PC_PSD_PX_RGBA8 && !wide) || c >= 3) {
+        return plane(p, c, n, out, err);
+    }
+    if (n == 0) {
+        out->data = NULL;
+        out->len = 0;
+        return PC_OK;
+    }
+    o = malloc(n * (wide ? 2u : 1u));
+    if (o == NULL) {
+        return psd_nomem(err);
+    }
+    for (i = 0; i < n; i++) {
+        uint32_t color = sample(p, i * 4 + c);
+        uint32_t alpha = sample(p, i * 4 + 3);
+        if (wide) {
+            uint32_t v = alpha == 0 ? color : (color * alpha + 32767u) / 65535u + 65535u - alpha;
+            pc_store_be16(o + 2 * i, (uint16_t)v);
+        } else {
+            o[i] = (uint8_t)(alpha == 0 ? color : (color * alpha + 127u) / 255u + 255u - alpha);
+        }
+    }
+    out->data = o;
+    out->len = n * (wide ? 2u : 1u);
+    return PC_OK;
+}
+
 static bool alpha_is_opaque(const owned_px *p, size_t n)
 {
     size_t s = spp(p->kind);
@@ -659,7 +693,8 @@ pc_status pc_psd_builder_build(const pc_psd_builder *b, pc_psd_file *out, pc_err
     if (b->has_composite) {
         for (i = 0; i < cc + (with_alpha ? 1 : 0); i++) {
             pc_psd_bytes pl = {NULL, 0};
-            CK(plane(&b->composite, i, n, &pl, err));
+            CK(with_alpha ? composite_plane(&b->composite, i, n, &pl, err)
+                          : plane(&b->composite, i, n, &pl, err));
             st = pc_buf_append(&planes, pl.data, pl.len, err);
             pc_psd_bytes_fini(&pl);
             if (st != PC_OK) {

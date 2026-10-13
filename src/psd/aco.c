@@ -237,9 +237,7 @@ pc_status pc_psd_aco_write(const pc_psd_aco_swatch *s, size_t n, pc_psd_bytes *o
                     psd_w_fail(&w, st);
                     break;
                 }
-                if (nu > PC_PSD_ACO_MAX_NAME_UNITS) {
-                    nu = PC_PSD_ACO_MAX_NAME_UNITS;
-                }
+                nu = psd_units_capped(u, nu, PC_PSD_ACO_MAX_NAME_UNITS);
                 /* The length counts the terminating NUL. */
                 psd_put_u32(&w, (uint32_t)nu + 1);
                 for (k = 0; (size_t)k < nu; k++) {

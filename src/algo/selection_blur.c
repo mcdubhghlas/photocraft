@@ -125,7 +125,8 @@ static void add_row(double *acc, size_t sw, const rows_view *rows, size_t yy, si
 
 static float curve(float v)
 {
-    return pc_clampf((v - 0.5f) * 4.0f + 0.5f, 0.0f, 1.0f);
+    /* A hard threshold at 1/2, as in Photoshop: straight edges stay put, corners round off. */
+    return v >= 0.5f ? 1.0f : 0.0f;
 }
 
 /* Running-sum box average of one line (radius r, edges replicated). */
@@ -857,7 +858,7 @@ pc_status pc_algo_selection_feather(const float *m, size_t len, size_t w, size_t
         n = SIZE_MAX;
     }
     if (isfinite(radius)) {
-        sigma = pc_rs_maxf_k(radius, 0.0f) / 2.0f;
+        sigma = pc_rs_maxf_k(radius, 0.0f); /* Photoshop's feather radius is the Gaussian's sigma */
     } else {
         sigma = radius > 0.0f ? MAX_SIGMA : 0.0f;
     }

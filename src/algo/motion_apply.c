@@ -97,7 +97,7 @@ static pc_status run_tile(void *vctx, size_t chunk, size_t begin, size_t end)
             return PC_ERR_UNSUPPORTED;
         }
         if (r->a->selection != NULL) {
-            pc_algo_mix_selection(data, t->output, r->a->selection, &src);
+            pc_algo_mix_selection(data, t->output, r->a->selection, &src, r->alpha);
         }
         pc_algo_image_fini(&src);
         if (pc_interrupt_cancelled(r->a->ctl)) {

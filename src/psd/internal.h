@@ -119,6 +119,18 @@ pc_status psd_units_to_utf8(const uint16_t *u, size_t n, char **out, pc_error *e
 /* UTF-8 → UTF-16 units (owned); invalid UTF-8 sequences become U+FFFD. */
 pc_status psd_utf8_to_units(const char *s, uint16_t **out, size_t *n, pc_error *err);
 pc_status psd_utf8n_to_units(const char *s, size_t len, uint16_t **out, size_t *n, pc_error *err);
+/* How many of the n UTF-16 units to keep under a cap of max without splitting a surrogate pair
+ * (the .aco and .ase writers share it, so the fix cannot drift between them). */
+static inline size_t psd_units_capped(const uint16_t *u, size_t n, size_t max)
+{
+    if (n <= max) {
+        return n;
+    }
+    if (max > 0 && u[max - 1] >= 0xD800u && u[max - 1] <= 0xDBFFu && u[max] >= 0xDC00u && u[max] <= 0xDFFFu) {
+        return max - 1;
+    }
+    return max;
+}
 /* String::from_utf16_lossy into a pc_psd_str (replaces *out on success). */
 pc_status psd_str_from_units(const uint16_t *u, size_t n, pc_psd_str *out, pc_error *err);
 

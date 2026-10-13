@@ -235,3 +235,13 @@ const pc_pattern *pc_pattern_find(const pc_pattern *patterns, size_t n, const ch
     }
     return NULL;
 }
+
+uint64_t pc_pattern_pixel_count(const pc_pattern *p)
+{
+    return (uint64_t)p->width * (uint64_t)p->height;
+}
+
+bool pc_pattern_is_paintable(const pc_pattern *p)
+{
+    return !pc_pattern_is_empty(p) && pc_pattern_pixel_count(p) <= PC_PATTERN_MAX_PAINT_PIXELS;
+}

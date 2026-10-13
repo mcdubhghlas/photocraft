@@ -118,6 +118,8 @@ pc_format_load_opts pc_format_load_opts_default(void)
     o.max_blob_bytes = (size_t)1 << 30;
     o.max_total_bytes = (uint64_t)16 << 30;
     o.preserve_ids = true;
+    o.max_canvas_side = PC_FORMAT_MAX_CANVAS_SIDE;
+    o.max_canvas_pixels = PC_FORMAT_MAX_CANVAS_PIXELS;
     return o;
 }
 
@@ -168,36 +170,60 @@ pc_status pc_format_read_manifest_source(const pc_format_source *src, const pc_f
     return s;
 }
 
+/* store::admit_canvas: a declared canvas outside the budget is refused before anything is decoded
+ * for it (#2935). */
+static pc_status admit_canvas(pc_size size, const pc_format_load_opts *o, pc_error *err)
+{
+    uint32_t w = size.width;
+    uint32_t h = size.height;
+    if (w == 0 || h == 0) {
+        return pc_format_corrupt(err, "canvas size %lux%lu is empty", (unsigned long)w, (unsigned long)h);
+    }
+    if (w > o->max_canvas_side || h > o->max_canvas_side) {
+        return pc_format_limit(err, "canvas %lux%lu exceeds %lu pixels per side", (unsigned long)w,
+                               (unsigned long)h, (unsigned long)o->max_canvas_side);
+    }
+    if ((uint64_t)w * h > o->max_canvas_pixels) {
+        return pc_format_limit(err, "canvas %lux%lu exceeds %llu pixels", (unsigned long)w, (unsigned long)h,
+                               (unsigned long long)o->max_canvas_pixels);
+    }
+    return PC_OK;
+}
+
 pc_status pc_format_load_source(const pc_format_source *src, const pc_format_load_opts *opts,
                                 pc_document *out, pc_error *err)
 {
-    pc_format_load_opts o = *opts;
-    for (;;) {
-        pc_format_manifest *m = NULL;
-        pc_format_fetch *fetch = NULL;
-        pc_document doc;
-        uint64_t max_id = 0;
-        pc_status s = pc_format_read_manifest_source(src, &o, &m, err);
-        if (s == PC_OK) {
-            s = pc_format_fetch_new(src, &o, &fetch, err);
-        }
-        if (s == PC_OK) {
-            s = pc_format_manifest_to_document(m, fetch, o.preserve_ids, &doc, &max_id, err);
-        }
-        pc_format_fetch_free(fetch);
-        pc_format_manifest_free(m);
-        if (s != PC_OK) {
-            return s;
-        }
-        if (o.preserve_ids && !pc_format_reserve_ids_through(max_id)) {
-            /* Ids far beyond our counter: remap instead of risking collisions. */
-            pc_document_fini(&doc);
-            o.preserve_ids = false;
-            continue;
-        }
-        *out = doc;
-        return PC_OK;
+    pc_format_manifest *m = NULL;
+    pc_format_fetch *fetch = NULL;
+    pc_document doc;
+    pc_status s = pc_format_read_manifest_source(src, opts, &m, err);
+    if (s == PC_OK) {
+        s = admit_canvas(pc_format_manifest_canvas(m), opts, err);
     }
+    if (s == PC_OK) {
+        s = pc_format_fetch_new(src, opts, &fetch, err);
+    }
+    if (s == PC_OK) {
+        s = pc_format_manifest_to_document(m, fetch, opts->preserve_ids, &doc, err);
+    }
+    pc_format_fetch_free(fetch);
+    pc_format_manifest_free(m);
+    if (s == PC_OK) {
+        *out = doc;
+    }
+    return s;
+}
+
+pc_status pc_format_load_bytes_source(pc_format_byte_source_get get, void *ctx,
+                                      const pc_format_load_opts *opts, pc_document *out, pc_error *err)
+{
+    pc_format_source *src = NULL;
+    pc_status s = pc_format_source_custom(get, ctx, &src, err);
+    if (s == PC_OK) {
+        s = pc_format_load_source(src, opts, out, err);
+    }
+    pc_format_source_free(src);
+    return s;
 }
 
 pc_status pc_format_load_from_bytes_with(const uint8_t *bytes, size_t len, const pc_format_load_opts *opts,

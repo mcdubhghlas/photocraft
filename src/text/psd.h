@@ -26,6 +26,7 @@
 #include "doc/text.h"
 #include "doc/text_styles.h"
 #include "psd/descriptor.h"
+#include "base/buf.h"
 #include "text/engine_data.h"
 
 /* Parsed TySh contents. */
@@ -34,7 +35,9 @@ typedef struct pc_tysh {
     pc_psd_desc text; /* the text descriptor (class TxLr) */
     bool has_warp;
     pc_psd_desc warp;
-    int32_t bounds[4]; /* the four trailing i32 values (left, top, right, bottom) */
+    /* The four trailing big-endian f32 values (left, top, right, bottom) after the warp
+     * descriptor: zeros for unwarped type, the text-space bounds for warped type. */
+    float bounds[4];
 } pc_tysh;
 
 void pc_tysh_fini(pc_tysh *t); /* NULL-safe */
@@ -54,12 +57,62 @@ pc_status pc_tysh_engine_text_is_blank(const uint8_t *tysh, size_t len, bool *ou
 /* The document's Txt2 block (a bare `/key value` sequence) as a dictionary. PC_ERR_FORMAT when
  * it doesn't parse. */
 pc_status pc_txt2_parse(const uint8_t *data, size_t len, pc_ed_value *out, pc_error *err);
-/* Applies the automatic kerning modes Photoshop keeps only in Txt2 (Optical, "0") to `layer`,
+/* Applies what Photoshop keeps only in Txt2 to `layer`: the automatic kerning modes (Optical,
+ * "0") and the OpenType settings besides ligatures (PC_TXT2_FEATURES, stylistic sets),
  * read from its TySh `tysh`, when the layer's TextIndex object in Txt2 still holds the layer's
  * text. Missing or stale data leaves the layer unchanged (PC_OK). On failure (NOMEM) the layer is
  * unchanged. */
 pc_status pc_txt2_apply(pc_text_layer *layer, const uint8_t *tysh, size_t len, const pc_ed_value *txt2,
                         pc_error *err);
+
+/* OpenType settings of a Txt2 style that are on/off flags, by style key, as Photoshop writes
+ * them: /20 Contextual Alternates, /23 Fractions, /24 Ordinals, /25 Swash, /26 Titling
+ * Alternates, /28 Stylistic Alternates, /29 Ornaments ({key, feature tag}). pc_txt2_apply sets
+ * them (a feature the style already has keeps its value; calt off is written as calt 0). */
+#define PC_TXT2_FEATURE_COUNT 7
+extern const char *const PC_TXT2_FEATURES[PC_TXT2_FEATURE_COUNT][2];
+/* The Txt2 style key holding the Stylistic Sets as a bit mask: bit n is set n + 1 (ss01..ss20). */
+#define PC_TXT2_STYLISTIC_SETS "85"
+/* The highest text-object number honoured (TextIndex, and the slot array pc_txt2_build sizes):
+ * a crafted file can name object INT32_MAX. */
+#define PC_TXT2_MAX_TEXT_INDEX 0xFFFF
+
+/* Places `layer` where Photoshop draws it when its Txt2 text object's frame is moved (#1317): the
+ * frame's matrix (`/2 /2`) and, for point text, its anchor (`/0`) map the frame into the TySh text
+ * space. Only when the TextIndex object still holds the layer's text and the frame's origin lands
+ * in the descriptor's `bounds` (and wasn't there already). Otherwise unchanged (PC_OK). */
+pc_status pc_txt2_apply_frame(pc_text_layer *layer, const uint8_t *tysh, size_t len, const pc_ed_value *txt2,
+                              pc_error *err);
+
+/* One text object for pc_txt2_build: the layer's TextIndex and the layer (borrowed). */
+typedef struct pc_txt2_object {
+    int32_t index;
+    const pc_text_layer *layer;
+} pc_txt2_object;
+
+/* needs_txt2: only a non-Metrics auto-kern mode (Optical) is exclusive to Txt2, so a document of
+ * ordinary Metrics text needs no block (writing an empty stub breaks some readers, #3514). */
+pc_status pc_txt2_needed(const pc_txt2_object *objects, size_t n, bool *out, pc_error *err);
+/* build_txt2: the document's Txt2 block (appended to out) with one text object per pair at the
+ * slot its index names (indices outside 0..=PC_TXT2_MAX_TEXT_INDEX are skipped; unused slots are
+ * empty dictionaries), carrying every pair's auto-kern mode (/11). `previous` (when has_previous)
+ * is the file's own block: a kept object (same text) keeps everything but its regenerated text
+ * and style runs (whose other keys survive too); the block's other keys and unnamed objects are
+ * kept; a block that comes out unchanged is written back byte for byte (#2374). */
+pc_status pc_txt2_build(const pc_txt2_object *objects, size_t n, const uint8_t *previous, size_t prev_len,
+                        bool has_previous, pc_buf *out, pc_error *err);
+
+/* translate_tysh: the block with only its transform's translation moved by (dx, dy); everything
+ * else stays byte for byte. PC_ERR_FORMAT when the block is too short. */
+pc_status pc_tysh_translate(const uint8_t *tysh, size_t len, double dx, double dy, pc_psd_bytes *out,
+                            pc_error *err);
+/* text_index: the block's TextIndex when it names one within 0..=PC_TXT2_MAX_TEXT_INDEX (*has
+ * false otherwise, also for an unreadable block). */
+pc_status pc_tysh_text_index(const uint8_t *tysh, size_t len, bool *has, int32_t *index, pc_error *err);
+/* set_text_index: the block with TextIndex set to `index` (added when missing). PC_ERR_FORMAT
+ * when the block doesn't parse. */
+pc_status pc_tysh_set_text_index(const uint8_t *tysh, size_t len, int32_t index, pc_psd_bytes *out,
+                                 pc_error *err);
 
 /* A text layer (model, text and transform; no cache, no psd_raw) from TySh data.
  * PC_ERR_FORMAT when the block can't be read (pc_tysh_parse). */

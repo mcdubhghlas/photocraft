@@ -484,8 +484,10 @@ static void test_levels_work_on_whole_levels(void)
 static void test_levels_dont_clip_in_32_bit(void)
 {
     /* The oracle corpus' rgb32 levels.psd: input 15..230, gamma 1.3, output 10..245. */
-    static const float cases[6][2] = {{0, 0},         {0.0497f, 3},   {0.0976f, 32},
-                                      {0.4508f, 140}, {0.9473f, 255}, {1, 255}};
+    /* 32-bit Levels no longer clamp to 0..1 (float RGB evaluates the formula directly): 0 and 1
+     * land below 0 and above 255 (checked after the loop). */
+    static const float cases[6][2] = {{0.0497f, 3},   {0.0976f, 32}, {0.4508f, 140},
+                                      {0.9473f, 255}, {0.0497f, 3},  {0.0976f, 32}};
     pc_adjustment a = adj_of(PC_ADJ_LEVELS);
     size_t i;
     a.u.levels.master =
@@ -501,6 +503,12 @@ static void test_levels_dont_clip_in_32_bit(void)
         CHECK(pc_compose_adjust_apply_depth(&a, &b, SRGB, true, f32 ? PC_SAMPLE_TYPE_F32 : PC_SAMPLE_TYPE_U8,
                                             NULL) == PC_OK);
         CHECK(roundf(b.px[0][0] * 255.0f) == want);
+        pc_compose_buffer_fini(&b);
+    }
+    for (i = 0; i < 2; i++) {
+        pc_compose_buffer b = px1((float)i, (float)i, (float)i, 1);
+        CHECK(pc_compose_adjust_apply_depth(&a, &b, SRGB, true, PC_SAMPLE_TYPE_F32, NULL) == PC_OK);
+        CHECK(i == 0 ? b.px[0][0] * 255.0f < 0.0f : b.px[0][0] * 255.0f > 255.0f);
         pc_compose_buffer_fini(&b);
     }
 }

@@ -69,7 +69,8 @@ typedef struct pc_psd_version_info {
 pc_status pc_psd_version_info_parse(const uint8_t *b, size_t len, pc_psd_version_info *out, pc_error *err);
 pc_status pc_psd_version_info_to_bytes(const pc_psd_version_info *v, pc_psd_bytes *out, pc_error *err);
 void pc_psd_version_info_fini(pc_psd_version_info *v);
-/* The 1057 resource the builder writes ("Adobe Photoshop" / "Adobe Photoshop CS6"). */
+/* The 1057 resource the builder writes: the names Photoshop 2026 writes ("Adobe Photoshop" /
+ * "Adobe Photoshop 2026"), without a NUL terminator. */
 pc_status pc_psd_version_info_resource(bool has_real_merged_data, pc_psd_resource *out, pc_error *err);
 
 /* Typed views of well-known resources (ResourceData). Each fails with the reference's error when

@@ -20,48 +20,333 @@
 #define MAX_DIM ((uint32_t)1 << 22)
 #define BAND 64
 
-static double support_of(pc_algo_resample f)
+/* Sub-pixel positions Photoshop's filters resolve: a sample's offset is rounded to 1/128 pixel. */
+#define PHASES 128.0
+
+/* Photoshop's bicubic filters, measured on Photoshop 25.4: Bicubic a = -0.75; Smoother stretched
+ * by 1.15, a = -0.625 (- 0.5 (1 - s) reducing); Sharper stretched by 1.05, a = -1 (- 1.6 (1 - s)
+ * reducing). Reducing widens the filter by 1/s, down to 1/4; below that the taps first average the
+ * image down to four times the target. */
+pc_algo_rs_kernel pc_algo_resample_keys(pc_algo_resample method, double s)
 {
-    switch (f) {
-    case PC_ALGO_RESAMPLE_NEAREST:
-        return 0.5;
-    case PC_ALGO_RESAMPLE_BILINEAR:
-        return 1.0;
-    case PC_ALGO_RESAMPLE_BICUBIC:
-        return 2.0;
+    pc_algo_rs_kernel k;
+    double a, stretch;
+    s = pc_clampd(s, 0.25, 1.0);
+    switch (method) {
+    case PC_ALGO_RESAMPLE_BICUBIC_SMOOTHER:
+        a = -0.625 - 0.5 * (1.0 - s), stretch = 1.15;
+        break;
+    case PC_ALGO_RESAMPLE_BICUBIC_SHARPER:
+        a = -1.0 - 1.6 * (1.0 - s), stretch = 1.05;
+        break;
     default:
-        return 3.0;
+        a = -0.75, stretch = 1.0;
+        break;
+    }
+    k.kind = PC_ALGO_KERNEL_KEYS;
+    k.a = a;
+    k.stretch = stretch / s;
+    return k;
+}
+
+static pc_algo_rs_kernel kernel_of(pc_algo_rs_kernel_kind kind)
+{
+    pc_algo_rs_kernel k;
+    k.kind = kind;
+    k.a = 0.0;
+    k.stretch = 1.0;
+    return k;
+}
+
+static double keys_weight(double x, double a)
+{
+    x = fabs(x);
+    if (x < 1.0) {
+        return (a + 2.0) * x * x * x - (a + 3.0) * x * x + 1.0;
+    }
+    if (x < 2.0) {
+        return a * (x * x * x - 5.0 * x * x + 8.0 * x - 4.0);
+    }
+    return 0.0;
+}
+
+static double lanczos_weight(double x)
+{
+    x = fabs(x);
+    if (x < 1e-9) {
+        return 1.0;
+    }
+    if (x < 3.0) {
+        double px = 3.14159265358979323846 * x;
+        return 3.0 * sin(px) * sin(px / 3.0) / (px * px);
+    }
+    return 0.0;
+}
+
+/* One resampling pass: scale factors and the filter of each axis. */
+typedef struct pass {
+    double sx, sy;
+    pc_algo_rs_kernel kx, ky;
+} pass;
+
+static pass mkpass(double sx, double sy, pc_algo_rs_kernel kx, pc_algo_rs_kernel ky)
+{
+    pass p;
+    p.sx = sx, p.sy = sy, p.kx = kx, p.ky = ky;
+    return p;
+}
+
+/* Photoshop's passes for `filter` (plan in resample.rs): a bicubic filter is designed for the
+ * height's scale (the width's when the height stays) and serves both axes, the smaller scale
+ * first; Bicubic Automatic with one axis growing and one shrinking is two Image Sizes (Sharper on
+ * the shrinking axis, then Smoother); Nearest, Bilinear and Lanczos run both axes in one pass. */
+static size_t plan(pc_algo_resample filter, double sx, double sy, pass out[2])
+{
+    pc_algo_rs_kernel k, nn = kernel_of(PC_ALGO_KERNEL_NEAREST);
+    switch (filter) {
+    case PC_ALGO_RESAMPLE_NEAREST:
+        out[0] = mkpass(sx, sy, nn, nn);
+        return 1;
+    case PC_ALGO_RESAMPLE_BILINEAR:
+        k = kernel_of(PC_ALGO_KERNEL_BILINEAR);
+        out[0] = mkpass(sx, sy, k, k);
+        return 1;
+    case PC_ALGO_RESAMPLE_LANCZOS:
+        k = kernel_of(PC_ALGO_KERNEL_LANCZOS);
+        out[0] = mkpass(sx, sy, k, k);
+        return 1;
+    case PC_ALGO_RESAMPLE_PRESERVE_DETAILS:
+        if (sx > 1.0 || sy > 1.0) {
+            return plan(PC_ALGO_RESAMPLE_LANCZOS, sx, sy, out);
+        }
+        return plan(PC_ALGO_RESAMPLE_BICUBIC_SHARPER, sx, sy, out);
+    case PC_ALGO_RESAMPLE_BICUBIC_AUTOMATIC:
+        if (sx <= 1.0 && sy <= 1.0) {
+            return plan(PC_ALGO_RESAMPLE_BICUBIC_SHARPER, sx, sy, out);
+        }
+        if (sx >= 1.0 && sy >= 1.0) {
+            return plan(PC_ALGO_RESAMPLE_BICUBIC_SMOOTHER, sx, sy, out);
+        }
+        if (sx < 1.0) {
+            out[0] = mkpass(sx, 1.0, pc_algo_resample_keys(PC_ALGO_RESAMPLE_BICUBIC_SHARPER, sx), nn);
+            out[1] = mkpass(1.0, sy, nn, pc_algo_resample_keys(PC_ALGO_RESAMPLE_BICUBIC_SMOOTHER, sy));
+        } else {
+            out[0] = mkpass(1.0, sy, nn, pc_algo_resample_keys(PC_ALGO_RESAMPLE_BICUBIC_SHARPER, sy));
+            out[1] = mkpass(sx, 1.0, pc_algo_resample_keys(PC_ALGO_RESAMPLE_BICUBIC_SMOOTHER, sx), nn);
+        }
+        return 2;
+    case PC_ALGO_RESAMPLE_BICUBIC:
+    case PC_ALGO_RESAMPLE_BICUBIC_SMOOTHER:
+    case PC_ALGO_RESAMPLE_BICUBIC_SHARPER:
+    default:
+        k = pc_algo_resample_keys(filter, sy != 1.0 ? sy : sx);
+        if (sx == 1.0 || sy == 1.0) {
+            out[0] = mkpass(sx, sy, k, k);
+            return 1;
+        }
+        if (sy < sx) {
+            out[0] = mkpass(1.0, sy, k, k);
+            out[1] = mkpass(sx, 1.0, k, k);
+        } else {
+            out[0] = mkpass(sx, 1.0, k, k);
+            out[1] = mkpass(1.0, sy, k, k);
+        }
+        return 2;
     }
 }
 
-static double weight_of(pc_algo_resample f, double x)
+/* The source position of output sample o, (o + 0.5) / scale - 0.5, kept on the edge samples when
+ * there is an edge, and rounded to Photoshop's 1/128 pixel. */
+static double position(int32_t o, double scale, const int32_t *edge)
 {
-    x = fabs(x);
-    switch (f) {
-    case PC_ALGO_RESAMPLE_NEAREST:
-        return x <= 0.5 ? 1.0 : 0.0;
-    case PC_ALGO_RESAMPLE_BILINEAR:
-        return pc_rs_max_k(1.0 - x, 0.0);
-    case PC_ALGO_RESAMPLE_BICUBIC: {
-        /* Keys cubic, a = -0.5 (Catmull-Rom). */
-        const double a = -0.5;
-        if (x < 1.0) {
-            return (a + 2.0) * x * x * x - (a + 3.0) * x * x + 1.0;
-        }
-        if (x < 2.0) {
-            return a * x * x * x - 5.0 * a * x * x + 8.0 * a * x - 4.0 * a;
-        }
-        return 0.0;
+    double u = ((double)o + 0.5) / scale - 0.5, j;
+    if (edge != NULL) {
+        u = pc_clampd(u, (double)edge[0], (double)(edge[1] > edge[0] ? edge[1] : edge[0]));
     }
-    default:
-        if (x < 1e-9) {
-            return 1.0;
+    j = floor(u);
+    return j + round((u - j) * PHASES) / PHASES;
+}
+
+/* The source pixels [floor(o / scale), floor((o + 1) / scale)) output pixel o covers. */
+static void cover(int32_t o, double scale, int32_t *a, int32_t *b)
+{
+    *a = pc_f64_to_i32(floor((double)o / scale + 1e-9));
+    *b = pc_f64_to_i32(pc_rs_max(floor(((double)o + 1.0) / scale + 1e-9), (double)*a + 1.0));
+}
+
+/* A growable weight list. */
+typedef struct wbuf {
+    double *v;
+    size_t n, cap;
+} wbuf;
+
+static bool wb_resize(wbuf *w, int64_t n)
+{
+    size_t want;
+    if (n < 0) {
+        n = 0;
+    }
+    if (n > MAX_TAPS) {
+        return false;
+    }
+    want = n > 0 ? (size_t)n : 1; /* never NULL, even for no taps */
+    if (want > w->cap || w->v == NULL) {
+        double *nv = realloc(w->v, want * sizeof *nv);
+        if (nv == NULL) {
+            return false;
         }
-        if (x < 3.0) {
-            double px = 3.14159265358979323846 * x;
-            return 3.0 * sin(px) * sin(px / 3.0) / (px * px);
+        w->v = nv;
+        w->cap = want;
+    }
+    w->n = (size_t)n;
+    return true;
+}
+
+/* Unclamped weights of output sample o over source samples *lo .. *lo + w->n. LIMIT when one
+ * sample would need more than MAX_TAPS taps (NOMEM when they can't be allocated). */
+static pc_status weights(int32_t o, double scale, pc_algo_rs_kernel kernel, const int32_t *edge, int32_t *lo,
+                         wbuf *w, wbuf *tmp, int depth)
+{
+    size_t i;
+    switch (kernel.kind) {
+    case PC_ALGO_KERNEL_NEAREST: {
+        double u = ((double)o + 0.5) / scale - 0.5;
+        *lo = pc_f64_to_i32(floor(u + 0.5));
+        if (!wb_resize(w, 1)) {
+            return PC_ERR_NOMEM;
         }
-        return 0.0;
+        w->v[0] = 1.0;
+        return PC_OK;
+    }
+    case PC_ALGO_KERNEL_BILINEAR:
+        if (scale < 0.5) {
+            int32_t a, b;
+            cover(o, scale, &a, &b);
+            if ((int64_t)b - a > MAX_TAPS) {
+                return PC_ERR_LIMIT;
+            }
+            if (!wb_resize(w, (int64_t)b - a)) {
+                return PC_ERR_NOMEM;
+            }
+            for (i = 0; i < w->n; i++) {
+                w->v[i] = 1.0 / (double)((int64_t)b - a);
+            }
+            *lo = a;
+        } else {
+            double u = position(o, scale, edge), j = floor(u);
+            *lo = pc_f64_to_i32(j);
+            if (!wb_resize(w, 2)) {
+                return PC_ERR_NOMEM;
+            }
+            w->v[0] = 1.0 - (u - j);
+            w->v[1] = u - j;
+        }
+        return PC_OK;
+    case PC_ALGO_KERNEL_KEYS:
+        if (scale < 0.25 && depth == 0 && tmp != NULL) {
+            /* Averaged down to four times the target first (pixels of `inner`), then filtered. */
+            double inner = 4.0 * scale;
+            int32_t ie[2], k0, blo = 0, bhi = 0, k;
+            const int32_t *iedge = NULL;
+            size_t nk;
+            bool any = false;
+            pc_status st;
+            if (edge != NULL) {
+                ie[0] = pc_f64_to_i32(ceil((double)edge[0] * inner - 1e-9));
+                ie[1] = pc_f64_to_i32(ceil(((double)edge[1] + 1.0) * inner - 1e-9)) - 1;
+                iedge = ie;
+            }
+            st = weights(o, 0.25, kernel, iedge, &k0, tmp, NULL, depth + 1);
+            if (st != PC_OK) {
+                return st;
+            }
+            nk = tmp->n;
+            for (i = 0; i < nk; i++) {
+                int32_t a, b;
+                k = (int32_t)((int64_t)k0 + (int64_t)i);
+                if (iedge != NULL) {
+                    k = pc_clamp_i32(k, iedge[0], iedge[1] > iedge[0] ? iedge[1] : iedge[0]);
+                }
+                cover(k, inner, &a, &b);
+                if (!any || a < blo) {
+                    blo = a;
+                }
+                if (!any || b > bhi) {
+                    bhi = b;
+                }
+                any = true;
+            }
+            if (!any) {
+                blo = 0, bhi = 0;
+            }
+            if ((int64_t)bhi - blo > MAX_TAPS) {
+                return PC_ERR_LIMIT;
+            }
+            if (!wb_resize(w, (int64_t)bhi - blo)) {
+                return PC_ERR_NOMEM;
+            }
+            memset(w->v, 0, w->n * sizeof *w->v);
+            for (i = 0; i < nk; i++) {
+                int32_t a, b, j;
+                k = (int32_t)((int64_t)k0 + (int64_t)i);
+                if (iedge != NULL) {
+                    k = pc_clamp_i32(k, iedge[0], iedge[1] > iedge[0] ? iedge[1] : iedge[0]);
+                }
+                cover(k, inner, &a, &b);
+                for (j = a; j < b; j++) {
+                    w->v[j - blo] += tmp->v[i] / (double)((int64_t)b - a);
+                }
+            }
+            *lo = blo;
+        } else {
+            double u = position(o, scale, edge), sum = -0.0;
+            int64_t l = pc_f64_to_i32(floor(u - 2.0 * kernel.stretch));
+            int64_t h = pc_f64_to_i32(ceil(u + 2.0 * kernel.stretch)), j;
+            if (h - l + 1 > MAX_TAPS) {
+                return PC_ERR_LIMIT;
+            }
+            if (!wb_resize(w, h - l + 1)) {
+                return PC_ERR_NOMEM;
+            }
+            for (i = 0; i < w->n; i++) {
+                j = l + (int64_t)i;
+                w->v[i] = keys_weight((u - (double)j) / kernel.stretch, kernel.a);
+                sum += w->v[i];
+            }
+            for (i = 0; i < w->n; i++) {
+                w->v[i] = w->v[i] / sum;
+            }
+            *lo = (int32_t)l;
+        }
+        return PC_OK;
+    case PC_ALGO_KERNEL_LANCZOS:
+    default: {
+        double stretch = scale < 1.0 ? 1.0 / scale : 1.0, sum = -0.0, kk;
+        double u = ((double)o + 0.5) / scale - 0.5;
+        int64_t l, h, j;
+        if (edge != NULL) {
+            u = pc_clampd(u, (double)edge[0], (double)(edge[1] > edge[0] ? edge[1] : edge[0]));
+        }
+        l = pc_f64_to_i32(ceil(u - 3.0 * stretch));
+        h = pc_f64_to_i32(floor(u + 3.0 * stretch));
+        if (h - l + 1 > MAX_TAPS) {
+            return PC_ERR_LIMIT;
+        }
+        if (!wb_resize(w, h - l + 1)) {
+            return PC_ERR_NOMEM;
+        }
+        for (i = 0; i < w->n; i++) {
+            j = l + (int64_t)i;
+            w->v[i] = lanczos_weight(((double)j - u) / stretch);
+            sum += w->v[i];
+        }
+        kk = fabs(sum) > 1e-12 ? 1.0 / sum : 1.0;
+        for (i = 0; i < w->n; i++) {
+            w->v[i] = w->v[i] * kk;
+        }
+        *lo = (int32_t)l;
+        return PC_OK;
+    }
     }
 }
 
@@ -92,18 +377,19 @@ static int32_t clamp_edge(const int32_t *edge, int32_t i)
     return edge != NULL ? pc_clamp_i32(i, edge[0], edge[1]) : i;
 }
 
-pc_status pc_algo_taps_make(int32_t dst0, int32_t dst1, double scale, pc_algo_resample filter,
+pc_status pc_algo_taps_make(int32_t dst0, int32_t dst1, double scale, pc_algo_rs_kernel kernel,
                             const int32_t *edge, const int32_t content[2], pc_algo_taps *out, pc_error *err)
 {
-    double stretch = scale < 1.0 ? 1.0 / scale : 1.0;
-    double support = support_of(filter) * stretch;
     pc_algo_taps t;
     size_t n = dst1 > dst0 ? (size_t)((int64_t)dst1 - dst0) : 0, k, wcap = 0, wlen = 0;
-    double *wd = NULL;
+    wbuf wd = {NULL, 0, 0}, tmp = {NULL, 0, 0};
     float *folded = NULL;
-    size_t tmp_cap = 0;
+    size_t fcap = 0;
     pc_status st = PC_OK;
     memset(&t, 0, sizeof t);
+    if (scale == 1.0) {
+        kernel = kernel_of(PC_ALGO_KERNEL_NEAREST);
+    }
     if (n > 0) {
         t.start = pc_malloc_array(n, sizeof *t.start);
         t.off = pc_malloc_array(n, sizeof *t.off);
@@ -116,46 +402,23 @@ pc_status pc_algo_taps_make(int32_t dst0, int32_t dst1, double scale, pc_algo_re
     }
     t.n = n;
     for (k = 0; k < n; k++) {
-        int32_t o = (int32_t)((int64_t)dst0 + (int64_t)k);
-        double u = ((double)o + 0.5) / scale - 0.5;
-        int32_t lo, hi, start, a, b;
-        int64_t count, flen, i;
-        double s;
+        int32_t o = (int32_t)((int64_t)dst0 + (int64_t)k), lo, start, a, b;
+        int64_t hi, flen, i;
         float outside;
         size_t i0, i1;
         t.off[k] = wlen;
-        if (filter == PC_ALGO_RESAMPLE_NEAREST) {
-            int32_t ii = clamp_edge(edge, pc_f64_to_i32(floor(u + 0.5)));
-            if (ii >= content[0] && ii <= content[1]) {
-                float *nw = pc_grow_array(t.w, &wcap, wlen + 1, sizeof(float));
-                if (nw == NULL) {
-                    st = pc_fail(err, PC_ERR_NOMEM, "out of memory for resampling taps");
-                    goto fail;
-                }
-                t.w = nw;
-                t.w[wlen++] = 1.0f;
-                t.start[k] = ii;
-                t.len[k] = 1;
-                t.outside[k] = 0.0f;
-            } else {
-                t.start[k] = content[0];
-                t.len[k] = 0;
-                t.outside[k] = 1.0f;
-            }
-            continue;
-        }
-        lo = pc_f64_to_i32(ceil(u - support));
-        hi = pc_f64_to_i32(floor(u + support));
-        count = (int64_t)hi - (int64_t)lo + 1;
-        if (count > MAX_TAPS) {
-            st = pc_fail(err, PC_ERR_LIMIT, "resampling scale %g needs too many taps", scale);
+        st = weights(o, scale, kernel, edge, &lo, &wd, &tmp, 0);
+        if (st != PC_OK) {
+            st = st == PC_ERR_LIMIT
+                     ? pc_fail(err, PC_ERR_LIMIT, "resampling scale %g needs too many taps", scale)
+                     : pc_fail(err, PC_ERR_NOMEM, "out of memory for resampling taps");
             goto fail;
         }
-        if (count < 0) {
-            count = 0;
-        }
+        hi = (int64_t)lo + (int64_t)wd.n - 1;
+        /* Fold the weights of taps beyond the edge onto the edge sample. */
         start = clamp_edge(edge, lo);
-        flen = (int64_t)clamp_edge(edge, hi) - (int64_t)start + 1;
+        flen =
+            (int64_t)clamp_edge(edge, (int32_t)pc_clamp_i64(hi, INT32_MIN, INT32_MAX)) - (int64_t)start + 1;
         if (flen < 1) {
             flen = 1;
         }
@@ -163,41 +426,24 @@ pc_status pc_algo_taps_make(int32_t dst0, int32_t dst1, double scale, pc_algo_re
             st = pc_fail(err, PC_ERR_LIMIT, "resampling scale %g needs too many taps", scale);
             goto fail;
         }
-        if ((size_t)(count > flen ? count : flen) > tmp_cap) {
-            size_t want = (size_t)(count > flen ? count : flen);
-            double *nwd = realloc(wd, want * sizeof *wd);
-            float *nf;
-            if (nwd == NULL) {
-                st = pc_fail(err, PC_ERR_NOMEM, "out of memory for resampling taps");
-                goto fail;
-            }
-            wd = nwd;
-            nf = realloc(folded, want * sizeof *folded);
+        if ((size_t)flen > fcap) {
+            float *nf = realloc(folded, (size_t)flen * sizeof *folded);
             if (nf == NULL) {
                 st = pc_fail(err, PC_ERR_NOMEM, "out of memory for resampling taps");
                 goto fail;
             }
             folded = nf;
-            tmp_cap = want;
+            fcap = (size_t)flen;
         }
-        s = -0.0; /* Iterator::sum */
-        for (i = 0; i < count; i++) {
-            wd[i] = weight_of(filter, ((double)(lo + i) - u) / stretch);
-            s += wd[i];
-        }
-        if (fabs(s) > 1e-12) {
-            for (i = 0; i < count; i++) {
-                wd[i] /= s;
-            }
-        }
-        /* Fold the weights of taps beyond the edge onto the edge sample. */
         for (i = 0; i < flen; i++) {
             folded[i] = 0.0f;
         }
-        for (i = 0; i < count; i++) {
-            int64_t slot = (int64_t)clamp_edge(edge, (int32_t)(lo + i)) - start;
+        for (i = 0; i < (int64_t)wd.n; i++) {
+            int64_t slot =
+                (int64_t)clamp_edge(edge, (int32_t)pc_clamp_i64((int64_t)lo + i, INT32_MIN, INT32_MAX)) -
+                start;
             if (slot >= 0 && slot < flen) {
-                folded[slot] += (float)wd[i];
+                folded[slot] += (float)wd.v[i];
             }
         }
         /* Keep the part inside the content; the rest reads the default pixel. */
@@ -205,7 +451,7 @@ pc_status pc_algo_taps_make(int32_t dst0, int32_t dst1, double scale, pc_algo_re
         b = (int32_t)((int64_t)start + flen - 1 < content[1] ? (int64_t)start + flen - 1 : content[1]);
         if (a > b) {
             outside = -0.0f;
-            for (i = 0; i < flen && i < (int64_t)tmp_cap; i++) {
+            for (i = 0; i < flen; i++) {
                 outside += folded[i];
             }
             t.start[k] = content[0];
@@ -217,7 +463,7 @@ pc_status pc_algo_taps_make(int32_t dst0, int32_t dst1, double scale, pc_algo_re
         i1 = (size_t)((int64_t)b - start + 1);
         /* folded[..i0] then folded[i1..], in index order. */
         outside = -0.0f;
-        for (i = 0; i < flen && i < (int64_t)tmp_cap; i++) {
+        for (i = 0; i < flen; i++) {
             if (i < (int64_t)i0 || i >= (int64_t)i1) {
                 outside += folded[i];
             }
@@ -236,13 +482,11 @@ pc_status pc_algo_taps_make(int32_t dst0, int32_t dst1, double scale, pc_algo_re
         t.len[k] = i1 - i0;
         t.outside[k] = outside;
     }
-    free(wd);
-    free(folded);
+    free(wd.v), free(tmp.v), free(folded);
     *out = t;
     return PC_OK;
 fail:
-    free(wd);
-    free(folded);
+    free(wd.v), free(tmp.v), free(folded);
     pc_algo_taps_fini(&t);
     return st;
 }
@@ -465,7 +709,7 @@ static pc_status band_job(void *vctx, size_t chunk, size_t begin, size_t end)
 }
 
 /* The Preserve Details sharpening pass (Unsharp Mask, chunk L5). */
-static pc_status preserve_details(pc_surface *out, double sx, double sy, pc_rect dst, pc_error *err)
+static pc_status preserve_details(pc_surface *out, double sx, double sy, pc_error *err)
 {
     const pc_algo_filter_def *def = pc_algo_filter_def_find("unsharpMask");
     yyjson_mut_doc *d;
@@ -505,8 +749,8 @@ static pc_status preserve_details(pc_surface *out, double sx, double sy, pc_rect
         return st;
     }
     content = pc_surface_content_bounds(out);
-    area = pc_algo_output_area(&f, content, dst, NULL);
-    st = pc_algo_apply(out, &f, area, dst, NULL, &sharp, err);
+    area = pc_algo_output_area(&f, content, content, NULL);
+    st = pc_algo_apply(out, &f, area, content, NULL, &sharp, err);
     pc_algo_filter_fini(&f);
     if (st != PC_OK) {
         return st;
@@ -516,9 +760,13 @@ static pc_status preserve_details(pc_surface *out, double sx, double sy, pc_rect
     return PC_OK;
 }
 
-pc_status pc_algo_resize_with_budget(const pc_surface *s, double sx, double sy, pc_algo_resample filter,
-                                     const pc_rect *edge, size_t budget, pc_surface *out, pc_error *err)
+/* One pass. With `canvas`, the content and the canvas repeat their edge outwards. */
+static pc_status resize_pass(const pc_surface *s, pass p, const pc_rect *canvas, size_t budget,
+                             pc_surface *out, pc_error *err)
 {
+    double sx = p.sx, sy = p.sy;
+    pc_rect edge_r;
+    const pc_rect *edge = NULL;
     pc_pixel_format fmt = pc_surface_format(s);
     float defpx[PC_RASTER_MAX_CHANNELS];
     pc_surface res;
@@ -533,6 +781,10 @@ pc_status pc_algo_resize_with_budget(const pc_surface *s, double sx, double sy, 
     pc_surface_default_pixel(s, defpx);
     pc_surface_init_default(&res, fmt, defpx, n);
     src = pc_surface_content_bounds(s);
+    if (canvas != NULL) {
+        edge_r = pc_rect_union(src, *canvas);
+        edge = pc_rect_is_empty(edge_r) ? NULL : &edge_r;
+    }
     dst = pc_algo_scaled_rect(src, sx, sy);
     if (pc_rect_is_empty(dst)) {
         *out = res;
@@ -550,9 +802,9 @@ pc_status pc_algo_resize_with_budget(const pc_surface *s, double sx, double sy, 
     memset(&hx, 0, sizeof hx);
     memset(&vy, 0, sizeof vy);
     memset(&r, 0, sizeof r);
-    st = pc_algo_taps_make(dst.x0, dst.x1, sx, filter, edge != NULL ? ex : NULL, cx, &hx, err);
+    st = pc_algo_taps_make(dst.x0, dst.x1, sx, p.kx, edge != NULL ? ex : NULL, cx, &hx, err);
     if (st == PC_OK) {
-        st = pc_algo_taps_make(dst.y0, dst.y1, sy, filter, edge != NULL ? ey : NULL, cy, &vy, err);
+        st = pc_algo_taps_make(dst.y0, dst.y1, sy, p.ky, edge != NULL ? ey : NULL, cy, &vy, err);
     }
     if (st != PC_OK) {
         goto done;
@@ -665,12 +917,6 @@ pc_status pc_algo_resize_with_budget(const pc_surface *s, double sx, double sy, 
             parts[i] = NULL;
         }
     }
-    if (st == PC_OK && filter == PC_ALGO_RESAMPLE_PRESERVE_DETAILS && (sx > 1.0 || sy > 1.0)) {
-        st = preserve_details(&res, sx, sy, dst, err);
-    }
-    if (st == PC_OK) {
-        pc_surface_prune(&res);
-    }
 done:
     free(parts);
     free(errs);
@@ -686,6 +932,53 @@ done:
     return PC_OK;
 }
 
+/* Runs filter's passes. Between two passes the image is stored in its own format, which clips it
+ * (and rounds it at 8 and 16 bits) as Photoshop does. */
+pc_status pc_algo_resize_with_budget(const pc_surface *s, double sx, double sy, pc_algo_resample filter,
+                                     const pc_rect *canvas, size_t budget, pc_surface *out, pc_error *err)
+{
+    pass passes[2];
+    size_t np = plan(filter, sx, sy, passes), i;
+    pc_surface cur;
+    bool have = false;
+    pc_rect cv;
+    pc_status st = PC_OK;
+    if (canvas != NULL) {
+        cv = *canvas;
+    }
+    for (i = 0; i < np; i++) {
+        pc_surface next;
+        st = resize_pass(have ? &cur : s, passes[i], canvas != NULL ? &cv : NULL, budget, &next, err);
+        if (have) {
+            pc_surface_fini(&cur);
+        }
+        if (st != PC_OK) {
+            return st;
+        }
+        if (canvas != NULL) {
+            cv = pc_algo_scaled_rect(cv, passes[i].sx, passes[i].sy);
+        }
+        cur = next;
+        have = true;
+    }
+    if (!have) {
+        st = pc_surface_clone(s, &cur, err);
+        if (st != PC_OK) {
+            return st;
+        }
+    }
+    if (filter == PC_ALGO_RESAMPLE_PRESERVE_DETAILS && (sx > 1.0 || sy > 1.0)) {
+        st = preserve_details(&cur, sx, sy, err);
+        if (st != PC_OK) {
+            pc_surface_fini(&cur);
+            return st;
+        }
+    }
+    pc_surface_prune(&cur);
+    *out = cur;
+    return PC_OK;
+}
+
 pc_status pc_algo_resize_surface(const pc_surface *s, double sx, double sy, pc_algo_resample filter,
                                  pc_surface *out, pc_error *err)
 {
@@ -695,9 +988,7 @@ pc_status pc_algo_resize_surface(const pc_surface *s, double sx, double sy, pc_a
 pc_status pc_algo_resize_surface_in_canvas(const pc_surface *s, double sx, double sy, pc_algo_resample filter,
                                            pc_rect canvas, pc_surface *out, pc_error *err)
 {
-    pc_rect area = pc_rect_union(pc_surface_content_bounds(s), canvas);
-    return pc_algo_resize_with_budget(s, sx, sy, filter, pc_rect_is_empty(area) ? NULL : &area,
-                                      PC_ALGO_RESAMPLE_READ_BUDGET, out, err);
+    return pc_algo_resize_with_budget(s, sx, sy, filter, &canvas, PC_ALGO_RESAMPLE_READ_BUDGET, out, err);
 }
 
 pc_status pc_algo_translate_surface(const pc_surface *s, int32_t dx, int32_t dy, pc_surface *out,

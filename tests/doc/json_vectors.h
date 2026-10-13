@@ -359,7 +359,7 @@ static const json_vec JSON_VECS[] = {
      "err\011missing field `horizontal`"},
     {"guides",
      "[]",
-     "err\011invalid length 0, expected struct Guides with 2 elements"},
+     "err\011invalid length 0, expected struct Guides with 3 elements"},
     {"guides",
      "null",
      "err\011invalid type: null, expected struct Guides"},
@@ -496,13 +496,14 @@ static const json_vec JSON_VECS[] = {
      "\":[[{\"input\":0.0,\"output\":0.0},{\"input\":1.0,\"output\":1.0}],[],[{\"input\":0.0,\"output\":0.0"
      "},{\"input\":1.0,\"output\":1.0}]],\"space\":\"Lab\",\"black\":[{\"input\":0.0,\"output\":0.0},{\"inp"
      "ut\":1.0,\"output\":1.0}]}}",
-     "ok\011{\"Curves\":{\"master\":[{\"input\":0.0,\"output\":0.0},{\"input\":1.0,\"output\":1.0}],\"per_c"
-     "hannel\":[[{\"input\":0.0,\"output\":0.0},{\"input\":1.0,\"output\":1.0}],[],[{\"input\":0.0,\"output"
-     "\":0.0},{\"input\":1.0,\"output\":1.0}]],\"space\":\"Lab\",\"black\":[{\"input\":0.0,\"output\":0.0},"
-     "{\"input\":1.0,\"output\":1.0}]}}\011{\"Curves\":{\"black\":[{\"input\":0.0,\"output\":0.0},{\"input"
-     "\":1.0,\"output\":1.0}],\"master\":[{\"input\":0.0,\"output\":0.0},{\"input\":1.0,\"output\":1.0}],\""
-     "per_channel\":[[{\"input\":0.0,\"output\":0.0},{\"input\":1.0,\"output\":1.0}],[],[{\"input\":0.0,\"o"
-     "utput\":0.0},{\"input\":1.0,\"output\":1.0}]],\"space\":\"Lab\"}}"},
+     "ok\011{\"Curves\":{\"master\":[{\"input\":0.0,\"output\":0.0},{\"input\":1.0,\"output\":1.0}],\"per_"
+     "channel\":[[{\"input\":0.0,\"output\":0.0},{\"input\":1.0,\"output\":1.0}],[],[{\"input\":0.0,\"outp"
+     "ut\":0.0},{\"input\":1.0,\"output\":1.0}]],\"space\":\"Lab\",\"black\":[{\"input\":0.0,\"output\":0."
+     "0},{\"input\":1.0,\"output\":1.0}],\"pencil\":false}}\011{\"Curves\":{\"black\":[{\"input\":0.0,\"ou"
+     "tput\":0.0},{\"input\":1.0,\"output\":1.0}],\"master\":[{\"input\":0.0,\"output\":0.0},{\"input\":1."
+     "0,\"output\":1.0}],\"pencil\":false,\"per_channel\":[[{\"input\":0.0,\"output\":0.0},{\"input\":1.0,"
+     "\"output\":1.0}],[],[{\"input\":0.0,\"output\":0.0},{\"input\":1.0,\"output\":1.0}]],\"space\":\"Lab"
+     "\"}}"},
     {"adjustment",
      "{\"Exposure\":{\"exposure\":1.0,\"offset\":-0.1,\"gamma\":1.2}}",
      "ok\011{\"Exposure\":{\"exposure\":1.0,\"offset\":-0.1,\"gamma\":1.2}}\011{\"Exposure\":{\"exposure\":"
@@ -2821,8 +2822,9 @@ static const json_vec JSON_VECS[] = {
      "err\011invalid type: boolean `false`, expected unit"},
     {"adjustment",
      "{\"Curves\":{\"master\":[],\"per_channel\":[[],[],[]]}}",
-     "ok\011{\"Curves\":{\"master\":[],\"per_channel\":[[],[],[]],\"space\":\"Rgb\",\"black\":[]}}\011{\"Cu"
-     "rves\":{\"black\":[],\"master\":[],\"per_channel\":[[],[],[]],\"space\":\"Rgb\"}}"},
+     "ok\011{\"Curves\":{\"master\":[],\"per_channel\":[[],[],[]],\"space\":\"Rgb\",\"black\":[],\"pencil"
+     "\":false}}\011{\"Curves\":{\"black\":[],\"master\":[],\"pencil\":false,\"per_channel\":[[],[],[]],\""
+     "space\":\"Rgb\"}}"},
     {"adjustment",
      "{\"HueSaturation\":{\"hue\":1.0,\"saturation\":2.0,\"lightness\":3.0,\"colorize\":false}}",
      "ok\011{\"HueSaturation\":{\"hue\":1.0,\"saturation\":2.0,\"lightness\":3.0,\"colorize\":false,\"range"
@@ -3371,7 +3373,7 @@ static const json_vec JSON_VECS[] = {
      "err\011invalid value: integer `256`, expected u8"},
     {"guides",
      "{\"horizontal\":[1,\"a\"],\"vertical\":[]}",
-     "err\011invalid type: string \"a\", expected f32"},
+     "err\011invalid type: string \"a\", expected f64"},
     {"guides",
      "{\"horizontal\":null,\"vertical\":[]}",
      "err\011invalid type: null, expected a sequence"},

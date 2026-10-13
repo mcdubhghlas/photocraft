@@ -482,14 +482,19 @@ static P norm(P a)
     return l > 1e-12 ? mk(a.x / l, a.y / l) : mk(0.0, 0.0);
 }
 
-/* Point `window` px of arc length away from i (forwards or backwards) on a closed loop. */
-static P walk(const P *lp, size_t n, size_t i, double window, bool fwd)
+/* Point `window` px of arc length away from i (forwards or backwards) on a closed loop, or on an
+ * open polyline, where the walk stops at the ends. */
+static P walk(const P *lp, size_t n, size_t i, double window, bool fwd, bool closed)
 {
     double acc = 0.0;
     size_t cur = i;
     size_t s;
     for (s = 0; s < n; s++) {
-        size_t nx = fwd ? (cur + 1) % n : (cur + n - 1) % n;
+        size_t nx;
+        if (!closed && (fwd ? cur + 1 >= n : cur == 0)) {
+            break;
+        }
+        nx = fwd ? (cur + 1) % n : (cur + n - 1) % n;
         double d = len(sub(lp[nx], lp[cur]));
         if (acc + d >= window) {
             double t = (window - acc) / pc_rs_max_k(d, 1e-12);
@@ -501,10 +506,11 @@ static P walk(const P *lp, size_t n, size_t i, double window, bool fwd)
     return lp[cur];
 }
 
-/* Indices of corner points (*out malloc'd, may be NULL when there are none). */
-static pc_status corners(const P *lp, size_t n, size_t **out, size_t *nout, pc_error *err)
+/* Indices of corner points: where the direction over +-window px turns by more than 60 degrees.
+ * The ends of an open polyline are never corners. *out is malloc'd. */
+static pc_status corners(const P *lp, size_t n, double window, bool closed, size_t **out, size_t *nout,
+                         pc_error *err)
 {
-    const double window = 1.5;
     double cos_thresh = cos(pc_vec_to_radians(60.0));
     double *turn = pc_malloc_array(n, sizeof *turn);
     size_t *cs = pc_malloc_array(n, sizeof *cs);
@@ -516,8 +522,14 @@ static pc_status corners(const P *lp, size_t n, size_t **out, size_t *nout, pc_e
         return pc_fail(err, PC_ERR_NOMEM, "vector: out of memory");
     }
     for (i = 0; i < n; i++) {
-        P a = norm(sub(lp[i], walk(lp, n, i, window, false)));
-        P b = norm(sub(walk(lp, n, i, window, true), lp[i]));
+        P a;
+        P b;
+        if (!closed && (i == 0 || i + 1 == n)) {
+            turn[i] = 1.0;
+            continue;
+        }
+        a = norm(sub(lp[i], walk(lp, n, i, window, false, closed)));
+        b = norm(sub(walk(lp, n, i, window, true, closed), lp[i]));
         turn[i] = dot(a, b);
     }
     for (i = 0; i < n; i++) {
@@ -529,7 +541,11 @@ static pc_status corners(const P *lp, size_t n, size_t **out, size_t *nout, pc_e
         }
         /* Local minimum of the cosine within +-window (ties: first index). */
         while (acc < window) {
-            size_t nx = (j + 1) % n;
+            size_t nx;
+            if (!closed && j + 1 >= n) {
+                break;
+            }
+            nx = (j + 1) % n;
             acc += len(sub(lp[nx], lp[j]));
             j = nx;
             if (j == i) {
@@ -543,7 +559,11 @@ static pc_status corners(const P *lp, size_t n, size_t **out, size_t *nout, pc_e
         acc = 0.0;
         j = i;
         while (is_min && acc < window) {
-            size_t pv = (j + n - 1) % n;
+            size_t pv;
+            if (!closed && j == 0) {
+                break;
+            }
+            pv = (j + n - 1) % n;
             acc += len(sub(lp[j], lp[pv]));
             j = pv;
             if (j == i) {
@@ -814,15 +834,15 @@ static pc_status fit_cubic(const P *pts, size_t n, P t1, P t2, double err2, seg_
     return fit_cubic(pts + split, n - split, mul(tc, -1.0), t2, err2, out, depth + 1, err);
 }
 
-/* Fits a closed loop (n >= 3) with cubic Beziers. */
-static pc_status fit_closed(const P *lp, size_t n, double tol, pc_subpath *out, pc_error *err)
+/* Fits a closed loop (n >= 3) with cubic Beziers; window is the corner detection window. */
+static pc_status fit_closed(const P *lp, size_t n, double tol, double window, pc_subpath *out, pc_error *err)
 {
     size_t *cs = NULL;
     size_t ncs = 0;
     seg_list segs = {NULL, NULL, 0, 0};
     P *pts = NULL;
     pc_knot *knots = NULL;
-    pc_status st = corners(lp, n, &cs, &ncs, err);
+    pc_status st = corners(lp, n, window, true, &cs, &ncs, err);
     size_t i;
     size_t m;
     if (st != PC_OK) {
@@ -934,7 +954,7 @@ pc_status pc_vec_trace_mask(const float *values, size_t len, pc_rect rect, float
             for (k = 0; k < lp->len; k++) {
                 pts[k] = mk(lp->pts[k][0], lp->pts[k][1]);
             }
-            st = fit_closed(pts, lp->len, pc_rs_max_k(tolerance * 0.5, 0.05), &subs[nsubs], err);
+            st = fit_closed(pts, lp->len, pc_rs_max_k(tolerance * 0.5, 0.05), 1.5, &subs[nsubs], err);
             free(pts);
         }
         if (st != PC_OK) {
@@ -952,5 +972,199 @@ pc_status pc_vec_trace_mask(const float *values, size_t len, pc_rect rect, float
         return st;
     }
     pc_vec_path_from(subs, nsubs, out);
+    return PC_OK;
+}
+
+/* ---- freehand traces (the Freeform Pen) ---- */
+
+/* Distance from q to the segment a-b. */
+static double segment_distance(P q, P a, P b)
+{
+    P ab = sub(b, a);
+    double l2 = dot(ab, ab);
+    double t = l2 > 1e-18 ? pc_clampd(dot(sub(q, a), ab) / l2, 0.0, 1.0) : 0.0;
+    return len(sub(q, add(a, mul(ab, t))));
+}
+
+/* Fits an open polyline (n >= 2) with cubic Beziers, one run between consecutive corners at a
+ * time. */
+static pc_status fit_open(const P *lp, size_t n, double tol, double window, pc_subpath *out, pc_error *err)
+{
+    size_t *cs = NULL;
+    size_t ncs = 0;
+    size_t *cuts = NULL;
+    size_t ncuts = 0;
+    seg_list segs = {NULL, NULL, 0, 0};
+    pc_knot *knots = NULL;
+    size_t i;
+    size_t m;
+    pc_status st = corners(lp, n, window, false, &cs, &ncs, err);
+    if (st != PC_OK) {
+        return st;
+    }
+    cuts = pc_malloc_array(ncs + 2, sizeof *cuts);
+    if (cuts == NULL) {
+        st = pc_fail(err, PC_ERR_NOMEM, "vector: out of memory");
+        goto cleanup;
+    }
+    /* [0, corners..., n - 1] without consecutive duplicates (Vec::dedup). */
+    cuts[ncuts++] = 0;
+    for (i = 0; i <= ncs; i++) {
+        size_t c = i < ncs ? cs[i] : n - 1;
+        if (cuts[ncuts - 1] != c) {
+            cuts[ncuts++] = c;
+        }
+    }
+    for (i = 0; i + 1 < ncuts && st == PC_OK; i++) {
+        const P *pts;
+        size_t np;
+        size_t before = segs.len;
+        P a;
+        P b;
+        bool straight = true;
+        size_t k;
+        if (cuts[i] > cuts[i + 1] || cuts[i + 1] >= n) {
+            continue;
+        }
+        pts = lp + cuts[i];
+        np = cuts[i + 1] - cuts[i] + 1;
+        if (np < 2) {
+            continue;
+        }
+        a = pts[0];
+        b = pts[np - 1];
+        for (k = 0; k < np && straight; k++) {
+            straight = segment_distance(pts[k], a, b) <= tol;
+        }
+        if (straight) {
+            /* A straight run (a drag along a ruler, a zig-zag leg) is one straight segment: end
+             * tangents estimated from jittery samples would bend it. */
+            P third = mul(sub(b, a), 1.0 / 3.0);
+            seg4 sg;
+            sg.p[0] = a;
+            sg.p[1] = add(a, third);
+            sg.p[2] = sub(b, third);
+            sg.p[3] = b;
+            st = seg_push(&segs, sg, err);
+        } else {
+            /* End tangents over a stretch of the trace, not the first jittery sample. */
+            double reach = pc_rs_max(pc_rs_min(2.0 * window, len(sub(b, a)) / 3.0), window);
+            P t1 = norm(sub(walk(pts, np, 0, reach, true, false), a));
+            P t2 = norm(sub(walk(pts, np, np - 1, reach, false, false), b));
+            st = fit_cubic(pts, np, t1, t2, tol * tol, &segs, 0, err);
+        }
+        if (st == PC_OK && segs.len > before) {
+            segs.corner[before] = true;
+        }
+    }
+    if (st != PC_OK) {
+        goto cleanup;
+    }
+    m = segs.len;
+    knots = pc_malloc_array(m + 1, sizeof *knots);
+    if (knots == NULL) {
+        st = pc_fail(err, PC_ERR_NOMEM, "vector: out of memory");
+        goto cleanup;
+    }
+    for (i = 0; i < m; i++) {
+        const seg4 *sg = &segs.v[i];
+        P in = i == 0 ? sg->p[0] : segs.v[i - 1].p[2];
+        knots[i].anchor = pc_point_make(sg->p[0].x, sg->p[0].y);
+        knots[i].in_ctrl = pc_point_make(in.x, in.y);
+        knots[i].out_ctrl = pc_point_make(sg->p[1].x, sg->p[1].y);
+        knots[i].smooth = i > 0 && !segs.corner[i];
+    }
+    if (m > 0) {
+        const seg4 *sg = &segs.v[m - 1];
+        knots[m].anchor = pc_point_make(sg->p[3].x, sg->p[3].y);
+        knots[m].in_ctrl = pc_point_make(sg->p[2].x, sg->p[2].y);
+        knots[m].out_ctrl = pc_point_make(sg->p[3].x, sg->p[3].y);
+        knots[m].smooth = false;
+    }
+    memset(out, 0, sizeof *out);
+    out->closed = false;
+    out->knots = knots;
+    out->nknots = m > 0 ? m + 1 : 0;
+    out->op = PC_PATH_COMBINE;
+    knots = NULL;
+cleanup:
+    free(cs);
+    free(cuts);
+    free(segs.v);
+    free(segs.corner);
+    free(knots);
+    return st;
+}
+
+pc_status pc_vec_fit_trace(const double (*points)[2], size_t n, double tolerance, bool closed,
+                           pc_subpath *out, bool *fitted, pc_error *err)
+{
+    double tol = isfinite(tolerance) ? pc_clampd(tolerance, 0.1, 100.0) : 2.0;
+    double window = pc_rs_max_k(2.0 * tol, 1.5);
+    double min_step = pc_rs_min_k(tol * 0.25, 0.5);
+    size_t stride = n / PC_VEC_MAX_TRACE_POINTS + (n % PC_VEC_MAX_TRACE_POINTS != 0 ? 1u : 0u);
+    size_t last = n > 0 ? n - 1 : 0;
+    size_t cap = n < PC_VEC_MAX_TRACE_POINTS + 1 ? n : PC_VEC_MAX_TRACE_POINTS + 1;
+    P *lp;
+    size_t m = 0;
+    size_t i;
+    pc_subpath sp;
+    pc_status st;
+    if (stride < 1) {
+        stride = 1;
+    }
+    if (n == 0) {
+        *fitted = false;
+        return PC_OK;
+    }
+    /* Thinning keeps at most ceil(n / stride) <= MAX samples, plus the release point. */
+    lp = pc_malloc_array(cap + 1, sizeof *lp);
+    if (lp == NULL) {
+        return pc_fail(err, PC_ERR_NOMEM, "vector: out of memory");
+    }
+    for (i = 0; i < n; i++) {
+        P q;
+        /* Far-out coordinates would overflow the least-squares sums. */
+        if ((i % stride != 0 && i != last) || !(isfinite(points[i][0]) && fabs(points[i][0]) < 1e9) ||
+            !(isfinite(points[i][1]) && fabs(points[i][1]) < 1e9)) {
+            continue;
+        }
+        q = mk(points[i][0], points[i][1]);
+        if (m > 0 && len(sub(q, lp[m - 1])) < min_step) {
+            /* The release point is kept: it replaces a sample just before it. */
+            if (i == last && m > 1) {
+                lp[m - 1] = q;
+            }
+            continue;
+        }
+        if (m <= cap) {
+            lp[m++] = q;
+        }
+    }
+    memset(&sp, 0, sizeof sp);
+    if (closed) {
+        while (m > 3 && len(sub(lp[m - 1], lp[0])) < min_step) {
+            m--;
+        }
+        if (m < 3) {
+            free(lp);
+            *fitted = false;
+            return PC_OK;
+        }
+        st = fit_closed(lp, m, tol, window, &sp, err);
+    } else {
+        if (m < 2) {
+            free(lp);
+            *fitted = false;
+            return PC_OK;
+        }
+        st = fit_open(lp, m, tol, window, &sp, err);
+    }
+    free(lp);
+    if (st != PC_OK) {
+        return st;
+    }
+    *out = sp;
+    *fitted = true;
     return PC_OK;
 }

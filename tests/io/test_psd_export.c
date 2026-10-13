@@ -542,6 +542,9 @@ static void test_psd_raw_resources_and_global_blocks_preserved(void)
     d.metadata.npsd_global_blocks = 2;
     d.metadata.psd_resources[0].data = d.metadata.psd_resources[0].data; /* [1] in the reference */
     back = rt_roundtrip(&d);
+    /* A PSD holds no 8B64 blocks (Photoshop refuses the file): a kept PSB block is written as
+     * 8BIM. Compare against the document with that one signature changed. */
+    memcpy(d.metadata.psd_global_blocks[1].signature, "8BIM", 4);
     CHECK(pc_metadata_eq(&back.metadata, &d.metadata));
     pc_document_fini(&back);
     pc_document_fini(&d);

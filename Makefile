@@ -62,6 +62,11 @@ EXR_LIBS := $(if $(filter 1,$(WITH_EXR)),$(filter -L% -lOpenEXRCore%,$(shell $(P
 HEIF_CFLAGS := $(if $(filter 1,$(WITH_HEIF)),$(shell $(PKG_CONFIG) --cflags libheif),-DPC_NO_HEIF)
 HEIF_LIBS := $(if $(filter 1,$(WITH_HEIF)),$(shell $(PKG_CONFIG) --libs libheif))
 CODEC_CFLAGS = $(EXR_CFLAGS) $(HEIF_CFLAGS)
+# JPEG XL-compressed DNG (REWRITE_PLAN.md D30): libjxl, on when found, or force WITH_JXL=0 (those
+# files then report "unsupported"). Its flags reach src/raw and tests/raw only.
+WITH_JXL ?= $(shell $(PKG_CONFIG) --exists libjxl 2>/dev/null && echo 1)
+JXL_CFLAGS := $(if $(filter 1,$(WITH_JXL)),$(shell $(PKG_CONFIG) --cflags libjxl),-DPC_NO_JXL)
+JXL_LIBS := $(if $(filter 1,$(WITH_JXL)),$(shell $(PKG_CONFIG) --libs libjxl))
 
 # WebAssembly plug-ins (REWRITE_PLAN.md D13): vendored WAMR (third_party/wamr), fast interpreter
 # only: no AOT/JIT, no WASI or libc imports, no SIMD/shared memory; software bounds checks (no
@@ -121,7 +126,7 @@ GUI_LIBS := $(if $(HAVE_GUI),$(shell $(PKG_CONFIG) --libs $(GUI_PKGS)))
 ALL_CPPFLAGS = -D_POSIX_C_SOURCE=200809L -Isrc $(THIRD_PARTY:%=-Ithird_party/%) $(PKG_CFLAGS) $(EXTRA_CPPFLAGS) $(CPPFLAGS)
 ALL_CFLAGS = -std=c17 $(FP_STRICT) $(WARN) $(WERROR) $(PTHREAD) $(CFLAGS) $(EXTRA_CFLAGS)
 ALL_LDFLAGS = $(PTHREAD) $(LDFLAGS) $(EXTRA_LDFLAGS)
-ALL_LDLIBS = $(PKG_LIBS) $(EXR_LIBS) $(HEIF_LIBS) $(LDLIBS) -lm
+ALL_LDLIBS = $(PKG_LIBS) $(EXR_LIBS) $(HEIF_LIBS) $(JXL_LIBS) $(LDLIBS) -lm
 
 SRCS := $(foreach m,$(MODULES),$(wildcard src/$(m)/*.c))
 THIRD_SRCS := $(foreach t,$(THIRD_PARTY),$(wildcard third_party/$(t)/*.c))
@@ -195,6 +200,8 @@ $(SPIKE_OBJS): EXTRA_CPPFLAGS = $(GUI_CFLAGS)
 # Only the codecs see the optional libraries' headers.
 $(filter $(BUILD)/obj/src/codecs/%,$(OBJS)): EXTRA_CPPFLAGS = $(CODEC_CFLAGS)
 $(BUILD)/tests/codecs/%: EXTRA_CPPFLAGS = $(CODEC_CFLAGS)
+$(filter $(BUILD)/obj/src/raw/%,$(OBJS)): EXTRA_CPPFLAGS = $(JXL_CFLAGS)
+$(BUILD)/tests/raw/%: EXTRA_CPPFLAGS = $(JXL_CFLAGS)
 # Only src/plugins sees WAMR's API header (and PC_HAVE_WAMR); WAMR itself gets its configuration
 # and no FMA contraction (wasm float operations are IEEE single operations).
 $(filter $(BUILD)/obj/src/plugins/%,$(OBJS)): EXTRA_CPPFLAGS = $(PLUGINS_CFLAGS)
@@ -249,7 +256,7 @@ analyze:
 	@if command -v clang >/dev/null 2>&1; then \
 		for f in $(SRCS); do \
 			clang --analyze -Xclang -analyzer-werror -std=c17 -D_POSIX_C_SOURCE=200809L -Isrc $(THIRD_PARTY:%=-Ithird_party/%) $(PKG_CFLAGS) \
-				$(CODEC_CFLAGS) $(PLUGINS_CFLAGS) -o /dev/null $$f || exit 1; \
+				$(CODEC_CFLAGS) $(JXL_CFLAGS) $(PLUGINS_CFLAGS) -o /dev/null $$f || exit 1; \
 		done; \
 		for f in $(if $(HAVE_GUI),$(SPIKE_SRCS)); do \
 			clang --analyze -Xclang -analyzer-werror -std=c17 -D_POSIX_C_SOURCE=200809L -Isrc $(THIRD_PARTY:%=-Ithird_party/%) $(PKG_CFLAGS) \

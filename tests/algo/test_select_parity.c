@@ -19,6 +19,9 @@
 
 static pc_buf OUT;
 
+#if defined(__GNUC__)
+__attribute__((format(printf, 1, 2)))
+#endif
 static void line(const char *fmt, ...)
 {
     char tmp[8192];
@@ -367,6 +370,7 @@ static const fmtname FORMATS[] = {
 static const char *MODE_NAMES[] = {"Replace", "Add", "Subtract", "Intersect"};
 
 #include "select_parity_cases.h"
+#include "select_parity_r5.h"
 
 /* ------------------------------------------------------------------------------------------ */
 
@@ -403,6 +407,10 @@ static void test_select_parity(void)
     matting_cases();
     segment_core_cases();
     segment_algo_cases();
+    r5_maxflow_cases();
+    r5_quick_cases();
+    r5_selection_cases();
+    r5_matting_cases();
     want = strtok_r(golden, "\n", &wsave);
     got = strtok_r((char *)OUT.data, "\n", &gsave);
     while (want != NULL || got != NULL) {

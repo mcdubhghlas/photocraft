@@ -114,6 +114,9 @@ void pc_contour_fini(pc_contour *c)
     }
     pc_str_fini(&c->name);
     pc_curve_fini(&c->points);
+    free(c->corners);
+    c->corners = NULL;
+    c->ncorners = 0;
     c->custom = false;
 }
 
@@ -132,6 +135,15 @@ pc_status pc_contour_clone(const pc_contour *c, pc_contour *out, pc_error *err)
         pc_str_fini(&t.name);
         return st;
     }
+    if (c->ncorners > 0) {
+        t.corners = pc_malloc_array(c->ncorners, sizeof *t.corners);
+        if (t.corners == NULL) {
+            pc_contour_fini(&t);
+            return pc_fail(err, PC_ERR_NOMEM, "out of memory");
+        }
+        memcpy(t.corners, c->corners, c->ncorners * sizeof *t.corners);
+        t.ncorners = c->ncorners;
+    }
     *out = t;
     return PC_OK;
 }
@@ -142,7 +154,24 @@ bool pc_contour_eq(const pc_contour *a, const pc_contour *b)
         return false;
     }
     /* Linear carries no data (the enum variant has no fields). */
-    return !a->custom || (pc_str_eq(&a->name, &b->name) && pc_curve_eq(&a->points, &b->points));
+    if (!a->custom) {
+        return true;
+    }
+    if (!pc_str_eq(&a->name, &b->name) || !pc_curve_eq(&a->points, &b->points) ||
+        a->ncorners != b->ncorners) {
+        return false;
+    }
+    for (size_t i = 0; i < a->ncorners; i++) {
+        if (a->corners[i] != b->corners[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool pc_contour_is_corner(const pc_contour *c, size_t i)
+{
+    return c->custom && i < c->ncorners && c->corners[i];
 }
 
 /* ---- fx paint ---- */
@@ -479,6 +508,86 @@ bool pc_effect_enabled(const pc_effect *e)
         return e->u.bevel.enabled;
     }
     return false;
+}
+
+void pc_effect_set_enabled(pc_effect *e, bool on)
+{
+    switch (e->kind) {
+    case PC_FX_DROP_SHADOW:
+    case PC_FX_INNER_SHADOW:
+        e->u.shadow.common.enabled = on;
+        break;
+    case PC_FX_OUTER_GLOW:
+    case PC_FX_INNER_GLOW:
+        e->u.glow.common.enabled = on;
+        break;
+    case PC_FX_STROKE:
+        e->u.stroke.common.enabled = on;
+        break;
+    case PC_FX_COLOR_OVERLAY:
+        e->u.color_overlay.common.enabled = on;
+        break;
+    case PC_FX_GRADIENT_OVERLAY:
+        e->u.gradient_overlay.common.enabled = on;
+        break;
+    case PC_FX_PATTERN_OVERLAY:
+        e->u.pattern_overlay.common.enabled = on;
+        break;
+    case PC_FX_SATIN:
+        e->u.satin.common.enabled = on;
+        break;
+    case PC_FX_BEVEL_EMBOSS:
+        e->u.bevel.enabled = on;
+        break;
+    }
+}
+
+static void stops_in_mode(pc_color_stop *stops, size_t n, pc_color_mode mode)
+{
+    for (size_t i = 0; i < n; i++) {
+        stops[i].color = pc_color_in_mode(&stops[i].color, mode);
+    }
+}
+
+static void paint_in_mode(pc_fx_paint *p, pc_color_mode mode)
+{
+    if (p->kind == PC_FX_PAINT_COLOR) {
+        p->u.color = pc_color_in_mode(&p->u.color, mode);
+    } else if (p->kind == PC_FX_PAINT_GRADIENT) {
+        stops_in_mode(p->u.gradient.stops, p->u.gradient.nstops, mode);
+    }
+}
+
+void pc_effect_in_mode(pc_effect *e, pc_color_mode mode)
+{
+    switch (e->kind) {
+    case PC_FX_DROP_SHADOW:
+    case PC_FX_INNER_SHADOW:
+        e->u.shadow.color = pc_color_in_mode(&e->u.shadow.color, mode);
+        break;
+    case PC_FX_OUTER_GLOW:
+    case PC_FX_INNER_GLOW:
+        paint_in_mode(&e->u.glow.paint, mode);
+        break;
+    case PC_FX_STROKE:
+        paint_in_mode(&e->u.stroke.paint, mode);
+        break;
+    case PC_FX_COLOR_OVERLAY:
+        e->u.color_overlay.color = pc_color_in_mode(&e->u.color_overlay.color, mode);
+        break;
+    case PC_FX_GRADIENT_OVERLAY:
+        stops_in_mode(e->u.gradient_overlay.gradient.stops, e->u.gradient_overlay.gradient.nstops, mode);
+        break;
+    case PC_FX_SATIN:
+        e->u.satin.color = pc_color_in_mode(&e->u.satin.color, mode);
+        break;
+    case PC_FX_BEVEL_EMBOSS:
+        e->u.bevel.highlight_color = pc_color_in_mode(&e->u.bevel.highlight_color, mode);
+        e->u.bevel.shadow_color = pc_color_in_mode(&e->u.bevel.shadow_color, mode);
+        break;
+    case PC_FX_PATTERN_OVERLAY:
+        break;
+    }
 }
 
 const char *pc_effect_label(const pc_effect *e)

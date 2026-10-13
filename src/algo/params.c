@@ -44,8 +44,8 @@ ENUM_DESC(PC_ALGO_ENUM_DEPTH_SOURCE, "DepthSource", 0, "none", "transparency", "
 ENUM_DESC(PC_ALGO_ENUM_BLUR_SHAPE, "BlurShape", 0, "circle", "ring", "square", "diamond", "triangle",
           "hexagon", "star", "heart", "cross");
 ENUM_DESC(PC_ALGO_ENUM_HSB_MODEL, "HsbModel", 0, "rgb", "hsb", "hsl");
-ENUM_DESC(PC_ALGO_ENUM_RESAMPLE, "Resample", 2, "nearest", "bilinear", "bicubic", "lanczos",
-          "preserveDetails");
+ENUM_DESC(PC_ALGO_ENUM_RESAMPLE, "Resample", 2, "nearest", "bilinear", "bicubic", "bicubicSmoother",
+          "bicubicSharper", "bicubicAutomatic", "lanczos", "preserveDetails");
 ENUM_DESC(PC_ALGO_ENUM_INTERP, "Interp", 2, "nearest", "bilinear", "bicubic");
 
 const char *pc_algo_enum_name(const pc_algo_enum_desc *d, int v)

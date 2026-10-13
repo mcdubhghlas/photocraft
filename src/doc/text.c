@@ -463,6 +463,27 @@ pc_status pc_text_layer_char_runs(const pc_text_layer *t, pc_text_run **out, siz
     return PC_OK;
 }
 
+/* The final empty paragraph after a trailing line break owns PSD text's synthetic terminal
+ * paragraph marker: its formatting has no source bytes, so normalising must not drop it. */
+static bool keeps_terminal_paragraph(const pc_text_layer *t)
+{
+    size_t sum = 0;
+    char lastc;
+    if (t->text.len == 0 || t->paragraphs == NULL || t->nparagraphs == 0) {
+        return false;
+    }
+    lastc = t->text.ptr[t->text.len - 1];
+    if ((lastc != '\r' && lastc != '\n') || t->paragraphs[t->nparagraphs - 1].len > 1) {
+        return false;
+    }
+    for (size_t k = 0; k + 1 < t->nparagraphs; k++) {
+        if (!pc_size_add(sum, t->paragraphs[k].len, &sum)) {
+            return false;
+        }
+    }
+    return sum == t->text.len;
+}
+
 pc_status pc_text_layer_paragraph_runs(const pc_text_layer *t, pc_paragraph_run **out, size_t *n,
                                        pc_error *err)
 {
@@ -470,12 +491,13 @@ pc_status pc_text_layer_paragraph_runs(const pc_text_layer *t, pc_paragraph_run 
     size_t nseg;
     size_t k;
     pc_paragraph_run *runs;
+    bool terminal = keeps_terminal_paragraph(t);
     pc_status s = normalize(&t->text, t->paragraphs, t->paragraphs != NULL ? t->nparagraphs : 0,
                             sizeof *t->paragraphs, offsetof(pc_paragraph_run, len), &segs, &nseg, err);
     if (s != PC_OK) {
         return s;
     }
-    runs = pc_malloc_array(nseg, sizeof *runs);
+    runs = pc_malloc_array(nseg + 1, sizeof *runs);
     if (runs == NULL) {
         free(segs);
         return pc_fail(err, PC_ERR_NOMEM, "out of memory normalising paragraph runs");
@@ -486,6 +508,11 @@ pc_status pc_text_layer_paragraph_runs(const pc_text_layer *t, pc_paragraph_run 
                                                                          : t->paragraphs[segs[k].src].style;
     }
     free(segs);
+    if (terminal) {
+        runs[nseg].len = 0;
+        runs[nseg].style = t->paragraphs[t->nparagraphs - 1].style;
+        nseg++;
+    }
     *out = runs;
     *n = nseg;
     return PC_OK;

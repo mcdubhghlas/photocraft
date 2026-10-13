@@ -378,7 +378,6 @@ static void test_translation_and_known_arc_points(void)
     double d[2] = {10.0, -2.0}, b[4];
     float p[4], q[4];
     pc_warp w;
-    int32_t cx, k;
     pc_point e;
     wsample(&src, PC_SAMPLE_TYPE_U8);
     r = pc_surface_content_bounds(&src);
@@ -387,21 +386,65 @@ static void test_translation_and_known_arc_points(void)
     pc_surface_read_pixel(&out, 20, 10, p);
     pc_surface_read_pixel(&src, 10, 12, q);
     CHECK(memcmp(p, q, sizeof p) == 0);
+    /* Arc 50 % (Photoshop): the bottom corners keep their pixels, the top rises and spreads. */
     b[0] = r.x0, b[1] = r.y0, b[2] = r.x1, b[3] = r.y1;
     pc_warp_preset(&w, PC_WARP_ARC, 50.0, b);
     CHECK(pc_algo_warp_mesh_surface(&src, r, warp_map, &w, PC_ALGO_INTERP_BILINEAR, &arc, NULL) == PC_OK);
-    cx = (r.x0 + r.x1) / 2;
-    pc_surface_read_pixel(&arc, cx, 10, p);
-    pc_surface_read_pixel(&src, cx, 10, q);
-    for (k = 0; k < 4; k++) {
-        CHECK(fabsf(p[k] - q[k]) < 0.05f);
-    }
+    e = pc_warp_map(&w, r.x0, r.y1);
+    CHECK(fabs(e.x - r.x0) < 1e-9 && fabs(e.y - r.y1) < 1e-9);
     e = pc_warp_map(&w, r.x0 + 2.5, r.y0 + 2.5);
     pc_surface_read_pixel(&arc, (int32_t)floor(e.x), (int32_t)floor(e.y), p);
     CHECK(p[3] > 0.2f);
-    CHECK(pc_surface_content_bounds(&arc).y1 > r.y1 + 2);
+    {
+        pc_rect c = pc_surface_content_bounds(&arc);
+        CHECK(c.y0 < r.y0 - 2 && c.x0 < r.x0 && c.x1 > r.x1);
+    }
     pc_warp_fini(&w);
     pc_surface_fini(&src), pc_surface_fini(&out), pc_surface_fini(&arc);
+}
+
+/* A warped smart object placed at ~1/5 size: a grid of 1 px lines every 4 px must come out its
+ * area average (9/16 white) everywhere, not point-sampled moire. */
+static void test_a_shrinking_mesh_warp_is_prefiltered(void)
+{
+    static const pc_sample_type sts[3] = {PC_SAMPLE_TYPE_U8, PC_SAMPLE_TYPE_U16, PC_SAMPLE_TYPE_F32};
+    const int32_t w = 400, h = 320;
+    int si;
+    for (si = 0; si < 3; si++) {
+        pc_pixel_format f = {PC_COLOR_MODE_RGB, sts[si], true};
+        pc_surface src, out;
+        pc_rect r = pc_rect_make(0, 0, w, h), bb;
+        float *px = malloc((size_t)w * (size_t)h * 4 * sizeof(float)), *o = NULL, worst = 0.0f;
+        size_t i, olen = 0, opaque = 0;
+        int32_t x, y;
+        double b[4] = {0.0, 0.0, (double)w, (double)h};
+        pc_warp wp;
+        pc_affine t = {{0.2, 0.0, 0.0, 0.2, 7.0, 5.0}};
+        for (y = 0; y < h; y++) {
+            for (x = 0; x < w; x++) {
+                float v = x % 4 == 0 || y % 4 == 0 ? 0.0f : 1.0f,
+                      *q = px + ((size_t)y * (size_t)w + (size_t)x) * 4;
+                q[0] = q[1] = q[2] = v, q[3] = 1.0f;
+            }
+        }
+        pc_surface_init(&src, f);
+        CHECK(pc_surface_write_region(&src, r, px, (size_t)w * (size_t)h * 4, NULL) == PC_OK);
+        pc_warp_preset(&wp, PC_WARP_ARC, 15.0, b);
+        CHECK(pc_algo_place_source(&src, r, &t, &wp, &out, NULL) == PC_OK);
+        bb = pc_surface_content_bounds(&out);
+        CHECK(pc_surface_read_region(&out, bb, &o, &olen, NULL) == PC_OK);
+        for (i = 0; i + 4 <= olen; i += 4) {
+            if (o[i + 3] >= 0.999f) {
+                opaque++;
+                worst = fmaxf(worst, fabsf(o[i] - 0.5625f));
+            }
+        }
+        CHECK(opaque > 2000);
+        CHECK(worst < 0.25f);
+        free(px), free(o);
+        pc_warp_fini(&wp);
+        pc_surface_fini(&src), pc_surface_fini(&out);
+    }
 }
 
 static void test_gray_masks_keep_their_default(void)
@@ -444,6 +487,7 @@ int main(int argc, char **argv)
     RUN(test_a_mesh_warp_far_off_canvas_writes_only_the_two_regions);
     RUN(test_identity_warp_is_a_no_op_at_every_depth);
     RUN(test_translation_and_known_arc_points);
+    RUN(test_a_shrinking_mesh_warp_is_prefiltered);
     RUN(test_gray_masks_keep_their_default);
     return pc_t_finish();
 }

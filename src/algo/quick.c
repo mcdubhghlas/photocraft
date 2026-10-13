@@ -1,55 +1,54 @@
-/* Quick Selection brush (port of crates/algo/src/segment/quick.rs).
+/* Quick Selection brush, behaving like Photoshop's (port of crates/algo/src/segment/quick.rs).
  *
- * Stroked pixels are hard foreground and seed a GMM; a geodesic distance over a barrier map
- * (raster-scan geodesic transform, Toivanen 1996; Criminisi et al., GeoS, ECCV 2008) separates
- * what is reachable without crossing an edge from what lies behind edges, which is sampled for the
- * background model; a contrast-sensitive min cut snaps the result to edges and only components
- * touching the stroke are kept (in the spirit of Liu, Sun & Shum, "Paint Selection", 2009). */
+ * Photoshop 25.4 was measured as a black box (synthetic images and public-domain paintings, the
+ * exact selection masks read back; no Photoshop code or assets). The brush footprint is always
+ * selected; beyond it the selection grows to image edges but every selected pixel costs a little,
+ * so a click takes a whole object only while it is small enough for that brush; a stroke is one
+ * set of seeds; colours elsewhere make no difference. It works on the whole document up to
+ * 512 x 512 pixels and at exactly half resolution above, the mask scaled up bilinearly.
+ *
+ * The model is one min cut (Boykov & Jolly, ICCV 2001) over the working image minimising
+ *
+ *   sum over selected pixels p beyond the footprint of  AREA * (1 + DIST * d(p)^POW)
+ *   + sum over cut neighbour pairs p~q of  w(|I_p - I_q|) / |p - q|,
+ *   w(D) = FLOOR + 1 / (1 + (D / SIGMA)^K),
+ *
+ * the (slightly grown) footprint hard foreground and d the distance from it. Larger windows are
+ * cut coarse to fine (Lombaert, Sun, Grady & Xu, ICCV 2005). The constants were fitted to
+ * Photoshop's masks. */
 #include <float.h>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "algo/fxutil.h"
 #include "algo/segment.h"
+#include "algo/selection.h"
 #include "base/mem.h"
 #include "base/num.h"
 #include "base/rmath.h"
 
-/* Covariance ridge for the (often tiny) stroke sample: ~6 levels of standard deviation. */
-#define QREG 6e-4f
-/* Geodesic distance (colour units above noise) that counts as "behind an edge". */
-#define EDGE 0.06f
-/* Neighbour colour steps below this never count as edges. */
-#define MIN_STEP 0.03f
-/* Data-term weight of the geodesic distance (nats per EDGE). */
-#define KAPPA 2.0f
-#define GAMMA 50.0f
-#define SQRT_2_F 1.41421356237309504880f
+/* Band half-width (pixels) re-cut at each finer level. */
+#define BAND 3.0f
 
-static float d2(const float a[3], const float b[3])
+pc_algo_quick_tuning pc_algo_quick_tuning_default(void)
 {
-    float x = a[0] - b[0], y = a[1] - b[1], z = a[2] - b[2];
-    return x * x + y * y + z * z;
+    pc_algo_quick_tuning t;
+    t.area = 0.004079f;
+    t.dist = 0.002651f;
+    t.pow = 0.98885f;
+    t.floor = 0.018847f;
+    t.sigma = 0.048450f;
+    t.k = 1.98549f;
+    t.grow = 1.69371f;
+    t.grow_frac = 0.103003f;
+    t.direct_px = 300000;
+    return t;
 }
 
-pc_status pc_algo_quick_broad_model(pc_algo_gmm *out, pc_error *err)
+size_t pc_algo_quick_working_step(size_t w, size_t h)
 {
-    float corners[8][3];
-    bool some = false;
-    int i;
-    pc_status st;
-    for (i = 0; i < 8; i++) {
-        corners[i][0] = (float)(i & 1);
-        corners[i][1] = (float)((i >> 1) & 1);
-        corners[i][2] = (float)((i >> 2) & 1);
-    }
-    /* Eight fixed, distinct samples: the fit cannot fail short of memory. */
-    st = pc_algo_gmm_fit((const float (*)[3])corners, 8, 1, 0.0f, out, &some, err);
-    if (st == PC_OK && !some) {
-        return pc_fail(err, PC_ERR_INVALID, "broad colour model failed");
-    }
-    return st;
+    size_t n;
+    return pc_size_mul(w, h, &n) && n <= 512 * 512 ? 1 : 2;
 }
 
 void pc_algo_quick_stroke_mask(const float (*pts)[2], size_t n, float radius, size_t w, size_t h, bool *m)
@@ -86,361 +85,369 @@ void pc_algo_quick_stroke_mask(const float (*pts)[2], size_t n, float radius, si
     }
 }
 
-static pc_status blur3(const pc_algo_rgb_image *img, pc_algo_rgb_image *out, pc_error *err)
+pc_status pc_algo_quick_upsample(const bool *low, size_t lw, size_t lh, size_t step, size_t w, size_t h,
+                                 uint8_t *out, pc_error *err)
 {
-    size_t w = img->w, h = img->h, x, y;
-    pc_algo_rgb_image tmp, o;
-    int k;
-    pc_status st = pc_algo_rgb_image_clone(img, &tmp, err);
-    if (st != PC_OK) {
-        return st;
+    size_t x, y, n;
+    float s = (float)step;
+    if (!pc_size_mul(w, h, &n)) {
+        return pc_fail(err, PC_ERR_LIMIT, "selection too large");
     }
+    if (step == 1) {
+        if (lw * lh != n) {
+            return pc_fail(err, PC_ERR_INVALID, "working mask %zux%zu for %zux%zu", lw, lh, w, h);
+        }
+        for (x = 0; x < n; x++) {
+            out[x] = low[x] ? 255 : 0;
+        }
+        return PC_OK;
+    }
+    if (n > 0 && (lw == 0 || lh == 0)) {
+        return pc_fail(err, PC_ERR_INVALID, "empty working mask");
+    }
+#define AT(xx, yy)                                                                                           \
+    (low[(size_t)pc_clamp_i64((yy), 0, (int64_t)lh - 1) * lw +                                               \
+         (size_t)pc_clamp_i64((xx), 0, (int64_t)lw - 1)]                                                     \
+         ? 1.0f                                                                                              \
+         : 0.0f)
     for (y = 0; y < h; y++) {
+        float fy = ((float)y + 0.5f) / s - 0.5f, ty = fy - floorf(fy);
+        int64_t iy = (int64_t)floorf(fy);
         for (x = 0; x < w; x++) {
-            const float *l = img->px[y * w + (x > 0 ? x - 1 : 0)],
-                        *r = img->px[y * w + (x + 1 < w ? x + 1 : w - 1)];
-            const float *c = img->px[y * w + x];
-            for (k = 0; k < 3; k++) {
-                tmp.px[y * w + x][k] = (l[k] + c[k] + r[k]) / 3.0f;
-            }
+            float fx = ((float)x + 0.5f) / s - 0.5f, tx = fx - floorf(fx), v;
+            int64_t ix = (int64_t)floorf(fx);
+            v = (AT(ix, iy) * (1.0f - tx) + AT(ix + 1, iy) * tx) * (1.0f - ty) +
+                (AT(ix, iy + 1) * (1.0f - tx) + AT(ix + 1, iy + 1) * tx) * ty;
+            out[y * w + x] = pc_f32_to_u8(roundf(v * 255.0f));
         }
     }
-    st = pc_algo_rgb_image_clone(&tmp, &o, err);
-    if (st != PC_OK) {
-        pc_algo_rgb_image_fini(&tmp);
-        return st;
-    }
-    for (y = 0; y < h; y++) {
-        for (x = 0; x < w; x++) {
-            const float *u = tmp.px[(y > 0 ? y - 1 : 0) * w + x],
-                        *d = tmp.px[(y + 1 < h ? y + 1 : h - 1) * w + x];
-            const float *c = tmp.px[y * w + x];
-            for (k = 0; k < 3; k++) {
-                o.px[y * w + x][k] = (u[k] + c[k] + d[k]) / 3.0f;
-            }
-        }
-    }
-    pc_algo_rgb_image_fini(&tmp);
-    *out = o;
+#undef AT
     return PC_OK;
 }
 
-/* f32::total_cmp as a qsort comparator. */
-static int total_cmp(const void *a, const void *b)
+typedef struct qweight {
+    float floor, sigma, k, scale;
+} qweight;
+
+static float quick_weight(void *ctx, float dd)
 {
-    int32_t x, y;
-    memcpy(&x, a, 4);
-    memcpy(&y, b, 4);
-    x ^= (int32_t)(((uint32_t)(x >> 31)) >> 1);
-    y ^= (int32_t)(((uint32_t)(y >> 31)) >> 1);
-    return x < y ? -1 : (x > y ? 1 : 0);
+    const qweight *q = ctx;
+    float wv = q->floor + 1.0f / (1.0f + powf(sqrtf(dd) / q->sigma, q->k));
+    return q->scale * wv;
 }
 
-pc_status pc_algo_quick_geodesic(const pc_algo_rgb_image *img, const bool *seeds, float **out, pc_error *err)
+/* Min cut with only foreground costs, coarse to fine above direct_px pixels: the half-size
+ * problem (colours averaged, pixel costs summed, cut weights doubled) gives a boundary and the
+ * full-size cut is redone only within BAND of it. Seeds stay foreground. */
+static pc_status cut_levels(const pc_algo_rgb_image *img, const uint8_t *fixed, const float *cost_fg,
+                            qweight q, size_t direct_px, bool optimized, bool *out, pc_error *err)
 {
-    size_t w = img->w, h = img->h, n = w * h, i, x, y, nd = 0, pass;
-    pc_algo_rgb_image sm1, sm;
-    bool *near = NULL;
-    float *g = NULL, *diffs = NULL, *e = NULL, *d = NULL, tau = 0.0f, thr;
-    pc_status st = blur3(img, &sm1, err);
-    if (st != PC_OK) {
+    size_t w = img->w, h = img->h, n = w * h, cw, ch, cn, i, x, y;
+    float *zeros = NULL, *ccost = NULL, *near = NULL;
+    uint8_t *cfix = NULL, *banded = NULL;
+    bool *coarse = NULL, *proj = NULL, *edge = NULL, any = false;
+    pc_algo_rgb_image cimg = {0, 0, NULL};
+    pc_status st = PC_OK;
+    zeros = pc_calloc_array(n ? n : 1, sizeof(float));
+    if (zeros == NULL) {
+        return pc_fail(err, PC_ERR_NOMEM, "out of memory for Quick Selection");
+    }
+    if (n <= direct_px || w < 8 || h < 8) {
+        st = pc_algo_segment_grid_cut_impl(img, cost_fg, zeros, fixed, quick_weight, &q, NULL, optimized, out,
+                                           err);
+        free(zeros);
         return st;
     }
-    st = blur3(&sm1, &sm, err);
-    pc_algo_rgb_image_fini(&sm1);
-    if (st != PC_OK) {
-        return st;
-    }
-    near = pc_calloc_array(n ? n : 1, sizeof(bool));
-    g = pc_malloc_array(n ? n : 1, sizeof(float));
-    diffs = pc_malloc_array(n ? n : 1, sizeof(float));
-    e = pc_malloc_array(n ? n : 1, sizeof(float));
-    d = pc_malloc_array(n ? n : 1, sizeof(float));
-    if (near == NULL || g == NULL || diffs == NULL || e == NULL || d == NULL) {
-        st = pc_fail(err, PC_ERR_NOMEM, "out of memory for a geodesic distance");
-        goto done;
-    }
-    /* Texture level of what the user painted: median local gradient over the stroke grown by two
-     * pixels. Gradual colour changes and texture at that level cost nothing. */
-    for (i = 0; i < n; i++) {
-        size_t yy, sx, ex;
-        if (!seeds[i]) {
-            continue;
-        }
-        x = i % w;
-        y = i / w;
-        sx = x > 2 ? x - 2 : 0;
-        ex = x + 3 < w ? x + 3 : w;
-        for (yy = y > 2 ? y - 2 : 0; yy < (y + 3 < h ? y + 3 : h); yy++) {
-            memset(near + yy * w + sx, 1, (ex - sx) * sizeof(bool));
-        }
-    }
-    /* Colour gradient magnitude (central differences) of the smoothed image. */
-    for (y = 0; y < h; y++) {
-        for (x = 0; x < w; x++) {
-            const float *l = sm.px[y * w + (x > 0 ? x - 1 : 0)],
-                        *r = sm.px[y * w + (x + 1 < w ? x + 1 : w - 1)];
-            const float *u = sm.px[(y > 0 ? y - 1 : 0) * w + x],
-                        *dn = sm.px[(y + 1 < h ? y + 1 : h - 1) * w + x];
-            g[y * w + x] = sqrtf((d2(l, r) + d2(u, dn)) * 0.25f);
-        }
-    }
-    for (i = 0; i < n; i++) {
-        if (near[i]) {
-            diffs[nd++] = g[i];
-        }
-    }
-    if (nd > 0) {
-        qsort(diffs, nd, sizeof(float), total_cmp);
-        tau = diffs[nd / 2];
-    }
-    thr = pc_rs_maxf_k(2.0f * tau, MIN_STEP);
-    /* Crossing pixels whose gradient exceeds the texture level costs the excess: a barrier map,
-     * so an edge costs about its contrast whatever direction the path crosses it. */
-    for (i = 0; i < n; i++) {
-        e[i] = pc_rs_maxf_k(g[i] - thr, 0.0f);
-        d[i] = seeds[i] ? 0.0f : INFINITY;
-    }
-#define COST(a, b, len) ((len) * (0.5f * (e[a] + e[b]) + 1e-6f))
-    for (pass = 0; pass < 2; pass++) {
-        for (y = 0; y < h; y++) {
-            for (x = 0; x < w; x++) {
-                size_t ii = y * w + x;
-                float v = d[ii];
-                if (x > 0) {
-                    v = pc_rs_minf(v, d[ii - 1] + COST(ii, ii - 1, 1.0f));
-                }
-                if (y > 0) {
-                    v = pc_rs_minf(v, d[ii - w] + COST(ii, ii - w, 1.0f));
-                    if (x > 0) {
-                        v = pc_rs_minf(v, d[ii - w - 1] + COST(ii, ii - w - 1, SQRT_2_F));
-                    }
-                    if (x + 1 < w) {
-                        v = pc_rs_minf(v, d[ii - w + 1] + COST(ii, ii - w + 1, SQRT_2_F));
-                    }
-                }
-                d[ii] = v;
-            }
-        }
-        for (y = h; y-- > 0;) {
-            for (x = w; x-- > 0;) {
-                size_t ii = y * w + x;
-                float v = d[ii];
-                if (x + 1 < w) {
-                    v = pc_rs_minf(v, d[ii + 1] + COST(ii, ii + 1, 1.0f));
-                }
-                if (y + 1 < h) {
-                    v = pc_rs_minf(v, d[ii + w] + COST(ii, ii + w, 1.0f));
-                    if (x + 1 < w) {
-                        v = pc_rs_minf(v, d[ii + w + 1] + COST(ii, ii + w + 1, SQRT_2_F));
-                    }
-                    if (x > 0) {
-                        v = pc_rs_minf(v, d[ii + w - 1] + COST(ii, ii + w - 1, SQRT_2_F));
-                    }
-                }
-                d[ii] = v;
-            }
-        }
-    }
-#undef COST
-    *out = d;
-    d = NULL;
-done:
-    pc_algo_rgb_image_fini(&sm);
-    free(near);
-    free(g);
-    free(diffs);
-    free(e);
-    free(d);
-    return st;
-}
-
-typedef struct qcost_ctx {
-    const pc_algo_rgb_image *img;
-    const float *geo;
-    const pc_algo_gmm *fg, *bg;
-    float *cf, *cb;
-} qcost_ctx;
-
-static pc_status qcost_chunk(void *ctx, size_t chunk, size_t begin, size_t end)
-{
-    qcost_ctx *c = ctx;
-    size_t i;
-    (void)chunk;
-    for (i = begin; i < end; i++) {
-        const float *p = c->img->px[i];
-        c->cf[i] = pc_algo_gmm_neg_log(c->fg, p) + KAPPA * pc_rs_minf_k(c->geo[i] / EDGE, 4.0f);
-        c->cb[i] =
-            c->bg != NULL ? -pc_f64_to_f32(log(0.85 * exp(pc_algo_gmm_log_prob(c->bg, p)) + 0.15)) : 0.0f;
-    }
-    return PC_OK;
-}
-
-pc_status pc_algo_quick_segment(const pc_algo_rgb_image *img, const bool *seeds, pc_algo_gmm *fg_out,
-                                pc_algo_gmm *bg_out, bool *low, pc_error *err)
-{
-    size_t n = img->w * img->h, i, nf = 0, nb = 0, nsf = 0, nsb = 0, kf;
-    float *geo = NULL, (*fs)[3] = NULL, (*bs)[3] = NULL, (*sf)[3] = NULL, (*sb)[3] = NULL, *cf = NULL,
-          *cb = NULL;
-    uint8_t *fixed = NULL;
-    bool *cut = NULL, okf = false, okb = false;
-    pc_algo_gmm fg = {NULL, 0, 0.0f}, bg = {NULL, 0, 0.0f};
-    qcost_ctx qc;
-    pc_status st = pc_algo_quick_geodesic(img, seeds, &geo, err);
-    if (st != PC_OK) {
-        return st;
-    }
-    fs = pc_malloc_array(n ? n : 1, sizeof *fs);
-    bs = pc_malloc_array(n ? n : 1, sizeof *bs);
-    cf = pc_malloc_array(n ? n : 1, sizeof(float));
-    cb = pc_malloc_array(n ? n : 1, sizeof(float));
-    fixed = pc_malloc_array(n ? n : 1, 1);
-    cut = pc_malloc_array(n ? n : 1, sizeof(bool));
-    if (fs == NULL || bs == NULL || cf == NULL || cb == NULL || fixed == NULL || cut == NULL) {
+    cw = (w + 1) / 2;
+    ch = (h + 1) / 2;
+    cn = cw * ch;
+    cfix = pc_calloc_array(cn, 1);
+    ccost = pc_calloc_array(cn, sizeof(float));
+    coarse = pc_malloc_array(cn, sizeof(bool));
+    proj = pc_malloc_array(n, sizeof(bool));
+    edge = pc_malloc_array(n, sizeof(bool));
+    banded = pc_malloc_array(n, 1);
+    if (cfix == NULL || ccost == NULL || coarse == NULL || proj == NULL || edge == NULL || banded == NULL) {
         st = pc_fail(err, PC_ERR_NOMEM, "out of memory for Quick Selection");
         goto done;
     }
-    for (i = 0; i < n; i++) {
-        if (seeds[i]) {
-            memcpy(fs[nf++], img->px[i], sizeof fs[0]);
-        }
-        if (geo[i] > EDGE) {
-            memcpy(bs[nb++], img->px[i], sizeof bs[0]);
-        }
-    }
-    if ((st = pc_algo_segment_subsample((const float (*)[3])fs, nf, 20000, &sf, &nsf, err)) != PC_OK ||
-        (st = pc_algo_segment_subsample((const float (*)[3])bs, nb, 20000, &sb, &nsb, err)) != PC_OK) {
+    if ((st = pc_algo_rgb_image_downsample(img, 2, &cimg, err)) != PC_OK) {
         goto done;
     }
-    kf = nsf / 40;
-    kf = kf < 1 ? 1 : (kf > 4 ? 4 : kf);
-    st = pc_algo_gmm_fit((const float (*)[3])sf, nsf, kf, QREG, &fg, &okf, err);
-    if (st == PC_OK && !okf) {
-        st = pc_algo_quick_broad_model(&fg, err);
+    for (y = 0; y < h; y++) {
+        for (x = 0; x < w; x++) {
+            size_t c = (y / 2) * cw + x / 2;
+            ccost[c] += cost_fg[y * w + x];
+            if (fixed[y * w + x] == PC_ALGO_SEGMENT_HARD_FG) {
+                cfix[c] = PC_ALGO_SEGMENT_HARD_FG;
+            }
+        }
     }
-    if (st == PC_OK && nsb >= 30) {
-        st = pc_algo_gmm_fit((const float (*)[3])sb, nsb, 6, QREG, &bg, &okb, err);
+    {
+        qweight q2 = q;
+        q2.scale = q.scale * 2.0f;
+        if ((st = cut_levels(&cimg, cfix, ccost, q2, direct_px, optimized, coarse, err)) != PC_OK) {
+            goto done;
+        }
     }
-    if (st != PC_OK) {
+    for (i = 0; i < n; i++) {
+        proj[i] = coarse[(i / w / 2) * cw + (i % w) / 2];
+    }
+    for (i = 0; i < n; i++) {
+        bool v = proj[i];
+        x = i % w;
+        y = i / w;
+        edge[i] = (x > 0 && proj[i - 1] != v) || (x + 1 < w && proj[i + 1] != v) ||
+                  (y > 0 && proj[i - w] != v) || (y + 1 < h && proj[i + w] != v);
+        any |= edge[i];
+    }
+    if (!any) {
+        for (i = 0; i < n; i++) {
+            out[i] = proj[i] || fixed[i] == PC_ALGO_SEGMENT_HARD_FG;
+        }
         goto done;
     }
-    qc.img = img;
-    qc.geo = geo;
-    qc.fg = &fg;
-    qc.bg = okb ? &bg : NULL;
-    qc.cf = cf;
-    qc.cb = cb;
-    (void)pc_algo_par_for(n, 4096, qcost_chunk, &qc);
+    if ((st = pc_algo_selection_edt(edge, w, h, &near, err)) != PC_OK) {
+        goto done;
+    }
     for (i = 0; i < n; i++) {
-        fixed[i] = seeds[i] ? PC_ALGO_SEGMENT_HARD_FG : PC_ALGO_SEGMENT_FREE;
+        if (fixed[i] == PC_ALGO_SEGMENT_HARD_FG) {
+            banded[i] = PC_ALGO_SEGMENT_HARD_FG;
+        } else if (near[i] <= BAND) {
+            banded[i] = PC_ALGO_SEGMENT_FREE;
+        } else {
+            banded[i] = proj[i] ? PC_ALGO_SEGMENT_HARD_FG : PC_ALGO_SEGMENT_HARD_BG;
+        }
     }
-    st = pc_algo_segment_grid_cut(img, cf, cb, fixed, GAMMA, pc_algo_segment_contrast_beta(img), cut, err);
-    if (st == PC_OK) {
-        st = pc_algo_segment_keep_seeded(cut, seeds, img->w, img->h, low, err);
-    }
-    if (st == PC_OK && !okb) {
-        st = pc_algo_quick_broad_model(&bg, err);
-    }
-    if (st == PC_OK) {
-        *fg_out = fg;
-        *bg_out = bg;
-        fg.comps = NULL;
-        bg.comps = NULL;
-    }
+    st = pc_algo_segment_grid_cut_impl(img, cost_fg, zeros, banded, quick_weight, &q, NULL, optimized, out,
+                                       err);
 done:
-    pc_algo_gmm_fini(&fg);
-    pc_algo_gmm_fini(&bg);
-    free(geo);
-    free(fs);
-    free(bs);
-    free(sf);
-    free(sb);
-    free(cf);
-    free(cb);
-    free(fixed);
-    free(cut);
+    pc_algo_rgb_image_fini(&cimg);
+    free(zeros);
+    free(ccost);
+    free(near);
+    free(cfix);
+    free(banded);
+    free(coarse);
+    free(proj);
+    free(edge);
     return st;
 }
 
-pc_status pc_algo_quick_select(const pc_algo_sampler *s, pc_rect canvas, const float (*points)[2],
-                               size_t npoints, float size, size_t work_px, pc_algo_region *out, pc_error *err)
+static pc_status select_working(const pc_algo_rgb_image *img, const bool *seeds, float radius,
+                                const pc_algo_quick_tuning *t, bool optimized, bool *low, pc_error *err)
 {
-    float r, x0 = FLT_MAX, y0 = FLT_MAX, x1 = -FLT_MAX, y1 = -FLT_MAX, st_f;
-    pc_rect bbox, window;
-    int32_t margin;
-    size_t step, lw, lh, i, n;
-    pc_algo_rgb_image img = {0, 0, NULL};
-    float (*pts)[2] = NULL;
-    bool *seeds = NULL, *low = NULL, any = false;
-    pc_algo_gmm fg = {NULL, 0, 0.0f}, bg = {NULL, 0, 0.0f};
+    size_t n, i;
+    float *d = NULL, *cost = NULL, grow;
+    uint8_t *fixed = NULL;
+    qweight q;
     pc_status st;
+    if (!pc_size_mul(img->w, img->h, &n) || n > PC_MAX_ALLOC / sizeof(float)) {
+        return pc_fail(err, PC_ERR_LIMIT, "Quick Selection window too large");
+    }
+    if (n == 0) {
+        return PC_OK;
+    }
+    if ((st = pc_algo_selection_edt(seeds, img->w, img->h, &d, err)) != PC_OK) {
+        return st;
+    }
+    cost = pc_malloc_array(n, sizeof(float));
+    fixed = pc_malloc_array(n, 1);
+    if (cost == NULL || fixed == NULL) {
+        st = pc_fail(err, PC_ERR_NOMEM, "out of memory for Quick Selection");
+        goto done;
+    }
+    grow = pc_rs_maxf_k(t->grow + t->grow_frac * radius, 0.0f);
+    for (i = 0; i < n; i++) {
+        cost[i] = t->area * (1.0f + t->dist * powf(pc_rs_maxf_k(d[i] - grow, 0.0f), t->pow));
+        fixed[i] = d[i] <= grow ? PC_ALGO_SEGMENT_HARD_FG : PC_ALGO_SEGMENT_FREE;
+    }
+    q.floor = t->floor;
+    q.sigma = pc_rs_maxf_k(t->sigma, 1e-4f);
+    q.k = t->k;
+    q.scale = 1.0f;
+    st = cut_levels(img, fixed, cost, q, t->direct_px > 1024 ? t->direct_px : 1024, optimized, low, err);
+done:
+    free(d);
+    free(cost);
+    free(fixed);
+    return st;
+}
+
+pc_status pc_algo_quick_select_working(const pc_algo_rgb_image *img, const bool *seeds, float radius,
+                                       const pc_algo_quick_tuning *t, bool *low, pc_error *err)
+{
+    return select_working(img, seeds, radius, t, true, low, err);
+}
+
+static int32_t clamp_coord(float v)
+{
+    return pc_f32_to_i32(pc_clampf(v, -1073741824.0f, 1073741824.0f));
+}
+
+static int32_t sat_mul2(int32_t v)
+{
+    int64_t m = (int64_t)v * 2;
+    return m > INT32_MAX ? INT32_MAX : (m < INT32_MIN ? INT32_MIN : (int32_t)m);
+}
+
+/* o + (v - o).div_euclid(step) * step */
+static int32_t snap0(int32_t v, int32_t o, int32_t step)
+{
+    int64_t d = (int64_t)v - o, q = d / step;
+    if (d % step < 0) {
+        q -= 1;
+    }
+    return (int32_t)(o + q * step);
+}
+
+pc_status pc_algo_quick_select_using(const pc_algo_sampler *s, pc_rect canvas, const float (*points)[2],
+                                     size_t npoints, float size, const pc_algo_quick_tuning *t,
+                                     bool optimized, pc_algo_region *out, pc_error *err)
+{
+    float r, rw, sf, x0 = FLT_MAX, y0 = FLT_MAX, x1 = -FLT_MAX, y1 = -FLT_MAX;
+    pc_rect bbox;
+    int32_t step, margin;
+    size_t i;
+    pc_status st = PC_OK;
     out->bbox = PC_RECT_EMPTY;
     out->mask = NULL;
     out->len = 0;
-    if (npoints == 0) {
+    if (npoints == 0 || pc_rect_is_empty(canvas)) {
         return PC_OK;
     }
-    size = pc_rs_maxf_k(size, 1.0f);
-    r = size / 2.0f;
+    r = pc_rs_maxf_k(size, 1.0f) / 2.0f;
     for (i = 0; i < npoints; i++) {
         x0 = pc_rs_minf(x0, points[i][0] - r);
         y0 = pc_rs_minf(y0, points[i][1] - r);
         x1 = pc_rs_maxf(x1, points[i][0] + r);
         y1 = pc_rs_maxf(y1, points[i][1] + r);
     }
-    bbox = pc_rect_intersect(pc_rect_make(pc_f32_to_i32(floorf(x0)), pc_f32_to_i32(floorf(y0)),
-                                          pc_i32_sat_add(pc_f32_to_i32(ceilf(x1)), 1),
-                                          pc_i32_sat_add(pc_f32_to_i32(ceilf(y1)), 1)),
+    bbox = pc_rect_intersect(pc_rect_make(clamp_coord(floorf(x0)), clamp_coord(floorf(y0)),
+                                          pc_i32_sat_add(clamp_coord(ceilf(x1)), 1),
+                                          pc_i32_sat_add(clamp_coord(ceilf(y1)), 1)),
                              canvas);
     if (pc_rect_is_empty(bbox)) {
         return PC_OK;
     }
-    margin = pc_f32_to_i32(pc_rs_maxf_k(size * 6.0f, 512.0f));
-    window = pc_rect_intersect(pc_rect_inflate(bbox, margin), canvas);
-    step = pc_algo_segment_scale_for(window, work_px);
-    st = pc_algo_sampler_rgb_scaled(s, window, step, &img, err);
-    if (st != PC_OK) {
-        return st;
+    step = (int32_t)pc_algo_quick_working_step(pc_rect_width(canvas), pc_rect_height(canvas));
+    sf = (float)step;
+    rw = r / sf;
+    /* Work in a window around the stroke; grow it while the selection runs into its border. */
+    margin = pc_i32_wrapping_mul(pc_f32_to_i32(pc_rs_maxf(48.0f, 2.0f * rw)), step);
+    for (;;) {
+        pc_rect grown = pc_rect_intersect(pc_rect_inflate(bbox, margin), canvas), window;
+        pc_algo_rgb_image img = {0, 0, NULL};
+        float (*pts)[2] = NULL;
+        bool *seeds = NULL, *low = NULL, any = false, inner[4], touch = false, again = false;
+        uint8_t *mask = NULL;
+        size_t lw, lh, n, x, y, ww, wh;
+        int k;
+        window = pc_rect_make(snap0(grown.x0, canvas.x0, step), snap0(grown.y0, canvas.y0, step), grown.x1,
+                              grown.y1);
+        if ((st = pc_algo_sampler_rgb_scaled(s, window, (size_t)step, &img, err)) != PC_OK) {
+            return st;
+        }
+        lw = img.w;
+        lh = img.h;
+        n = lw * lh;
+        pts = pc_malloc_array(npoints, sizeof *pts);
+        seeds = pc_malloc_array(n ? n : 1, sizeof(bool));
+        low = pc_calloc_array(n ? n : 1, sizeof(bool));
+        if (pts == NULL || seeds == NULL || low == NULL) {
+            st = pc_fail(err, PC_ERR_NOMEM, "out of memory for Quick Selection");
+            goto round_done;
+        }
+        for (i = 0; i < npoints; i++) {
+            pts[i][0] = (points[i][0] - (float)window.x0) / sf;
+            pts[i][1] = (points[i][1] - (float)window.y0) / sf;
+        }
+        pc_algo_quick_stroke_mask((const float (*)[2])pts, npoints, pc_rs_maxf_k(rw, 0.5f), lw, lh, seeds);
+        for (i = 0; i < n && !any; i++) {
+            any = seeds[i];
+        }
+        if (!any) {
+            goto round_done;
+        }
+        /* The window's sides are free like the canvas' edges, so a selection clear of them is the
+         * best over the whole canvas too; one that reaches a side inside the canvas is recomputed
+         * in a larger window. */
+        inner[0] = window.x0 > canvas.x0;
+        inner[1] = window.y0 > canvas.y0;
+        inner[2] = window.x1 < canvas.x1;
+        inner[3] = window.y1 < canvas.y1;
+        if ((st = select_working(&img, seeds, rw, t, optimized, low, err)) != PC_OK) {
+            goto round_done;
+        }
+        for (k = 0; k < 4 && !touch; k++) {
+            if (!inner[k]) {
+                continue;
+            }
+            switch (k) {
+            case 0:
+                for (y = 0; y < lh && !touch; y++) {
+                    touch = low[y * lw];
+                }
+                break;
+            case 1:
+                for (x = 0; x < lw && !touch; x++) {
+                    touch = low[x];
+                }
+                break;
+            case 2:
+                for (y = 0; y < lh && !touch; y++) {
+                    touch = low[y * lw + lw - 1];
+                }
+                break;
+            default:
+                for (x = 0; x < lw && !touch; x++) {
+                    touch = low[(lh - 1) * lw + x];
+                }
+                break;
+            }
+        }
+        if (touch) {
+            margin = sat_mul2(margin);
+            again = true;
+            goto round_done;
+        }
+        ww = pc_rect_width(window);
+        wh = pc_rect_height(window);
+        mask = pc_malloc_array(ww * wh > 0 ? ww * wh : 1, 1);
+        if (mask == NULL) {
+            st = pc_fail(err, PC_ERR_NOMEM, "out of memory for Quick Selection");
+            goto round_done;
+        }
+        if ((st = pc_algo_quick_upsample(low, lw, lh, (size_t)step, ww, wh, mask, err)) == PC_OK) {
+            pc_algo_region reg;
+            reg.bbox = window;
+            reg.mask = mask;
+            reg.len = ww * wh;
+            mask = NULL;
+            st = pc_algo_segment_trim_region(&reg, out, err);
+        }
+    round_done:
+        free(mask);
+        pc_algo_rgb_image_fini(&img);
+        free(pts);
+        free(seeds);
+        free(low);
+        if (!again) {
+            return st;
+        }
     }
-    lw = img.w;
-    lh = img.h;
-    n = lw * lh;
-    st_f = (float)step;
-    pts = pc_malloc_array(npoints, sizeof *pts);
-    seeds = pc_malloc_array(n ? n : 1, sizeof(bool));
-    low = pc_calloc_array(n ? n : 1, sizeof(bool));
-    if (pts == NULL || seeds == NULL || low == NULL) {
-        st = pc_fail(err, PC_ERR_NOMEM, "out of memory for Quick Selection");
-        goto done;
-    }
-    for (i = 0; i < npoints; i++) {
-        pts[i][0] = (points[i][0] - (float)window.x0) / st_f;
-        pts[i][1] = (points[i][1] - (float)window.y0) / st_f;
-    }
-    pc_algo_quick_stroke_mask((const float (*)[2])pts, npoints, pc_rs_maxf_k(r / st_f, 0.75f), lw, lh, seeds);
-    for (i = 0; i < n && !any; i++) {
-        any = seeds[i];
-    }
-    if (!any) {
-        goto done;
-    }
-    st = pc_algo_quick_segment(&img, seeds, &fg, &bg, low, err);
-    if (st != PC_OK) {
-        goto done;
-    }
-    any = false;
-    for (i = 0; i < n && !any; i++) {
-        any = low[i];
-    }
-    if (any) {
-        st = pc_algo_segment_finish_region(s, window, step, low, lw, lh, &fg, &bg, out, err);
-    }
-done:
-    pc_algo_gmm_fini(&fg);
-    pc_algo_gmm_fini(&bg);
-    pc_algo_rgb_image_fini(&img);
-    free(pts);
-    free(seeds);
-    free(low);
-    return st;
+}
+
+pc_status pc_algo_quick_select_with(const pc_algo_sampler *s, pc_rect canvas, const float (*points)[2],
+                                    size_t npoints, float size, const pc_algo_quick_tuning *t,
+                                    pc_algo_region *out, pc_error *err)
+{
+    return pc_algo_quick_select_using(s, canvas, points, npoints, size, t, true, out, err);
+}
+
+pc_status pc_algo_quick_select(const pc_algo_sampler *s, pc_rect canvas, const float (*points)[2],
+                               size_t npoints, float size, pc_algo_region *out, pc_error *err)
+{
+    pc_algo_quick_tuning t = pc_algo_quick_tuning_default();
+    return pc_algo_quick_select_using(s, canvas, points, npoints, size, &t, true, out, err);
 }

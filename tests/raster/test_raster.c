@@ -780,6 +780,201 @@ static void test_rgba8_image(void)
     CHECK(pc_sample_is_hdr(PC_SAMPLE_TYPE_F32) && !pc_sample_is_hdr(PC_SAMPLE_TYPE_U16));
 }
 
+/* Every byte of a region of s (interleaved), for exact comparisons. */
+static uint8_t *bytes_of(const pc_surface *s, pc_rect r, size_t *len)
+{
+    uint8_t *b = NULL;
+    *len = 0;
+    if (pc_surface_to_interleaved(s, r, &b, len, NULL) != PC_OK) {
+        PC_T_FAIL("%s", "to_interleaved");
+    }
+    return b;
+}
+
+static void test_region_writes_match_scalar_bytes_for_every_format(void)
+{
+    const float special[14] = {0.0f, -0.0f, 1.0f, -1.0f,           2.0f, INFINITY,      -INFINITY,
+                               NAN,  0.0f,  0.0f, 1.17549435e-38f, 0.0f, 0.5f / 255.0f, 0.5f / 65535.0f};
+    float sp[14];
+    const pc_rect rects[5] = {
+        {0, 0, 0, 0}, {-270, -2, 270, 3}, {256, 256, 512, 257}, {-64, -64, 0, 0}, {255, 250, 258, 270}};
+    unsigned mode;
+    unsigned sample;
+    int alpha;
+    uint32_t u;
+    memcpy(sp, special, sizeof sp);
+    u = 0x7fc12345u;
+    memcpy(&sp[8], &u, 4);
+    u = 0xffc12345u;
+    memcpy(&sp[9], &u, 4);
+    u = 1u;
+    memcpy(&sp[11], &u, 4);
+    for (mode = 0; mode < PC_COLOR_MODE_COUNT; mode++) {
+        for (sample = 0; sample < PC_SAMPLE_TYPE_COUNT; sample++) {
+            for (alpha = 0; alpha <= 1; alpha++) {
+                pc_pixel_format f = {(pc_color_mode)mode, (pc_sample_type)sample, alpha != 0};
+                size_t n = pc_pixel_format_channels(f);
+                float quarter[PC_RASTER_MAX_CHANNELS];
+                float three[PC_RASTER_MAX_CHANNELS];
+                pc_surface actual;
+                pc_surface expected;
+                size_t k;
+                size_t ri;
+                for (k = 0; k < n; k++) {
+                    quarter[k] = 0.25f;
+                    three[k] = 0.75f;
+                }
+                pc_surface_init_default(&actual, f, quarter, n);
+                CHECK_EQ_INT(pc_surface_write_pixel(&actual, 900, 900, three, n, NULL), PC_OK);
+                CHECK_EQ_INT(pc_surface_clone(&actual, &expected, NULL), PC_OK);
+                for (ri = 0; ri < 5; ri++) {
+                    pc_rect r = rects[ri];
+                    size_t len = (size_t)pc_rect_width(r) * (size_t)pc_rect_height(r) * n;
+                    float *data = malloc((len > 0 ? len : 1) * sizeof *data);
+                    pc_surface snapshot;
+                    uint8_t *snap_before;
+                    uint8_t *snap_after;
+                    size_t lb;
+                    size_t la;
+                    size_t i;
+                    int32_t x;
+                    int32_t y;
+                    if (data == NULL) {
+                        PC_T_FAIL("%s", "malloc");
+                        continue;
+                    }
+                    for (i = 0; i < len; i++) {
+                        if (i % 3 == 0) {
+                            data[i] = sp[i / 3 % 14];
+                        } else {
+                            /* Integer rounding boundaries and arbitrary f32 bit patterns. */
+                            uint32_t bits = (uint32_t)i * 2654435761u;
+                            if (i % 3 == 1) {
+                                data[i] = ((float)(bits % 65536u) + 0.5f) / 65535.0f;
+                            } else {
+                                memcpy(&data[i], &bits, 4);
+                            }
+                        }
+                    }
+                    CHECK_EQ_INT(pc_surface_clone(&actual, &snapshot, NULL), PC_OK);
+                    snap_before = bytes_of(&snapshot, pc_rect_inflate(r, 1), &lb);
+                    CHECK_EQ_INT(pc_surface_write_region(&actual, r, data, len, NULL), PC_OK);
+                    /* The scalar reference: one pixel at a time. */
+                    for (y = r.y0; y < r.y1; y++) {
+                        for (x = r.x0; x < r.x1; x++) {
+                            size_t o =
+                                ((size_t)(y - r.y0) * (size_t)pc_rect_width(r) + (size_t)(x - r.x0)) * n;
+                            CHECK_EQ_INT(pc_surface_write_pixel(&expected, x, y, data + o, n, NULL), PC_OK);
+                        }
+                    }
+                    CHECK(pc_surface_eq(&actual, &expected));
+                    snap_after = bytes_of(&snapshot, pc_rect_inflate(r, 1), &la);
+                    CHECK(la == lb && (lb == 0 || memcmp(snap_before, snap_after, lb) == 0)); /* COW */
+                    /* Again over already materialised, unshared tiles. */
+                    CHECK_EQ_INT(pc_surface_write_region(&actual, r, data, len, NULL), PC_OK);
+                    CHECK(pc_surface_eq(&actual, &expected));
+                    free(snap_before);
+                    free(snap_after);
+                    pc_surface_fini(&snapshot);
+                    free(data);
+                }
+                pc_surface_fini(&actual);
+                pc_surface_fini(&expected);
+            }
+        }
+    }
+}
+
+static void test_region_write_rejects_bad_input_without_mutating_surface(void)
+{
+    pc_surface s;
+    pc_surface before;
+    const float one = 1.0f;
+    pc_surface_init(&s, PC_PIXEL_FORMAT_RGBA8);
+    CHECK_EQ_INT(pc_surface_clone(&s, &before, NULL), PC_OK);
+    CHECK(pc_surface_write_region(&s, pc_rect_make(0, 0, 2, 2), &one, 1, NULL) != PC_OK);
+    CHECK(pc_surface_eq(&s, &before));
+    pc_surface_fini(&s);
+    pc_surface_fini(&before);
+}
+
+static void test_repeated_cmyk_reads_match_individual_pixels_bitwise(void)
+{
+    const pc_rect r = {-2, -1, 515, 2};
+    const float dflt[5] = {0.2f, 0.4f, 0.6f, 0.3f, 0.7f};
+    unsigned depth;
+    int alpha;
+    for (depth = 0; depth < PC_SAMPLE_TYPE_COUNT; depth++) {
+        for (alpha = 0; alpha <= 1; alpha++) {
+            pc_pixel_format f = {PC_COLOR_MODE_CMYK, (pc_sample_type)depth, alpha != 0};
+            size_t n = pc_pixel_format_channels(f);
+            size_t w = (size_t)pc_rect_width(r);
+            size_t len = w * (size_t)pc_rect_height(r);
+            float (*out)[4] = calloc(len, sizeof *out);
+            pc_surface s;
+            int32_t x;
+            size_t i;
+            if (out == NULL) {
+                PC_T_FAIL("%s", "calloc");
+                continue;
+            }
+            pc_surface_init_default(&s, f, dflt, n);
+            for (x = -1, i = 0; x < 514; x++, i++) {
+                float c = i / 2 % 256 == 0 ? -0.0f : (float)(i / 2 % 256) / 255.0f;
+                float px[5] = {c, 0.4f, 0.6f, 0.3f, (float)(i % 9) / 8.0f};
+                CHECK_EQ_INT(pc_surface_write_pixel(&s, x, 0, px, n, NULL), PC_OK);
+            }
+            CHECK_EQ_INT(pc_surface_read_rgba_into(&s, r, out, len, NULL), PC_OK);
+            for (i = 0; i < len; i++) {
+                float want[4];
+                pc_surface_rgba(&s, r.x0 + (int32_t)(i % w), r.y0 + (int32_t)(i / w), want);
+                if (memcmp(out[i], want, sizeof want) != 0) {
+                    PC_T_FAIL("depth %u alpha %d pixel %zu", depth, alpha, i);
+                    break;
+                }
+            }
+            pc_surface_fini(&s);
+            free(out);
+        }
+    }
+}
+
+static float square(void *ctx, float v)
+{
+    (void)ctx;
+    return v * v;
+}
+
+static void test_map_color_maps_colour_not_alpha_and_the_default(void)
+{
+    const float dflt[4] = {0.5f, 0.25f, 1.0f, 0.5f};
+    const float px[4] = {0.5f, 0.5f, 0.5f, 0.5f};
+    float got[4];
+    pc_surface s;
+    pc_surface snap;
+    pc_raster_tile *t = NULL;
+    pc_surface_init_default(&s, PC_PIXEL_FORMAT_RGBA32F, dflt, 4);
+    CHECK_EQ_INT(pc_surface_write_pixel(&s, 3, 3, px, 4, NULL), PC_OK);
+    CHECK_EQ_INT(pc_surface_clone(&s, &snap, NULL), PC_OK);
+    CHECK_EQ_INT(pc_surface_map_color(&s, square, NULL, NULL), PC_OK);
+    read_px(&s, 3, 3, got);
+    CHECK(got[0] == 0.25f && got[1] == 0.25f && got[2] == 0.25f && got[3] == 0.5f);
+    read_px(&s, 1000, -1000, got); /* untouched pixels read the mapped default */
+    CHECK(got[0] == 0.25f && got[1] == 0.0625f && got[2] == 1.0f && got[3] == 0.5f);
+    read_px(&snap, 3, 3, got); /* a snapshot sharing the tile is not changed */
+    CHECK(got[0] == 0.5f);
+    CHECK_EQ_INT(pc_surface_default_tile(&s, &t, NULL), PC_OK);
+    if (t != NULL) {
+        float v;
+        CHECK_EQ_UINT(pc_raster_tile_len(t), (size_t)256 * 256 * 16);
+        memcpy(&v, pc_raster_tile_bytes(t) + 4, 4);
+        CHECK(v == 0.0625f);
+        pc_raster_tile_release(t);
+    }
+    pc_surface_fini(&s);
+    pc_surface_fini(&snap);
+}
+
 int main(int argc, char **argv)
 {
     RUN(test_from_rgba_into_matches_from_rgba);
@@ -804,5 +999,9 @@ int main(int argc, char **argv)
     RUN(test_limits_and_bad_lengths);
     RUN(test_take_and_put_tiles);
     RUN(test_rgba8_image);
+    RUN(test_region_writes_match_scalar_bytes_for_every_format);
+    RUN(test_region_write_rejects_bad_input_without_mutating_surface);
+    RUN(test_repeated_cmyk_reads_match_individual_pixels_bitwise);
+    RUN(test_map_color_maps_colour_not_alpha_and_the_default);
     return pc_t_finish();
 }

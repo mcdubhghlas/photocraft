@@ -119,8 +119,8 @@ bool pc_compose_shapeless(const pc_layer *layer)
 
 bool pc_compose_is_background(const pc_layer *layer)
 {
-    return layer->name.len == 10 && memcmp(layer->name.ptr, "Background", 10) == 0 &&
-           layer->locks.transparency && !layer->clipped && layer->content.kind == PC_LAYER_RASTER;
+    /* By its locks and kind, never by its (localized) name. */
+    return pc_layer_has_background_traits(layer);
 }
 
 bool pc_cmp_needs_floor(const pc_layer *layers, size_t n)

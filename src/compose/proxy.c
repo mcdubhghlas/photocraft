@@ -220,7 +220,8 @@ bool pc_compose_proxy_faithful(const pc_document *doc)
     }
     for (i = 0; i < w.len && ok; i++) {
         const pc_layer *l = w.items[i].layer;
-        ok = !pc_compose_has_effects(l) && !(l->has_vector_mask && l->vector_mask.enabled);
+        ok = !pc_compose_has_effects(l) &&
+             !(l->has_vector_mask && l->vector_mask.enabled && !pc_path_is_empty(&l->vector_mask.path));
     }
     pc_walk_fini(&w);
     return ok;

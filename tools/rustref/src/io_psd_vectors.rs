@@ -305,7 +305,7 @@ fn warn_s(w: &[String]) -> String {
 }
 
 /// psd_to_document of bytes: (full result, hashed result).
-fn import(bytes: &[u8]) -> (String, String) {
+pub fn import(bytes: &[u8]) -> (String, String) {
     let f = match PsdFile::from_bytes(bytes) {
         Ok(f) => f,
         Err(e) => {
@@ -525,6 +525,7 @@ fn sample_effects() -> Vec<photocraft_doc::Effect> {
             contour: Contour::Custom {
                 name: "Cone".into(),
                 points: vec![CurvePoint { input: 0.0, output: 0.0 }, CurvePoint { input: 0.5, output: 1.0 }, CurvePoint { input: 1.0, output: 0.0 }],
+                corners: Vec::new(),
             },
             ..ds.clone()
         }),
@@ -611,7 +612,7 @@ fn sample_effects() -> Vec<photocraft_doc::Effect> {
             angle: 120.0,
             altitude: 30.0,
             use_global_light: true,
-            gloss_contour: Contour::Custom { name: String::new(), points: vec![CurvePoint { input: 0.0, output: 1.0 }, CurvePoint { input: 1.0, output: 0.0 }] },
+            gloss_contour: Contour::Custom { name: String::new(), points: vec![CurvePoint { input: 0.0, output: 1.0 }, CurvePoint { input: 1.0, output: 0.0 }], corners: Vec::new() },
             highlight: FxCommon::new(BlendMode::ColorDodge, 0.5),
             highlight_color: Color::gray(0.9),
             shadow: FxCommon::new(BlendMode::ColorBurn, 0.6),
@@ -1221,14 +1222,16 @@ fn adjustments() {
             per_channel: [pts(&[(0, 10), (255, 255)]), pts(&[(0, 0), (255, 245)]), pts(&[(0, 0), (64, 32), (255, 255)])],
             space: ToneSpace::Rgb,
             black: Vec::new(),
+            pencil: false,
         },
         Adjustment::Curves {
             master: pts(&[(0, 0), (255, 255)]),
             per_channel: [pts(&[(0, 0), (255, 255)]), pts(&[(0, 30), (255, 255)]), pts(&[(0, 0), (255, 255)])],
             space: ToneSpace::Cmyk,
             black: pts(&[(0, 0), (128, 100), (255, 255)]),
+            pencil: false,
         },
-        Adjustment::Curves { master: (0..25).map(|i| CurvePoint { input: i as f32 / 24.0, output: 1.0 - i as f32 / 24.0 }).collect(), per_channel: Default::default(), space: ToneSpace::Lab, black: Vec::new() },
+        Adjustment::Curves { master: (0..25).map(|i| CurvePoint { input: i as f32 / 24.0, output: 1.0 - i as f32 / 24.0 }).collect(), per_channel: Default::default(), space: ToneSpace::Lab, black: Vec::new(), pencil: false },
         Adjustment::SelectiveColor { relative: true, adjustments: std::array::from_fn(|r| [r as f32 * 10.0 - 40.0, 5.0, -100.0, 300.0]) },
         Adjustment::ColorLookup { name: "Look.cube".into(), lut: Some(Arc::new(id.data)), size: 5, tetrahedral: false, dither: true },
         Adjustment::ColorLookup { name: "L".into(), lut: None, size: 3, tetrahedral: true, dither: true },

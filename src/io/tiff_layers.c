@@ -186,7 +186,7 @@ static pc_status gather_resources(const pc_cimage *img, res_list *res, pc_io_war
         } else {
             res->v = NULL;
             res->n = 0;
-            st = pc_io_warn(warnings, err, "the Photoshop image resources could not be read: %s", e.msg);
+            st = pc_io_warn(warnings, err, "the PSD image resources could not be read: %s", e.msg);
         }
         pc_psd_warnings_fini(&w);
         if (st != PC_OK) {
@@ -243,7 +243,7 @@ pc_status pc_io_import_layered(const char *name, const pc_cimage *img0, const ui
         st = pc_io_image_to_document(name, img0, &r, err);
         if (st == PC_OK) {
             st = pc_io_warn(&r.warnings, err,
-                            "the Photoshop layer data could not be read (%s); opened flattened", e.msg);
+                            "the PSD layer data could not be read (%s); opened flattened", e.msg);
             if (st != PC_OK) {
                 pc_io_import_result_fini(&r);
             }

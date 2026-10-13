@@ -11,6 +11,8 @@
 #include "base/mem.h"
 #include "base/num.h"
 #include "base/utf8.h"
+#include "color/convert.h"
+#include "compose/compose.h"
 #include "io/annotations_map.h"
 #include "io/channel_map.h"
 #include "io/comps_map.h"
@@ -178,10 +180,10 @@ static void free_names(pc_str *v, size_t n)
     free(v);
 }
 
-static pc_status push_float(float **v, size_t *n, float x, pc_error *err)
+static pc_status push_double(double **v, size_t *n, double x, pc_error *err)
 {
     size_t cap = *n;
-    float *nv = pc_grow_array(*v, &cap, *n + 1, sizeof *nv);
+    double *nv = pc_grow_array(*v, &cap, *n + 1, sizeof *nv);
     if (nv == NULL) {
         return pc_io_nomem(err, "reading guides");
     }
@@ -204,14 +206,14 @@ static pc_status parse_guides(const uint8_t *data, size_t len, pc_document *doc,
     count = rd32(data + 12);
     for (size_t i = 0; i < count; i++) {
         size_t at = 16 + i * 5;
-        float pos;
+        double pos;
         pc_status st;
         if (at > len || len - at < 5) {
             break;
         }
-        pos = (float)pc_u32_as_i32(rd32(data + at)) / 32.0f;
-        st = data[at + 4] == 1 ? push_float(&doc->guides.horizontal, &doc->guides.nhorizontal, pos, err)
-                               : push_float(&doc->guides.vertical, &doc->guides.nvertical, pos, err);
+        pos = (double)pc_u32_as_i32(rd32(data + at)) / 32.0;
+        st = data[at + 4] == 1 ? push_double(&doc->guides.horizontal, &doc->guides.nhorizontal, pos, err)
+                               : push_double(&doc->guides.vertical, &doc->guides.nvertical, pos, err);
         if (st != PC_OK) {
             return st;
         }
@@ -460,6 +462,45 @@ static void imp_fini(pc_io_imp *cx)
     free(cx->fx);
     cx->fx = NULL;
     cx->nfx = 0;
+    for (size_t i = 0; i < cx->nsmart_contents; i++) {
+        free(cx->smart_contents[i].id);
+    }
+    free(cx->smart_contents);
+    cx->smart_contents = NULL;
+    cx->nsmart_contents = 0;
+    cx->capsmart_contents = 0;
+}
+
+pc_status pc_io_imp_contents_id(pc_io_imp *cx, const char *id, size_t len, pc_smart_contents_id *out,
+                                pc_error *err)
+{
+    struct pc_io_smart_contents *g;
+    char *dup;
+    if (len == 0) {
+        *out = pc_smart_contents_id_fresh();
+        return PC_OK;
+    }
+    for (size_t i = 0; i < cx->nsmart_contents; i++) {
+        if (strlen(cx->smart_contents[i].id) == len && memcmp(cx->smart_contents[i].id, id, len) == 0) {
+            *out = cx->smart_contents[i].contents;
+            return PC_OK;
+        }
+    }
+    g = pc_grow_array(cx->smart_contents, &cx->capsmart_contents, cx->nsmart_contents + 1, sizeof *g);
+    dup = pc_strndup(id, len);
+    if (g == NULL || dup == NULL) {
+        if (g != NULL) {
+            cx->smart_contents = g;
+        }
+        free(dup);
+        return pc_io_nomem(err, "sharing smart-object identities");
+    }
+    cx->smart_contents = g;
+    g[cx->nsmart_contents].id = dup;
+    g[cx->nsmart_contents].contents = pc_smart_contents_id_fresh();
+    *out = g[cx->nsmart_contents].contents;
+    cx->nsmart_contents++;
+    return PC_OK;
 }
 
 /* Smart-filter caches from the global FEid / FXid blocks. */
@@ -815,12 +856,18 @@ static pc_status extra_channels(pc_io_imp *cx, pc_document *doc, const pc_psd_by
     const pc_psd_resource *r = pc_psd_file_resource(file, 1045);
     pc_str *names = NULL;
     size_t nnames = 0;
+    /* Photoshop lists every extra channel, the merged transparency first when there is one. */
+    size_t skip = 0;
     pc_status st = PC_OK;
     if (r != NULL) {
         st = unicode_names(r->data.data, r->data.len, &names, &nnames, err);
         if (st != PC_OK) {
             return st;
         }
+    }
+    if (pc_psd_file_merged_has_alpha(file) &&
+        nnames == ((size_t)h->channels > cx->cc ? (size_t)h->channels - cx->cc : 0)) {
+        skip = 1;
     }
     for (size_t idx = first, k = 0; idx < h->channels && st == PC_OK; idx++, k++) {
         pc_io_plane in;
@@ -856,10 +903,10 @@ static pc_status extra_channels(pc_io_imp *cx, pc_document *doc, const pc_psd_by
             pc_surface_fini(&s);
             break;
         }
-        if (k < nnames) {
+        if (k + skip < nnames) {
             /* Names may hold U+0000: keep the exact bytes. */
             pc_str nm = PC_STR_INIT;
-            st = pc_str_clone(&names[k], &nm, err);
+            st = pc_str_clone(&names[k + skip], &nm, err);
             if (st == PC_OK) {
                 pc_str_fini(&ch.name);
                 ch.name = nm;
@@ -881,9 +928,9 @@ static pc_status extra_channels(pc_io_imp *cx, pc_document *doc, const pc_psd_by
     }
     /* Channel options (overlay colour, opacity, colour indicates) and spot inks. */
     if ((r = pc_psd_file_resource(file, PC_IO_DISPLAY_INFO)) != NULL) {
-        pc_io_apply_display_info(r->data.data, r->data.len, true, doc->channels, doc->nchannels);
+        pc_io_apply_display_info(r->data.data, r->data.len, true, skip, doc->channels, doc->nchannels);
     } else if ((r = pc_psd_file_resource(file, PC_IO_DISPLAY_INFO_OLD)) != NULL) {
-        pc_io_apply_display_info(r->data.data, r->data.len, false, doc->channels, doc->nchannels);
+        pc_io_apply_display_info(r->data.data, r->data.len, false, skip, doc->channels, doc->nchannels);
     }
     /* Saved in Quick Mask mode: that channel becomes the document's Quick Mask again. */
     r = pc_psd_file_resource(file, PC_IO_QUICK_MASK_INFO);
@@ -943,11 +990,20 @@ static pc_status layered(pc_io_imp *cx, pc_document *doc, const pc_psd_bytes *me
     pc_psd_node *tree = NULL;
     size_t ntree = 0;
     const pc_psd_resource *gi;
+    pc_cmyk_space *space;
+    pc_cmyk_space *prev;
     pc_status st = pc_psd_layer_tree(file, &tree, &ntree, err);
     if (st != PC_OK) {
         return st == PC_ERR_NOMEM ? st : PC_OK;
     }
+    /* Colours stored in the document's CMYK space (gradient stops, Gradient Map, solid fills...)
+     * convert through its own embedded profile, as the compositor and the PSD writer read them
+     * (psd_import.rs: build runs inside with_cmyk_space). NULL for non-CMYK documents. */
+    space = pc_compose_cmyk_space(doc);
+    prev = pc_cmyk_space_enter(space);
     st = pc_io_imp_build(cx, tree, ntree, 0, &doc->layers, &doc->nlayers, err);
+    pc_cmyk_space_leave(prev);
+    pc_cmyk_space_release(space);
     /* Layer > Link Layers: resource 1026 holds one group id per layer record (0 = unlinked). */
     gi = st == PC_OK ? pc_psd_file_resource(file, PC_PSD_RES_LAYER_GROUP_INFO) : NULL;
     if (gi != NULL) {

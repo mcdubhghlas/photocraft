@@ -100,14 +100,31 @@ static pc_status mosaic_k(const void *p, const void *prep, const pc_algo_image *
             int32_t xx, yy;
             size_t row, col;
             memset(acc, 0, sizeof acc);
-            for (yy = r.y0; yy < r.y1; yy++) {
-                for (xx = r.x0; xx < r.x1; xx++) {
-                    float a = ctx->alpha ? pc_algo_image_get(src, xx, yy, n - 1) : 1.0f;
-                    for (c = 0; c < n; c++) {
-                        float s = pc_algo_image_get(src, xx, yy, c);
-                        acc[c] += ctx->alpha && c < n - 1 ? s * a : s;
+            if (n == 4 && pc_rect_eq(pc_rect_intersect(r, src->rect), r)) {
+                /* Four channels read row by row (mosaic_sum4), in the same addition order. */
+                size_t stride = (size_t)pc_rect_width(src->rect) * 4;
+                for (yy = r.y0; yy < r.y1; yy++) {
+                    const float *px =
+                        src->data + (size_t)(yy - src->rect.y0) * stride + (size_t)(r.x0 - src->rect.x0) * 4;
+                    for (xx = r.x0; xx < r.x1; xx++, px += 4) {
+                        float a = ctx->alpha ? px[3] : 1.0f;
+                        for (c = 0; c < 3; c++) {
+                            acc[c] += ctx->alpha ? px[c] * a : px[c];
+                        }
+                        acc[3] += px[3];
+                        count += 1.0f;
                     }
-                    count += 1.0f;
+                }
+            } else {
+                for (yy = r.y0; yy < r.y1; yy++) {
+                    for (xx = r.x0; xx < r.x1; xx++) {
+                        float a = ctx->alpha ? pc_algo_image_get(src, xx, yy, n - 1) : 1.0f;
+                        for (c = 0; c < n; c++) {
+                            float s = pc_algo_image_get(src, xx, yy, c);
+                            acc[c] += ctx->alpha && c < n - 1 ? s * a : s;
+                        }
+                        count += 1.0f;
+                    }
                 }
             }
             if (count > 0.0f) {

@@ -50,6 +50,7 @@ const pc_algo_filter_def *const pc_algo_filters_l6[] = {
     &pc_algo_def_path_blur,
     &pc_algo_def_custom,
     &pc_algo_def_hsb_hsl,
+    &pc_algo_def_color_to_alpha,
     &pc_algo_def_deinterlace,
     &pc_algo_def_ntsc,
     &pc_algo_def_filter_gallery,

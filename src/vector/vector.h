@@ -1,7 +1,8 @@
 /* Vector rasterisation and geometry (port of crates/vector): Bezier flattening, an exact
  * area-coverage scanline rasteriser with Photoshop path operations, polygon stroking with
  * joins/caps/dashes, live-shape path generators, point-level path editing and hit testing,
- * and tracing a coverage mask back into a path ("Make Work Path").
+ * tracing a coverage mask or a freehand trace back into a path ("Make Work Path", the Freeform
+ * Pen), and non-affine maps of paths (Distort, Perspective, Warp).
  *
  * The data model (pc_path, pc_subpath, pc_knot, pc_shape_layer, pc_vector_mask, ...) lives in
  * doc/vector.h; this module only reads it (and builds new paths). Public names are pc_vec_*
@@ -70,6 +71,12 @@ pc_status pc_vec_flatten_subpath(const pc_subpath *s, double tol, pc_vec_polylin
 /* Flattens every subpath: *out is a malloc'd array of p->nsubpaths polylines (NULL when there
  * are none); free with pc_vec_polylines_free. */
 pc_status pc_vec_flatten_path(const pc_path *p, double tol, pc_vec_polyline **out, size_t *n, pc_error *err);
+
+/* Validates a shape before interactive rendering: finite coordinates within +-1e6 px, at most
+ * 4096 knots and 4096 subpaths, at most 100000 tessellation points, a valid stroke (NULL: none;
+ * pc_shape_stroke_validate) and a dash pattern within a 100000 step budget (arc length is bounded
+ * by the control polygon, nothing is allocated). PC_ERR_INVALID with the reference's message. */
+pc_status pc_vec_validate_shape(const pc_path *path, const pc_shape_stroke *stroke, pc_error *err);
 
 /* ------------------------------------------------------------------------------------------ */
 /* Polygons (rasteriser input, stroke output) */
@@ -160,11 +167,17 @@ void pc_vec_stroke_style_fini(pc_vec_stroke_style *s);
 pc_status pc_vec_stroke_style_from(const pc_shape_stroke *s, pc_vec_stroke_style *out, pc_error *err);
 
 /* Stroke outline pieces for the polylines, all positively oriented: fill them together with
- * the non-zero rule. Appends to *out (on failure *out is left as it was). */
+ * the non-zero rule. Nothing for a non-positive or non-finite width or a miter limit that is not
+ * finite and >= 1; polylines with non-finite points are skipped; corner miters are limited to 500.
+ * Appends to *out (on failure *out is left as it was). */
 pc_status pc_vec_stroke_polygons(const pc_vec_polyline *lines, size_t n, const pc_vec_stroke_style *style,
                                  double tol, pc_vec_polys *out, pc_error *err);
-/* Splits a polyline into dashes (open polylines); pattern alternates on/off lengths in px.
- * *out is malloc'd; free with pc_vec_polylines_free. */
+/* Splits a polyline into dashes (open polylines); pattern alternates on/off lengths in px. An
+ * empty pattern gives a copy of pl. No dashes at all (*out NULL, *n 0) for more than 32 lengths,
+ * a negative or non-finite length or offset, non-finite points, a total below 1e-9, fewer than
+ * two points, or a pattern so dense that it exceeds the reference's 100000 step budget. On a
+ * closed polyline the dash crossing the seam is stitched into one (a join, not two caps); a
+ * single dash all the way round is closed. *out is malloc'd; free with pc_vec_polylines_free. */
 pc_status pc_vec_dash_polyline(const pc_vec_polyline *pl, const double *pattern, size_t npattern,
                                double offset, pc_vec_polyline **out, size_t *n, pc_error *err);
 
@@ -200,6 +213,10 @@ void pc_vec_compiled_mask_fini(pc_vec_compiled_mask *m);
 /* Effective mask values over rect (density applied); *out malloc'd as rasterizer_render. */
 pc_status pc_vec_compiled_mask_render(const pc_vec_compiled_mask *m, pc_rect rect, float **out, size_t *len,
                                       pc_error *err);
+/* As compiled_mask_render, without entering the thread pool: use it while initialising a shared
+ * result other pool workers may wait for. Same values. */
+pc_status pc_vec_compiled_mask_render_sequential(const pc_vec_compiled_mask *m, pc_rect rect, float **out,
+                                                 size_t *len, pc_error *err);
 /* Effective vector-mask values over rect: all ones when disabled; like Photoshop an enabled
  * mask without any knot reveals everything (hides everything when inverted). */
 pc_status pc_vec_mask_values(const pc_vector_mask *m, pc_rect rect, float **out, size_t *len, pc_error *err);
@@ -346,6 +363,26 @@ pc_status pc_vec_convert_point(pc_path *path, pc_vec_knot_ref knot, const pc_poi
 /* Drags the segment leaving knot at curve parameter t by d (see edit.c). */
 pc_status pc_vec_bend_segment(pc_path *path, pc_vec_knot_ref knot, double t, const double d[2],
                               pc_error *err);
+/* Add Anchor Point: inserts an anchor into the segment leaving knot at curve parameter t
+ * (strictly between 0 and 1) and returns the new knot in *out. A curve is split at t (de
+ * Casteljau), so its shape does not change and the new anchor is smooth; on a straight segment
+ * (both handles retracted) the new anchor is a corner at the cubic's point at t. */
+pc_status pc_vec_add_anchor(pc_path *path, pc_vec_knot_ref knot, double t, pc_vec_knot_ref *out,
+                            pc_error *err);
+/* Delete Anchor Point: removes a knot; its neighbours are joined by one segment keeping the
+ * previous anchor's out handle and the next one's in handle (a closed subpath stays closed).
+ * Removing a subpath's last anchor removes the subpath (*removed_subpath = true). Refused
+ * (unchanged) when it would leave the path without any anchor. */
+pc_status pc_vec_delete_anchor(pc_path *path, pc_vec_knot_ref knot, bool *removed_subpath, pc_error *err);
+/* The Curvature Pen's knots, out[i] = {anchor, in, out}, through n anchors: a smooth curve
+ * through every anchor, Catmull-Rom style. Inner handles lie parallel to the neighbours' chord,
+ * each a third of the distance to the neighbour on its side; the ends of an open path aim at
+ * their neighbour's nearer handle. corners[i] (i < ncorners; missing = smooth) retracts anchor
+ * i's handles. Coincident points give retracted handles, never NaN. Never fails. */
+void pc_vec_curvature_knots(const double (*anchors)[2], size_t n, const bool *corners, size_t ncorners,
+                            bool closed, double (*out)[3][2]);
+/* The point at parameter t of the cubic segment {anchor, out, in, anchor}. */
+pc_point pc_vec_eval(const pc_point seg[4], double t);
 /* Every anchor of subpath s (empty when there is none); *out malloc'd (free()). */
 pc_status pc_vec_subpath_anchors(const pc_path *path, size_t s, pc_vec_knot_ref **out, size_t *n,
                                  pc_error *err);
@@ -368,5 +405,32 @@ pc_status pc_vec_contours(const float *values, size_t len, pc_rect rect, float o
  * the rest exclude (the even-odd area of nested contours). */
 pc_status pc_vec_trace_mask(const float *values, size_t len, pc_rect rect, float outside, double tolerance,
                             pc_path *out, pc_error *err);
+
+/* Most pointer samples pc_vec_fit_trace fits: a longer trace is thinned evenly first. */
+#define PC_VEC_MAX_TRACE_POINTS ((size_t)4096)
+
+/* Fits a freehand pointer trace (the Freeform Pen's drag) with cubic Beziers within tolerance px
+ * of every sample (Curve Fit, clamped to 0.1..100 px; 2 px when not finite). Turns sharper than
+ * 60 degrees over +-2 * tolerance become corner anchors, other inner anchors are smooth; closed
+ * gives a closed subpath. Non-finite (or |v| >= 1e9) samples are skipped. *fitted is false (and
+ * *out untouched) when fewer than two distinct points remain (three when closed). */
+pc_status pc_vec_fit_trace(const double (*points)[2], size_t n, double tolerance, bool closed,
+                           pc_subpath *out, bool *fitted, pc_error *err);
+
+/* ------------------------------------------------------------------------------------------ */
+/* Non-affine maps (map.rs) */
+
+/* A point map; ctx is the caller's. Must be pure (it may be called several times per point). */
+typedef pc_point (*pc_vec_point_map)(pc_point p, void *ctx);
+
+/* Every anchor and control point of path through f, knots unchanged (no subdivision): what a
+ * projective map (Distort, Perspective) needs. */
+pc_status pc_vec_map_points(const pc_path *path, pc_vec_point_map f, void *ctx, pc_path *out, pc_error *err);
+/* path through a smooth, possibly non-linear map f (Warp): each segment is halved until its
+ * mapped control points follow the mapped curve within tol px (0.1 when not finite and > 0), at
+ * most 64 pieces a segment and 2^20 in all; added anchors are smooth. A straight segment whose
+ * image is straight stays one straight segment. */
+pc_status pc_vec_map_path(const pc_path *path, pc_vec_point_map f, void *ctx, double tol, pc_path *out,
+                          pc_error *err);
 
 #endif

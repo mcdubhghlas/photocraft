@@ -197,8 +197,233 @@ static pc_status polygon(const pc_af_point *pts, size_t n, pc_af_subpath *out, p
     return finish(&s, pts[0], true, out, err);
 }
 
-pc_status ax_shape(ax_reader *r, size_t shape, const double b[4], pc_af_affine world, bool *ok, pc_af_path *out,
-                   pc_error *err)
+/* ---- special shapes (clouds, hearts, cogs, callouts, arrows, double stars, tears, crescents,
+ * circular segments) ---- */
+
+static double clamp_num(const ax_reader *r, size_t id, const char *tag, double d, double lo, double hi)
+{
+    return pc_clampd(num_or(r, id, tag, d), lo, hi);
+}
+
+static pc_status cloud(double cx, double cy, double rx, double ry, size_t bubbles, pc_af_subpath *out,
+                       pc_error *err)
+{
+    size_t n = (bubbles < 3 ? 3 : (bubbles > 128 ? 128 : bubbles)) * 4;
+    pc_af_point pts[512];
+    segs s = {NULL, 0, 0, false};
+    size_t i;
+    for (i = 0; i < n; i++) {
+        double a = TAU_ * (double)i / (double)n - FRAC_PI_2_;
+        double l = 0.5 - 0.5 * cos(TAU_ * (double)i / 4.0);
+        double lobe = l * l;
+        double radius = 0.78 + 0.22 * lobe;
+        pts[i] = pt(cx + rx * radius * cos(a), cy + ry * radius * sin(a));
+    }
+    for (i = 0; i < n; i++) {
+        pc_af_point p0 = pts[(i + n - 1) % n];
+        pc_af_point p1 = pts[i];
+        pc_af_point p2 = pts[(i + 1) % n];
+        pc_af_point p3 = pts[(i + 2) % n];
+        seg_push(&s, pt(p1.x + (p2.x - p0.x) / 6.0, p1.y + (p2.y - p0.y) / 6.0),
+                 pt(p2.x - (p3.x - p1.x) / 6.0, p2.y - (p3.y - p1.y) / 6.0), p2);
+    }
+    return finish(&s, pts[0], true, out, err);
+}
+
+static pc_af_point heart_pt(const double b[4], double x, double y)
+{
+    return pt(b[0] + x * (b[2] - b[0]), b[1] + y * (b[3] - b[1]));
+}
+
+static pc_status heart(const double b[4], pc_af_subpath *out, pc_error *err)
+{
+    pc_af_point start = heart_pt(b, 0.5, 0.92);
+    segs s = {NULL, 0, 0, false};
+    seg_push(&s, heart_pt(b, 0.38, 0.85), heart_pt(b, 0.04, 0.67), heart_pt(b, 0.04, 0.37));
+    seg_push(&s, heart_pt(b, 0.04, 0.02), heart_pt(b, 0.39, 0.00), heart_pt(b, 0.5, 0.27));
+    seg_push(&s, heart_pt(b, 0.61, 0.00), heart_pt(b, 0.96, 0.02), heart_pt(b, 0.96, 0.37));
+    seg_push(&s, heart_pt(b, 0.96, 0.67), heart_pt(b, 0.62, 0.85), start);
+    return finish(&s, start, true, out, err);
+}
+
+static pc_status cog(const ax_reader *r, size_t shape, double cx, double cy, double rx, double ry,
+                     pc_af_subpath *out, pc_error *err)
+{
+    static const double OFFSET[4] = {-0.5, -0.32, 0.32, 0.5};
+    size_t teeth = sides(r, shape, "Teth", 12.0);
+    double tooth = clamp_num(r, shape, "TtSz", 0.3, 0.05, 0.9);
+    double notch = clamp_num(r, shape, "NtSz", 0.45, 0.05, 0.95);
+    double tip = 1.0;
+    double root = pc_clampd(1.0 - 0.2 * tooth - 0.08 * notch, 0.55, 0.95);
+    pc_af_point *pts = pc_malloc_array(teeth * 4, sizeof *pts);
+    pc_status st;
+    size_t i;
+    int k;
+    if (pts == NULL) {
+        return ax_nomem(err);
+    }
+    for (i = 0; i < teeth; i++) {
+        double base = TAU_ * (double)i / (double)teeth - FRAC_PI_2_;
+        for (k = 0; k < 4; k++) {
+            double radius = k == 0 || k == 3 ? root : tip;
+            double a = base + OFFSET[k] * TAU_ / (double)teeth;
+            pts[4 * i + (size_t)k] = pt(cx + rx * radius * cos(a), cy + ry * radius * sin(a));
+        }
+    }
+    st = polygon(pts, teeth * 4, out, err);
+    free(pts);
+    return st;
+}
+
+static pc_status callout_rect(const ax_reader *r, size_t shape, const double b[4], pc_af_subpath *out,
+                              pc_error *err)
+{
+    double x0 = b[0], y0 = b[1], x1 = b[2], y1 = b[3];
+    double w = x1 - x0;
+    double h = y1 - y0;
+    double tail_h = clamp_num(r, shape, "TlHg", 0.2, 0.0, 0.8) * h;
+    double tail_w = clamp_num(r, shape, "TlWd", 0.1, 0.02, 0.8) * w;
+    double tip_x = x0 + clamp_num(r, shape, "TlRP", 0.5, 0.0, 1.0) * w;
+    double base_x = x0 + clamp_num(r, shape, "TlEP", 0.4, 0.0, 1.0) * w;
+    /* The reference's f64::clamp panics on an inverted box (x0 > x1); C clamps to x0 then x1. */
+    double a = pc_clampd(base_x - tail_w / 2.0, x0, x1);
+    double c = pc_clampd(base_x + tail_w / 2.0, x0, x1);
+    double body_bottom = y1 - tail_h;
+    double radius = pc_rs_max_k(pc_rs_min(w, body_bottom - y0) * 0.12, 0.0);
+    double kr = (1.0 - KAPPA) * radius;
+    /* One closed outline joining the tail to the rounded body, so a stroke shows no seam. */
+    pc_af_point start = pt(x0 + radius, y0);
+    pc_af_point tip = pt(tip_x, y1);
+    segs s = {NULL, 0, 0, false};
+    seg_push(&s, pt(x1 - radius, y0), pt(x1 - radius, y0), pt(x1 - radius, y0));
+    seg_push(&s, pt(x1 - kr, y0), pt(x1, y0 + kr), pt(x1, y0 + radius));
+    seg_push(&s, pt(x1, body_bottom - radius), pt(x1, body_bottom - radius), pt(x1, body_bottom - radius));
+    seg_push(&s, pt(x1, body_bottom), pt(x1, body_bottom), pt(x1 - radius, body_bottom));
+    seg_push(&s, pt(c + radius * 0.2, body_bottom), pt(tip_x, y1 - tail_h * 0.15), tip);
+    seg_push(&s, tip, tip, tip);
+    seg_push(&s, pt(tip_x, y1 - tail_h * 0.15), pt(a - radius * 0.2, body_bottom), pt(a, body_bottom));
+    seg_push(&s, pt(x0 + radius, body_bottom), pt(x0, body_bottom), pt(x0, body_bottom - radius));
+    seg_push(&s, pt(x0, y0 + radius), pt(x0, y0 + radius), pt(x0, y0 + radius));
+    seg_push(&s, pt(x0, y0 + kr), pt(x0 + kr, y0), start);
+    return finish(&s, start, true, out, err);
+}
+
+static pc_status callout_ellipse(const ax_reader *r, size_t shape, double cx, double cy, double rx, double ry,
+                                 pc_af_subpath *out, pc_error *err)
+{
+    double tail_h = clamp_num(r, shape, "TlHg", 0.2, 0.0, 0.8);
+    double pos = clamp_num(r, shape, "TlEP", 0.25, 0.0, 1.0);
+    double angle = num_or(r, shape, "TlAn", 0.0);
+    double a0 = pos * TAU_ - angle;
+    double a1 = a0 + 0.35;
+    pc_af_point start = pt(cx + rx * cos(a1), cy + ry * sin(a1));
+    pc_af_point end = pt(cx + rx * cos(a0), cy + ry * sin(a0));
+    pc_af_point tip = pt(cx + rx * cos(a0 + 0.18) * 1.08, cy + ry * sin(a0 + 0.18) * (1.0 + tail_h));
+    segs s = {NULL, 0, 0, false};
+    /* An ellipse-like outline with a short triangular tail. */
+    arc(cx, cy, rx, ry, a1, a0 + TAU_, &s);
+    seg_push(&s, end, end, tip);
+    seg_push(&s, tip, tip, start);
+    return finish(&s, start, true, out, err);
+}
+
+static pc_status arrow(const ax_reader *r, size_t shape, const double b[4], pc_af_subpath *out, pc_error *err)
+{
+    double x0 = b[0], y0 = b[1], x1 = b[2], y1 = b[3];
+    double h = y1 - y0;
+    double thick = clamp_num(r, shape, "Thck", 0.35, 0.05, 0.9) * h;
+    double shaft = (y0 + y1 - thick) / 2.0;
+    double lower = shaft + thick;
+    double head_start = x1 - h * 0.45;
+    pc_af_point p[7];
+    p[0] = pt(x0, shaft);
+    p[1] = pt(head_start, shaft);
+    p[2] = pt(head_start, y0);
+    p[3] = pt(x1, (y0 + y1) / 2.0);
+    p[4] = pt(head_start, y1);
+    p[5] = pt(head_start, lower);
+    p[6] = pt(x0, lower);
+    return polygon(p, 7, out, err);
+}
+
+static pc_status double_star(const ax_reader *r, size_t shape, double cx, double cy, double rx, double ry,
+                             pc_af_subpath *out, pc_error *err)
+{
+    size_t pts2 = sides(r, shape, "Pnts", 6.0);
+    size_t n = pts2 > 32 ? 64 : (pts2 * 2 < 8 ? 8 : pts2 * 2);
+    double inner = clamp_num(r, shape, "IRad", 0.6, 0.05, 0.95);
+    double outer = clamp_num(r, shape, "PRad", 0.9, 0.2, 1.0);
+    pc_af_point p[128];
+    size_t i;
+    for (i = 0; i < 2 * n; i++) {
+        double a = -FRAC_PI_2_ + PI_ * (double)i / (double)n;
+        double radius = i % 2 == 0 ? outer : outer * inner;
+        p[i] = pt(cx + rx * radius * cos(a), cy + ry * radius * sin(a));
+    }
+    return polygon(p, 2 * n, out, err);
+}
+
+static pc_status tear(const ax_reader *r, size_t shape, const double b[4], pc_af_subpath *out, pc_error *err)
+{
+    double x0 = b[0], y0 = b[1], x1 = b[2], y1 = b[3];
+    double w = x1 - x0;
+    double h = y1 - y0;
+    double bulge = clamp_num(r, shape, "Ball", 0.25, 0.0, 0.5);
+    double bend = clamp_num(r, shape, "Bend", 0.0, -0.5, 0.5);
+    pc_af_point top = pt((x0 + x1) / 2.0, y0);
+    pc_af_point bottom = pt((x0 + x1) / 2.0 + bend * w * 0.25, y1);
+    segs s = {NULL, 0, 0, false};
+    seg_push(&s, pt(x0 + w * 0.25, y0 + h * 0.42), pt(x0 + w * (0.5 - bulge), y1 - h * 0.03), bottom);
+    seg_push(&s, pt(x1 - w * (0.5 - bulge), y1 - h * 0.03), pt(x1 - w * 0.25, y0 + h * 0.42), top);
+    return finish(&s, top, true, out, err);
+}
+
+static pc_status crescent(double cx, double cy, double rx, double ry, pc_af_subpath *out, pc_error *err)
+{
+    pc_af_point start = pt(cx, cy - ry);
+    double ix = cx + rx * 0.72;
+    double irx = rx * 0.86;
+    double iry = ry * 0.82;
+    pc_af_point from = pt(ix, cy + iry);
+    segs s = {NULL, 0, 0, false};
+    arc(cx, cy, rx, ry, -FRAC_PI_2_, -3.0 * FRAC_PI_2_, &s);
+    /* The inner arc returns from the lower tip to the upper one: a crescent open to the right. */
+    seg_push(&s, from, from, from);
+    arc(ix, cy, irx, iry, FRAC_PI_2_, -FRAC_PI_2_, &s);
+    return finish(&s, start, true, out, err);
+}
+
+/* Rust's f64::rem_euclid. */
+static double rem_euclid(double a, double b)
+{
+    double r = fmod(a, b);
+    return r < 0.0 ? r + fabs(b) : r;
+}
+
+static pc_status segment(const ax_reader *r, size_t shape, double cx, double cy, double rx, double ry,
+                         pc_af_subpath *out, pc_error *err)
+{
+    /* Keep hostile but finite angles in a small range before constructing arc controls. */
+    double angle = rem_euclid(num_or(r, shape, "Angl", 0.0), TAU_);
+    double p0 = clamp_num(r, shape, "Pos0", 0.25, 0.0, 1.0);
+    double p1 = clamp_num(r, shape, "Pos1", 0.75, 0.0, 1.0);
+    double a0 = angle + (p0 - 0.5) * TAU_;
+    double a1 = angle + (p1 - 0.5) * TAU_;
+    pc_af_point start;
+    pc_af_point end;
+    segs s = {NULL, 0, 0, false};
+    while (a1 < a0) {
+        a1 += TAU_;
+    }
+    arc(cx, cy, rx, ry, a0, pc_rs_min(a1, a0 + TAU_), &s);
+    start = pt(cx + rx * cos(a0), cy + ry * sin(a0));
+    end = pt(cx + rx * cos(a1), cy + ry * sin(a1));
+    seg_push(&s, end, end, start);
+    return finish(&s, start, true, out, err);
+}
+
+pc_status ax_shape(ax_reader *r, size_t shape, const double b[4], pc_af_affine world, bool *ok,
+                   pc_af_path *out, bool *even_odd, pc_error *err)
 {
     double x0 = b[0], y0 = b[1], x1 = b[2], y1 = b[3];
     double w = x1 - x0;
@@ -211,6 +436,7 @@ pc_status ax_shape(ax_reader *r, size_t shape, const double b[4], pc_af_affine w
     pc_af_subpath sub;
     pc_status st;
     *ok = false;
+    *even_odd = false;
     memset(out, 0, sizeof *out);
     if (!ax_class(r->s, shape, &cls)) {
         return PC_OK;
@@ -367,9 +593,35 @@ pc_status ax_shape(ax_reader *r, size_t shape, const double b[4], pc_af_affine w
         v[2] = pt(x1, y1);
         v[3] = pt(x0, y1);
         st = polygon(v, 4, &sub, err);
+    } else if (cls == PC_AF_TAG("ShCl")) {
+        st = cloud(cx, cy, rx, ry, sides(r, shape, "Bubl", 12.0), &sub, err);
+    } else if (cls == PC_AF_TAG("ShHt")) {
+        st = heart(b, &sub, err);
+    } else if (cls == PC_AF_TAG("ShCg")) {
+        st = cog(r, shape, cx, cy, rx, ry, &sub, err);
+    } else if (cls == PC_AF_TAG("ShCR")) {
+        st = callout_rect(r, shape, b, &sub, err);
+    } else if (cls == PC_AF_TAG("ShCE")) {
+        st = callout_ellipse(r, shape, cx, cy, rx, ry, &sub, err);
+    } else if (cls == PC_AF_TAG("ShDA")) {
+        st = arrow(r, shape, b, &sub, err);
+    } else if (cls == PC_AF_TAG("ShDS")) {
+        st = double_star(r, shape, cx, cy, rx, ry, &sub, err);
+    } else if (cls == PC_AF_TAG("ShTr")) {
+        st = tear(r, shape, b, &sub, err);
+    } else if (cls == PC_AF_TAG("ShCr")) {
+        st = crescent(cx, cy, rx, ry, &sub, err);
+    } else if (cls == PC_AF_TAG("ShpD")) {
+        pc_af_point v[4];
+        v[0] = pt(cx, y0);
+        v[1] = pt(x1, cy);
+        v[2] = pt(cx, y1);
+        v[3] = pt(x0, cy);
+        st = polygon(v, 4, &sub, err);
+    } else if (cls == PC_AF_TAG("ShSg")) {
+        st = segment(r, shape, cx, cy, rx, ry, &sub, err);
     } else {
-        ax_warn(r, "cloud, heart, cog, callout, arrow, tear and other special shapes (imported as their bounding "
-                   "ellipse)");
+        ax_warn(r, "an unrecognized parametric shape (imported as its bounding ellipse)");
         st = ellipse(cx, cy, rx, ry, &sub, err);
     }
 #undef ON_ELLIPSE
@@ -378,6 +630,18 @@ pc_status ax_shape(ax_reader *r, size_t shape, const double b[4], pc_af_affine w
     }
     if ((st = ax_path_push(out, sub, err)) != PC_OK) {
         return st;
+    }
+    /* A cog's hole is a second subpath: the shape fills even-odd. */
+    if (cls == PC_AF_TAG("ShCg")) {
+        double hole = clamp_num(r, shape, "Hole", 0.3, 0.0, 0.9);
+        if (hole > 0.0) {
+            if ((st = ellipse(cx, cy, rx * hole, ry * hole, &sub, err)) != PC_OK ||
+                (st = ax_path_push(out, sub, err)) != PC_OK) {
+                ax_path_fini(out);
+                return st;
+            }
+        }
+        *even_odd = true;
     }
     *ok = true;
     return PC_OK;

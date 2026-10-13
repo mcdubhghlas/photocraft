@@ -45,5 +45,8 @@ pc_status pc_fill_gradient(const pc_color_stop *stops, size_t n, float angle, fl
 void pc_fill_fini(pc_fill *f);
 pc_status pc_fill_clone(const pc_fill *f, pc_fill *out, pc_error *err);
 bool pc_fill_eq(const pc_fill *a, const pc_fill *b);
+/* Converts the fill's colours to mode's model in place (pc_color_in_mode): a fill layer's
+ * colours are in its document's mode, which the compositors read them as. Never fails. */
+void pc_fill_in_mode(pc_fill *f, pc_color_mode mode);
 
 #endif

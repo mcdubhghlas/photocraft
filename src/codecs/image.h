@@ -83,14 +83,15 @@ pc_status pc_cmeta_add_text(pc_cmeta *m, const char *key, size_t key_len, const 
 typedef enum pc_cwarning_kind {
     PC_CW_MORE_FRAMES,   /* only the first frame of an animation was decoded */
     PC_CW_MORE_PAGES,    /* only the first page of a multi-page file was decoded */
+    PC_CW_MORE_PARTS,    /* only one part of a multi-part (EXR) file was decoded */
     PC_CW_TRUNCATED,     /* the image data ends early; the decoder filled in the rest */
     PC_CW_DEEP_FLATTENED /* deep data was composited into the flat image */
 } pc_cwarning_kind;
 
 typedef struct pc_cwarning {
     pc_cwarning_kind kind;
-    bool has_total;              /* MORE_FRAMES / MORE_PAGES: total is known */
-    uint32_t total;              /* frames or pages */
+    bool has_total;              /* MORE_FRAMES / MORE_PAGES / MORE_PARTS: total is known */
+    uint32_t total;              /* frames, pages or parts */
     int format;                  /* TRUNCATED / DEEP_FLATTENED: a pc_cformat */
     uint32_t max_samples;        /* DEEP_FLATTENED */
 } pc_cwarning;
@@ -181,5 +182,76 @@ void pc_cdeep_fini(pc_cdeep *d);
 const pc_cdeep_channel *pc_cdeep_channel_named(const pc_cdeep *d, const char *name);
 void pc_cdeep_sample_range(const pc_cdeep *d, size_t pixel, uint64_t *start, uint64_t *end);
 uint64_t pc_cdeep_total_samples(const pc_cdeep *d);
+
+/* ---- multi-part OpenEXR and Cryptomatte ---- */
+
+/* One channel of an EXR part: the name as in the file (an AOV layer keeps its prefix, e.g.
+ * "diffuse.R") and the sample type the part stores it with (32-bit unsigned is listed as F32). */
+typedef struct pc_exr_channel_info {
+    char *name;
+    pc_csample sample;
+} pc_exr_channel_info;
+
+/* One part of a (multi-part) OpenEXR file: header facts only. */
+typedef struct pc_exr_part_info {
+    size_t index; /* in file order */
+    char *name;   /* the part `name` attribute, NULL when absent */
+    char *view;   /* the `view` attribute (stereo), NULL when absent */
+    uint32_t width;
+    uint32_t height;
+    bool deep; /* deepscanline / deeptile */
+    bool tiled;
+    pc_exr_channel_info *channels; /* file order */
+    size_t nchannels;
+} pc_exr_part_info;
+
+void pc_exr_part_info_fini(pc_exr_part_info *p);
+void pc_exr_parts_free(pc_exr_part_info *parts, size_t n); /* fini each, then free the array */
+/* How much the part looks like a colour image: 4 RGBA, 3 RGB, 2 YA, 1 any single channel, 0 else. */
+uint8_t pc_exr_part_color_rank(const pc_exr_part_info *p);
+
+/* (ID value, name) of a Cryptomatte manifest. */
+typedef struct pc_crypto_entry {
+    float id;
+    char *name;
+} pc_crypto_entry;
+
+/* One Cryptomatte layer (specification 1.2) of an EXR file. */
+typedef struct pc_crypto_layer {
+    size_t part;               /* the part the channels and attributes live in */
+    char *name;                /* the `cryptomatte/<key>/name` attribute, e.g. "CryptoAsset" */
+    char *key;                 /* the 7-hex-digit metadata key */
+    char *conversion;          /* NULL when not recorded */
+    pc_crypto_entry *manifest; /* sorted by name (the embedded JSON manifest) */
+    size_t nmanifest;
+    char *sidecar_manifest; /* the `manif_file` attribute, NULL when absent */
+    char **channels;        /* stream channel bases in file order, e.g. "crypto_asset00" */
+    size_t nchannels;
+} pc_crypto_layer;
+
+void pc_crypto_layer_fini(pc_crypto_layer *l);
+void pc_crypto_layers_free(pc_crypto_layer *layers, size_t n);
+/* The manifest name of an ID (compared by value), or NULL. Borrowed. */
+const char *pc_crypto_layer_name_of(const pc_crypto_layer *l, float id);
+
+/* One (ID, coverage) pair. */
+typedef struct pc_crypto_pair {
+    float id;
+    float coverage;
+} pc_crypto_pair;
+
+/* Decoded Cryptomatte samples: per pixel its pairs with coverage above zero, sorted by
+ * descending coverage. Pixel i holds pairs[start[i] .. start[i + 1]]; start has w * h + 1 entries. */
+typedef struct pc_crypto_buffer {
+    uint32_t width;
+    uint32_t height;
+    pc_crypto_pair *pairs;
+    size_t npairs;
+    size_t *start;
+} pc_crypto_buffer;
+
+void pc_crypto_buffer_fini(pc_crypto_buffer *b);
+/* The pairs of pixel (x, y) (borrowed; *n is 0 for an uncovered or out-of-range pixel). */
+const pc_crypto_pair *pc_crypto_buffer_at(const pc_crypto_buffer *b, uint32_t x, uint32_t y, size_t *n);
 
 #endif

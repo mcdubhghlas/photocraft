@@ -95,7 +95,25 @@ static void quad_points(const pc_io_placed_spec *s, double out[8])
     const double w = s->size[0];
     const double h = s->size[1];
     const double *m = s->transform.m;
-    const double pts[4][2] = {{0.0, 0.0}, {w, 0.0}, {w, h}, {0.0, h}};
+    double frame[4];
+    double pts[4][2];
+    if (s->has_perspective) {
+        frame[0] = 0.0;
+        frame[1] = 0.0;
+        frame[2] = w;
+        frame[3] = h;
+    } else {
+        pc_io_placed_frame(s->warp, w, h, frame);
+    }
+    /* Source corners: top-left, top-right, bottom-right, bottom-left of the control box. */
+    pts[0][0] = frame[0];
+    pts[0][1] = frame[1];
+    pts[1][0] = frame[2];
+    pts[1][1] = frame[1];
+    pts[2][0] = frame[2];
+    pts[2][1] = frame[3];
+    pts[3][0] = frame[0];
+    pts[3][1] = frame[3];
     for (size_t i = 0; i < 4; i++) {
         double x = pts[i][0];
         double y = pts[i][1];

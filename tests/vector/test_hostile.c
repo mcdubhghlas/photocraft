@@ -243,21 +243,29 @@ static void test_tiny_dashes_are_bounded(void)
     pc_error e;
     pc_vec_polys out = {NULL, 0, 0};
     pc_vec_stroke_style st;
-    /* 5e8 dashes requested: refused at PC_VEC_MAX_DASHES instead of exhausting memory. */
-    CHECK(pc_vec_dash_polyline(&pl, pat, 2, 0.0, &d, &n, &e) == PC_ERR_LIMIT);
-    CHECK_CONTAINS(e.msg, "dashes");
+    /* 5e8 dashes requested: past the reference's 100000-step budget the polyline gets no dashes
+     * at all (and so no stroke), with bounded work. */
+    CHECK(pc_vec_dash_polyline(&pl, pat, 2, 0.0, &d, &n, &e) == PC_OK);
+    CHECK(d == NULL && n == 0);
     pc_vec_stroke_style_default(&st);
     st.cap = PC_LINE_CAP_ROUND;
     st.dashes = pat;
     st.ndashes = 2;
-    CHECK(pc_vec_stroke_polygons(&pl, 1, &st, 0.01, &out, NULL) == PC_ERR_LIMIT);
+    CHECK(pc_vec_stroke_polygons(&pl, 1, &st, 0.01, &out, NULL) == PC_OK);
     CHECK(out.len == 0);
     pc_vec_polys_fini(&out);
-    /* The reference's 10M-step guard still applies below the dash cap. */
+    /* Steps too small to advance the position along the segment end the dashing too. */
     pat[0] = 1e-9;
     pat[1] = 1e-9;
     pts[1][0] = 1.0;
-    CHECK(pc_vec_dash_polyline(&pl, pat, 2, 0.0, &d, &n, NULL) == PC_ERR_LIMIT);
+    CHECK(pc_vec_dash_polyline(&pl, pat, 2, 0.0, &d, &n, NULL) == PC_OK);
+    CHECK(d == NULL && n == 0);
+    pts[0][0] = 1e12;
+    pts[1][0] = 1e12 + 1.0;
+    pat[0] = 1e-6;
+    pat[1] = 1e-6;
+    CHECK(pc_vec_dash_polyline(&pl, pat, 2, 0.0, &d, &n, NULL) == PC_OK);
+    CHECK(d == NULL && n == 0);
 }
 
 static void test_flatten_point_cap(void)

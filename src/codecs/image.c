@@ -229,6 +229,7 @@ bool pc_cwarning_eq(const pc_cwarning *a, const pc_cwarning *b)
     switch (a->kind) {
     case PC_CW_MORE_FRAMES:
     case PC_CW_MORE_PAGES:
+    case PC_CW_MORE_PARTS:
         return a->has_total == b->has_total && (!a->has_total || a->total == b->total);
     case PC_CW_TRUNCATED:
         return a->format == b->format;
@@ -255,6 +256,13 @@ void pc_cwarning_text(const pc_cwarning *w, char *out, size_t cap)
             (void)snprintf(out, cap, "only the first of %u pages was imported", (unsigned)w->total);
         } else {
             (void)snprintf(out, cap, "only the first page of the file was imported");
+        }
+        break;
+    case PC_CW_MORE_PARTS:
+        if (w->has_total) {
+            (void)snprintf(out, cap, "only one of %u EXR parts was imported", (unsigned)w->total);
+        } else {
+            (void)snprintf(out, cap, "only one EXR part of the file was imported");
         }
         break;
     case PC_CW_TRUNCATED:
@@ -594,6 +602,68 @@ void cx_convert_layout(const float *src, size_t n, pc_clayout from, pc_clayout t
     }
 }
 
+/* Integer fast path of pc_cimage_convert for U8/U16 sources and targets whose result is a pure
+ * channel copy: same colour model (alpha added as opaque, or dropped) or gray to RGB.
+ * Bit-identical to the generic f32 route (the equivalence tests check every value) without the
+ * two intermediate float buffers. False when it does not apply. */
+static bool convert_int_direct(const pc_cimage *img, pc_clayout l, pc_csample s, uint8_t *out)
+{
+    size_t fc = pc_clayout_channels(img->layout);
+    size_t sb = pc_csample_bytes(img->sample);
+    size_t src_color = pc_clayout_color_channels(img->layout);
+    size_t dst_color = pc_clayout_color_channels(l);
+    bool src_alpha = pc_clayout_has_alpha(img->layout);
+    bool dst_alpha = pc_clayout_has_alpha(l);
+    size_t n;
+    size_t p;
+    size_t o = 0;
+    if ((img->sample != PC_CS_U8 && img->sample != PC_CS_U16) || (s != PC_CS_U8 && s != PC_CS_U16)) {
+        return false;
+    }
+    if (!(pc_clayout_is_gray(img->layout) && pc_clayout_is_rgb(l)) &&
+        !pc_clayout_same_model(l, img->layout)) {
+        return false;
+    }
+    n = img->len / (fc * sb);
+    for (p = 0; p < n; p++) {
+        const uint8_t *px = img->data + p * fc * sb;
+        size_t j;
+        for (j = 0; j < dst_color + (dst_alpha ? 1 : 0); j++) {
+            const uint8_t *smp;
+            uint16_t v16;
+            if (j == dst_color) {
+                if (!src_alpha) {
+                    if (s == PC_CS_U8) {
+                        out[o++] = 0xFF;
+                    } else {
+                        v16 = 0xFFFF;
+                        memcpy(out + o, &v16, 2);
+                        o += 2;
+                    }
+                    continue;
+                }
+                smp = px + src_color * sb;
+            } else {
+                smp = px + (src_color == 1 ? 0 : j) * sb;
+            }
+            if (img->sample == PC_CS_U8 && s == PC_CS_U8) {
+                out[o++] = smp[0];
+            } else if (img->sample == PC_CS_U16 && s == PC_CS_U16) {
+                memcpy(out + o, smp, 2);
+                o += 2;
+            } else if (img->sample == PC_CS_U8) {
+                v16 = (uint16_t)(smp[0] * 257u);
+                memcpy(out + o, &v16, 2);
+                o += 2;
+            } else {
+                memcpy(&v16, smp, 2);
+                out[o++] = (uint8_t)(((uint32_t)v16 + 128u) / 257u);
+            }
+        }
+    }
+    return true;
+}
+
 pc_status pc_cimage_convert(const pc_cimage *img, pc_clayout l, pc_csample s, pc_cimage *out, pc_error *err)
 {
     pc_cimage c;
@@ -644,6 +714,8 @@ pc_status pc_cimage_convert(const pc_cimage *img, pc_clayout l, pc_csample s, pc
             memcpy(data + p * (srcb + bps), img->data + p * srcb, srcb);
             memcpy(data + p * (srcb + bps) + srcb, one, bps);
         }
+    } else if (convert_int_direct(img, l, s, data)) {
+        /* done */
     } else {
         float *v = NULL;
         size_t n;
@@ -803,3 +875,121 @@ void pc_cdeep_sample_range(const pc_cdeep *d, size_t pixel, uint64_t *start, uin
 }
 
 uint64_t pc_cdeep_total_samples(const pc_cdeep *d) { return d->ncounts > 0 ? d->counts[d->ncounts - 1] : 0; }
+
+/* ---- multi-part OpenEXR and Cryptomatte ---- */
+
+void pc_exr_part_info_fini(pc_exr_part_info *p)
+{
+    size_t i;
+    if (p == NULL) {
+        return;
+    }
+    free(p->name);
+    free(p->view);
+    for (i = 0; i < p->nchannels; i++) {
+        free(p->channels[i].name);
+    }
+    free(p->channels);
+    memset(p, 0, sizeof *p);
+}
+
+void pc_exr_parts_free(pc_exr_part_info *parts, size_t n)
+{
+    size_t i;
+    for (i = 0; parts != NULL && i < n; i++) {
+        pc_exr_part_info_fini(&parts[i]);
+    }
+    free(parts);
+}
+
+/* Strips an optional "layer." prefix ("diffuse.R" -> "R"). */
+static const char *base_channel(const char *name)
+{
+    const char *dot = strrchr(name, '.');
+    return dot != NULL ? dot + 1 : name;
+}
+
+static bool part_has(const pc_exr_part_info *p, const char *n)
+{
+    size_t i;
+    for (i = 0; i < p->nchannels; i++) {
+        if (strcmp(base_channel(p->channels[i].name), n) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+uint8_t pc_exr_part_color_rank(const pc_exr_part_info *p)
+{
+    if (part_has(p, "R") && part_has(p, "G") && part_has(p, "B")) {
+        return part_has(p, "A") ? 4 : 3;
+    }
+    if (part_has(p, "Y")) {
+        return part_has(p, "A") ? 2 : 1;
+    }
+    return p->nchannels == 1 ? 1 : 0;
+}
+
+void pc_crypto_layer_fini(pc_crypto_layer *l)
+{
+    size_t i;
+    if (l == NULL) {
+        return;
+    }
+    free(l->name);
+    free(l->key);
+    free(l->conversion);
+    free(l->sidecar_manifest);
+    for (i = 0; i < l->nmanifest; i++) {
+        free(l->manifest[i].name);
+    }
+    free(l->manifest);
+    for (i = 0; i < l->nchannels; i++) {
+        free(l->channels[i]);
+    }
+    free(l->channels);
+    memset(l, 0, sizeof *l);
+}
+
+void pc_crypto_layers_free(pc_crypto_layer *layers, size_t n)
+{
+    size_t i;
+    for (i = 0; layers != NULL && i < n; i++) {
+        pc_crypto_layer_fini(&layers[i]);
+    }
+    free(layers);
+}
+
+const char *pc_crypto_layer_name_of(const pc_crypto_layer *l, float id)
+{
+    size_t i;
+    for (i = 0; i < l->nmanifest; i++) {
+        if (l->manifest[i].id == id) {
+            return l->manifest[i].name;
+        }
+    }
+    return NULL;
+}
+
+void pc_crypto_buffer_fini(pc_crypto_buffer *b)
+{
+    if (b == NULL) {
+        return;
+    }
+    free(b->pairs);
+    free(b->start);
+    memset(b, 0, sizeof *b);
+}
+
+const pc_crypto_pair *pc_crypto_buffer_at(const pc_crypto_buffer *b, uint32_t x, uint32_t y, size_t *n)
+{
+    /* As the reference: the flat index y * width + x, whatever x is. */
+    size_t i = (size_t)y * b->width + x;
+    *n = 0;
+    if (b->start == NULL || i >= (size_t)b->width * b->height || i < x) {
+        return NULL;
+    }
+    *n = b->start[i + 1] - b->start[i];
+    return *n > 0 ? b->pairs + b->start[i] : NULL;
+}

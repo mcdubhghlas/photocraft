@@ -22,10 +22,10 @@ doc afdesignload/revision_test.afdesign 4a5c7237b378ea8b spreads 1 nodes 2 warni
 preview afdesignload/revision_test.afdesign 512x512 2282
 truncate afdesignload/revision_test.afdesign facd2215e13adace
 mutate afdesignload/revision_test.afdesign 4b0fa27901dc7406
-doc afdesignload/shape_test.afdesign fd9eef6e5c25f992 spreads 1 nodes 8 warnings 1
+doc afdesignload/shape_test.afdesign 760c4fad5f1271ab spreads 1 nodes 8 warnings 0
 preview afdesignload/shape_test.afdesign 512x512 46364
-truncate afdesignload/shape_test.afdesign ab00e89a4b77fe67
-mutate afdesignload/shape_test.afdesign 586d40d7113e7fb2
+truncate afdesignload/shape_test.afdesign f24833d4a089c937
+mutate afdesignload/shape_test.afdesign e0e08004bc76e1b9
 doc afdesignload/slice_test.afdesign 29eca177840d2f17 spreads 1 nodes 2 warnings 0
 preview afdesignload/slice_test.afdesign 512x512 2282
 truncate afdesignload/slice_test.afdesign 0cf6f20ce01c8f85

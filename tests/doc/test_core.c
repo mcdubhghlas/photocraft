@@ -1217,9 +1217,9 @@ static void test_alpha_channel_and_guides(void)
     pc_alpha_channel_fini(&b);
     pc_alpha_channel_fini(&a);
     memset(&g, 0, sizeof g);
-    g.horizontal = malloc(2 * sizeof(float));
-    g.horizontal[0] = 1.0f;
-    g.horizontal[1] = 2.0f;
+    g.horizontal = malloc(2 * sizeof *g.horizontal);
+    g.horizontal[0] = 1.0;
+    g.horizontal[1] = 2.0;
     g.nhorizontal = 2;
     CHECK(pc_guides_clone(&g, &gc, NULL) == PC_OK);
     CHECK(pc_guides_eq(&g, &gc));

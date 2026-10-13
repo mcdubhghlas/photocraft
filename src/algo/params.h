@@ -169,8 +169,11 @@ typedef enum pc_algo_resample {
     PC_ALGO_RESAMPLE_NEAREST,
     PC_ALGO_RESAMPLE_BILINEAR,
     PC_ALGO_RESAMPLE_BICUBIC,
+    PC_ALGO_RESAMPLE_BICUBIC_SMOOTHER,  /* Photoshop's Bicubic Smoother, for enlargement */
+    PC_ALGO_RESAMPLE_BICUBIC_SHARPER,   /* Photoshop's Bicubic Sharper, for reduction */
+    PC_ALGO_RESAMPLE_BICUBIC_AUTOMATIC, /* Smoother where the image grows, Sharper where it shrinks */
     PC_ALGO_RESAMPLE_LANCZOS,
-    PC_ALGO_RESAMPLE_PRESERVE_DETAILS
+    PC_ALGO_RESAMPLE_PRESERVE_DETAILS /* Lanczos + light sharpening enlarging; Sharper reducing */
 } pc_algo_resample;
 typedef enum pc_algo_interp {
     PC_ALGO_INTERP_NEAREST,

@@ -23,7 +23,7 @@ static float *edt_of(const bool *inside, size_t w, size_t h)
     for (i = 0; i < w * h; i++) {
         a[i] = inside[i] ? 1.0f : 0.0f;
     }
-    CHECK(pc_compose_fx_distance_field(PC_COMPOSE_FIELD_OUTSIDE, a, w, h, &d, NULL) == PC_OK);
+    CHECK(pc_compose_fx_distance_field(PC_COMPOSE_FIELD_OUTSIDE, a, w, h, INFINITY, &d, NULL) == PC_OK);
     for (i = 0; d != NULL && i < w * h; i++) {
         d[i] = inside[i] ? 0.0f : d[i] + 0.5f;
     }
@@ -122,7 +122,8 @@ static void test_chamfer_uses_euclidean_step_lengths(void)
     float a[81] = {0.0f};
     float *d = NULL;
     a[0] = 1.0f;
-    CHECK(pc_compose_fx_distance_field(PC_COMPOSE_FIELD_STROKE_OUTSIDE, a, 9, 9, &d, NULL) == PC_OK);
+    CHECK(pc_compose_fx_distance_field(PC_COMPOSE_FIELD_STROKE_OUTSIDE, a, 9, 9, INFINITY, &d, NULL) ==
+          PC_OK);
     if (d == NULL) {
         return;
     }
@@ -912,8 +913,8 @@ static void test_effect_maps_are_cached_and_invalidated_by_pixel_changes(void)
     pc_effect_default_drop_shadow(&e);
     fxh_add(l, &e, 1);
     CHECK(pc_cmp_ctx_init_doc(&cs, &doc, NULL, NULL) == PC_OK);
-    CHECK(pc_cmp_effect_maps(&doc.layers[1], &cs.cx, &a, NULL) == PC_OK);
-    CHECK(pc_cmp_effect_maps(&doc.layers[1], &cs.cx, &b, NULL) == PC_OK);
+    CHECK(pc_cmp_effect_maps(&doc.layers[1], pc_document_bounds(&doc), &cs.cx, &a, NULL) == PC_OK);
+    CHECK(pc_cmp_effect_maps(&doc.layers[1], pc_document_bounds(&doc), &cs.cx, &b, NULL) == PC_OK);
     CHECK(a != NULL && pc_cmp_fx_maps(a) == pc_cmp_fx_maps(b)); /* second request hits the cache */
     pc_cmp_fx_ref_release(b);
     pc_cmp_ctx_fini(&cs);
@@ -921,7 +922,7 @@ static void test_effect_maps_are_cached_and_invalidated_by_pixel_changes(void)
     /* Editing the layer's pixels changes its tiles, so the maps are rebuilt. */
     ch_fill(&doc.layers[1], pc_rect_make(8, 8, 20, 20), blue, 4);
     CHECK(pc_cmp_ctx_init_doc(&cs, &doc, NULL, NULL) == PC_OK);
-    CHECK(pc_cmp_effect_maps(&doc.layers[1], &cs.cx, &c, NULL) == PC_OK);
+    CHECK(pc_cmp_effect_maps(&doc.layers[1], pc_document_bounds(&doc), &cs.cx, &c, NULL) == PC_OK);
     CHECK(pc_cmp_fx_maps(a) != pc_cmp_fx_maps(c)); /* pixel edit invalidates */
     pc_cmp_fx_ref_release(c);
     pc_cmp_fx_ref_release(a);

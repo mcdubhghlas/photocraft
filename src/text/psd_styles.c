@@ -482,8 +482,51 @@ static pc_status repoint(pc_ed_value *sheet, bool has, int64_t ix, pc_error *err
     return has ? psd_set_int(sheet, "Parent", ix, err) : PC_OK;
 }
 
+/* Adds to sheet[key] (a dictionary; created when missing) every entry of `resolved` it lacks;
+ * existing entries win. Takes over *resolved. */
+static pc_status fill_missing(pc_ed_value *sheet, const char *key, pc_ed_value *resolved, pc_error *err)
+{
+    pc_ed_value *have;
+    size_t k, q;
+    pc_status st = PC_OK;
+    if (resolved->kind != PC_ED_DICT) {
+        pc_ed_fini(resolved);
+        return PC_OK;
+    }
+    if (pc_ed_get(sheet, key) == NULL) {
+        pc_ed_value d = pc_ed_dict();
+        st = pc_ed_set(sheet, key, &d, err);
+    }
+    have = pc_ed_get_mut(sheet, key);
+    for (k = 0; st == PC_OK && have != NULL && have->kind == PC_ED_DICT && k < resolved->n; k++) {
+        pc_ed_entry *e = &resolved->entries[k], *g;
+        bool found = false;
+        for (q = 0; q < have->n && !found; q++) {
+            found = have->entries[q].key.len == e->key.len &&
+                    memcmp(pc_str_c(&have->entries[q].key), pc_str_c(&e->key), e->key.len) == 0;
+        }
+        if (found) {
+            continue;
+        }
+        g = have->n >= have->cap || have->entries == NULL
+                ? pc_grow_array(have->entries, &have->cap, have->n + 1, sizeof *g)
+                : have->entries;
+        if (g == NULL) {
+            st = pc_fail(err, PC_ERR_NOMEM, "out of memory writing style sheets");
+            break;
+        }
+        have->entries = g;
+        g[have->n] = *e; /* moved out of resolved */
+        memset(e, 0, sizeof *e);
+        e->value = pc_ed_dict();
+        have->n++;
+    }
+    pc_ed_fini(resolved);
+    return st;
+}
+
 static pc_status relink_runs(pc_ed_value *e, const pc_text_layer *layer, const pc_text_styles *styles,
-                             pc_error *err)
+                             float k, pc_error *err)
 {
     pc_text_run *runs = NULL;
     pc_paragraph_run *paras = NULL;
@@ -492,7 +535,16 @@ static pc_status relink_runs(pc_ed_value *e, const pc_text_layer *layer, const p
     pc_ed_value *a;
     const pc_str *ed_text = pc_ed_as_str(pc_ed_path(e, "EngineDict", "Editor", "Text", (const char *)NULL));
     static const pc_str none = PC_STR_INIT;
-    pc_status st = pc_text_layer_char_runs(layer, &runs, &nruns, err);
+    psd_names char_fonts = {NULL, 0, 0};
+    const pc_ed_value *fs = pc_ed_path(e, "ResourceDict", "FontSet", (const char *)NULL);
+    pc_status st;
+    if (fs == NULL) {
+        fs = pc_ed_path(e, "DocumentResources", "FontSet", (const char *)NULL);
+    }
+    st = fs != NULL ? psd_names_of(fs, &char_fonts, err) : PC_OK;
+    if (st == PC_OK) {
+        st = pc_text_layer_char_runs(layer, &runs, &nruns, err);
+    }
     if (st == PC_OK) {
         st = pc_text_layer_paragraph_runs(layer, &paras, &nparas, err);
     }
@@ -514,6 +566,22 @@ static pc_status relink_runs(pc_ed_value *e, const pc_text_layer *layer, const p
                 int64_t ix = 0;
                 bool has = r != NULL && char_ix(styles, r->style.has_style_sheet, r->style.style_sheet, &ix);
                 st = repoint(sheet, has, ix, err);
+                /* The run's reference may be dropped or renumbered: write what it inherited too,
+                 * so it keeps its look whatever sheet it now points to (#3795). */
+                if (st == PC_OK && r != NULL) {
+                    pc_str ps = PC_STR_INIT;
+                    pc_ed_value data;
+                    size_t fi;
+                    st = pc_text_postscript_for(&r->style, &ps, err);
+                    if (st == PC_OK) {
+                        fi = psd_names_find(&char_fonts, pc_str_c(&ps), ps.len);
+                        st = psd_style_sheet_data(&r->style, fi < char_fonts.n ? fi : 0, k, &data, err);
+                    }
+                    if (st == PC_OK) {
+                        st = fill_missing(sheet, "StyleSheetData", &data, err);
+                    }
+                    pc_str_fini(&ps);
+                }
             }
         }
     }
@@ -526,9 +594,17 @@ static pc_status relink_runs(pc_ed_value *e, const pc_text_layer *layer, const p
                 bool has = i < nparas &&
                            para_ix(styles, paras[i].style.has_style_sheet, paras[i].style.style_sheet, &ix);
                 st = repoint(sheet, has, ix, err);
+                if (st == PC_OK && i < nparas) {
+                    pc_ed_value props;
+                    st = psd_paragraph_properties(&paras[i].style, k, &props, err);
+                    if (st == PC_OK) {
+                        st = fill_missing(sheet, "Properties", &props, err);
+                    }
+                }
             }
         }
     }
+    psd_names_fini(&char_fonts);
     pc_text_runs_free(runs, nruns);
     free(paras);
     free(lens);
@@ -557,7 +633,7 @@ pc_status pc_text_write_style_sheets(const uint8_t *tysh, size_t len, const pc_t
         }
     }
     if (st == PC_OK) {
-        st = relink_runs(&e, layer, styles, err);
+        st = relink_runs(&e, layer, styles, k, err);
     }
     if (st == PC_OK) {
         st = pc_ed_write(&e, &raw, err);

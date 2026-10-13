@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include "base/buf.h"
+#include "base/pool.h"
 #include "base/status.h"
 #include "codecs/codecs.h"
 
@@ -42,6 +43,9 @@ cx_plan cx_plan_for(const pc_cimage *img, pc_cformat f, const pc_cencode_opts *o
 /* Limits::check_bytes and alloc_usize. */
 pc_status cx_check_bytes(const pc_climits *l, uint32_t w, uint32_t h, uint64_t bytes_per_pixel, pc_error *err);
 size_t cx_alloc_usize(const pc_climits *l);
+/* Decompression-bomb guard (Limits::check_plausible): a file of file_len bytes whose compression
+ * never beats max_ratio:1 cannot hold declared_bytes of image data (1 MiB of slack). */
+pc_status cx_check_plausible(uint64_t declared_bytes, size_t file_len, uint64_t max_ratio, pc_error *err);
 
 /* ---- sample conversion ---- */
 
@@ -56,9 +60,10 @@ pc_status cx_png_decode(const uint8_t *b, size_t n, const pc_climits *l, pc_cima
 pc_status cx_png_encode(const pc_cimage *img, cx_plan p, const pc_cencode_opts *o, pc_buf *out, pc_error *err);
 pc_status cx_jpeg_decode(const uint8_t *b, size_t n, const pc_climits *l, pc_cimage *out, pc_error *err);
 pc_status cx_jpeg_encode(const pc_cimage *img, cx_plan p, const pc_cencode_opts *o, pc_buf *out, pc_error *err);
-/* JPEG's EXIF / XMP APP1 segments, or false when they don't fit one segment. *seg replaced. */
-bool cx_jpeg_exif_segment(const uint8_t *exif, size_t n, pc_buf *seg);
-bool cx_jpeg_xmp_segment(const uint8_t *xmp, size_t n, pc_buf *seg);
+/* JPEG's EXIF / XMP APP1 segments for an image at resolution dpi (NULL: none; else x, y), or
+ * false when they don't fit one segment. *seg replaced. */
+bool cx_jpeg_exif_segment(const uint8_t *exif, size_t n, const float *dpi, pc_buf *seg);
+bool cx_jpeg_xmp_segment(const uint8_t *xmp, size_t n, const float *dpi, pc_buf *seg);
 pc_status cx_tiff_decode_page(const uint8_t *b, size_t n, bool has_page, size_t page, const pc_climits *l,
                               pc_cimage *out, pc_error *err);
 uint16_t cx_tiff_orientation(const uint8_t *b, size_t n, bool has_page, size_t page);
@@ -87,8 +92,90 @@ pc_status cx_ico_decode(const uint8_t *b, size_t n, const pc_climits *l, pc_cima
 pc_status cx_ico_encode(const pc_cimage *img, cx_plan p, pc_buf *out, pc_error *err);
 pc_status cx_qoi_decode(const uint8_t *b, size_t n, const pc_climits *l, pc_cimage *out, pc_error *err);
 pc_status cx_qoi_encode(const pc_cimage *img, cx_plan p, pc_buf *out, pc_error *err);
+pc_status cx_pcx_decode(const uint8_t *b, size_t n, const pc_climits *l, pc_cimage *out, pc_error *err);
+/* A plausible complete PCX header (PCX has no strong magic number). */
+bool cx_pcx_looks_like(const uint8_t *b, size_t n);
+pc_status cx_fits_decode(const uint8_t *b, size_t n, const pc_climits *l, pc_cimage *out, pc_error *err);
+pc_status cx_fits_encode(const pc_cimage *img, cx_plan p, const pc_cencode_opts *o, pc_buf *out,
+                         pc_error *err);
 pc_status cx_hdr_decode(const uint8_t *b, size_t n, const pc_climits *l, pc_cimage *out, pc_error *err);
 pc_status cx_hdr_encode(const pc_cimage *img, cx_plan p, pc_buf *out, pc_error *err);
+
+/* The PNG zlib stream of a non-interlaced image (filtered rows deflated in bands of about
+ * 512 KiB of filtered bytes when the image has at least 4 MB, so the bytes never depend on the
+ * thread count); pool NULL runs on the caller's thread. Appends to out. */
+pc_status cx_png_idat_stream(const uint8_t *data, size_t w, size_t h, size_t bpp, pc_png_compression level,
+                             pc_pool *pool, pc_buf *out, pc_error *err);
+
+/* OpenEXR multi-part decoding (exr.c), without the orientation step. */
+pc_status cx_exr_decode_part(const uint8_t *b, size_t n, size_t part, const pc_climits *l, pc_cimage *out,
+                             pc_error *err);
+pc_status cx_exr_decode_channels(const uint8_t *b, size_t n, size_t part, const char *const *names,
+                                 size_t nnames, const pc_climits *l, pc_cimage *out, pc_error *err);
+/* The flat samples of every channel of one part as f32 (planar, w * h per channel, in the order
+ * of the part's channel list; NULL for a subsampled channel); *chans has nch arrays. */
+pc_status cx_exr_read_part_f32(const uint8_t *b, size_t n, size_t part, uint32_t *w, uint32_t *h,
+                               float ***chans, char ***names, size_t *nch, pc_error *err);
+
+/* Rust's f64::from_str (sign, digits with an optional point and exponent, inf/infinity/nan in
+ * any case; no white space) and i64::from_str (optional sign, digits, no overflow). */
+bool cx_parse_f64(const char *s, size_t n, double *out);
+bool cx_parse_i64(const char *s, size_t n, int64_t *out);
+
+/* The resolution an EXIF block or XMP packet records (XMP first); false when none. */
+bool cx_resolution_from_metadata(const pc_cmeta *m, float *x, float *y);
+
+/* ---- TIFF-structured metadata (orientation.c) ---- */
+
+typedef struct cx_tif {
+    const uint8_t *b;
+    size_t n;
+    bool le;
+} cx_tif;
+
+typedef struct cx_ifd0 {
+    size_t first; /* offset of the first entry */
+    size_t count;
+    size_t entry; /* 12, or 20 for BigTIFF */
+    bool big;
+} cx_ifd0;
+
+/* k (<= 8) bytes at `at` in the block's byte order; false when out of range. */
+bool cx_tif_rd(const cx_tif *t, size_t at, size_t k, uint64_t *v);
+/* IFD0 (sets t->le): the whole table and the next-IFD pointer must be present, after the header. */
+bool cx_tif_ifd0(cx_tif *t, cx_ifd0 *out);
+/* 6 when the block starts with JPEG's Exif\0\0 prefix, else 0. */
+size_t cx_exif_body(const uint8_t *b, size_t n);
+
+/* ---- GIF reading (gif.c) ---- */
+
+typedef struct cx_gif {
+    const uint8_t *b;
+    size_t n;
+    size_t pos;  /* the next block */
+    uint32_t sw; /* logical screen */
+    uint32_t sh;
+    const uint8_t *gct;
+    size_t ngct;
+} cx_gif;
+
+typedef struct cx_gif_frame {
+    uint32_t left;
+    uint32_t top;
+    uint32_t w;
+    uint32_t h;
+    int disposal; /* 0 unspecified, 1 keep, 2 background, 3 previous */
+    uint16_t delay_cs;
+    uint8_t *rgba; /* w * h RGBA, deinterlaced: a transparent index keeps its colour with alpha 0,
+                    * an index past the palette is 0 0 0 0. Caller frees. */
+} cx_gif_frame;
+
+/* The header and global colour table. */
+pc_status cx_gif_open(const uint8_t *b, size_t n, cx_gif *g, pc_error *err);
+/* The next image (its Graphic Control Extension applied): *done at the trailer. A frame of more
+ * than budget RGBA bytes is refused (LimitExceeded) unless band_free and it is a full-width band
+ * of the screen. */
+pc_status cx_gif_next(cx_gif *g, uint64_t budget, bool band_free, cx_gif_frame *f, bool *done, pc_error *err);
 
 /* GIF LZW (web.c): compresses indices (each < 2^min_code_size) and appends to out. */
 pc_status cx_gif_lzw_encode(const uint8_t *indices, size_t n, uint8_t min_code_size, pc_buf *out, pc_error *err);

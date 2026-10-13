@@ -25,6 +25,8 @@
 
 /* Maximum pulled-string length at 100 % smoothing, in screen pixels. */
 #define PC_PAINT_MAX_STRING_PX 100.0
+/* Stroke time over which exponential smoothing moves its fraction of the way to the pointer. */
+#define PC_PAINT_SMOOTHING_STEP_MS 16.0
 /* With Spacing unchecked, one dab per this many milliseconds of stroke time. */
 #define PC_PAINT_SPEED_SPACING_MS 8.0
 /* Steps one walker may emit per stroke (C guard; see above). */
@@ -44,6 +46,12 @@ void pc_paint_smoother_init(pc_paint_smoother *s, const pc_paint_smoothing *cfg,
 /* Feed one input point; appends the brush positions to paint through. */
 pc_status pc_paint_smoother_push(pc_paint_smoother *s, pc_paint_point p, pc_paint_point_vec *out,
                                  pc_error *err);
+/* Is Stroke Catch-Up still pulling the brush towards a pointer that has stopped? Then the stroke
+ * needs time to keep passing (repeats of the last point) while the pointer is held. */
+bool pc_paint_smoother_lagging(const pc_paint_smoother *s);
+/* The string between the brush and the pointer: true with brush/pointer set while smoothing
+ * holds the brush back from the last input point; false when they coincide or smoothing is off. */
+bool pc_paint_smoother_string(const pc_paint_smoother *s, double brush[2], double pointer[2]);
 /* End of stroke: with Catch-Up On Stroke End the brush finishes at the last pointer position. */
 pc_status pc_paint_smoother_finish(pc_paint_smoother *s, pc_paint_point_vec *out, pc_error *err);
 /* Smooth a whole point list (appends to *out). */
@@ -80,11 +88,18 @@ typedef struct pc_paint_walker {
     bool has_speed; /* speed spacing (Spacing unchecked) */
     double speed;
     double speed_acc;
+    bool has_grid; /* pixel-grid stepping for small aliased tips */
+    double grid;   /* the dab-centre offset inside a pixel */
 } pc_paint_walker;
 
 void pc_paint_walker_init(pc_paint_walker *w, bool has_interval, double build_up_interval_ms);
 /* Space steps by stroke time instead of distance (segments without timestamps by distance). */
 void pc_paint_walker_speed_spacing(pc_paint_walker *w, double interval_ms);
+/* Step pixel by pixel instead of by distance: one step per pixel along the segment's major axis,
+ * on the line between the pixels holding its ends, each at the pixel's dab centre (offset 0.5
+ * for odd tip diameters, 0 for even ones). A small aliased tip then draws a clean 8-connected
+ * staircase. A segment that is not finite or longer than 1e7 px is spaced by distance. */
+void pc_paint_walker_pixel_grid(pc_paint_walker *w, double offset);
 pc_status pc_paint_walker_push(pc_paint_walker *w, pc_paint_point p, pc_paint_step_len_fn len, void *len_ctx,
                                pc_paint_step_fn emit, void *emit_ctx, pc_error *err);
 pc_status pc_paint_walker_finish(pc_paint_walker *w, pc_paint_step_fn emit, void *emit_ctx, pc_error *err);
@@ -142,6 +157,12 @@ typedef struct pc_paint_dab_generator {
 void pc_paint_dab_generator_init(pc_paint_dab_generator *g, const pc_paint_brush *brush, float zoom);
 void pc_paint_dab_generator_fini(pc_paint_dab_generator *g); /* NULL-safe */
 void pc_paint_dab_generator_copy(pc_paint_dab_generator *dst, const pc_paint_dab_generator *src);
+/* Does the stroke change with time while the pointer is held still (airbrush Build-up, or
+ * smoothing still catching up)? The canvas then keeps feeding it the held point. */
+bool pc_paint_dab_generator_wants_time(const pc_paint_dab_generator *g);
+/* See pc_paint_smoother_string. */
+bool pc_paint_dab_generator_smoothing_string(const pc_paint_dab_generator *g, double brush[2],
+                                             double pointer[2]);
 /* Feed input points; appends the new primary and dual dabs. */
 pc_status pc_paint_dab_generator_push(pc_paint_dab_generator *g, const pc_paint_point *pts, size_t n,
                                       pc_paint_dab_vec *dabs, pc_paint_dab_vec *dual, pc_error *err);

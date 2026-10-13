@@ -79,6 +79,99 @@ bool pc_algo_vp_plane_focal(const pc_algo_vp_plane *p, const double c[2], double
     return true;
 }
 
+/* Turn of each corner (sin of the angle between consecutive edges, positive when the corners run
+ * clockwise on screen); false when an edge is shorter than a pixel or a corner is not finite. */
+static bool plane_turns(const pc_algo_vp_plane *p, double out[4])
+{
+    const double (*q)[2] = (const double (*)[2])p->corners;
+    size_t i;
+    for (i = 0; i < 4; i++) {
+        if (!isfinite(q[i][0]) || !isfinite(q[i][1]) || fabs(q[i][0]) > 1e9 || fabs(q[i][1]) > 1e9) {
+            return false;
+        }
+    }
+    for (i = 0; i < 4; i++) {
+        size_t i1 = (i + 1) % 4, i2 = (i + 2) % 4;
+        double a[2] = {q[i1][0] - q[i][0], q[i1][1] - q[i][1]},
+               b[2] = {q[i2][0] - q[i1][0], q[i2][1] - q[i1][1]};
+        double la = hypot(a[0], a[1]), lb = hypot(b[0], b[1]);
+        if (la < 1.0 || lb < 1.0) {
+            return false;
+        }
+        out[i] = (a[0] * b[1] - a[1] * b[0]) / (la * lb);
+    }
+    return true;
+}
+
+static bool vp_finite(const double v[3])
+{
+    return fabs(v[2]) > 1e-9 * pc_rs_max_k(fabs(v[0]) + fabs(v[1]), 1.0);
+}
+
+pc_algo_vp_plane_check pc_algo_vp_plane_check_at(const pc_algo_vp_plane *p, const double center[2])
+{
+    const double (*q)[2] = (const double (*)[2])p->corners;
+    const double deg = 3.141592653589793 / 180.0;
+    double t[4], mn = 1.7976931348623157e308, v1[3], v2[3], f;
+    bool pos = true, neg = true;
+    pc_algo_homography h;
+    size_t i;
+    if (!plane_turns(p, t)) {
+        return PC_ALGO_VP_INVALID;
+    }
+    for (i = 0; i < 4; i++) {
+        pos = pos && t[i] > 0.0;
+        neg = neg && t[i] < 0.0;
+        mn = pc_rs_min(mn, fabs(t[i]));
+    }
+    if (!(pos || neg) || mn < sin(1.0 * deg) || !pc_algo_vp_plane_homography(p, &h)) {
+        return PC_ALGO_VP_INVALID;
+    }
+    if (mn < sin(10.0 * deg)) {
+        return PC_ALGO_VP_QUESTIONABLE;
+    }
+    /* Both vanishing points finite but no real focal length fits them. */
+    meet(q[0], q[1], q[3], q[2], v1);
+    meet(q[0], q[3], q[1], q[2], v2);
+    if (vp_finite(v1) && vp_finite(v2) && !pc_algo_vp_plane_focal(p, center, &f)) {
+        return PC_ALGO_VP_QUESTIONABLE;
+    }
+    return PC_ALGO_VP_VALID;
+}
+
+const char *pc_algo_vp_plane_check_name(pc_algo_vp_plane_check c)
+{
+    return c == PC_ALGO_VP_VALID ? "valid" : (c == PC_ALGO_VP_QUESTIONABLE ? "questionable" : "invalid");
+}
+
+pc_algo_vp_plane pc_algo_vp_plane_normalized(const pc_algo_vp_plane *p)
+{
+    pc_algo_vp_plane out, q = *p;
+    double t[4];
+    size_t first = 0, i;
+    if (plane_turns(p, t) && t[0] + t[1] + t[2] + t[3] < 0.0) {
+        q.corners[1][0] = p->corners[3][0], q.corners[1][1] = p->corners[3][1];
+        q.corners[3][0] = p->corners[1][0], q.corners[3][1] = p->corners[1][1];
+    }
+    /* min_by keeps the first of equal minima (total order). */
+    for (i = 1; i < 4; i++) {
+        double a = q.corners[i][0] + q.corners[i][1], b = q.corners[first][0] + q.corners[first][1];
+        int64_t ia, ib;
+        memcpy(&ia, &a, 8);
+        memcpy(&ib, &b, 8);
+        ia ^= (int64_t)((uint64_t)(ia >> 63) >> 1);
+        ib ^= (int64_t)((uint64_t)(ib >> 63) >> 1);
+        if (ia < ib) {
+            first = i;
+        }
+    }
+    for (i = 0; i < 4; i++) {
+        out.corners[i][0] = q.corners[(first + i) % 4][0];
+        out.corners[i][1] = q.corners[(first + i) % 4][1];
+    }
+    return out;
+}
+
 static void ray(const double p[2], double f, const double c[2], double o[3])
 {
     o[0] = (p[0] - c[0]) / f;

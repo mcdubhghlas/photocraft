@@ -221,6 +221,12 @@ static pc_status bake(pc_color_stop **stops, size_t *n, const float *mids, size_
     return PC_OK;
 }
 
+const uint8_t *pc_io_desc_gradient_method(const pc_psd_desc *d, size_t *len)
+{
+    const uint8_t *m = pc_io_desc_enum(d, "gradientsInterpolationMethod", len);
+    return m != NULL ? m : pc_io_desc_enum(d, "gs99", len);
+}
+
 pc_status pc_io_gradient_stops_with(const pc_psd_desc *grad, const uint8_t *method, size_t method_len,
                                     pc_color_stop **stops, size_t *nstops, pc_opacity_stop **opacity,
                                     size_t *nopacity, pc_error *err)
@@ -607,7 +613,7 @@ static pc_status gradient_fill_from_desc(const pc_psd_desc *d, pc_fill *out, pc_
     f.u.gradient.scale = pc_io_desc_num(pc_psd_desc_get(d, "Scl "), &v) ? pc_f64_to_f32(v) / 100.0f : 1.0f;
     if (grad != NULL) {
         size_t n = 0;
-        const uint8_t *m = pc_io_desc_enum(d, "gs99", &n);
+        const uint8_t *m = pc_io_desc_gradient_method(d, &n);
         st = gradient_stops_editable(grad, m, n, &raw, err);
         /* Opacity stops with Photoshop's smoothness and opacity midpoints applied; none when
          * fully opaque. */
@@ -886,6 +892,34 @@ static pc_status list_nums(const pc_psd_value *list, double **out, size_t *n, pc
     return PC_OK;
 }
 
+void pc_io_placed_frame(const pc_warp *warp, double w, double h, double out[4])
+{
+    out[0] = 0.0;
+    out[1] = 0.0;
+    out[2] = w;
+    out[3] = h;
+    if (warp == NULL || warp->style != PC_WARP_CUSTOM || !warp->has_mesh || warp->mesh.npoints != 16) {
+        return;
+    }
+    {
+        double b[4] = {INFINITY, INFINITY, -INFINITY, -INFINITY};
+        bool ok;
+        for (size_t i = 0; i < 16; i++) {
+            double x = warp->mesh.points[i].x;
+            double y = warp->mesh.points[i].y;
+            b[0] = x < b[0] ? x : b[0];
+            b[1] = y < b[1] ? y : b[1];
+            b[2] = x > b[2] ? x : b[2];
+            b[3] = y > b[3] ? y : b[3];
+        }
+        ok = isfinite(b[0]) && isfinite(b[1]) && isfinite(b[2]) && isfinite(b[3]) && b[2] - b[0] > 1e-9 &&
+             b[3] - b[1] > 1e-9;
+        if (ok) {
+            memcpy(out, b, sizeof b);
+        }
+    }
+}
+
 pc_status pc_io_parse_smart(const uint8_t key[4], const uint8_t *data, size_t len, pc_str *idnt,
                             pc_affine *transform, pc_error *err)
 {
@@ -911,8 +945,28 @@ pc_status pc_io_parse_smart(const uint8_t key[4], const uint8_t *data, size_t le
             (void)pc_io_desc_num(pc_psd_desc_get(sz, "Hght"), &h);
             st = list_nums(trnf, &p, &n, err);
             if (st == PC_OK && n == 8 && w > 0.0 && h > 0.0) {
-                a = (pc_affine){
-                    {(p[2] - p[0]) / w, (p[3] - p[1]) / w, (p[6] - p[0]) / h, (p[7] - p[1]) / h, p[0], p[1]}};
+                pc_warp warp;
+                bool has_warp = false;
+                double frame[4];
+                double bw;
+                double bh;
+                pc_status ws = pc_io_parse_placed_warp(key, data, len, &has_warp, &warp, err);
+                if (ws != PC_OK) {
+                    free(p);
+                    pc_psd_desc_fini(&d);
+                    pc_str_fini(&id);
+                    return ws;
+                }
+                pc_io_placed_frame(has_warp ? &warp : NULL, w, h, frame);
+                if (has_warp) {
+                    pc_warp_fini(&warp);
+                }
+                bw = frame[2] - frame[0];
+                bh = frame[3] - frame[1];
+                a = (pc_affine){{(p[2] - p[0]) / bw, (p[3] - p[1]) / bw, (p[6] - p[0]) / bh,
+                                 (p[7] - p[1]) / bh, 0.0, 0.0}};
+                a.m[4] = p[0] - a.m[0] * frame[0] - a.m[2] * frame[1];
+                a.m[5] = p[1] - a.m[1] * frame[0] - a.m[3] * frame[1];
             }
             free(p);
         }

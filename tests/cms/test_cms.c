@@ -805,6 +805,23 @@ done:
     pc_buf_fini(&c);
 }
 
+/* A press's full-K lightness depends on its ink and paper (newsprint can exceed L* 40). Keep the
+ * relative paper-white check and require finite endpoints with darker, bounded ink. */
+static bool cmyk_endpoints_valid(const double paper[3], const double black[3])
+{
+    /* Allow only float rounding at the physical L* limits, not a different printing condition. */
+    const double lo = -1e-4;
+    const double hi = 100.0 + 1e-4;
+    size_t i;
+    for (i = 0; i < 3; i++) {
+        if (!isfinite(paper[i]) || !isfinite(black[i])) {
+            return false;
+        }
+    }
+    return paper[0] >= lo && paper[0] <= hi && black[0] >= lo && black[0] <= hi && paper[0] > 90.0 &&
+           black[0] < paper[0];
+}
+
 static bool icc_ext(const char *name)
 {
     size_t n = strlen(name);
@@ -860,7 +877,7 @@ static void check_system_profile(const char *path, const uint8_t *bytes, size_t 
         double k[3];
         to_lab(&p, paper, PC_INTENT_RELATIVE, w);
         to_lab(&p, k100, PC_INTENT_RELATIVE, k);
-        CHECK(w[0] > 90.0 && k[0] < 40.0);
+        CHECK(cmyk_endpoints_valid(w, k));
         if (p.b2a[1] != NULL) {
             pc_transform *to = mk(lab(), &p, PC_INTENT_RELATIVE, false);
             pc_transform *back = mk(&p, lab(), PC_INTENT_RELATIVE, false);
@@ -1144,6 +1161,236 @@ static void test_same_colors_tells_different_spaces_apart(void)
     }
 }
 
+/* Independent linear test model: L* = 100 - 52 K, neutral a* and b*. */
+static void light_black(void *ctx, const float *ink, float *out)
+{
+    double l[3];
+    (void)ctx;
+    l[0] = 100.0 - 52.0 * (double)ink[3];
+    l[1] = 0.0;
+    l[2] = 0.0;
+    enc(l, out);
+}
+
+static pc_status identity_curves(pc_cms_stages *st, size_t n)
+{
+    pc_cms_curve *c = calloc(n, sizeof *c);
+    pc_cms_stage s;
+    size_t i;
+    if (c == NULL) {
+        return PC_ERR_NOMEM;
+    }
+    for (i = 0; i < n; i++) {
+        c[i] = pc_cms_curve_identity();
+    }
+    s = pc_cms_stage_curves(PC_STAGE_CURVES, c, n);
+    return pc_cms_stages_push(st, &s, NULL);
+}
+
+static void test_a_light_black_cmyk_lut_has_the_known_relative_ramp(void)
+{
+    static const size_t grid[4] = {2, 2, 2, 2};
+    static const double ks[5][2] = {{0.0, 100.0}, {0.25, 87.0}, {0.5, 74.0}, {0.75, 61.0}, {1.0, 48.0}};
+    pc_profile p;
+    pc_profile q;
+    pc_lut *l;
+    pc_cms_clut clut;
+    pc_cms_stage cs;
+    double paper[3];
+    double black[3];
+    size_t i;
+    CHECK_EQ_INT(pc_profile_clone(cmyk(), &p, NULL), PC_OK);
+    /* Exercise A2B1 only: the inherited coated profile's inverse is not an inverse of this model. */
+    for (i = 0; i < 3; i++) {
+        pc_lut_free(p.a2b[i]);
+        pc_lut_free(p.b2a[i]);
+        p.a2b[i] = NULL;
+        p.b2a[i] = NULL;
+    }
+    l = calloc(1, sizeof *l);
+    CHECK(l != NULL);
+    if (l == NULL) {
+        pc_profile_fini(&p);
+        return;
+    }
+    l->kind = PC_LUT_AB;
+    l->inputs = 4;
+    l->outputs = 3;
+    CHECK_EQ_INT(identity_curves(&l->stages, 4), PC_OK);
+    CHECK_EQ_INT(pc_cms_clut_sample(grid, 4, 3, light_black, NULL, &clut, NULL), PC_OK);
+    cs = pc_cms_stage_clut(&clut);
+    CHECK_EQ_INT(pc_cms_stages_push(&l->stages, &cs, NULL), PC_OK);
+    CHECK_EQ_INT(identity_curves(&l->stages, 3), PC_OK);
+    p.a2b[1] = l;
+    CHECK_EQ_INT(pc_profile_encode_bytes(&p, NULL), PC_OK);
+    CHECK_EQ_INT(pc_profile_parse(p.bytes, p.nbytes, &q, NULL), PC_OK);
+    pc_profile_fini(&p);
+    {
+        static const float zero[4] = {0, 0, 0, 0};
+        static const float k1[4] = {0, 0, 0, 1};
+        to_lab(&q, zero, PC_INTENT_RELATIVE, paper);
+        to_lab(&q, k1, PC_INTENT_RELATIVE, black);
+    }
+    CHECK(cmyk_endpoints_valid(paper, black));
+    /* Explicit expected values: also catch wrong channels, intent selection, constant output and
+     * incorrect LUT encoding or interpolation. The writer quantises the CLUT to 16 bits. */
+    for (i = 0; i < 5; i++) {
+        float ink[4] = {0.0f, 0.0f, 0.0f, (float)ks[i][0]};
+        double got[3];
+        to_lab(&q, ink, PC_INTENT_RELATIVE, got);
+        CHECK(fabs(got[0] - ks[i][1]) < 0.001 && fabs(got[1]) < 1e-4 && fabs(got[2]) < 1e-4);
+    }
+    pc_profile_fini(&q);
+}
+
+static void test_cmyk_endpoints_reject_invalid_values(void)
+{
+    static const double paper[3] = {100.0, 0.0, 0.0};
+    static const double black[3] = {48.0, 0.0, 0.0};
+    static const double bads[3] = {NAN, INFINITY, -INFINITY};
+    static const double pk[6][2] = {{90.0, 48.0},    {100.01, 48.0}, {100.0, -0.01},
+                                    {100.0, 100.01}, {100.0, 100.0}, {99.0, 100.0}};
+    size_t b;
+    size_t c;
+    for (b = 0; b < 3; b++) {
+        for (c = 0; c < 3; c++) {
+            double p[3];
+            double k[3];
+            memcpy(p, paper, sizeof p);
+            memcpy(k, black, sizeof k);
+            p[c] = bads[b];
+            k[c] = bads[b];
+            CHECK(!cmyk_endpoints_valid(p, black));
+            CHECK(!cmyk_endpoints_valid(paper, k));
+        }
+    }
+    for (b = 0; b < 6; b++) {
+        double p[3] = {pk[b][0], 0.0, 0.0};
+        double k[3] = {pk[b][1], 0.0, 0.0};
+        CHECK(!cmyk_endpoints_valid(p, k));
+    }
+}
+
+/* A minimal DeviceLink: header plus one A2B0 (mft2, 2-point grid) mapping `inputs` channels of
+ * `space` to `outputs` channels of `out_space`, which the header stores in the PCS field. */
+static bool device_link(const char space[4], const char out_space[4], size_t inputs, size_t outputs,
+                        pc_buf *icc)
+{
+    uint8_t hdr[144];
+    pc_buf lut;
+    size_t k;
+    bool ok = true;
+    uint8_t z[4] = {0, 0, 0xff, 0xff};
+    pc_buf_init(&lut);
+    ok = ok && pc_buf_append(&lut, "mft2\0\0\0\0", 8, NULL) == PC_OK;
+    {
+        uint8_t dims[4] = {(uint8_t)inputs, (uint8_t)outputs, 2, 0};
+        ok = ok && pc_buf_append(&lut, dims, 4, NULL) == PC_OK;
+    }
+    for (k = 0; k < 9; k++) {
+        uint8_t v[4] = {0, 0, 0, 0};
+        if (k % 4 == 0) {
+            v[1] = 1; /* 0x10000: identity matrix */
+        }
+        ok = ok && pc_buf_append(&lut, v, 4, NULL) == PC_OK;
+    }
+    {
+        uint8_t n[4] = {0, 2, 0, 2}; /* 2-entry input and output tables */
+        ok = ok && pc_buf_append(&lut, n, 4, NULL) == PC_OK;
+    }
+    for (k = 0; k < inputs; k++) {
+        ok = ok && pc_buf_append(&lut, z, 4, NULL) == PC_OK;
+    }
+    for (k = 0; k < ((size_t)1 << inputs) * outputs; k++) {
+        uint8_t v[2] = {0x80, 0};
+        ok = ok && pc_buf_append(&lut, v, 2, NULL) == PC_OK;
+    }
+    for (k = 0; k < outputs; k++) {
+        ok = ok && pc_buf_append(&lut, z, 4, NULL) == PC_OK;
+    }
+    memset(hdr, 0, sizeof hdr);
+    hdr[8] = 4;
+    hdr[9] = 0x30;
+    memcpy(hdr + 12, "link", 4);
+    memcpy(hdr + 16, space, 4);
+    memcpy(hdr + 20, out_space, 4);
+    memcpy(hdr + 36, "acsp", 4);
+    put_be32(hdr + 128, 1);
+    memcpy(hdr + 132, "A2B0", 4);
+    put_be32(hdr + 136, 144);
+    put_be32(hdr + 140, (uint32_t)lut.len);
+    put_be32(hdr, (uint32_t)(sizeof hdr + lut.len));
+    pc_buf_init(icc);
+    ok = ok && pc_buf_append(icc, hdr, sizeof hdr, NULL) == PC_OK &&
+         pc_buf_append(icc, lut.data, lut.len, NULL) == PC_OK;
+    pc_buf_fini(&lut);
+    return ok;
+}
+
+/* Regression (#2337): DeviceLinks whose output isn't a 3-channel space were rejected as invalid,
+ * because the LUT check assumed every AToB tag ends in the PCS. They parse now and get the clear
+ * "unsupported" error when used for a conversion, including a Lab->CMYK link, which must not pass
+ * for a Lab-to-Lab one. */
+static void test_device_links_parse_and_are_reported_unsupported(void)
+{
+    static const struct {
+        const char *space;
+        const char *out;
+        size_t in;
+        size_t outn;
+    } cases[4] = {
+        {"CMYK", "CMYK", 4, 4}, {"RGB ", "CMYK", 3, 4}, {"Lab ", "CMYK", 3, 4}, {"RGB ", "RGB ", 3, 3}};
+    size_t i;
+    pc_buf icc;
+    pc_profile p;
+    for (i = 0; i < 4; i++) {
+        pc_transform *t = NULL;
+        pc_error e;
+        CHECK(device_link(cases[i].space, cases[i].out, cases[i].in, cases[i].outn, &icc));
+        if (pc_profile_parse(icc.data, icc.len, &p, &e) != PC_OK) {
+            PC_T_FAIL("case %zu: %s", i, e.msg);
+            pc_buf_fini(&icc);
+            continue;
+        }
+        CHECK_EQ_UINT(pc_profile_channels(&p), cases[i].in);
+        CHECK_EQ_INT(pc_transform_new(&p, srgb(), PC_INTENT_PERCEPTUAL, false, &t, NULL), PC_ERR_UNSUPPORTED);
+        CHECK_EQ_INT(pc_transform_new(srgb(), &p, PC_INTENT_PERCEPTUAL, false, &t, NULL), PC_ERR_UNSUPPORTED);
+        CHECK(t == NULL);
+        pc_profile_fini(&p);
+        pc_buf_fini(&icc);
+    }
+    /* The output space still bounds the tag: a CMYK->CMYK link with a 4->3 table is malformed. */
+    CHECK(device_link("CMYK", "CMYK", 4, 3, &icc));
+    CHECK_EQ_INT(pc_profile_parse(icc.data, icc.len, &p, NULL), PC_ERR_FORMAT);
+    pc_buf_fini(&icc);
+}
+
+static void test_linear_gray_and_destinations(void)
+{
+    const pc_profile *g = pc_builtin_linear_gray();
+    CHECK(g != NULL);
+    if (g != NULL) {
+        CHECK(g == pc_builtin_linear_gray()); /* built once */
+        CHECK(g->space == PC_CS_GRAY && g->has_gray_trc);
+        CHECK(pc_profile_can_be_destination(g));
+        CHECK(!pc_profile_same_colors(g, pc_builtin_profile(PC_BUILTIN_SGRAY)));
+    }
+    CHECK(pc_profile_can_be_destination(srgb()));
+    CHECK(pc_profile_can_be_destination(cmyk()));
+    /* An input profile with only an AToB table describes a source but has no PCS -> device path. */
+    {
+        pc_profile p;
+        size_t i;
+        CHECK_EQ_INT(pc_profile_clone(cmyk(), &p, NULL), PC_OK);
+        for (i = 0; i < 3; i++) {
+            pc_lut_free(p.b2a[i]);
+            p.b2a[i] = NULL;
+        }
+        CHECK(!pc_profile_can_be_destination(&p));
+        pc_profile_fini(&p);
+    }
+}
+
 int main(int argc, char **argv)
 {
     RUN(test_builtins_encode_and_reparse);
@@ -1162,6 +1409,10 @@ int main(int argc, char **argv)
     RUN(test_hdr_floats_survive_matrix_transforms);
     RUN(test_malformed_profiles_are_rejected_without_panicking);
     RUN(test_system_profiles);
+    RUN(test_a_light_black_cmyk_lut_has_the_known_relative_ramp);
+    RUN(test_cmyk_endpoints_reject_invalid_values);
+    RUN(test_device_links_parse_and_are_reported_unsupported);
+    RUN(test_linear_gray_and_destinations);
     RUN(test_gray_profile_with_reversed_lut_type_reencodes);
     RUN(test_same_colors_ignores_the_encoding);
     RUN(test_same_colors_tells_different_spaces_apart);

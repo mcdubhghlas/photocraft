@@ -856,8 +856,40 @@ static void test_failed_effect_leaves_target_untouched(void)
     pc_surface_fini(&ref);
 }
 
+/* The footprint never paints past the Full Size ring (radius + 0.5 px); a hard tip reaches it. */
+static void test_footprint_stays_inside_the_full_size_ring(void)
+{
+    static const float hs[3] = {1.0f, 0.5f, 0.0f};
+    const float radius = 10.5f;
+    for (int k = 0; k < 3; k++) {
+        pc_paint_dab dab = pc_paint_dab_round((pc_point){32.0, 32.0}, radius, 1.0f);
+        pc_paint_footprint fp;
+        size_t painted = 0;
+        double farthest = 0.0;
+        CHECK(pc_paint_footprint_round(&dab, 0, hs[k], &fp, NULL) == PC_OK);
+        for (int32_t y = fp.rect.y0; y < fp.rect.y1; y++) {
+            for (int32_t x = fp.rect.x0; x < fp.rect.x1; x++) {
+                double dx = (double)x + 0.5 - dab.center.x, dy = (double)y + 0.5 - dab.center.y;
+                double dist = sqrt(dx * dx + dy * dy);
+                if (pc_paint_footprint_at(&fp, x, y) <= 0.0f) {
+                    continue;
+                }
+                painted++;
+                farthest = dist > farthest ? dist : farthest;
+                CHECK(dist < (double)radius + 0.5);
+            }
+        }
+        CHECK(painted > 0);
+        if (hs[k] == 1.0f) {
+            CHECK(farthest > (double)radius);
+        }
+        pc_paint_footprint_fini(&fp);
+    }
+}
+
 int main(int argc, char **argv)
 {
+    RUN(test_footprint_stays_inside_the_full_size_ring);
     RUN(test_coverage_matches_apply_stroke_bounds);
     RUN(test_coverage_composite_copies_exactly_at_full_hardness);
     RUN(test_dab_stroke_runs_sequentially_and_respects_selection);

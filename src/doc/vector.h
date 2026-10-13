@@ -136,6 +136,10 @@ void pc_shape_stroke_default(pc_shape_stroke *out);
 void pc_shape_stroke_fini(pc_shape_stroke *s);
 pc_status pc_shape_stroke_clone(const pc_shape_stroke *s, pc_shape_stroke *out, pc_error *err);
 bool pc_shape_stroke_eq(const pc_shape_stroke *a, const pc_shape_stroke *b);
+/* Limits accepted by interactive commands: PC_ERR_INVALID with the reference's message when
+ * width, opacity, miter limit, dash offset or dashes are out of range. Importers keep original
+ * data; renderers bound their own work. */
+pc_status pc_shape_stroke_validate(const pc_shape_stroke *s, pc_error *err);
 
 typedef enum pc_live_shape_kind {
     PC_LIVE_RECT,

@@ -249,8 +249,444 @@ mutate hostile3 7396d9ceab0fb3c1
 truncate hostile4 95f3c5226282016d
 mutate hostile4 2a1f6f1c3d4e30ae
 truncate hostile5 81624fcecd52d1ee
-mutate hostile5 23c06678d9585e95
+mutate hostile5 efd94271d2176197
 truncate hostile6 a8d273b8b837bc15
 mutate hostile6 331e3e0ffc86633a
 truncate hostile7 e2b207a6cc792c17
 mutate hostile7 75c1a49cc353010a
+section r3
+file h_jxl 2048 d6e3178026912676 j
+decode h_jxl 66fbe3bc31938ba0
+develop h_jxl bilinear 37551143290ff901
+develop h_jxl mhc 37551143290ff901
+develop h_jxl ahd 37551143290ff901
+file h_mono_lj92 1218 2448a93504abae33 e
+decode h_mono_lj92 ffa570100bba762a
+develop h_mono_lj92 bilinear 6cd7267b1dbb419b
+develop h_mono_lj92 mhc 6cd7267b1dbb419b
+develop h_mono_lj92 ahd 6cd7267b1dbb419b
+file h_mono_deflate 656 2c031bcddba0360f f
+decode h_mono_deflate ffa570100bba762a
+develop h_mono_deflate bilinear 6cd7267b1dbb419b
+develop h_mono_deflate mhc 6cd7267b1dbb419b
+develop h_mono_deflate ahd 6cd7267b1dbb419b
+file h_raf_u16 2951 62a6a5bf4320d006 e
+decode h_raf_u16 251c884f4be6aa5f
+develop h_raf_u16 bilinear dc809db8713e2678
+develop h_raf_u16 mhc dc809db8713e2678
+develop h_raf_u16 ahd dc809db8713e2678
+file h_raf_lsb12 2807 d06868cfefedefce e
+decode h_raf_lsb12 251c884f4be6aa5f
+develop h_raf_lsb12 bilinear dc809db8713e2678
+develop h_raf_lsb12 mhc dc809db8713e2678
+develop h_raf_lsb12 ahd dc809db8713e2678
+file h_raf_words14 2831 24b5e1221a501886 e
+decode h_raf_words14 cc945066c94cbc20
+develop h_raf_words14 bilinear 28cd9787933ea079
+develop h_raf_words14 mhc 00e6f453259ba46b
+develop h_raf_words14 ahd 1e9032ee1e42a3db
+file raf_u16le_14 3455 b040ae9f5514a86e e
+decode raf_u16le_14 4a0f213e795ca7d7
+develop raf_u16le_14 bilinear fdf2448cca19294a
+develop raf_u16le_14 mhc fdf2448cca19294a
+develop raf_u16le_14 ahd fdf2448cca19294a
+file raf_u16be_16 3455 08da776206f0e30a e
+decode raf_u16be_16 8c79c8455ee134e2
+develop raf_u16be_16 bilinear 1dae9da57774e60a
+develop raf_u16be_16 mhc 1dae9da57774e60a
+develop raf_u16be_16 ahd 1dae9da57774e60a
+file raf_lsb12 3185 aa552be59ea42260 e
+decode raf_lsb12 e44f059e65018032
+develop raf_lsb12 bilinear 7d4ddfd656d0d7f0
+develop raf_lsb12 mhc 7d4ddfd656d0d7f0
+develop raf_lsb12 ahd 7d4ddfd656d0d7f0
+file raf_words14 3323 cf9c089c578457e7 e
+decode raf_words14 4a0f213e795ca7d7
+develop raf_words14 bilinear fdf2448cca19294a
+develop raf_words14 mhc fdf2448cca19294a
+develop raf_words14 ahd fdf2448cca19294a
+file raf_meta 3463 7a5549d8fccefe35 e
+decode raf_meta 27911c173613227d
+develop raf_meta bilinear 1c66a7e9192372ae
+develop raf_meta mhc 1c66a7e9192372ae
+develop raf_meta ahd 1c66a7e9192372ae
+file raf_grey 4087 a5ab7b4844dac9e3 e
+decode raf_grey 7bf434464ecd736d
+develop raf_grey bilinear 7a7f4d179d6ea083
+develop raf_grey mhc 7a7f4d179d6ea083
+develop raf_grey ahd 7a7f4d179d6ea083
+file raf_rggb_lsb12 2895 fb7cf4765ad4d8a5 e
+decode raf_rggb_lsb12 fe37e25141e926a0
+develop raf_rggb_lsb12 bilinear 4194b716b8a9d65e
+develop raf_rggb_lsb12 mhc 650c7aea8a75d620
+develop raf_rggb_lsb12 ahd b8e75c5da91a10c5
+file raf_rggb_words14 2991 b411a20e0a6320be e
+decode raf_rggb_words14 17568e6fdab373cc
+develop raf_rggb_words14 bilinear 0d1a55518a9b17bd
+develop raf_rggb_words14 mhc 93d15a84a83c9a23
+develop raf_rggb_words14 ahd 64a4df3a43069695
+file raf_rggb_u16 3087 5d91e429e7beb89a e
+decode raf_rggb_u16 17568e6fdab373cc
+develop raf_rggb_u16 bilinear 0d1a55518a9b17bd
+develop raf_rggb_u16 mhc 93d15a84a83c9a23
+develop raf_rggb_u16 ahd 64a4df3a43069695
+file raf_bggr_lsb12 2895 7fd8fcb961cdba4b e
+decode raf_bggr_lsb12 f105c8effed8d3dd
+develop raf_bggr_lsb12 bilinear d13a5714845726f8
+develop raf_bggr_lsb12 mhc 63ff211dfc372361
+develop raf_bggr_lsb12 ahd 287ce766422b6d53
+file raf_bggr_words14 2991 d0fa8616f3ddc378 e
+decode raf_bggr_words14 54dddd564925e755
+develop raf_bggr_words14 bilinear 0b71c9054ce52563
+develop raf_bggr_words14 mhc 248d7a4f9756d4a7
+develop raf_bggr_words14 ahd b519cef74a22a322
+file raf_bggr_u16 3087 f66185302f2d1403 e
+decode raf_bggr_u16 54dddd564925e755
+develop raf_bggr_u16 bilinear 0b71c9054ce52563
+develop raf_bggr_u16 mhc 248d7a4f9756d4a7
+develop raf_bggr_u16 ahd b519cef74a22a322
+file raf_compressed 2645 954bc61ae0d69782 e
+decode raf_compressed err unsupported camera raw: Fujifilm compressed RAF is not decoded (no public description of the format)
+file raf_nocfa 1407 aad8d61fd649fb33 e
+decode raf_nocfa err unsupported camera raw: Fujifilm RAF of an early FinePix / SuperCCD body (no CFA TIFF) is not decoded yet
+file raf_badlayout 2383 5710ee4745d35247 e
+decode raf_badlayout err unsupported camera raw: Fujifilm RAF without a recognised CFA layout
+file raf_trunc 3448 0f3e64e95fe67f6b e
+decode raf_trunc err malformed camera raw: RAF raw data is truncated
+file mono_strips16 2184 db71ef6d86e833d7 e
+decode mono_strips16 07cf3d1477e4ea69
+develop mono_strips16 bilinear 523f37370df09b3f
+develop mono_strips16 mhc 523f37370df09b3f
+develop mono_strips16 ahd 523f37370df09b3f
+file mono_packed12 1778 675f787ac61ca03d e
+decode mono_packed12 8f79ef9508b3bb56
+develop mono_packed12 bilinear 68d035276913bf46
+develop mono_packed12 mhc 68d035276913bf46
+develop mono_packed12 ahd 68d035276913bf46
+file mono_b8 1294 189be23f2a01b05b e
+decode mono_b8 b6c87c9f16ddb066
+develop mono_b8 bilinear 986a831d02dd463b
+develop mono_b8 mhc 986a831d02dd463b
+develop mono_b8 ahd 986a831d02dd463b
+file mono_lj92s 1896 15b5b99d8af2c27e e
+decode mono_lj92s 7b8ec54e8d81315d
+develop mono_lj92s bilinear 82f2126aba00a2f1
+develop mono_lj92s mhc 82f2126aba00a2f1
+develop mono_lj92s ahd 82f2126aba00a2f1
+file mono_lj92t 2650 ce2bf32f406cb761 e
+decode mono_lj92t 07cf3d1477e4ea69
+develop mono_lj92t bilinear 523f37370df09b3f
+develop mono_lj92t mhc 523f37370df09b3f
+develop mono_lj92t ahd 523f37370df09b3f
+file mono_deflate 650 6f5092ac9c9894e8 f
+decode mono_deflate 07cf3d1477e4ea69
+develop mono_deflate bilinear 523f37370df09b3f
+develop mono_deflate mhc 523f37370df09b3f
+develop mono_deflate ahd 523f37370df09b3f
+file mono_lossy 846 ef8cd8fc847b0528 l
+file mono_levels 698 b1e521b4e7961e4f e
+decode mono_levels b0f06fb2c232a83f
+develop mono_levels bilinear e827cdac87903a2c
+develop mono_levels mhc e827cdac87903a2c
+develop mono_levels ahd e827cdac87903a2c
+file mono_odd0 682 ef502b5c37e87397 e
+decode mono_odd0 620c29147a12127b
+develop mono_odd0 bilinear b3d76094c6fd4580
+develop mono_odd0 mhc b3d76094c6fd4580
+develop mono_odd0 ahd b3d76094c6fd4580
+file mono_odd1 654 efdd0eff801ea43d e
+decode mono_odd1 620c29147a12127b
+develop mono_odd1 bilinear b3d76094c6fd4580
+develop mono_odd1 mhc b3d76094c6fd4580
+develop mono_odd1 ahd b3d76094c6fd4580
+file mono_odd2 654 59970fbc36518cff e
+decode mono_odd2 620c29147a12127b
+develop mono_odd2 bilinear b3d76094c6fd4580
+develop mono_odd2 mhc b3d76094c6fd4580
+develop mono_odd2 ahd b3d76094c6fd4580
+file mono_odd3 642 7a23f02656d6bb74 e
+decode mono_odd3 f1ada256af14ef1b
+develop mono_odd3 bilinear e29d6614dfd3e2c8
+develop mono_odd3 mhc e29d6614dfd3e2c8
+develop mono_odd3 ahd e29d6614dfd3e2c8
+file mono_odd4 646 66144e8cd9619feb e
+decode mono_odd4 f1ada256af14ef1b
+develop mono_odd4 bilinear e29d6614dfd3e2c8
+develop mono_odd4 mhc e29d6614dfd3e2c8
+develop mono_odd4 ahd e29d6614dfd3e2c8
+file mono_odd5 650 532d4155d33ca72a e
+decode mono_odd5 d730878dbc0e18cf
+develop mono_odd5 bilinear a78af7e0bc20fe26
+develop mono_odd5 mhc a78af7e0bc20fe26
+develop mono_odd5 ahd a78af7e0bc20fe26
+file mono_odd6 634 8e4a061d0adfb565 e
+decode mono_odd6 f1ada256af14ef1b
+develop mono_odd6 bilinear e29d6614dfd3e2c8
+develop mono_odd6 mhc e29d6614dfd3e2c8
+develop mono_odd6 ahd e29d6614dfd3e2c8
+file mono_odd7 730 96c4c9278ed26f29 e
+decode mono_odd7 e929a451ea76cc53
+develop mono_odd7 bilinear b3d76094c6fd4580
+develop mono_odd7 mhc b3d76094c6fd4580
+develop mono_odd7 ahd b3d76094c6fd4580
+file mono_odd8 670 d57575746899647d e
+decode mono_odd8 fe904656dcfba689
+develop mono_odd8 bilinear b3d76094c6fd4580
+develop mono_odd8 mhc b3d76094c6fd4580
+develop mono_odd8 ahd b3d76094c6fd4580
+file mono_two 834 198144d9e41dd3ee e
+decode mono_two err unsupported camera raw: LinearRaw data with 2 samples per pixel
+file deflate0 4198 953cef1c29fb0fd5 f
+decode deflate0 1432a15d90c88645
+develop deflate0 bilinear fbb04f3de5e48562
+develop deflate0 mhc 68a99ae75617aabb
+develop deflate0 ahd 27e6c0c537cf7d56
+file deflate1 3440 3d1d2959d1cbd742 f
+decode deflate1 1432a15d90c88645
+develop deflate1 bilinear fbb04f3de5e48562
+develop deflate1 mhc 68a99ae75617aabb
+develop deflate1 ahd 27e6c0c537cf7d56
+file deflate2 3548 bed343e8b81f9746 f
+decode deflate2 17b2692bab89a094
+develop deflate2 bilinear f8d21e6dad5bdbd8
+develop deflate2 mhc 245586285cd3030f
+develop deflate2 ahd 3a121e6b31392302
+file deflate3 3434 bab8b7c32f678d93 f
+decode deflate3 1432a15d90c88645
+develop deflate3 bilinear fbb04f3de5e48562
+develop deflate3 mhc 68a99ae75617aabb
+develop deflate3 ahd 27e6c0c537cf7d56
+file deflate4 8700 a86310518ba6ea71 f
+decode deflate4 dfd23e936b86ddf6
+develop deflate4 bilinear c59036b2ba52a705
+develop deflate4 mhc c59036b2ba52a705
+develop deflate4 ahd c59036b2ba52a705
+file jxl0 4640 c615c062bdd895b6 j
+decode jxl0 ddc38f2d1ed30d96
+develop jxl0 bilinear f1e8abc5cfe69e86
+develop jxl0 mhc f1e8abc5cfe69e86
+develop jxl0 ahd f1e8abc5cfe69e86
+file jxl1 5456 29673eea6b71705d j
+decode jxl1 ddc38f2d1ed30d96
+develop jxl1 bilinear f1e8abc5cfe69e86
+develop jxl1 mhc f1e8abc5cfe69e86
+develop jxl1 ahd f1e8abc5cfe69e86
+file jxl2 2314 24aa69cdc630ec61 j
+decode jxl2 d19f3565e0045f91
+develop jxl2 bilinear 439a9c7895c907d2
+develop jxl2 mhc 99b9587dbc14e62a
+develop jxl2 ahd d7c9717bbd6ab55b
+file jxl3 2998 494c5ea40f731ebb j
+decode jxl3 d19f3565e0045f91
+develop jxl3 bilinear 439a9c7895c907d2
+develop jxl3 mhc 99b9587dbc14e62a
+develop jxl3 ahd d7c9717bbd6ab55b
+file jxl4 4780 b227dc8473298089 j
+decode jxl4 83417594ffca81d1
+develop jxl4 bilinear 759a47817b9d4b66
+develop jxl4 mhc 759a47817b9d4b66
+develop jxl4 ahd 759a47817b9d4b66
+file jxl5 2880 f532602babba898d j
+decode jxl5 eba6818c32b0315c
+develop jxl5 bilinear ac191dc7e2418bc0
+develop jxl5 mhc c2d592c3154202a2
+develop jxl5 ahd bce1d7a03e9497cf
+file jxl_dev 2292 847805a09251e01e j
+decode jxl_dev 7968e95097dad2e9
+develop jxl_dev bilinear adc25c1cd5a2c6b7
+develop jxl_dev mhc adc25c1cd5a2c6b7
+develop jxl_dev ahd adc25c1cd5a2c6b7
+file jxl_short 926 3288fea60f06d947 j
+decode jxl_short err malformed camera raw: JPEG XL raw tile is 16x4, expected 16x8
+file jxl_grey 832 18b1d698d878a712 j
+decode jxl_grey err unsupported camera raw: JPEG XL raw tile with 1 channels for 3 samples per pixel
+file jxl_junk 468 9050a699ad2e196d j
+decode jxl_junk err malformed camera raw: JPEG XL raw data: bitstream validation failed: Invalid exp_bits per float sample
+file pgtm 694 913ae79445e40220 e
+decode pgtm 7bb2d951a381b8b6
+develop pgtm bilinear 7fa53052bcce0ae9
+develop pgtm mhc 7fa53052bcce0ae9
+develop pgtm ahd 7fa53052bcce0ae9
+file orient_long 586 fe94d4ddd04d47fd e
+decode orient_long 9e3902d14aced485
+develop orient_long bilinear a7d19f01d7cb1f84
+develop orient_long mhc a7d19f01d7cb1f84
+develop orient_long ahd a7d19f01d7cb1f84
+file orient_long6 586 50fac9402623b324 e
+decode orient_long6 d1cb2a1a8007a36c
+develop orient_long6 bilinear 97c458c63dad0d45
+develop orient_long6 mhc 97c458c63dad0d45
+develop orient_long6 ahd 97c458c63dad0d45
+file lossy_cfa 1878 9138dd1fd44ad80c l
+file lossy_rgb 3048 b01df40250e413d7 l
+file big 120526 c034e0a66188794d e
+decode big 4b22fd80134e1c4a
+develop big bilinear 63ea886323da1cbc
+develop big mhc 5fecff0dab8b47a2
+develop big ahd 962ce2076515a149
+option mono_levels auto e827cdac87903a2c
+option mono_levels mult e827cdac87903a2c
+option mono_levels exposure 23ce6b4a08c39b8c
+tone big sh+100 a1309a32590c5684
+tone big sh-60 7cc0de44b988b8db
+tone big hi-100 452171db939932b4
+tone big hi+50 29defc2652b2ad01
+tone big cl+100 d7cca33f6ecb8dd7
+tone big cl-100 e1cc84ae8fc57ba9
+tone big tx+100 83e7012fa0268e3b
+tone big tx-100 78668b53ff1c80c3
+tone big dh+100 8492f8b57c8b71ce
+tone big dh-100 032c206b9b9244a9
+tone big mix c9ab4d78690cb3f1
+tone h_raf_u16 sh+100 48a13236be75aa44
+tone h_raf_u16 sh-60 4040026edffe46fc
+tone h_raf_u16 hi-100 465ae7354f851aa4
+tone h_raf_u16 hi+50 6a00f3e7468ec98f
+tone h_raf_u16 cl+100 f1d9f541a5d47d30
+tone h_raf_u16 cl-100 20f4b39a677c5bf4
+tone h_raf_u16 tx+100 dc809db8713e2678
+tone h_raf_u16 tx-100 dc809db8713e2678
+tone h_raf_u16 dh+100 30772f180e561e6a
+tone h_raf_u16 dh-100 9b80d4a8980fd95f
+tone h_raf_u16 mix fb38f24e44e6a243
+tone mono_strips16 sh+100 92668cdb84c61841
+tone mono_strips16 sh-60 9c2b287df3da8310
+tone mono_strips16 hi-100 84ef8734273d2282
+tone mono_strips16 hi+50 b9f431334ffb0932
+tone mono_strips16 cl+100 3e952219c656231e
+tone mono_strips16 cl-100 298d732494873001
+tone mono_strips16 tx+100 381422312e74b958
+tone mono_strips16 tx-100 523f37370df09b3f
+tone mono_strips16 dh+100 06d862a9727960d3
+tone mono_strips16 dh-100 d66f8326d741c9a2
+tone mono_strips16 mix 4f22fc0ada787b8b
+tone raf_meta sh+100 fb8a1835b48de430
+tone raf_meta sh-60 8ab3a12b96e6ff39
+tone raf_meta hi-100 2ebe3949f7ea485c
+tone raf_meta hi+50 b5031464a34782d6
+tone raf_meta cl+100 71dd940c1529eabf
+tone raf_meta cl-100 46a23b26e7f9c74e
+tone raf_meta tx+100 1c66a7e9192372ae
+tone raf_meta tx-100 1c66a7e9192372ae
+tone raf_meta dh+100 7998e3695b01f3f6
+tone raf_meta dh-100 3eda6a5aba0868f6
+tone raf_meta mix 84420478c3f3fa5d
+tone h_mono_lj92 sh+100 3c25fb10cc840960
+tone h_mono_lj92 sh-60 7627d7085ee0b40d
+tone h_mono_lj92 hi-100 d0e7ae8561f7795f
+tone h_mono_lj92 hi+50 f45dfaf5619b90e0
+tone h_mono_lj92 cl+100 4731b67ef8ee3006
+tone h_mono_lj92 cl-100 4db5a80011add280
+tone h_mono_lj92 tx+100 6cd7267b1dbb419b
+tone h_mono_lj92 tx-100 6cd7267b1dbb419b
+tone h_mono_lj92 dh+100 f439c37bec6540c7
+tone h_mono_lj92 dh-100 1c0f46357abf136b
+tone h_mono_lj92 mix 0241d1c5ef2d1b67
+blackpoint none f529a7b962739e3b
+blackpoint sh+100 67de9bc519dab213
+blackpoint dh+100 71c58f73aecf57b4
+retone neutral 7b86b32ec5530eab
+retone sh+100 9bdf21ea0dfde017
+retone sh-60 0e44b82e93ec2ba2
+retone hi-100 41c954e78af128c0
+retone hi+50 f37cf16471193468
+retone cl+100 9b67f8d14b31a17c
+retone cl-100 31aa2e331eaa713e
+retone tx+100 f2d23deada5c6ac3
+retone tx-100 9663741d01de85eb
+retone dh+100 f5b0675c10533270
+retone dh-100 ed85d829363fc493
+retone mix d717551a769c8b43
+look shot 8667dcbd7396fac2
+lookdev shot edec94a1e6c83dbe
+look shot_o6 496219894f0c9a17
+look shot_o6_unrotated err colour not fitted to the camera JPEG: the reference (480x320) does not have the raw frame's shape (320x480)
+look noise err colour not fitted to the camera JPEG: the reference does not match the raw picture (lightness correlation 0.01)
+look grey err colour not fitted to the camera JPEG: the reference does not match the raw picture (lightness correlation -0.00)
+look square err colour not fitted to the camera JPEG: the reference (320x320) does not have the raw frame's shape (480x320)
+look short err colour not fitted to the camera JPEG: the reference image is too small or its buffer does not match its size
+look tiny err colour not fitted to the camera JPEG: the reference image is too small or its buffer does not match its size
+look empty err colour not fitted to the camera JPEG: the reference image is too small or its buffer does not match its size
+look huge err colour not fitted to the camera JPEG: the reference image is too small or its buffer does not match its size
+look badcrop err colour not fitted to the camera JPEG: the crop lies outside the sensor data
+look badwb err colour not fitted to the camera JPEG: malformed camera raw: white-balance multipliers must be positive
+lookdev manual0 9183275dc5334f0d
+lookdev manual1 9183275dc5334f0d
+lookdev manual2 9183275dc5334f0d
+lookdev manual3 95c3a55e07669b71
+previews h_jxl 0
+previews h_mono_lj92 0
+previews h_mono_deflate 0
+previews h_raf_u16 1 32x24:99
+previews h_raf_lsb12 1 32x24:99
+previews h_raf_words14 1 32x24:99
+previews raf_u16le_14 1 32x24:99
+previews raf_u16be_16 1 32x24:99
+previews raf_lsb12 1 32x24:99
+previews raf_words14 1 32x24:99
+previews raf_meta 1 32x24:99
+previews raf_grey 1 32x24:99
+previews raf_rggb_lsb12 1 32x24:99
+previews raf_rggb_words14 1 32x24:99
+previews raf_rggb_u16 1 32x24:99
+previews raf_bggr_lsb12 1 32x24:99
+previews raf_bggr_words14 1 32x24:99
+previews raf_bggr_u16 1 32x24:99
+previews raf_compressed 1 32x24:99
+previews raf_nocfa 1 32x24:99
+previews raf_badlayout 1 32x24:99
+previews raf_trunc 1 32x24:99
+previews mono_strips16 0
+previews mono_packed12 0
+previews mono_b8 0
+previews mono_lj92s 0
+previews mono_lj92t 0
+previews mono_deflate 0
+previews mono_lossy 0
+previews mono_levels 0
+previews mono_odd0 0
+previews mono_odd1 0
+previews mono_odd2 0
+previews mono_odd3 0
+previews mono_odd4 0
+previews mono_odd5 0
+previews mono_odd6 0
+previews mono_odd7 0
+previews mono_odd8 0
+previews mono_two 0
+previews deflate0 0
+previews deflate1 0
+previews deflate2 0
+previews deflate3 0
+previews deflate4 0
+previews jxl0 0
+previews jxl1 0
+previews jxl2 0
+previews jxl3 0
+previews jxl4 0
+previews jxl5 0
+previews jxl_dev 0
+previews jxl_short 0
+previews jxl_grey 0
+previews jxl_junk 0
+previews pgtm 0
+previews orient_long 0
+previews orient_long6 0
+previews lossy_cfa 0
+previews lossy_rgb 0
+previews big 0
+cspace 0 Srgb
+cspace 1 AdobeRgb
+cspace 2 none
+cspace 3 none
+cspace 4 none
+cspace 5 none
+cspace 6 none
+truncate h_mono_lj92 7b96f122a23150cb
+mutate h_mono_lj92 b21fc3ccda62a770
+truncate h_raf_u16 65bce5c0b990aede
+mutate h_raf_u16 af07780fd963737b
+truncate h_raf_lsb12 4224f1dc373f1c1e
+mutate h_raf_lsb12 a9010c0c3b2ae731
+truncate h_raf_words14 7c80767d1894f184
+mutate h_raf_words14 b2066ed6c6f1a77b

@@ -21,7 +21,7 @@ enum SmartBlurMode "normal","edgeOnly","overlayEdge" def="normal"
 enum DepthSource "none","transparency","layerMask" def="none"
 enum BlurShape "circle","ring","square","diamond","triangle","hexagon","star","heart","cross" def="circle"
 enum HsbModel "rgb","hsb","hsl" def="rgb"
-enum Resample "nearest","bilinear","bicubic","lanczos","preserveDetails" def="bicubic"
+enum Resample "nearest","bilinear","bicubic","bicubicSmoother","bicubicSharper","bicubicAutomatic","lanczos","preserveDetails" def="bicubic"
 enum Interp "nearest","bilinear","bicubic" def="bicubic"
 interp_parse "nearest" "nearest"
 interp_parse "nearestNeighbor" "nearest"
@@ -47,7 +47,7 @@ de {"filter":"gaussianBlur","radius":true}	ERR invalid type: boolean `true`, exp
 de {"filter":"gaussianBlur","radius":[]}	ERR invalid type: sequence, expected f32
 de {"filter":"gaussianBlur","radius":{}}	ERR invalid type: map, expected f32
 de {"filter":"gaussianBlur","radius":1,"radius":2}	{"filter":"gaussianBlur","radius":2.0}
-de {"filter":"nope"}	ERR unknown variant `nope`, expected one of `gaussianBlur`, `boxBlur`, `motionBlur`, `radialBlur`, `surfaceBlur`, `unsharpMask`, `smartSharpen`, `highPass`, `addNoise`, `median`, `dustAndScratches`, `minimum`, `maximum`, `offset`, `mosaic`, `emboss`, `findEdges`, `solarize`, `invert`, `desaturate`, `twirl`, `pinch`, `spherize`, `wave`, `ripple`, `polarCoordinates`, `colorHalftone`, `crystallize`, `facet`, `fragment`, `mezzotint`, `pointillize`, `diffuse`, `extrude`, `oilPaint`, `tiles`, `traceContour`, `wind`, `displace`, `shear`, `zigZag`, `fibers`, `lensFlare`, `lightingEffects`, `relight`, `reduceNoise`, `smartBlur`, `lensBlur`, `shapeBlur`, `tiltShift`, `irisBlur`, `fieldBlur`, `spinBlur`, `pathBlur`, `custom`, `hsbHsl`, `deInterlace`, `ntscColors`, `filterGallery`
+de {"filter":"nope"}	ERR unknown variant `nope`, expected one of `gaussianBlur`, `boxBlur`, `motionBlur`, `radialBlur`, `surfaceBlur`, `unsharpMask`, `smartSharpen`, `highPass`, `addNoise`, `median`, `dustAndScratches`, `minimum`, `maximum`, `offset`, `mosaic`, `emboss`, `findEdges`, `solarize`, `invert`, `desaturate`, `twirl`, `pinch`, `spherize`, `wave`, `ripple`, `polarCoordinates`, `colorHalftone`, `crystallize`, `facet`, `fragment`, `mezzotint`, `pointillize`, `diffuse`, `extrude`, `oilPaint`, `tiles`, `traceContour`, `wind`, `displace`, `shear`, `zigZag`, `fibers`, `lensFlare`, `lightingEffects`, `relight`, `reduceNoise`, `smartBlur`, `lensBlur`, `shapeBlur`, `tiltShift`, `irisBlur`, `fieldBlur`, `spinBlur`, `pathBlur`, `custom`, `hsbHsl`, `colorToAlpha`, `deInterlace`, `ntscColors`, `filterGallery`
 de {"filter":0,"radius":4}	ERR invalid type: integer `0`, expected variant identifier
 de {"filter":58}	ERR invalid type: integer `58`, expected variant identifier
 de {"filter":59}	ERR invalid type: integer `59`, expected variant identifier
@@ -184,11 +184,11 @@ histogram 1 cfdaefcac79a0ee4 0 0 1
 histogram 50 3d9fae530e740e07 34 8 8
 histogram 500 a1d6151e2bb58d6c 353 87 60
 clipping 8791850731c1c0d4
-shadows_highlights 0 ceae1cdeeccfdc1a dbfcce58f82ef2a5
-shadows_highlights 1 f9eebe8c4a0caf1b 06cc18308301d2d5
-shadows_highlights 2 e4a80e916b4e5ebb e45cb16f66a627f5
-shadows_highlights 3 fe8b03ddf7ad523a f833e09d09823415
-shadows_highlights 4 9ad852657447e91a 6ad434642dd6c325
+shadows_highlights 0 3f13df7a5c89a46f 71dee0a5de2bec35
+shadows_highlights 1 c0fe744b612868d3 27e3e5b1df5a2585
+shadows_highlights 2 accada6266b2df93 f74b77dfa9275195
+shadows_highlights 3 46d55c97cd6a57ff 69012b206fd6ac35
+shadows_highlights 4 0bc4616b9d86ea10 c3fc0898e2df7305
 replace_color 0 bd95d301042ea680 37a9b9857c5bfd95
 replace_color 1 c5a55d737efb6d45 1dfe125fdce7e61e
 replace_color 2 2b7b10ec64320b32 2a320b5981fbff0e
@@ -203,98 +203,98 @@ hdr_toning 2 04a4844634321e11 a206016cf76b48ed
 hdr_toning 3 0d162b84e2d49408 36bc519e1bc3c98d
 hdr_toning 4 95fb93bd4707b6b2 e5378a7d0be4fd05
 resize rgba8 0 960b34bdfd877ddf
-resize rgba8 1 e44c090bdb63d18f
-resize rgba8 2 9fed7af051516e8c
+resize rgba8 1 f0066c0b2be0937a
+resize rgba8 2 42a3ca3fc703c7c5
 resize rgba8 3 d8272c1256cad02e
-resize rgba8 4 f5bfc8378ade3249
+resize rgba8 4 2039727aa92c5b5c
 resize_pd rgba8 522c6df142244fcf
 resize rgba16 0 075394cf21957e6f
-resize rgba16 1 76ac6b438b4d5e44
-resize rgba16 2 3068cbc6c5c00832
+resize rgba16 1 58e831c5f6a92d3c
+resize rgba16 2 e63dca035eb42cc6
 resize rgba16 3 304fbc57edecb33d
-resize rgba16 4 e4384759386ce23b
+resize rgba16 4 715da3d84c24f089
 resize_pd rgba16 5ddcd46262c1d1fd
 resize rgba32 0 b5aee0bdb513083e
-resize rgba32 1 d3fd8852f3c74658
-resize rgba32 2 c6da86a6636edbd8
-resize rgba32 3 997e43a45d4388c2
-resize rgba32 4 0803b6c4a0651c68
+resize rgba32 1 4c03cdbd050fe780
+resize rgba32 2 f2a0eb7c1c9f4c3f
+resize rgba32 3 f4f0af1c65fc82db
+resize rgba32 4 afe6af8ba8ae47ab
 resize_pd rgba32 dd1eabde649347bd
 resize rgb8 0 fed0f109a45b8e88
-resize rgb8 1 51653d928695171b
-resize rgb8 2 9ed744e1212dd641
+resize rgb8 1 0ec95a31e0108464
+resize rgb8 2 3bde4f1159c1321d
 resize rgb8 3 71054b776509699b
-resize rgb8 4 8a6bfdb6d6730733
+resize rgb8 4 44a9fd1f45d0a263
 resize_pd rgb8 b9a527cc9da2407a
 resize gray8 0 65f51ac5dae621b9
-resize gray8 1 ba3a0c94584f6a6d
-resize gray8 2 fd93f14b8705c09a
+resize gray8 1 0f4bc94bfdd445e8
+resize gray8 2 8d767a656be4791a
 resize gray8 3 c450d3bb83e7a4c3
-resize gray8 4 9c297547479d6429
+resize gray8 4 679f0184aecd03bb
 resize_pd gray8 1f547591280e6e6b
 resize graya16 0 a28ffa7fecd96778
-resize graya16 1 e8c0f5eaa47f376b
-resize graya16 2 e85250ed6be8f89d
+resize graya16 1 accaf7bf5a92bf77
+resize graya16 2 3beaa4f2995f19ea
 resize graya16 3 30ed2e486dd56b45
-resize graya16 4 b60118c18f508a77
+resize graya16 4 806d8d74bd467b37
 resize_pd graya16 bd06c769cbb77a80
 resize cmyka8 0 3623e1d77d9111aa
-resize cmyka8 1 d589c33daed38656
-resize cmyka8 2 3ebb28c7ee8ab6df
+resize cmyka8 1 ad9fd5d10e04184f
+resize cmyka8 2 e3c6ccf7e43c0490
 resize cmyka8 3 75a733acbee40e26
-resize cmyka8 4 765715c069628f58
+resize cmyka8 4 fe65d0af1d9a5631
 resize_pd cmyka8 dd36af45d72c4ebe
 resize laba16 0 075394cf21957e6f
-resize laba16 1 76ac6b438b4d5e44
-resize laba16 2 3068cbc6c5c00832
+resize laba16 1 58e831c5f6a92d3c
+resize laba16 2 e63dca035eb42cc6
 resize laba16 3 304fbc57edecb33d
-resize laba16 4 e4384759386ce23b
+resize laba16 4 715da3d84c24f089
 resize_pd laba16 5ddcd46262c1d1fd
 resize laba32 0 b5aee0bdb513083e
-resize laba32 1 d3fd8852f3c74658
-resize laba32 2 c6da86a6636edbd8
-resize laba32 3 997e43a45d4388c2
-resize laba32 4 0803b6c4a0651c68
+resize laba32 1 4c03cdbd050fe780
+resize laba32 2 f2a0eb7c1c9f4c3f
+resize laba32 3 f4f0af1c65fc82db
+resize laba32 4 afe6af8ba8ae47ab
 resize_pd laba32 dd1eabde649347bd
 resize_canvas rgba8 0 d91eb2ad4f59bc77
-resize_canvas rgba8 1 86326a35165bb4c7
-resize_canvas rgba8 2 96a44338d237cd74
+resize_canvas rgba8 1 37ad68fec884a9cb
+resize_canvas rgba8 2 095a43737f6bfb1e
 resize_canvas rgba8 3 2f1b62495b2e86b5
 resize_canvas rgba16 0 77fd049ab51a5d2f
-resize_canvas rgba16 1 523769b1f4eb5f8e
-resize_canvas rgba16 2 1a6c8ddbe2f8ccef
+resize_canvas rgba16 1 b46bdceb132b1096
+resize_canvas rgba16 2 1dbffe1580b6678b
 resize_canvas rgba16 3 8bb1a1fcf597fe13
 resize_canvas rgba32 0 7a8c79f77bd29c60
-resize_canvas rgba32 1 5189a27fbd9f0569
-resize_canvas rgba32 2 ffb3f6f0d9c63510
-resize_canvas rgba32 3 42cb6500fb74182b
+resize_canvas rgba32 1 03bb6e298838ef3b
+resize_canvas rgba32 2 e01ea7f4b949d3b5
+resize_canvas rgba32 3 aef405a4c4a97d70
 resize_canvas rgb8 0 908df3ec8e761545
-resize_canvas rgb8 1 af0b188996a01196
-resize_canvas rgb8 2 04ab594d3144394f
+resize_canvas rgb8 1 18e3cc1a0cd2dce7
+resize_canvas rgb8 2 a0e3a5e93e957829
 resize_canvas rgb8 3 b1d24403081f25f6
 resize_canvas gray8 0 a11b41f4b9c703c9
-resize_canvas gray8 1 d57d605dbecb9267
-resize_canvas gray8 2 24a4c83f974dd713
+resize_canvas gray8 1 a35ec119092eada3
+resize_canvas gray8 2 04c78ffad65935ea
 resize_canvas gray8 3 3ed4c51ca4ea9d71
 resize_canvas graya16 0 c5e11e57cf7493b4
-resize_canvas graya16 1 4acfc858a3ce4ab0
-resize_canvas graya16 2 6fb9b160743c0afe
+resize_canvas graya16 1 63480d9dc50529aa
+resize_canvas graya16 2 74e5b3a91de5edc9
 resize_canvas graya16 3 1fe039800d19b833
 resize_canvas cmyka8 0 1e578dcd847ac0fa
-resize_canvas cmyka8 1 8e1843bc245c0f3a
-resize_canvas cmyka8 2 459b4215df30748c
+resize_canvas cmyka8 1 d4faa6586a825d30
+resize_canvas cmyka8 2 d22c13c04165fc24
 resize_canvas cmyka8 3 deff76ced346fcd1
 resize_canvas laba16 0 77fd049ab51a5d2f
-resize_canvas laba16 1 523769b1f4eb5f8e
-resize_canvas laba16 2 1a6c8ddbe2f8ccef
+resize_canvas laba16 1 b46bdceb132b1096
+resize_canvas laba16 2 1dbffe1580b6678b
 resize_canvas laba16 3 8bb1a1fcf597fe13
 resize_canvas laba32 0 7a8c79f77bd29c60
-resize_canvas laba32 1 5189a27fbd9f0569
-resize_canvas laba32 2 ffb3f6f0d9c63510
-resize_canvas laba32 3 42cb6500fb74182b
+resize_canvas laba32 1 03bb6e298838ef3b
+resize_canvas laba32 2 e01ea7f4b949d3b5
+resize_canvas laba32 3 aef405a4c4a97d70
 resize_sparse 0 f1ebc4213971d3ac
-resize_sparse 1 ff42a57140b40a05
-resize_sparse 2 8c72a117249d92b1
+resize_sparse 1 25b54ab66bcb8ed4
+resize_sparse 2 40bff4279f38fd3b
 resize_sparse 3 5836aa1e3b074a30
 resize_degenerate NaN 1 5e80b18f58df014b
 resize_degenerate 0 1 5e80b18f58df014b
@@ -309,8 +309,8 @@ warp rgba8 subpixel 09564463a5ca5fa7
 warp rgba8 scale2 1cbd610e6d41a38f
 warp rgba8 rotate 50816ab4c9efa29a
 warp rgba8 perspective 2f0af4453310378e
-warp rgba8 shrink8 66f222d1c20cd956
-warp rgba8 shrink3 c0eccd0cfd565ed5
+warp rgba8 shrink8 978ce2c1a04f08f1
+warp rgba8 shrink3 aafe772a1939e06b
 warp rgba8 flip 82afe95547fb3ab5
 warp rgba8 singular 88348fe55e17330b
 warp rgba8 infinite 88348fe55e17330b
@@ -321,20 +321,20 @@ warp rgba16 subpixel 7355d045bdd4e7b7
 warp rgba16 scale2 2095ef0d90b54aea
 warp rgba16 rotate b7aaf76967b0722a
 warp rgba16 perspective 924611d57cb44262
-warp rgba16 shrink8 b49ee39081ccd72c
-warp rgba16 shrink3 9096c78478bb0a0f
+warp rgba16 shrink8 8c17b068c6921e63
+warp rgba16 shrink3 ee8d726930e2881f
 warp rgba16 flip 95ce77b2e2f8360e
 warp rgba16 singular 88348fe55e17330b
 warp rgba16 infinite 88348fe55e17330b
 warp rgba16 far 88348fe55e17330b
 warp rgba32 identity ffbdaae13ad46fc6
 warp rgba32 translate cf4d3211baf3afd3
-warp rgba32 subpixel 229cf41c479610db
-warp rgba32 scale2 37eac53fcaee234c
+warp rgba32 subpixel 644a62077c6f3f2c
+warp rgba32 scale2 a24d4e821fda68bf
 warp rgba32 rotate 4f5ed885611e1d4f
-warp rgba32 perspective 293e5af96a0ab41e
-warp rgba32 shrink8 2673ed22e8706328
-warp rgba32 shrink3 d1808003c7a1cb8c
+warp rgba32 perspective 1c6790407d0f1a63
+warp rgba32 shrink8 1b8d1729c383a264
+warp rgba32 shrink3 25d336969a380e13
 warp rgba32 flip 16236bdb39159186
 warp rgba32 singular 88348fe55e17330b
 warp rgba32 infinite 88348fe55e17330b
@@ -345,8 +345,8 @@ warp rgb8 subpixel d82c083dede7a55a
 warp rgb8 scale2 4c0ab1c05fe67a46
 warp rgb8 rotate 8efadcf5e0515055
 warp rgb8 perspective 3016a803804aec65
-warp rgb8 shrink8 d53700c61dbf95a7
-warp rgb8 shrink3 459480fbbf892775
+warp rgb8 shrink8 9acc227e381d8345
+warp rgb8 shrink3 4e74ce13ec96f1ce
 warp rgb8 flip 7fcd0996afe52093
 warp rgb8 singular 88348fe55e17330b
 warp rgb8 infinite 88348fe55e17330b
@@ -357,8 +357,8 @@ warp gray8 subpixel b8a97b9e13f11b09
 warp gray8 scale2 c68c0401c6817f72
 warp gray8 rotate a494e8d7a89381a6
 warp gray8 perspective 1d99eca5b64a3ec6
-warp gray8 shrink8 42b6e8598ea28abc
-warp gray8 shrink3 508f75416d0f3750
+warp gray8 shrink8 5baf45b6a1c802fb
+warp gray8 shrink3 f1e4d3b39c0863ee
 warp gray8 flip 9342d7358a2738f3
 warp gray8 singular 621e460a322561f1
 warp gray8 infinite 621e460a322561f1
@@ -369,8 +369,8 @@ warp cmyka8 subpixel ad4ccaa0ccf8e09b
 warp cmyka8 scale2 4cae623d9152520b
 warp cmyka8 rotate e22001373df9c546
 warp cmyka8 perspective 79edf9ab9f9b9e87
-warp cmyka8 shrink8 96fcd6b46c3b66d9
-warp cmyka8 shrink3 2208c719ced31ffe
+warp cmyka8 shrink8 c0ffae8551df73aa
+warp cmyka8 shrink3 7005e2d77e84a350
 warp cmyka8 flip 47037b77800cc06b
 warp cmyka8 singular 26c3e847f14a7ae0
 warp cmyka8 infinite 26c3e847f14a7ae0
@@ -391,21 +391,21 @@ weights 1x1 337c9a5427b85e95
 apply rgba8 invert a4d6167d50ab5c3d
 apply rgba8 solarize 764f17ba1b34d1ff
 apply rgba8 findEdges e1c0a60e4e062097
-apply rgba8 offsetWrap 4253ea1834ff0ee1
-apply rgba8 offsetRepeat fc2c907c1ae4c2ca
-apply rgba8 offsetTransparent 18866f7e5a917e16
+apply rgba8 offsetWrap dd0ff63db4b94045
+apply rgba8 offsetRepeat cf9af83a9b224b7c
+apply rgba8 offsetTransparent 897f1c25f364565d
 apply rgba16 invert 020ea69ef6c3f71e
 apply rgba16 solarize d71e95ed0cdbffe4
 apply rgba16 findEdges 502494050f7d7b39
-apply rgba16 offsetWrap 737a2e47dd8029f1
-apply rgba16 offsetRepeat 4d31f9ce524faea8
-apply rgba16 offsetTransparent 7a975720722ceed2
+apply rgba16 offsetWrap a71573bd4349e16b
+apply rgba16 offsetRepeat 7b9fd5c6b6ecf571
+apply rgba16 offsetTransparent 5249913369fbf416
 apply rgba32 invert e80c7646bd77b953
 apply rgba32 solarize 22c2b70366a07a2d
 apply rgba32 findEdges 3a03ee88e887c435
-apply rgba32 offsetWrap 251c7543fb95d83a
-apply rgba32 offsetRepeat a44625d50192e5f9
-apply rgba32 offsetTransparent dd05c24815c51792
+apply rgba32 offsetWrap 2af5e1492d46aaf0
+apply rgba32 offsetRepeat a2259d2d23acc0a8
+apply rgba32 offsetTransparent 1447cc2642a5b493
 apply rgb8 invert 68545ad95602a047
 apply rgb8 solarize 54e258a838d5c2a0
 apply rgb8 findEdges 581b143b205fbfd2
@@ -421,24 +421,240 @@ apply gray8 offsetTransparent 101635d64aaffe04
 apply graya16 invert 02ea756e5ca5752c
 apply graya16 solarize 29bc4babc59d39b1
 apply graya16 findEdges 0d44e7586bcb80dd
-apply graya16 offsetWrap d614edebac2bf6dd
-apply graya16 offsetRepeat 71837d2a5e85d76b
-apply graya16 offsetTransparent a6404e1f2f711bc0
+apply graya16 offsetWrap 77c9b225509e0135
+apply graya16 offsetRepeat 5da8212504871e66
+apply graya16 offsetTransparent 05c57e1c0b8596db
 apply cmyka8 invert c6965c2abe2fefc6
 apply cmyka8 solarize 01d6640effdbc52f
 apply cmyka8 findEdges 2e74dca75fedf5b9
-apply cmyka8 offsetWrap 7c9b7c87b91fff48
-apply cmyka8 offsetRepeat d26b8b67276f45ad
-apply cmyka8 offsetTransparent 8a89b779aa313e1e
+apply cmyka8 offsetWrap e7b1f8660b442f56
+apply cmyka8 offsetRepeat 43e1ad897c3225bc
+apply cmyka8 offsetTransparent 639aa127035859d1
 apply laba16 invert 020ea69ef6c3f71e
 apply laba16 solarize d71e95ed0cdbffe4
 apply laba16 findEdges 502494050f7d7b39
-apply laba16 offsetWrap 737a2e47dd8029f1
-apply laba16 offsetRepeat 4d31f9ce524faea8
-apply laba16 offsetTransparent 7a975720722ceed2
+apply laba16 offsetWrap a71573bd4349e16b
+apply laba16 offsetRepeat 7b9fd5c6b6ecf571
+apply laba16 offsetTransparent 5249913369fbf416
 apply laba32 invert e80c7646bd77b953
 apply laba32 solarize 22c2b70366a07a2d
 apply laba32 findEdges 3a03ee88e887c435
-apply laba32 offsetWrap 251c7543fb95d83a
-apply laba32 offsetRepeat a44625d50192e5f9
-apply laba32 offsetTransparent dd05c24815c51792
+apply laba32 offsetWrap 2af5e1492d46aaf0
+apply laba32 offsetRepeat a2259d2d23acc0a8
+apply laba32 offsetTransparent 1447cc2642a5b493
+r5_resize rgba8 0 7c2ea1ba7b87d428
+r5_resize rgba8 1 688f12f924869e92
+r5_resize rgba8 2 d774a5dff75561cd
+r5_resize rgba8 3 8ae8bcca8012751b
+r5_resize rgba8 4 d333093c5341f684
+r5_resize rgba8 5 ec800e8e84ec0155
+r5_resize rgba8 6 25e5132a831c5c65
+r5_resize rgba8 7 aa8f95423cd3f151
+r5_resize rgba16 0 7484e55bfc7d4e8d
+r5_resize rgba16 1 60fa22bf79c3414b
+r5_resize rgba16 2 3cbfa702d81de505
+r5_resize rgba16 3 29e0e082b3f1f6ea
+r5_resize rgba16 4 6eea865983c6dd15
+r5_resize rgba16 5 624576755f111f6e
+r5_resize rgba16 6 9188d20032853eeb
+r5_resize rgba16 7 7d680c73aef33f22
+r5_resize rgba32 0 6250c6bc60286497
+r5_resize rgba32 1 ada9a88cb30e4af3
+r5_resize rgba32 2 9eeae0936c336f5d
+r5_resize rgba32 3 78da5fb344c47be8
+r5_resize rgba32 4 0539690412bd016d
+r5_resize rgba32 5 612a5bb2b82818d6
+r5_resize rgba32 6 5ca6bb8f2c5cf996
+r5_resize rgba32 7 7b217ab9c270a4d2
+r5_resize rgb8 0 4098fb58b61e80cf
+r5_resize rgb8 1 ea794ca585ed45d5
+r5_resize rgb8 2 150932897ef61c1a
+r5_resize rgb8 3 007aab04e5c656a1
+r5_resize rgb8 4 60f743d7d3c36709
+r5_resize rgb8 5 ab4706bd4beeb794
+r5_resize rgb8 6 92f1598a19599619
+r5_resize rgb8 7 373c5128dc6b75cd
+r5_resize gray8 0 a7f4b49b415bbc27
+r5_resize gray8 1 1d274bb7079aaceb
+r5_resize gray8 2 d02fe79be26d4411
+r5_resize gray8 3 62db9e62005936a6
+r5_resize gray8 4 5a77fa6765746470
+r5_resize gray8 5 4e6860708ad52b5a
+r5_resize gray8 6 913008609fba5940
+r5_resize gray8 7 fc71512d819a8393
+r5_resize graya16 0 a49d594986991f1f
+r5_resize graya16 1 b5471fa1d3d07cb6
+r5_resize graya16 2 ad4708729cdce0a5
+r5_resize graya16 3 34750bb78a7e5f7c
+r5_resize graya16 4 b6e199db3b74dde7
+r5_resize graya16 5 4e724023cc187873
+r5_resize graya16 6 4b51de0a2c3943f1
+r5_resize graya16 7 0c3ea8463d291689
+r5_resize cmyka8 0 a8254bbe33adc319
+r5_resize cmyka8 1 d6cae51e0584ee04
+r5_resize cmyka8 2 5817aebcfb7c02d1
+r5_resize cmyka8 3 c904f224729e2004
+r5_resize cmyka8 4 112762ed23fed742
+r5_resize cmyka8 5 d27e809a50c0192e
+r5_resize cmyka8 6 f729f7e8c0905825
+r5_resize cmyka8 7 c86c4f580e7c94ee
+r5_resize laba16 0 7484e55bfc7d4e8d
+r5_resize laba16 1 60fa22bf79c3414b
+r5_resize laba16 2 3cbfa702d81de505
+r5_resize laba16 3 29e0e082b3f1f6ea
+r5_resize laba16 4 6eea865983c6dd15
+r5_resize laba16 5 624576755f111f6e
+r5_resize laba16 6 9188d20032853eeb
+r5_resize laba16 7 7d680c73aef33f22
+r5_resize laba32 0 6250c6bc60286497
+r5_resize laba32 1 ada9a88cb30e4af3
+r5_resize laba32 2 9eeae0936c336f5d
+r5_resize laba32 3 78da5fb344c47be8
+r5_resize laba32 4 0539690412bd016d
+r5_resize laba32 5 612a5bb2b82818d6
+r5_resize laba32 6 5ca6bb8f2c5cf996
+r5_resize laba32 7 7b217ab9c270a4d2
+r5_resize_canvas rgba8 0 e1ca0997fc64f5d1
+r5_resize_canvas rgba8 1 64dba732d93eeae5
+r5_resize_canvas rgba8 2 9c3b987d010fea70
+r5_resize_canvas rgba8 3 cb9c8f8dcee15373
+r5_resize_canvas rgba8 4 5c6afcfb23d9e7ed
+r5_resize_canvas rgba8 5 6b7f1fe2b0f3cf30
+r5_resize_canvas rgba8 6 c13c0b1bd58aa601
+r5_resize_canvas rgba8 7 c528be5290139eb5
+r5_resize_canvas rgba16 0 fb0a254dce128c0e
+r5_resize_canvas rgba16 1 b2de2bee9d7ce980
+r5_resize_canvas rgba16 2 a880ecf4601dfda0
+r5_resize_canvas rgba16 3 b080975f2e708dd9
+r5_resize_canvas rgba16 4 0b2f6e3de3a86f70
+r5_resize_canvas rgba16 5 15415cb781a18796
+r5_resize_canvas rgba16 6 39823c23ac6c2707
+r5_resize_canvas rgba16 7 35face4e6ce03d87
+r5_resize_canvas rgba32 0 4f3ace4e0ca9b7a1
+r5_resize_canvas rgba32 1 66cd1ca3ea8b6764
+r5_resize_canvas rgba32 2 90060ff1e9da9991
+r5_resize_canvas rgba32 3 cc62af8cc10f6562
+r5_resize_canvas rgba32 4 f01e4bbbf56a518d
+r5_resize_canvas rgba32 5 c6e1f536c7058f04
+r5_resize_canvas rgba32 6 7681c01a984d553b
+r5_resize_canvas rgba32 7 3a204c23c2219d38
+r5_resize_canvas rgb8 0 77f67b894f8f4722
+r5_resize_canvas rgb8 1 19a8e14c0f47f69e
+r5_resize_canvas rgb8 2 da10576a5607f9f3
+r5_resize_canvas rgb8 3 84b641830fb1e002
+r5_resize_canvas rgb8 4 91c6f7b1e6003261
+r5_resize_canvas rgb8 5 c16e454fb350f25e
+r5_resize_canvas rgb8 6 42bc3981df26172f
+r5_resize_canvas rgb8 7 9c03b561d1508ec3
+r5_resize_canvas gray8 0 1591baa8dee8fcc4
+r5_resize_canvas gray8 1 4d50bd5afb74e0a7
+r5_resize_canvas gray8 2 96f3e4a8004e9ed1
+r5_resize_canvas gray8 3 897969962e162925
+r5_resize_canvas gray8 4 f19d8fa29aca9e60
+r5_resize_canvas gray8 5 fcf02f02bbce75a5
+r5_resize_canvas gray8 6 121d3d1ff56217c4
+r5_resize_canvas gray8 7 5433672158503f3b
+r5_resize_canvas graya16 0 c8582997fff6cd84
+r5_resize_canvas graya16 1 58a1115e679e48d9
+r5_resize_canvas graya16 2 fd493438b42ddf60
+r5_resize_canvas graya16 3 bd6bfdb332657c3b
+r5_resize_canvas graya16 4 f6e0cb06bbb3446e
+r5_resize_canvas graya16 5 43af823222241d5d
+r5_resize_canvas graya16 6 29d01f460d35e2fc
+r5_resize_canvas graya16 7 f7932c8da90e380b
+r5_resize_canvas cmyka8 0 b6f19c9f5a3383d3
+r5_resize_canvas cmyka8 1 ea651245de68de7b
+r5_resize_canvas cmyka8 2 8d9457f5e54b16b8
+r5_resize_canvas cmyka8 3 fa08104df6b3b3a1
+r5_resize_canvas cmyka8 4 67ce43f80936d4be
+r5_resize_canvas cmyka8 5 9c316d38911697d3
+r5_resize_canvas cmyka8 6 92e05310239622cc
+r5_resize_canvas cmyka8 7 fda93b1bfffb835b
+r5_resize_canvas laba16 0 fb0a254dce128c0e
+r5_resize_canvas laba16 1 b2de2bee9d7ce980
+r5_resize_canvas laba16 2 a880ecf4601dfda0
+r5_resize_canvas laba16 3 b080975f2e708dd9
+r5_resize_canvas laba16 4 0b2f6e3de3a86f70
+r5_resize_canvas laba16 5 15415cb781a18796
+r5_resize_canvas laba16 6 39823c23ac6c2707
+r5_resize_canvas laba16 7 35face4e6ce03d87
+r5_resize_canvas laba32 0 4f3ace4e0ca9b7a1
+r5_resize_canvas laba32 1 66cd1ca3ea8b6764
+r5_resize_canvas laba32 2 90060ff1e9da9991
+r5_resize_canvas laba32 3 cc62af8cc10f6562
+r5_resize_canvas laba32 4 f01e4bbbf56a518d
+r5_resize_canvas laba32 5 c6e1f536c7058f04
+r5_resize_canvas laba32 6 7681c01a984d553b
+r5_resize_canvas laba32 7 3a204c23c2219d38
+r5_resize_sparse 0 f1ebc4213971d3ac
+r5_resize_sparse 1 25b54ab66bcb8ed4
+r5_resize_sparse 2 40bff4279f38fd3b
+r5_resize_sparse 3 cf7cd01b68511580
+r5_resize_sparse 4 02e2721fabf2b1fa
+r5_resize_sparse 5 cb4bde864ae4c0d8
+r5_resize_sparse 6 5836aa1e3b074a30
+r5_resize_sparse 7 0a1862357d8f9b9f
+r5_shadows_highlights 0 240862ae7858dc3c a3e7f72c1aed7014 755adf3d2dd544d7
+r5_shadows_highlights 1 aa8108c8c2fd76bc e2a5918bbf176368 f957ccf0dd03aa2c
+r5_shadows_highlights 2 a54753235f02d21c c07ca9adc4c867a4 f765f34f03b983d0
+r5_shadows_highlights 3 0f9f1830380822b3 96cb9ac89f5e9338 835fece7b16f4953
+r5_shadows_highlights 4 dad6aeba5a0289f5 1cced1a2432e06be e41f524a2f5b9468
+r5_shadows_highlights 5 96d82ca45b98f8f4 2b105927b124f2f5 1aa30c9ea07a94b0
+r5_shadows_highlights 6 18440fa62c05ef3f f9d7545861cf067f 458ddaecc56be5ee
+r5_quads fc5c5d3f0400f5ad
+r5_is_identity a689911e94ec72d1
+r5_warp rgba8 steep a49a9e1c42e6ede1
+r5_warp rgba8 horizon 2fbbc6b38a4caa87
+r5_warp rgba8 behind 6e516cf21047f723
+r5_warp rgba8 cross 1d637b62938966c4
+r5_warp rgba8 shrink dc03a7e21f501d96
+r5_warp rgba8 translate df5ca9ced28e2704
+r5_warp rgba16 steep a2ac18cf315a7a99
+r5_warp rgba16 horizon acbabb6db5a23a2e
+r5_warp rgba16 behind 1c3978b8edfb09a3
+r5_warp rgba16 cross daa5d989b8fc2f1c
+r5_warp rgba16 shrink c96a4c450c2b0082
+r5_warp rgba16 translate ac85c57d78f245ed
+r5_warp rgba32 steep d608cd6b1f66f939
+r5_warp rgba32 horizon 4fb36a493e63250d
+r5_warp rgba32 behind fa99578bd08dc30d
+r5_warp rgba32 cross c01831b14b0817a6
+r5_warp rgba32 shrink 177be83f6caaf657
+r5_warp rgba32 translate a73f8b378487eaee
+r5_warp rgb8 steep e6c7c6c4687c6d24
+r5_warp rgb8 horizon 0f8b9ad7b5a4a16c
+r5_warp rgb8 behind 42cbc5f859b96370
+r5_warp rgb8 cross dff9f89af31218a5
+r5_warp rgb8 shrink 48f90189ceafe283
+r5_warp rgb8 translate 79ca1d339ba44319
+r5_warp gray32 steep 583bd40ca7e07c0c
+r5_warp gray32 horizon fce0f9076db6dbfd
+r5_warp gray32 behind 80a1021a21fcb765
+r5_warp gray32 cross a676e2b2a12dc398
+r5_warp gray32 shrink 945f2dfe02d7b751
+r5_warp gray32 translate 6264fe49835b216c
+r5_stack_levels 7507d8ceb781eaa0
+r5_fuse_stack 1 0 8437dce9c5d1c898
+r5_fuse_stack 1 1 8437dce9c5d1c898
+r5_fuse_stack 1 2 8437dce9c5d1c898
+r5_fuse_stack 1 3 8437dce9c5d1c898
+r5_fuse_stack 1 4 8437dce9c5d1c898
+r5_fuse_stack 1 5 8437dce9c5d1c898
+r5_fuse_stack 1 6 3a45956ab4fdb335
+r5_fuse_stack 1 7 edf1d8ccc62d44dc
+r5_fuse_stack 3 0 95321556d8d0957b
+r5_fuse_stack 3 1 95321556d8d0957b
+r5_fuse_stack 3 2 95321556d8d0957b
+r5_fuse_stack 3 3 95321556d8d0957b
+r5_fuse_stack 3 4 95321556d8d0957b
+r5_fuse_stack 3 5 95321556d8d0957b
+r5_fuse_stack 3 6 aa827565c3f88e5a
+r5_fuse_stack 3 7 49031556b5501d47
+r5_fuse_stack 4 0 1115562e4d21551a
+r5_fuse_stack 4 1 1115562e4d21551a
+r5_fuse_stack 4 2 1115562e4d21551a
+r5_fuse_stack 4 3 1115562e4d21551a
+r5_fuse_stack 4 4 1115562e4d21551a
+r5_fuse_stack 4 5 1115562e4d21551a
+r5_fuse_stack 4 6 597565b59f708f35
+r5_fuse_stack 4 7 804f661f6276e23d

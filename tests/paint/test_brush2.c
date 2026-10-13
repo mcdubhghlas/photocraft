@@ -58,7 +58,8 @@ static void test_texture_modulates_coverage(void)
     CHECK(paint_alpha(&b, pts, 2, 46, 30) > 0.9f && paint_alpha(&b, pts, 2, 41, 30) < 0.1f);
     b.texture.invert = false;
     b.texture.brightness = 1.0f;
-    CHECK(paint_alpha(&b, pts, 2, 46, 30) > 0.9f);
+    /* +150 lifts a black texel by 150 levels of 255, not to white. */
+    CHECK_NEAR(paint_alpha(&b, pts, 2, 46, 30), 150.0 / 255.0, 0.02);
     pc_paint_brush_fini(&b);
     /* All modes keep zero coverage at zero and stay in range. */
     for (int m = 0; m < PC_PAINT_MASK_MODE_COUNT; m++) {
@@ -66,6 +67,15 @@ static void test_texture_modulates_coverage(void)
         for (int i = 0; i < 3; i++) {
             float v = pc_paint_mask_combine((pc_paint_mask_mode)m, 0.7f, ts[i], 0.8f);
             CHECK(pc_paint_mask_combine((pc_paint_mask_mode)m, 0.0f, ts[i], 1.0f) == 0.0f);
+            CHECK(v >= 0.0f && v <= 1.0f);
+        }
+        for (int i = 0; i < 3; i++) {
+            float v = pc_paint_texture_combine((pc_paint_mask_mode)m, 0.7f, ts[i], 0.8f);
+            CHECK(pc_paint_texture_combine((pc_paint_mask_mode)m, 0.0f, ts[i], 1.0f) == 0.0f);
+            CHECK(v >= 0.0f && v <= 1.0f);
+        }
+        {
+            float v = pc_paint_texture_combine((pc_paint_mask_mode)m, 0.7f, NAN, INFINITY);
             CHECK(v >= 0.0f && v <= 1.0f);
         }
         /* Full-white texture never reduces multiply-like masks below the brush. */

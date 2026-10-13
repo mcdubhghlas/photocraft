@@ -294,7 +294,9 @@ pc_status rx_dng_decode(const rx_tiff *t, const pc_raw_limits *limits, pc_raw_se
         st = rx_unsupported(err, "CFA data with %zu samples per pixel", samples);
         goto fail;
     }
-    if (!is_cfa && samples != 3) {
+    /* LinearRaw: three colour samples, or one for a monochrome camera or scanner (DNG 1.7,
+     * ColorPlanes 1). */
+    if (!is_cfa && samples != 1 && samples != 3) {
         st = rx_unsupported(err, "LinearRaw data with %zu samples per pixel", samples);
         goto fail;
     }
@@ -412,6 +414,12 @@ pc_status rx_dng_decode(const rx_tiff *t, const pc_raw_limits *limits, pc_raw_se
             goto fail;
         }
     }
+    /* DNG 1.6 ProfileGainTableMap: the local tone mapping phones rely on for their default look. */
+    if ((rx_ifd_has(t, &ifd0, RX_PROFILE_GAIN_TABLE_MAP) || rx_ifd_has(t, &raw, RX_PROFILE_GAIN_TABLE_MAP)) &&
+        (st = rx_warn(&s.warnings, err, "DNG ProfileGainTableMap (local tone mapping) is not applied")) !=
+            PC_OK) {
+        goto fail;
+    }
     max = (float)((1u << plane.bits) - 1);
     if (rx_ifd_get(t, &raw, RX_LINEARIZATION_TABLE, &e)) {
         size_t n = rx_uints_n(t, &e);
@@ -477,7 +485,8 @@ pc_status rx_dng_decode(const rx_tiff *t, const pc_raw_limits *limits, pc_raw_se
         goto fail;
     }
     color_info(t, &ifd0, &s.color);
-    if (s.color.ncalibrations == 0 &&
+    /* A monochrome image has no colour to calibrate: it develops as neutral grey. */
+    if (s.color.ncalibrations == 0 && (is_cfa || samples != 1) &&
         (st = rx_warn(&s.warnings, err, "the DNG has no colour matrix; colours are approximate")) != PC_OK) {
         goto fail;
     }

@@ -41,21 +41,43 @@ static bool data_at(const tiff *t, uint16_t typ, uint32_t count, size_t field, s
     uint64_t unit, size;
     uint32_t off;
     switch (typ) {
-    case 1: case 2: case 6: case 7: unit = 1; break;
-    case 3: case 8: unit = 2; break;
-    case 4: case 9: case 11: unit = 4; break;
-    case 5: case 10: case 12: unit = 8; break;
-    default: return false;
+    case 1:
+    case 2:
+    case 6:
+    case 7:
+        unit = 1;
+        break;
+    case 3:
+    case 8:
+        unit = 2;
+        break;
+    case 4:
+    case 9:
+    case 11:
+        unit = 4;
+        break;
+    case 5:
+    case 10:
+    case 12:
+        unit = 8;
+        break;
+    default:
+        return false;
     }
     size = unit * count;
     if (size <= 4) {
-        *at = field;
-        return true;
-    }
-    if (!t_u32(t, field, &off)) {
+        off = 0;
+        if (field > t->len) {
+            return false;
+        }
+    } else if (!t_u32(t, field, &off)) {
         return false;
     }
-    *at = off;
+    /* The whole value must lie inside the payload, not just its first element. */
+    if (size <= 4 ? t->len - field < size : off > t->len || t->len - off < size) {
+        return false;
+    }
+    *at = size <= 4 ? field : off;
     return true;
 }
 
@@ -147,6 +169,7 @@ void pc_algo_camera_info_fini(pc_algo_camera_info *info)
         str_free(&info->make);
         str_free(&info->model);
         str_free(&info->lens);
+        str_free(&info->date_taken);
         memset(info, 0, sizeof *info);
     }
 }
@@ -169,7 +192,7 @@ bool pc_algo_camera_info_equal(const pc_algo_camera_info *a, const pc_algo_camer
     return str_eq(&a->make, &b->make) && str_eq(&a->model, &b->model) && str_eq(&a->lens, &b->lens) &&
            num_eq(a->exposure_time, b->exposure_time) && num_eq(a->f_number, b->f_number) &&
            num_eq(a->iso, b->iso) && num_eq(a->focal_length, b->focal_length) &&
-           num_eq(a->focal_length_35mm, b->focal_length_35mm);
+           num_eq(a->focal_length_35mm, b->focal_length_35mm) && str_eq(&a->date_taken, &b->date_taken);
 }
 
 bool pc_algo_exif_exposure_factor(const pc_algo_camera_info *info, double *out)
@@ -257,12 +280,24 @@ pc_status pc_algo_exif_read(const uint8_t *exif, size_t len, pc_algo_camera_info
             }
             size_t field = e + 8;
             switch (tag) {
-            case 0x010F: st = set_text(&t, typ, count, field, &info.make, err); break;
-            case 0x0110: st = set_text(&t, typ, count, field, &info.model, err); break;
-            case 0x829A: info.exposure_time = number(&t, typ, count, field); break;
-            case 0x829D: info.f_number = number(&t, typ, count, field); break;
-            case 0x8827: info.iso = number(&t, typ, count, field); break;
-            case 0x920A: info.focal_length = number(&t, typ, count, field); break;
+            case 0x010F:
+                st = set_text(&t, typ, count, field, &info.make, err);
+                break;
+            case 0x0110:
+                st = set_text(&t, typ, count, field, &info.model, err);
+                break;
+            case 0x829A:
+                info.exposure_time = number(&t, typ, count, field);
+                break;
+            case 0x829D:
+                info.f_number = number(&t, typ, count, field);
+                break;
+            case 0x8827:
+                info.iso = number(&t, typ, count, field);
+                break;
+            case 0x920A:
+                info.focal_length = number(&t, typ, count, field);
+                break;
             case 0xA405:
                 info.focal_length_35mm = number(&t, typ, count, field);
                 if (!(info.focal_length_35mm.v > 0.0)) {
@@ -270,7 +305,12 @@ pc_status pc_algo_exif_read(const uint8_t *exif, size_t len, pc_algo_camera_info
                     info.focal_length_35mm.v = 0.0;
                 }
                 break;
-            case 0xA434: st = set_text(&t, typ, count, field, &info.lens, err); break;
+            case 0xA434:
+                st = set_text(&t, typ, count, field, &info.lens, err);
+                break;
+            case 0x9003:
+                st = set_text(&t, typ, count, field, &info.date_taken, err);
+                break;
             case 0x8769:
                 if (t_u32(&t, field, &p)) {
                     if (nq + 1 > capq) {
@@ -344,16 +384,20 @@ static void num_entry(entry *e, uint16_t tag, uint16_t typ, double v)
     e->bytes = e->inl;
 }
 
-static pc_status write_ifd(pc_buf *out, pc_buf *data, size_t *data_off, const entry *es, size_t n,
-                           bool extra, uint32_t extra_ptr, pc_error *err)
+static pc_status write_ifd(pc_buf *out, pc_buf *data, size_t *data_off, const entry *es, size_t n, bool extra,
+                           uint32_t extra_ptr, pc_error *err)
 {
     size_t k;
     pc_status st = pc_buf_put_le16(out, (uint16_t)(n + (extra ? 1u : 0u)), err);
     for (k = 0; k < n && st == PC_OK; k++) {
         const entry *e = &es[k];
         st = pc_buf_put_le16(out, e->tag, err);
-        if (st == PC_OK) { st = pc_buf_put_le16(out, e->typ, err); }
-        if (st == PC_OK) { st = pc_buf_put_le32(out, e->count, err); }
+        if (st == PC_OK) {
+            st = pc_buf_put_le16(out, e->typ, err);
+        }
+        if (st == PC_OK) {
+            st = pc_buf_put_le32(out, e->count, err);
+        }
         if (st != PC_OK) {
             break;
         }
@@ -366,15 +410,23 @@ static pc_status write_ifd(pc_buf *out, pc_buf *data, size_t *data_off, const en
                 return pc_fail(err, PC_ERR_LIMIT, "EXIF payload too large");
             }
             st = pc_buf_put_le32(out, (uint32_t)*data_off, err);
-            if (st == PC_OK) { st = pc_buf_append(data, e->bytes, e->nbytes, err); }
+            if (st == PC_OK) {
+                st = pc_buf_append(data, e->bytes, e->nbytes, err);
+            }
             *data_off += e->nbytes;
         }
     }
     if (st == PC_OK && extra) {
         st = pc_buf_put_le16(out, 0x8769, err);
-        if (st == PC_OK) { st = pc_buf_put_le16(out, 4, err); }
-        if (st == PC_OK) { st = pc_buf_put_le32(out, 1, err); }
-        if (st == PC_OK) { st = pc_buf_put_le32(out, extra_ptr, err); }
+        if (st == PC_OK) {
+            st = pc_buf_put_le16(out, 4, err);
+        }
+        if (st == PC_OK) {
+            st = pc_buf_put_le32(out, 1, err);
+        }
+        if (st == PC_OK) {
+            st = pc_buf_put_le32(out, extra_ptr, err);
+        }
     }
     if (st == PC_OK) {
         st = pc_buf_put_le32(out, 0, err);
@@ -384,7 +436,7 @@ static pc_status write_ifd(pc_buf *out, pc_buf *data, size_t *data_off, const en
 
 pc_status pc_algo_exif_build(const pc_algo_camera_info *info, pc_buf *out, pc_error *err)
 {
-    entry ifd0[2], ex[6];
+    entry ifd0[2], ex[7];
     size_t n0 = 0, ne = 0, exif_off, data_off;
     pc_buf body = PC_BUF_INIT, data = PC_BUF_INIT;
     pc_status st;
@@ -394,11 +446,24 @@ pc_status pc_algo_exif_build(const pc_algo_camera_info *info, pc_buf *out, pc_er
     if (info->model.s != NULL && !text_entry(&ifd0[n0++], 0x0110, &info->model)) {
         return pc_fail(err, PC_ERR_LIMIT, "EXIF string too long");
     }
-    if (info->exposure_time.set) { num_entry(&ex[ne++], 0x829A, 5, info->exposure_time.v); }
-    if (info->f_number.set) { num_entry(&ex[ne++], 0x829D, 5, info->f_number.v); }
-    if (info->iso.set) { num_entry(&ex[ne++], 0x8827, 3, info->iso.v); }
-    if (info->focal_length.set) { num_entry(&ex[ne++], 0x920A, 5, info->focal_length.v); }
-    if (info->focal_length_35mm.set) { num_entry(&ex[ne++], 0xA405, 3, info->focal_length_35mm.v); }
+    if (info->exposure_time.set) {
+        num_entry(&ex[ne++], 0x829A, 5, info->exposure_time.v);
+    }
+    if (info->f_number.set) {
+        num_entry(&ex[ne++], 0x829D, 5, info->f_number.v);
+    }
+    if (info->iso.set) {
+        num_entry(&ex[ne++], 0x8827, 3, info->iso.v);
+    }
+    if (info->date_taken.s != NULL && !text_entry(&ex[ne++], 0x9003, &info->date_taken)) {
+        return pc_fail(err, PC_ERR_LIMIT, "EXIF string too long");
+    }
+    if (info->focal_length.set) {
+        num_entry(&ex[ne++], 0x920A, 5, info->focal_length.v);
+    }
+    if (info->focal_length_35mm.set) {
+        num_entry(&ex[ne++], 0xA405, 3, info->focal_length_35mm.v);
+    }
     if (info->lens.s != NULL && !text_entry(&ex[ne++], 0xA434, &info->lens)) {
         return pc_fail(err, PC_ERR_LIMIT, "EXIF string too long");
     }
@@ -406,11 +471,21 @@ pc_status pc_algo_exif_build(const pc_algo_camera_info *info, pc_buf *out, pc_er
     exif_off = 8 + 2 + 12 * (n0 + 1) + 4;
     data_off = exif_off + 2 + 12 * ne + 4;
     st = pc_buf_append(&body, "II*\0", 4, err);
-    if (st == PC_OK) { st = pc_buf_put_le32(&body, 8, err); }
-    if (st == PC_OK) { st = write_ifd(&body, &data, &data_off, ifd0, n0, true, (uint32_t)exif_off, err); }
-    if (st == PC_OK) { st = write_ifd(&body, &data, &data_off, ex, ne, false, 0, err); }
-    if (st == PC_OK && data.len > 0) { st = pc_buf_append(&body, data.data, data.len, err); }
-    if (st == PC_OK) { st = pc_buf_append(out, body.data, body.len, err); }
+    if (st == PC_OK) {
+        st = pc_buf_put_le32(&body, 8, err);
+    }
+    if (st == PC_OK) {
+        st = write_ifd(&body, &data, &data_off, ifd0, n0, true, (uint32_t)exif_off, err);
+    }
+    if (st == PC_OK) {
+        st = write_ifd(&body, &data, &data_off, ex, ne, false, 0, err);
+    }
+    if (st == PC_OK && data.len > 0) {
+        st = pc_buf_append(&body, data.data, data.len, err);
+    }
+    if (st == PC_OK) {
+        st = pc_buf_append(out, body.data, body.len, err);
+    }
     pc_buf_fini(&body);
     pc_buf_fini(&data);
     return st;

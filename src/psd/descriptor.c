@@ -88,7 +88,9 @@ pc_status pc_psd_id_make(const char *s, pc_psd_id *out, pc_error *err)
 {
     size_t n = strlen(s);
     memset(out, 0, sizeof *out);
-    if (n == 4) {
+    /* Photoshop writes `warp`, `list` and `time` as length-4 strings and does not recognise the
+     * code form (PC_PSD_STRING_IDS). */
+    if (n == 4 && strcmp(s, "warp") != 0 && strcmp(s, "list") != 0 && strcmp(s, "time") != 0) {
         out->is_code = true;
         memcpy(out->code, s, 4);
         return PC_OK;
@@ -395,10 +397,21 @@ static pc_status heap_desc(psd_rd *r, size_t depth, pc_psd_desc **out, pc_error 
     return PC_OK;
 }
 
+/* Most items preallocated for a file-declared count: psd_check_count only guarantees a few bytes
+ * per item while parsed items are far larger, so the count must not drive the up-front
+ * reservation. Makes room for item `i` of `n` (first reservation min(n, 4096), then geometric). */
+#define PSD_MAX_PREALLOC 4096u
+
+static size_t prealloc_need(size_t i, size_t n)
+{
+    return i == 0 ? (n < PSD_MAX_PREALLOC ? n : PSD_MAX_PREALLOC) : i + 1;
+}
+
 static pc_status read_typed(psd_rd *r, const uint8_t ty[4], size_t depth, pc_psd_value *v, pc_error *err)
 {
     uint32_t n;
     uint32_t i;
+    size_t cap;
     uint8_t b;
     pc_status st;
     int k;
@@ -418,14 +431,17 @@ static pc_status read_typed(psd_rd *r, const uint8_t ty[4], size_t depth, pc_psd
     case PC_PSD_V_REFERENCE:
         CK(psd_u32(r, &n, err));
         CK(psd_check_count(r, n, 8, err));
-        if (n > 0) {
-            v->refs = pc_calloc_array(n, sizeof *v->refs);
-            if (v->refs == NULL) {
-                st = psd_nomem(err);
-                goto fail;
-            }
-        }
+        cap = 0;
         for (i = 0; i < n; i++) {
+            if (i == cap) {
+                void *g = pc_grow_array(v->refs, &cap, prealloc_need(i, n), sizeof *v->refs);
+                if (g == NULL) {
+                    st = psd_nomem(err);
+                    goto fail;
+                }
+                v->refs = g;
+            }
+            memset(&v->refs[i], 0, sizeof v->refs[i]);
             CK(read_ref(r, &v->refs[i], err));
             v->nrefs++;
         }
@@ -437,14 +453,17 @@ static pc_status read_typed(psd_rd *r, const uint8_t ty[4], size_t depth, pc_psd
     case PC_PSD_V_LIST:
         CK(psd_u32(r, &n, err));
         CK(psd_check_count(r, n, 4, err));
-        if (n > 0) {
-            v->list = pc_calloc_array(n, sizeof *v->list);
-            if (v->list == NULL) {
-                st = psd_nomem(err);
-                goto fail;
-            }
-        }
+        cap = 0;
         for (i = 0; i < n; i++) {
+            if (i == cap) {
+                void *g = pc_grow_array(v->list, &cap, prealloc_need(i, n), sizeof *v->list);
+                if (g == NULL) {
+                    st = psd_nomem(err);
+                    goto fail;
+                }
+                v->list = g;
+            }
+            memset(&v->list[i], 0, sizeof v->list[i]);
             CK(read_value(r, depth + 1, &v->list[i], err));
             v->nlist++;
         }
@@ -942,17 +961,17 @@ static pc_status read_desc_at(psd_rd *r, size_t depth, pc_psd_desc *out, pc_erro
     CK(psd_u32(r, &n, err));
     /* Each item needs at least 5 (1-byte string key) + 4 (type) + 1 (bool). */
     CK(psd_check_count(r, n, 10, err));
-    if (n > 0) {
-        d.items = pc_calloc_array(n, sizeof *d.items);
-        if (d.items == NULL) {
-            st = psd_nomem(err);
-            goto fail;
-        }
-        d.cap = n;
-    }
     for (i = 0; i < n; i++) {
         pc_psd_id key;
         pc_psd_value v;
+        if (i == d.cap) {
+            void *g = pc_grow_array(d.items, &d.cap, prealloc_need(i, n), sizeof *d.items);
+            if (g == NULL) {
+                st = psd_nomem(err);
+                goto fail;
+            }
+            d.items = g;
+        }
         CK(read_id(r, &key, err));
         st = read_value(r, depth + 1, &v, err);
         if (st != PC_OK) {

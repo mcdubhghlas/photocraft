@@ -165,8 +165,8 @@ static void test_truncated_files_mostly_error(void)
         size_t half = s.v[i].b.len / 2;
         pc_cimage img;
         pc_error e;
-        if (f == PC_CF_PNG || f == PC_CF_PNM || f == PC_CF_QOI || f == PC_CF_EXR || f == PC_CF_TIFF ||
-            f == PC_CF_BMP) {
+        if (f == PC_CF_PNG || f == PC_CF_PNM || f == PC_CF_FITS || f == PC_CF_QOI || f == PC_CF_EXR ||
+            f == PC_CF_TIFF || f == PC_CF_BMP) {
             bool err = pc_cdecode_as_with(f, s.v[i].b.data, half, &o, &img, NULL) != PC_OK;
             if (!err) {
                 PC_T_FAIL("%s decoded half a file", pc_cformat_debug(f));

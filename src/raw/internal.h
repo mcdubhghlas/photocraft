@@ -36,6 +36,7 @@ enum {
     RX_IMAGE_LENGTH = 257,
     RX_BITS_PER_SAMPLE = 258,
     RX_COMPRESSION = 259,
+    RX_PREDICTOR = 317,
     RX_PHOTOMETRIC = 262,
     RX_MAKE = 271,
     RX_MODEL = 272,
@@ -58,6 +59,9 @@ enum {
     RX_EXIF_IFD = 34665,
     RX_EXIF_CFA_PATTERN = 41730,
     RX_MAKER_NOTE = 37500,
+    RX_COLOR_SPACE = 40961,
+    RX_INTEROP_IFD = 40965,
+    RX_INTEROP_INDEX = 1, /* in the Interoperability IFD */
     RX_DNG_VERSION = 50706,
     RX_UNIQUE_CAMERA_MODEL = 50708,
     RX_CFA_PLANE_COLOR = 50710,
@@ -88,6 +92,7 @@ enum {
     RX_OPCODE_LIST_2 = 51009,
     RX_OPCODE_LIST_3 = 51022,
     RX_BASELINE_EXPOSURE_OFFSET = 51109,
+    RX_PROFILE_GAIN_TABLE_MAP = 52525,
     RX_CR2_SLICE = 50752
 };
 
@@ -145,6 +150,8 @@ const uint8_t *rx_raw(const rx_tiff *t, const rx_entry *e, size_t *len);
 /* An ASCII value up to the first NUL, lossy UTF-8, trimmed; NULL when absent or empty. Sets
  * *nomem on allocation failure. */
 char *rx_ascii(const rx_tiff *t, const rx_entry *e, bool *nomem);
+/* Bytes up to the first NUL as lossy UTF-8, trimmed; NULL when empty (or *nomem). */
+char *rx_lossy_trimmed(const uint8_t *b, size_t len, bool *nomem);
 
 bool rx_tag_uint(const rx_tiff *t, const rx_ifd *ifd, uint16_t tag, uint32_t *v);
 /* List lengths of a tag (0 when absent); the entry is written when present. */
@@ -182,6 +189,21 @@ pc_status rx_segments(const rx_tiff *t, const rx_ifd *ifd, size_t width, size_t 
 pc_status rx_unpack(const uint8_t *src, size_t srclen, size_t w, size_t rows, size_t samples, uint32_t bits, bool le,
                     uint16_t *out, pc_error *err);
 
+/* DNG compressions decoded by lossy.c / jxl.c. */
+#define RX_LOSSY_JPEG 34892u
+#define RX_JPEG_XL 52546u
+/* Inflates a zlib stream into out (cap bytes); *got is what came out. Truncated input or a full
+ * buffer is not an error (the caller checks the length); corrupt data is. */
+pc_status rx_inflate_zlib(const uint8_t *src, size_t n, uint8_t *out, size_t cap, size_t *got, pc_error *err);
+/* A baseline JPEG tile (compression 34892): w x rows samples (1 = gray, 3 = RGB) widened to 16 bits;
+ * *out malloc'd. */
+pc_status rx_lossy_jpeg_segment(const uint8_t *src, size_t n, size_t w, size_t rows, size_t samples,
+                                uint16_t **out, pc_error *err);
+/* One JPEG XL segment (compression 52546): w * h * samples interleaved samples at bits per sample;
+ * *out malloc'd. Without libjxl (PC_NO_JXL): PC_ERR_UNSUPPORTED. */
+pc_status rx_jxl_decode(const uint8_t *src, size_t n, size_t w, size_t h, size_t samples, uint32_t bits,
+                        const pc_raw_limits *limits, uint16_t **out, pc_error *err);
+
 pc_status rx_black_uniform(pc_raw_black *b, float v, pc_error *err);
 pc_status rx_black_2x2(pc_raw_black *b, const float v[4], pc_error *err);
 void rx_black_fini(pc_raw_black *b);
@@ -206,6 +228,7 @@ extern const pc_raw_mat3 RX_IDENTITY;
 extern const double RX_D50[3];
 extern const double RX_D50_XY[2];
 extern const double RX_D65_XY[2];
+extern const double RX_ROMM[3][2]; /* ProPhoto (ROMM) primaries */
 
 pc_raw_mat3 rx_mul(const pc_raw_mat3 *a, const pc_raw_mat3 *b);
 void rx_apply(const pc_raw_mat3 *m, const double v[3], double out[3]);
@@ -244,6 +267,22 @@ bool rx_measured_red_row(const uint16_t *data, size_t n, size_t width, pc_raw_re
 bool rx_masked_black(const uint16_t *data, size_t n, size_t width, pc_raw_rect area, float out[4]);
 
 bool rx_orf_preview_range(const rx_tiff *t, size_t *off, size_t *len);
+
+/* Fujifilm RAF (raf.c). */
+#define RX_RAF_MAGIC "FUJIFILMCCD-RAW"
+typedef enum rx_raf_packing {
+    RX_RAF_U16_LE,           /* 16-bit containers, little endian */
+    RX_RAF_U16_BE,           /* 16-bit containers, big endian */
+    RX_RAF_LSB_FIRST,        /* little-endian bit stream, least significant bit first (12-bit) */
+    RX_RAF_WORDS32_MSB_FIRST /* little-endian 32-bit words, most significant bit first (14-bit) */
+} rx_raf_packing;
+/* Offset and length of the preview JPEG (header bytes 84 and 88). */
+bool rx_raf_preview_range(const uint8_t *b, size_t n, size_t *off, size_t *len);
+/* Unpacks a width x height strip (bytes past n read as 0); *out malloc'd. */
+pc_status rx_raf_unpack(const uint8_t *src, size_t n, size_t width, size_t height, uint32_t bits,
+                        rx_raf_packing packing, uint16_t **out, pc_error *err);
+pc_status rx_raf_decode(const uint8_t *b, size_t n, const pc_raw_limits *l, pc_raw_sensor *out,
+                        pc_error *err);
 
 /* Sony cRAW (sony.rs). */
 #define RX_SONY_RAW_FILE_TYPE 0x7000
@@ -310,6 +349,20 @@ pc_status rx_demosaic(const rx_padded *p, const uint8_t phase[4], pc_raw_demosai
  * position pos and colour c; returns the count (at most 11). */
 size_t rx_demosaic_kernel(const uint8_t phase[4], pc_raw_demosaic method, size_t stride, size_t pos, size_t c,
                           ptrdiff_t offs[11], float weights[11]);
+/* A CFA repeat as seen from the plane's origin: colour of plane pixel (x, y) is
+ * colors[(y % h) * w + x % w] (demosaic_cfa.c). */
+typedef struct rx_pattern {
+    size_t w;
+    size_t h;
+    uint8_t colors[PC_RAW_CFA_MAX * PC_RAW_CFA_MAX];
+    size_t n; /* valid colours (a degenerate pattern has fewer than w * h) */
+} rx_pattern;
+/* The repeat of cfa starting at data coordinates (x0, y0). */
+void rx_pattern_of(const pc_raw_cfa *cfa, size_t x0, size_t y0, rx_pattern *out);
+uint8_t rx_pattern_at(const rx_pattern *p, ptrdiff_t x, ptrdiff_t y);
+/* Demosaics a padded plane with any periodic CFA into interleaved RGB (malloc'd); a degenerate
+ * pattern gives zeros. */
+pc_status rx_demosaic_cfa(const rx_padded *p, const rx_pattern *pat, float **out, pc_error *err);
 float rx_labf_exact(float t);
 /* The AHD path's tabulated CIE f(t) (for unit tests): fills RX_LABF_ENTRIES values, and evaluates
  * the table at t. */
@@ -326,6 +379,72 @@ uint16_t rx_gamma_encode(const float table[RX_GAMMA_STEPS + 2], float v);
 /* Orients interleaved RGB; *out malloc'd (or src returned via *out = NULL for orientation 1). */
 pc_status rx_orient(const uint16_t *src, size_t w, size_t h, uint16_t o, uint16_t **out, size_t *ow, size_t *oh,
                     pc_error *err);
+
+/* `curve` at linear v (develop.rs tone): log2-domain interpolation, a line through 0 below the
+ * first point, the last output beyond the last. */
+float rx_tone(const float (*curve)[2], size_t n, float v);
+/* The source position in a w x h image of output pixel (x2, y2) after TIFF orientation o. */
+void rx_source_xy(uint16_t o, size_t w, size_t h, size_t x2, size_t y2, size_t *x, size_t *y);
+/* Linearization + black/white scaling of one sample (pre white balance), 0..1. */
+float rx_scale_value(const pc_raw_sensor *s, size_t x, size_t y, size_t sample);
+/* The camera-space neutral (max component 1) for o's white balance, as develop uses it; may append
+ * the "estimated automatically" warning to w. */
+pc_status rx_resolve_neutral(const pc_raw_sensor *s, const pc_raw_develop_options *o, pc_raw_strings *w,
+                             double out[3], pc_error *err);
+/* A usable camera look: finite, bounded, invertible, positive white luminance. */
+bool rx_look_is_usable(const pc_raw_camera_look *l);
+
+/* ---- select (Rust's select_nth_unstable, select.c) ---- */
+
+typedef bool (*rx_less_fn)(void *ctx, size_t a, size_t b);
+/* Reorders v so v[index] is the element a sort by less would put there, exactly as Rust 1.95's
+ * slice::select_nth_unstable_by leaves the whole slice. */
+void rx_select_nth(size_t *v, size_t len, size_t index, rx_less_fn less, void *ctx);
+
+/* ---- tone (tone.rs) ---- */
+
+/* Pixel i's values (1 or 3 floats) for the tone maps. */
+typedef void (*rx_px_fn)(const void *ctx, size_t i, float out[3]);
+
+/* A log2-luminance change computed on a reduced copy, carried to full size along the image's own
+ * edges: change = a * log2 Y + b per reduced pixel. */
+typedef struct rx_upsampled {
+    size_t sw, sh;
+    float *a;
+    float *b;
+    float floor; /* log2 luminance floor */
+} rx_upsampled;
+
+/* Shadows / Highlights / Clarity on the work copy, Texture on a half-size copy, and the black point. */
+typedef struct rx_tonemap {
+    size_t w, h;
+    bool has_work, has_texture;
+    rx_upsampled work, texture;
+    float black; /* linear black point to subtract (0: none) */
+} rx_tonemap;
+
+/* *some = false when nothing changes (no tone and no black point). */
+pc_status rx_tonemap_new(size_t w, size_t h, rx_px_fn lum, const void *ctx, const pc_raw_tone *tone,
+                         float black_point, rx_tonemap *out, bool *some, pc_error *err);
+float rx_tonemap_gain(const rx_tonemap *m, size_t x, size_t y, float lum);
+float rx_tonemap_unblack(const rx_tonemap *m, float v);
+void rx_tonemap_fini(rx_tonemap *m);
+/* factor times the 0.1th percentile of the work copy's linear luminance (0: none). */
+pc_status rx_black_level(size_t w, size_t h, rx_px_fn lum, const void *ctx, float factor, float *out,
+                         pc_error *err);
+
+/* Dehaze on linear ProPhoto RGB. */
+typedef struct rx_haze {
+    size_t w, h, sw, sh;
+    float *t; /* transmission per work-copy pixel (Dehaze > 0); NULL for the veil of Dehaze < 0 */
+    float air[3];
+    float veil;
+} rx_haze;
+
+pc_status rx_haze_new(size_t w, size_t h, rx_px_fn px, const void *ctx, float amount, rx_haze *out,
+                      bool *some, pc_error *err);
+void rx_haze_apply(const rx_haze *z, size_t x, size_t y, const float v[3], float out[3]);
+void rx_haze_fini(rx_haze *z);
 
 /* ---- parallel helpers (par.rs) ---- */
 

@@ -37,7 +37,9 @@ pc_status pc_psd_layer_rgba8(const pc_psd_file *f, size_t index, pc_psd_image8 *
  * value. PC_ERR_NOT_FOUND when the layer has no mask channel. */
 pc_status pc_psd_layer_user_mask(const pc_psd_file *f, size_t index, pc_psd_image8 *out, pc_error *err);
 /* The merged composite as RGBA8 (RGB, gray, CMYK, indexed, duotone, bitmap; alpha from the first
- * extra channel when pc_psd_file_merged_has_alpha). */
+ * extra channel when pc_psd_file_merged_has_alpha). Removes the white matte from RGB composites
+ * before reducing precision. An RGBA output over PC_PSD_MAX_DECODED_BYTES is PC_ERR_LIMIT, checked
+ * before any plane is decoded (pc_psd_layer_rgba8 likewise). */
 pc_status pc_psd_composite_rgba8(const pc_psd_file *f, pc_psd_image8 *out, pc_error *err);
 
 #endif

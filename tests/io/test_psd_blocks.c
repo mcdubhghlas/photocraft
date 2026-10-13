@@ -997,9 +997,10 @@ static void test_malformed_falls_back_to_unsupported(void)
     CHECK(unsupported("phfl", (const uint8_t[17]){0, 2, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 25, 1}, 17,
                       PC_IO_ADJ_RGB));
     {
+        /* Version 3 stores D50 XYZ scaled by 32768; a component past 2.0 is not a colour. */
         pc_psd_bytes lab = {NULL, 0};
         cat(&lab, (const uint8_t[2]){0, 3}, 2);
-        be32(&lab, 20000);
+        be32(&lab, 200000);
         be32(&lab, 0);
         be32(&lab, 0);
         cat(&lab, (const uint8_t[5]){0, 0, 0, 25, 1}, 5);
@@ -1110,27 +1111,30 @@ static void test_photo_filter_golden_blocks(void)
         pc_adjustment_fini(&a);
         pc_psd_bytes_fini(&d);
     }
-    /* Version 3: Lab x100 as i32 (L 100 = white), density 100 %; and a negative a* (green). */
+    /* Version 3: D50 XYZ scaled by 32768. The sRGB (D50) white point is white; Photoshop's
+     * Warming Filter (85) preset is sRGB #EC8A00 (D50 XYZ 15193, 12086, 1192). */
     {
-        static const int32_t cases[2][3] = {{10000, 0, 0}, {5000, -6000, 0}};
+        static const uint32_t cases[2][3] = {{31595, 32768, 27040}, {15193, 12086, 1192}};
         for (size_t c = 0; c < 2; c++) {
             pc_psd_bytes d = {NULL, 0};
             cat(&d, (const uint8_t[2]){0, 3}, 2);
             for (size_t k = 0; k < 3; k++) {
-                be32(&d, (uint32_t)cases[c][k]);
+                be32(&d, cases[c][k]);
             }
-            be32(&d, c == 0 ? 100 : 30);
+            be32(&d, c == 0 ? 100 : 25);
             cat(&d, (const uint8_t[1]){c == 0 ? 1 : 0}, 1);
             a = parse_adj("phfl", d.data, d.len, NULL, 0, PC_IO_ADJ_RGB);
             CHECK(a.kind == PC_ADJ_PHOTO_FILTER);
             if (c == 0) {
                 CHECK(a.u.photo_filter.preserve_luminosity && a.u.photo_filter.density == 1.0f);
                 for (size_t k = 0; k < 3; k++) {
-                    CHECK(fabsf(a.u.photo_filter.color[k] - 1.0f) < 0.01f);
+                    CHECK(fabsf(a.u.photo_filter.color[k] - 1.0f) < 0.005f);
                 }
             } else {
-                CHECK(a.u.photo_filter.color[1] > a.u.photo_filter.color[0] &&
-                      a.u.photo_filter.color[1] > a.u.photo_filter.color[2]);
+                const float want[3] = {0xec / 255.0f, 0x8a / 255.0f, 0.0f};
+                for (size_t k = 0; k < 3; k++) {
+                    CHECK(fabsf(a.u.photo_filter.color[k] - want[k]) < 1.5f / 255.0f);
+                }
             }
             pc_adjustment_fini(&a);
             pc_psd_bytes_fini(&d);

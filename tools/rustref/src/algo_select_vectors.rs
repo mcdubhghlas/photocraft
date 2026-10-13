@@ -637,7 +637,8 @@ fn segment_core_cases() {
     line!("seg.gmm.few {:016x}", ogmm(&Gmm::fit(&samples[..2], 5, gmm::DEFAULT_REG).unwrap()));
     line!("seg.gmm.flat {}", Gmm::fit(&vec![[0.5f32; 3]; 10], 3, 0.0).map_or("none".to_string(), |g| format!("{:016x}", ogmm(&g))));
     line!("seg.gmm.empty {}", Gmm::fit(&[], 3, 0.0).is_none());
-    line!("seg.gmm.broad {:016x}", ogmm(&quick::broad_model()));
+    // R0: quick::broad_model was removed upstream (Quick Selection is now a min-cut model, no GMMs).
+    // line!("seg.gmm.broad {:016x}", ogmm(&quick::broad_model()));
     let labels: Vec<usize> = (0..samples.len()).map(|i| i % 4).collect();
     line!("seg.gmm.labels {:016x}", ogmm(&Gmm::from_labels(&samples, &labels, 4, gmm::DEFAULT_REG).unwrap()));
     for k in [1usize, 2, 7, 40] {
@@ -695,15 +696,16 @@ fn segment_algo_cases() {
     let seeds = quick::stroke_mask(&[(20.0, 50.0)], 4.0, 140, 100);
     line!("seg.stroke_mask {:016x}", ob(&seeds));
     line!("seg.stroke_mask2 {:016x}", ob(&quick::stroke_mask(&[(3.5, 4.0), (30.25, 20.0), (-5.0, 60.0)], 2.5, 40, 50)));
-    line!("seg.geodesic {:016x}", of(&quick::geodesic(&tr, &seeds)));
-    let (qf, qb, low) = quick::segment(&tr, &seeds);
-    line!("seg.quick_segment {:016x} {:016x} {:016x}", ogmm(&qf), ogmm(&qb), ob(&low));
+    // R0: quick::geodesic and quick::segment were removed upstream (Quick Selection rewritten as a min cut).
+    // line!("seg.geodesic {:016x}", of(&quick::geodesic(&tr, &seeds)));
+    // let (qf, qb, low) = quick::segment(&tr, &seeds);
+    // line!("seg.quick_segment {:016x} {:016x} {:016x}", ogmm(&qf), ogmm(&qb), ob(&low));
     let st = ImageSampler { img: &tr, origin: (0, 0) };
-    line!("seg.quick.grow {}", oreg(&quick::quick_select(&st, Rect::new(0, 0, 140, 100), &[(20.0, 50.0), (35.0, 50.0)], 8.0, quick::WORK_PX)));
-    line!("seg.quick.off {}", oreg(&quick::quick_select(&st, Rect::new(0, 0, 140, 100), &[(3e9, 0.0)], 8.0, quick::WORK_PX)));
+    line!("seg.quick.grow {}", oreg(&quick::quick_select(&st, Rect::new(0, 0, 140, 100), &[(20.0, 50.0), (35.0, 50.0)], 8.0)));
+    line!("seg.quick.off {}", oreg(&quick::quick_select(&st, Rect::new(0, 0, 140, 100), &[(3e9, 0.0)], 8.0)));
     let qs = disc_scene(300, 250, 150.0, 125.0, 90.0, 4);
     let sq = ImageSampler { img: &qs, origin: (0, 0) };
-    line!("seg.quick.down {}", oreg(&quick::quick_select(&sq, Rect::new(0, 0, 300, 250), &[(130.0, 125.0), (170.0, 125.0)], 20.0, 5_000)));
+    line!("seg.quick.down {}", oreg(&quick::quick_select(&sq, Rect::new(0, 0, 300, 250), &[(130.0, 125.0), (170.0, 125.0)], 20.0)));
     // Sky.
     let mut h = H0;
     for i in 0..125 {
@@ -746,10 +748,349 @@ fn segment_algo_cases() {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// R5: upstream's selection rewrite (hybrid max-flow, sparse grid cut, min-cut Quick Selection, new
+// distance transform, Border / Smooth / Feather as Photoshop, marquee tiles, octagonal
+// morphology, fractional Shift Edge, Refine Edge Brush, transparent magic wand).
+
+/// A `w` x `h` image of `bg` with `fg` over `[x0, x1) x [y0, y1)`.
+fn qs_scene(w: usize, h: usize, bg: [f32; 3], fg: [f32; 3], r: (usize, usize, usize, usize)) -> RgbImage {
+    RgbImage::from_fn(w, h, |x, y| if x >= r.0 && x < r.2 && y >= r.1 && y < r.3 { fg } else { bg })
+}
+fn qs_square(w: usize, side: usize, fg: [f32; 3], bg: [f32; 3]) -> RgbImage {
+    let x0 = (w - side) / 2;
+    qs_scene(w, w, bg, fg, (x0, x0, x0 + side, x0 + side))
+}
+fn qs(name: &str, img: &RgbImage, pts: &[(f32, f32)], size: f32) {
+    let s = ImageSampler { img, origin: (0, 0) };
+    line!("r5.quick.{name} {}", oreg(&quick::quick_select(&s, Rect::new(0, 0, img.w as i32, img.h as i32), pts, size)));
+}
+/// Content hash plus tile count of a selection surface.
+fn hst(s: &Surface) -> String {
+    format!("{:016x} {}", hs(s), s.tile_count())
+}
+
+fn r5_maxflow_cases() {
+    for (k, (w, hh)) in [(70usize, 60usize), (64, 64), (100, 41), (20, 15)].into_iter().enumerate() {
+        for variant in 0..4u64 {
+            let mut rng = Rng::new(100 + k as u64 * 10 + variant);
+            let n = w * hh;
+            let mut g = Graph::with_capacity(n, n * 2);
+            for i in 0..n {
+                let (s, t) = (rng.f32() * 2.0, rng.f32() * 2.0);
+                match variant {
+                    1 => g.add_tweights(i, s, 0.0),
+                    2 => g.add_tweights(i, if i == 7 { f32::INFINITY } else { s }, t),
+                    _ => g.add_tweights(i, s, t),
+                }
+                if i % w + 1 < w {
+                    let (a, b) = (rng.f32(), rng.f32());
+                    g.add_edge(i, i + 1, a, if variant == 3 && i == 5 { -0.5 } else { b });
+                }
+                if i + w < n {
+                    let (a, b) = (rng.f32(), rng.f32());
+                    g.add_edge(i, i + w, a, b);
+                }
+            }
+            let mut c = g.clone();
+            let mut h = H0;
+            hd(&mut h, &[g.maxflow(), g.flow()]);
+            fnv(&mut h, &(0..n).map(|i| g.in_source(i) as u8).collect::<Vec<u8>>());
+            hf(&mut h, &[g.residual_out_of_source_side()]);
+            let cancelled = c.maxflow_with(&|| true).map_or("none".to_string(), |f| format!("{:016x}", f.to_bits()));
+            line!("r5.maxflow.{k}.{variant} {h:016x} {cancelled}");
+        }
+    }
+    // Grid cuts: a sparse band (few free pixels) and a dense one, with Content-Aware's weight.
+    let scene = disc_scene(150, 133, 70.0, 60.0, 40.0, 2);
+    let (w, hh) = (scene.w, scene.h);
+    let cost: Vec<f32> = (0..w * hh).map(|i| (i % 11) as f32 * 0.01).collect();
+    let cost2: Vec<f32> = (0..w * hh).map(|i| (i % 7) as f32 * 0.013).collect();
+    for kind in 0..4 {
+        let fixed: Vec<u8> = (0..w * hh)
+            .map(|i| {
+                let (x, y) = (i % w, i / w);
+                let free = match kind {
+                    0 => (68..73).contains(&x),
+                    1 => i % 503 == 0,
+                    2 => y == 0 || x == w - 1,
+                    _ => (x * 3 + y) % 5 != 0,
+                };
+                if free { segment::FREE } else if x < 70 { segment::HARD_FG } else { segment::HARD_BG }
+            })
+            .collect();
+        let a = segment::grid_cut_with(&scene, &cost, &cost2, &fixed, |d2| 8.0 * (-d2 / (2.0 * 0.05 * 0.05)).exp() + 0.05);
+        let b = segment::grid_cut(&scene, &cost, &cost2, &fixed, 50.0, segment::contrast_beta(&scene));
+        line!("r5.grid_cut.{kind} {:016x} {:016x}", ob(&a), ob(&b));
+    }
+}
+
+fn r5_quick_cases() {
+    let mut h = H0;
+    for (w, hh) in [(512usize, 512usize), (513, 512), (520, 300), (900, 300), (5000, 3500), (0, 9), (usize::MAX, 3)] {
+        hu(&mut h, &[quick::working_step(w, hh) as u64]);
+    }
+    line!("r5.quick.step {h:016x}");
+    let red = [200.0 / 255.0, 60.0 / 255.0, 60.0 / 255.0];
+    let blue = [60.0 / 255.0, 60.0 / 255.0, 200.0 / 255.0];
+    qs("half", &qs_square(640, 200, red, blue), &[(320.0, 320.0)], 30.0);
+    qs("flat", &qs_scene(400, 400, red, red, (0, 0, 0, 0)), &[(200.0, 200.0)], 30.0);
+    qs("sq220", &qs_square(500, 220, red, blue), &[(250.0, 250.0)], 30.0);
+    qs("sq240", &qs_square(500, 240, red, blue), &[(250.0, 250.0)], 30.0);
+    let (lo, hi) = ([125.0 / 255.0, 110.0 / 255.0, 110.0 / 255.0], [110.0 / 255.0, 110.0 / 255.0, 125.0 / 255.0]);
+    qs("weak94", &qs_square(500, 94, lo, hi), &[(250.0, 250.0)], 30.0);
+    qs("weak120", &qs_square(500, 120, lo, hi), &[(250.0, 250.0)], 30.0);
+    let bar = qs_scene(500, 500, blue, red, (100, 50, 180, 450));
+    qs("bar_mid", &bar, &[(140.0, 250.0)], 30.0);
+    qs("bar_end", &bar, &[(140.0, 420.0)], 30.0);
+    qs("drag300", &qs_square(500, 300, red, blue), &[(220.0, 250.0), (280.0, 250.0)], 30.0);
+    qs("large", &qs_scene(1000, 600, blue, red, (20, 260, 980, 340)), &[(500.5, 300.5)], 30.0);
+    qs("disc_drag", &disc_scene(600, 500, 300.0, 250.0, 180.0, 4), &[(260.0, 250.0), (340.0, 250.0)], 30.0);
+    qs("hostile", &qs_square(64, 20, red, blue), &[(f32::NAN, 3.0), (20.0, f32::INFINITY), (30.0, 30.0)], f32::NAN);
+    qs("huge", &qs_square(64, 20, red, blue), &[(32.0, 32.0)], 1e30);
+    // Coarse-to-fine levels (small direct_px) on textured scenes.
+    let (w, hh) = (360usize, 280usize);
+    for kind in 0..6 {
+        let img = RgbImage::from_fn(w, hh, |x, y| {
+            let inside = if kind == 2 {
+                (x as f32 - 180.0).hypot(y as f32 - 140.0) < 72.0
+            } else if kind == 3 {
+                y > 130 && y < 145
+            } else {
+                x > 60 && x < 300 && y > 60 && y < 220
+            };
+            let t = ((x * 23 + y * 19) % 101) as f32 / 100.0;
+            match kind {
+                0 => if inside { [0.6 + t * 0.1, 0.3, 0.2] } else { [0.4, 0.3 + t * 0.1, 0.2] },
+                1 => [0.4 + x as f32 / 1800.0, 0.3 + y as f32 / 1400.0, t * 0.02],
+                4 => [t, ((x * 7 + y * 31) % 79) as f32 / 78.0, 0.4],
+                5 => [0.4; 3],
+                _ => if inside { [0.8 + t * 0.1, 0.3, 0.2] } else { [0.2, 0.3 + t * 0.1, 0.8] },
+            }
+        });
+        let s = ImageSampler { img: &img, origin: (0, 0) };
+        let canvas = Rect::new(0, 0, w as i32, hh as i32);
+        let mut out = Vec::new();
+        for (points, brush) in [(vec![(180.0, 140.0)], 12.0), (vec![(90.0, 140.0), (270.0, 140.0)], 40.0), (vec![(1.0, 1.0), (160.0, 130.0)], 64.0)] {
+            for direct_px in [10_000usize, 300_000] {
+                let t = quick::Tuning { direct_px, ..quick::Tuning::default() };
+                out.push(oreg(&quick::quick_select_with(&s, canvas, &points, brush, &t)));
+            }
+        }
+        line!("r5.quick.levels.{kind} {}", out.join(" "));
+    }
+    // The working model and the upsampling directly.
+    let tr = two_regions(140, 100);
+    let seeds = quick::stroke_mask(&[(20.0, 50.0), (30.0, 52.0)], 4.0, 140, 100);
+    let t = quick::Tuning::default();
+    line!("r5.quick.working {:016x}", ob(&quick::select_working(&tr, &seeds, 4.0, &t)));
+    let t2 = quick::Tuning { area: 0.02, pow: 1.5, grow: -3.0, sigma: 0.0, direct_px: 0, ..quick::Tuning::default() };
+    line!("r5.quick.working_tuned {:016x}", ob(&quick::select_working(&tr, &seeds, 2.0, &t2)));
+    let low: Vec<bool> = (0..13 * 9).map(|i| (i * 7 + i / 13) % 5 < 2).collect();
+    for (step, w, hh) in [(1usize, 13usize, 9usize), (2, 26, 18), (2, 25, 17), (3, 39, 27), (3, 37, 25)] {
+        line!("r5.quick.upsample.{step}.{w}x{hh} {:016x}", o8(&quick::upsample(&low, 13, 9, step, w, hh)));
+    }
+}
+
+fn square_mask(w: usize, h: usize) -> Vec<f32> {
+    (0..w * h).map(|i| if (16..48).contains(&(i % w)) && (16..48).contains(&(i / w)) { 1.0 } else { 0.0 }).collect()
+}
+
+fn r5_selection_cases() {
+    // Distance transform.
+    for (k, (w, h)) in [(513usize, 137usize), (1, 101), (101, 1), (73, 65), (9, 255)].into_iter().enumerate() {
+        let inside: Vec<bool> = (0..w * h).map(|i| (i * 101 + i / w * 37) % 29 == 0).collect();
+        line!("r5.edt.{k} {:016x}", of(&selection::edt(&inside, w, h)));
+    }
+    for (w, h) in [(65_537usize, 2usize), (2, 65_537)] {
+        let mut inside = vec![false; w * h];
+        if w > h {
+            inside[w - 3] = true;
+            inside[w - 2] = true;
+            inside[2 * w - 1] = true;
+        } else {
+            inside[(h - 3) * w] = true;
+            inside[(h - 2) * w] = true;
+            inside[h * w - 1] = true;
+        }
+        line!("r5.edt.far.{w}x{h} {:016x}", of(&selection::edt(&inside, w, h)));
+    }
+    line!("r5.edt.all {:016x}", of(&selection::edt(&vec![true; 6000], 6000, 1)));
+    // Border, Smooth and Feather as Photoshop.
+    let sq = square_mask(64, 64);
+    let mf = mask_field(37, 23, 3);
+    for r in [4.0f32, 1.0, 2.5, 0.0, -1.0, f32::NAN, 100.0] {
+        line!("r5.border.{r} {:016x} {:016x}", of(&selection::border(&sq, 64, 64, r)), of(&selection::border(&mf, 37, 23, r)));
+    }
+    for r in [8.0f32, 1.0, 2.5, 0.4] {
+        line!("r5.smooth.{r} {:016x} {:016x}", of(&selection::smooth(&sq, 64, 64, r)), of(&selection::smooth(&mf, 37, 23, r)));
+    }
+    for r in [4.0f32, 1.0, 2.5, 12.0] {
+        line!("r5.feather.{r} {:016x} {:016x}", of(&selection::feather(&sq, 64, 64, r)), of(&selection::feather(&mf, 37, 23, r)));
+    }
+    // Magic wand over hidden RGB.
+    let area = Rect::new(0, 0, 6, 1);
+    let pixels: [[u8; 4]; 6] = [[255, 0, 0, 0], [0, 255, 0, 0], [255, 0, 0, 128], [253, 0, 0, 128], [0, 0, 255, 0], [255, 0, 0, 255]];
+    let floats: Vec<[f32; 4]> = pixels.iter().map(|p| p.map(|v| f32::from(v) / 255.0)).collect();
+    for (k, (seed, tol, cont)) in [((0, 0), 0.0, true), ((0, 0), 0.0, false), ((4, 0), 32.0, false), ((2, 0), 0.0, false), ((2, 0), 2.0, true), ((5, 0), 32.0, false)].into_iter().enumerate() {
+        for aa in [false, true] {
+            line!("r5.wand.{k}.{aa} {:016x} {}", of(&selection::magic_wand(&floats, area, seed, tol, cont, aa)), oreg(&selection::wand_region(&pixels, area, seed, tol, cont, aa)));
+        }
+    }
+    // Combining with fully selected tiles (shared).
+    let area = Rect::new(-37, -300, 530, 263);
+    let (w, h) = (area.width() as i32, area.height() as i32);
+    let n = (w * h) as usize;
+    let full: Vec<f32> = (0..n).map(|i| f32::from(u8::from(i >= 1000))).collect();
+    let old = selection::mask_to_surface(&mask_field(w, h, 1), area);
+    line!("r5.to_surface.full {}", hst(&selection::mask_to_surface(&full, area)));
+    for mode in [SelectionMode::Replace, SelectionMode::Add, SelectionMode::Subtract, SelectionMode::Intersect] {
+        line!("r5.combine.full.{mode:?} {}", selection::combine(Some(&old), &full, area, mode).map_or("none".to_string(), |s| hst(&s)));
+    }
+    // Marquee shapes and tile-wise combination.
+    let canvas = Rect::new(0, 0, 1100, 700);
+    let shapes = [
+        Rect::from_xywh(40, 30, 1000, 620),
+        Rect::from_xywh(3, 5, 1, 1),
+        Rect::from_xywh(10, 10, 2, 7),
+        Rect::from_xywh(100, 200, 37, 301),
+        Rect::from_xywh(255, 255, 258, 2),
+        Rect::from_xywh(-300, -200, 900, 600),
+        Rect::from_xywh(-500, -500, 2100, 1700),
+        Rect::from_xywh(1090, 690, 40, 40),
+        Rect::from_xywh(2000, 0, 50, 50),
+    ];
+    for (k, r) in shapes.into_iter().enumerate() {
+        for aa in [true, false] {
+            line!("r5.ellipse.{k}.{aa} {}", hst(&selection::ellipse_surface(r, canvas, aa)));
+        }
+    }
+    let mut rect = Surface::new(PixelFormat::GRAY8);
+    rect.fill_rect(Rect::from_xywh(200, 100, 600, 520), &[1.0]);
+    let ell = selection::ellipse_surface(Rect::from_xywh(-60, 250, 700, 500), canvas, true);
+    let rgba = surf(PixelFormat::new(ColorMode::Rgb, SampleType::U16, true), Rect::new(0, 0, 300, 200), 3);
+    let ops: [fn(f32, f32) -> f32; 3] = [|a, b| a.max(b), |a, b| a * (1.0 - b), |a, b| a.min(b)];
+    for (pi, (a, b)) in [(&rect, &ell), (&ell, &rect), (&ell, &ell), (&rgba, &ell)].into_iter().enumerate() {
+        for (oi, f) in ops.iter().enumerate() {
+            line!("r5.combine_surfaces.{pi}.{oi} {}", hst(&selection::combine_surfaces(a, b, canvas, f)));
+        }
+    }
+    line!("r5.combine_surfaces.part {}", hst(&selection::combine_surfaces(&rect, &ell, Rect::new(37, -20, 611, 333), |a, b| a.max(b))));
+}
+
+fn r5_matting_cases() {
+    let (w, h) = (23usize, 17usize);
+    let m = mask_field(w as i32, h as i32, 2);
+    let gray: Vec<f32> = (0..w * h).map(|i| ((i * 101 + i / w * 37) % 251) as f32 / 250.0 * 4.0 - 1.0).collect();
+    for r in [3usize, 4, 7, 10, 33, 64, usize::MAX] {
+        for grow in [true, false] {
+            line!("r5.morph.{r}.{grow} {:016x} {:016x}", of(&matting::morph(&m, w, h, r, grow)), of(&matting::morph(&gray, w, h, r, grow)));
+        }
+    }
+    for special in [f32::from_bits(0x7fc00001), f32::NEG_INFINITY, -0.0] {
+        let src: Vec<f32> = (0..13 * 9).map(|i| if i % 7 == 0 { special } else { (i % 11) as f32 / 10.0 }).collect();
+        let mut h = H0;
+        for r in [1usize, 3, 4, 17, 64] {
+            for grow in [false, true] {
+                hf(&mut h, &matting::morph(&src, 13, 9, r, grow));
+            }
+        }
+        line!("r5.morph.special.{:08x} {h:016x}", special.to_bits());
+    }
+    let big: Vec<f32> = (0..700 * 400).map(|i| ((i % 700) as f32 / 1000.0 + (i / 700) as f32 / 3000.0) % 0.7).collect();
+    line!("r5.morph.big {:016x} {:016x}", of(&matting::morph(&big, 700, 400, 33, false)), of(&matting::morph(&big, 700, 400, 9, true)));
+    // Fractional Shift Edge.
+    let (bw, bh) = (60usize, 30usize);
+    let bm: Vec<f32> = (0..bw * bh).map(|i| if (i % bw) < 30 + (i / bw) % 3 { 1.0 } else { 0.0 }).collect();
+    let edge = RgbImage::from_fn(bw, bh, |x, y| {
+        let t = ((x as f32 - 30.0) / 4.0).clamp(-1.0, 1.0) * 0.5 + 0.5 + pat(x as i32, y as i32, 0, 6) * 0.02;
+        [0.9 * (1.0 - t) + 0.1 * t, 0.8 * (1.0 - t) + 0.2 * t, 0.2 * (1.0 - t) + 0.6 * t]
+    });
+    for (k, (radius, shift)) in [(0.0f32, 12.5f32), (0.0, -12.5), (0.0, 37.0), (6.0, 21.0), (6.0, -70.0), (0.0, 0.001), (3.0, f32::NAN), (1e30, 50.0)].into_iter().enumerate() {
+        let p = RefineParams { radius, shift_edge: shift, ..Default::default() };
+        line!("r5.shift.{k} {} {} {:016x} {:016x}", p.halo(), p.spread(), of(&matting::refine_buffer(Some(&edge), &bm, bw, bh, &p)), of(&matting::refine_buffer(None, &bm, bw, bh, &p)));
+    }
+    // Refine Edge Brush.
+    let canvas = Rect::new(0, 0, 100, 50);
+    let add = matting::EdgeStroke { points: vec![(10.0, 25.0), (90.0, 25.0)], size: 10.0, add: true };
+    let sub = matting::EdgeStroke { points: vec![(50.0, 25.0)], size: 20.0, add: false };
+    let long = matting::EdgeStroke { points: vec![(3.0, 3.0), (3.2, 3.1), (40.0, 47.5), (97.0, 1.0), (97.0, 1.0)], size: 7.5, add: true };
+    let off = matting::EdgeStroke { points: vec![(-500.0, -500.0)], size: 10.0, add: true };
+    let nan = matting::EdgeStroke { points: vec![(f32::NAN, 3.0)], size: 10.0, add: true };
+    let empty = matting::EdgeStroke { points: vec![], size: 10.0, add: true };
+    let tiny = matting::EdgeStroke { points: vec![(20.5, 20.5)], size: 0.1, add: false };
+    let huge = matting::EdgeStroke { points: vec![(0.0, 0.0), (1e6, 0.0)], size: 5000.0, add: true };
+    let sets: Vec<Vec<matting::EdgeStroke>> = vec![
+        vec![add.clone()],
+        vec![add.clone(), sub.clone()],
+        vec![sub.clone(), add.clone()],
+        vec![long.clone(), tiny.clone()],
+        vec![off.clone(), nan.clone(), empty.clone()],
+        vec![huge.clone()],
+        vec![tiny.clone()],
+    ];
+    for (k, set) in sets.iter().enumerate() {
+        let swept = matting::swept_area(set);
+        let b = matting::EdgeBrush::new(set, canvas);
+        let desc = match &b {
+            None => "none".to_string(),
+            Some(b) => {
+                let mut h = H0;
+                hrect(&mut h, b.bounds());
+                hrect(&mut h, b.added_bounds());
+                hu(&mut h, &[b.window() as u64]);
+                hf(&mut h, &b.read(Rect::new(-3, -2, 104, 53)));
+                format!("{h:016x}")
+            }
+        };
+        line!("r5.brush.{k} {:016x} {desc}", swept.to_bits());
+    }
+    // Brushing over strands beyond the band, and restoring a blurred edge.
+    let (w, h) = (120usize, 60usize);
+    let (fg, bg) = ([0.9f32, 0.7, 0.2], [0.1f32, 0.3, 0.8]);
+    let strand = |x: usize| x < 40 || ((60..84).contains(&x) && x % 4 == 0);
+    let img = RgbImage::from_fn(w, h, |x, _| if strand(x) { fg } else { bg });
+    let s = ImageSampler { img: &img, origin: (0, 0) };
+    let canvas = Rect::new(0, 0, w as i32, h as i32);
+    let reg = Region { bbox: canvas, mask: (0..w * h).map(|i| if i % w < 40 { 255 } else { 0 }).collect() };
+    let blurred = RgbImage::from_fn(w, h, |x, _| {
+        let t = ((x as f32 - 36.0) / 8.0).clamp(0.0, 1.0);
+        [0, 1, 2].map(|c| fg[c] * (1.0 - t) + bg[c] * t)
+    });
+    let sb = ImageSampler { img: &blurred, origin: (0, 0) };
+    let strokes: Vec<Vec<matting::EdgeStroke>> = vec![
+        vec![],
+        vec![matting::EdgeStroke { points: vec![(70.0, 10.0), (70.0, 50.0)], size: 30.0, add: true }],
+        vec![matting::EdgeStroke { points: vec![(40.0, 0.0), (40.0, 60.0)], size: 20.0, add: false }],
+        vec![
+            matting::EdgeStroke { points: vec![(70.0, 10.0), (70.0, 50.0)], size: 30.0, add: true },
+            matting::EdgeStroke { points: vec![(40.0, 0.0), (40.0, 60.0)], size: 20.0, add: false },
+            matting::EdgeStroke { points: vec![(110.0, 5.0)], size: 9.0, add: true },
+        ],
+    ];
+    for (k, set) in strokes.iter().enumerate() {
+        let b = matting::EdgeBrush::new(set, canvas);
+        for (pi, p) in [RefineParams { radius: 4.0, ..Default::default() }, RefineParams { radius: 0.0, feather: 2.0, shift_edge: 10.0, ..Default::default() }]
+            .iter()
+            .enumerate()
+        {
+            line!(
+                "r5.brushed.{k}.{pi} {} {}",
+                oreg(&matting::refine_mask_brushed(&s, &matting::region_reader(&reg), reg.bbox, canvas, p, b.as_ref())),
+                oreg(&matting::refine_mask_brushed(&sb, &matting::region_reader(&reg), reg.bbox, canvas, p, b.as_ref()))
+            );
+        }
+    }
+}
+
 pub fn run() {
     selection_cases();
     magnetic_cases();
     matting_cases();
     segment_core_cases();
     segment_algo_cases();
+    r5_maxflow_cases();
+    r5_quick_cases();
+    r5_selection_cases();
+    r5_matting_cases();
 }

@@ -196,63 +196,97 @@ static pc_status sample_count(uint32_t w, uint32_t h, size_t ch, size_t *n, pc_e
     return PC_OK;
 }
 
-/* An image from raw integer values in [0, maxval]. Takes ownership of v. */
-static pc_status from_values(uint32_t w, uint32_t h, pc_clayout l, uint32_t m, uint32_t *v, size_t n, pc_cimage *out,
-                             pc_error *err)
-{
+/* The decoded raster, built straight in the output representation. It is the only buffer sized
+ * by the header, so the limits check on the output budgets all of it: no wider scratch buffer
+ * (such as one u32 per sample) sits beside it (#2938). */
+typedef struct samples {
+    uint32_t m;
     pc_csample s;
     uint8_t *d;
-    size_t i;
-    pc_status st = sample_for_maxval(m, &s, err);
-    if (st != PC_OK) {
-        free(v);
+    size_t len; /* bytes */
+    size_t cap; /* bytes */
+} samples;
+
+/* Room for cap samples (callers bound cap by the file length where the header could overstate it). */
+static pc_status samples_init(samples *o, uint32_t m, size_t cap, pc_error *err)
+{
+    size_t len;
+    pc_status st;
+    memset(o, 0, sizeof *o);
+    if ((st = sample_for_maxval(m, &o->s, err)) != PC_OK) {
         return st;
     }
-    for (i = 0; i < n; i++) {
-        if (v[i] > m) {
-            free(v);
-            return cx_malformed(err, F, "sample exceeds maxval");
-        }
+    o->m = m;
+    if (!pc_size_mul(cap, pc_csample_bytes(o->s), &len)) {
+        return cx_limit(err, "%zu samples do not fit in memory", cap);
     }
-    d = pc_malloc_array(n > 0 ? n : 1, pc_csample_bytes(s));
-    if (d == NULL) {
-        free(v);
-        return cx_nomem(err);
+    o->d = malloc(len > 0 ? len : 1);
+    if (o->d == NULL) {
+        return cx_limit(err, "cannot allocate %zu bytes for the image", len);
     }
-    for (i = 0; i < n; i++) {
-        if (s == PC_CS_U8) {
-            d[i] = (uint8_t)(m == 255 ? v[i] : (v[i] * 255 + m / 2) / m);
-        } else {
-            uint16_t x = (uint16_t)(m == 65535 ? v[i] : ((uint64_t)v[i] * 65535 + m / 2) / m);
-            memcpy(d + 2 * i, &x, 2);
-        }
-    }
-    free(v);
-    return pc_cimage_from_raw(w, h, l, s, d, n * pc_csample_bytes(s), out, err);
+    o->cap = len > 0 ? len : 1;
+    return PC_OK;
 }
 
-static pc_status read_binary(const rd *r, size_t n, uint32_t m, uint32_t **out, pc_error *err)
+/* Appends one raw value in [0, maxval], rescaled to the full range of the output sample. */
+static pc_status samples_push(samples *o, uint32_t v, pc_error *err)
+{
+    size_t k = pc_csample_bytes(o->s);
+    if (v > o->m) {
+        return cx_malformed(err, F, "sample exceeds maxval");
+    }
+    if (o->cap - o->len < k) {
+        uint8_t *g = pc_grow_array(o->d, &o->cap, o->len + k, 1);
+        if (g == NULL) {
+            return cx_nomem(err);
+        }
+        o->d = g;
+    }
+    if (o->s == PC_CS_U8) {
+        o->d[o->len] = (uint8_t)(o->m == 255 ? v : (v * 255 + o->m / 2) / o->m);
+    } else {
+        uint16_t x = (uint16_t)(o->m == 65535 ? v : ((uint64_t)v * 65535 + o->m / 2) / o->m);
+        memcpy(o->d + o->len, &x, 2);
+    }
+    o->len += k;
+    return PC_OK;
+}
+
+/* The image (takes the samples' buffer, also on failure). */
+static pc_status samples_image(samples *o, uint32_t w, uint32_t h, pc_clayout l, pc_cimage *out,
+                               pc_error *err)
+{
+    uint8_t *d = o->d;
+    o->d = NULL;
+    return pc_cimage_from_raw(w, h, l, o->s, d, o->len, out, err);
+}
+
+static pc_status read_binary(const rd *r, size_t n, uint32_t m, samples *out, pc_error *err)
 {
     const uint8_t *data = r->b + r->pos;
     size_t have = r->n - r->pos;
     size_t i;
-    uint32_t *v;
     size_t need = n;
+    pc_status st = samples_init(out, m, n, err);
+    if (st != PC_OK) {
+        return st;
+    }
     if (m >= 256 && !pc_size_mul(n, 2, &need)) {
-        return cx_malformed(err, F, "truncated raster");
+        need = SIZE_MAX;
     }
     if (have < need) {
+        free(out->d);
+        out->d = NULL;
         return cx_malformed(err, F, "truncated raster");
     }
-    v = pc_malloc_array(n > 0 ? n : 1, sizeof *v);
-    if (v == NULL) {
-        return cx_nomem(err);
+    for (i = 0; i < n && st == PC_OK; i++) {
+        st = samples_push(out, m < 256 ? data[i] : (uint32_t)cx_be16(data + 2 * i), err);
     }
-    for (i = 0; i < n; i++) {
-        v[i] = m < 256 ? data[i] : (uint32_t)cx_be16(data + 2 * i);
+    if (st != PC_OK) {
+        free(out->d);
+        out->d = NULL;
     }
-    *out = v;
-    return PC_OK;
+    return st;
 }
 
 static pc_status decode_pam(rd *r, const pc_climits *l, pc_cimage *out, pc_error *err)
@@ -269,7 +303,7 @@ static pc_status decode_pam(rd *r, const pc_climits *l, pc_cimage *out, pc_error
     pc_clayout layout;
     pc_csample s;
     size_t n;
-    uint32_t *v = NULL;
+    samples v;
     pc_status st;
     for (;;) {
         const uint8_t *t;
@@ -344,7 +378,7 @@ static pc_status decode_pam(rd *r, const pc_climits *l, pc_cimage *out, pc_error
     CK(sample_count(w, h, pc_clayout_channels(layout), &n, err));
     CK(read_binary(r, n, m, &v, err));
     pc_buf_fini(&tt);
-    return from_values(w, h, layout, m, v, n, out, err);
+    return samples_image(&v, w, h, layout, out, err);
 fail:
     pc_buf_fini(&tt);
     return st;
@@ -423,7 +457,7 @@ pc_status cx_pnm_decode(const uint8_t *b, size_t n, const pc_climits *l, pc_cima
         pc_clayout layout = kind == '2' || kind == '5' ? PC_CL_GRAY : PC_CL_RGB;
         pc_csample s;
         size_t cnt;
-        uint32_t *v = NULL;
+        samples v;
         if ((st = uint_tok(&r, &w, err)) != PC_OK || (st = uint_tok(&r, &h, err)) != PC_OK ||
             (st = uint_tok(&r, &m, err)) != PC_OK || (st = sample_for_maxval(m, &s, err)) != PC_OK ||
             (st = pc_climits_check(l, w, h, layout, s, err)) != PC_OK ||
@@ -435,27 +469,22 @@ pc_status cx_pnm_decode(const uint8_t *b, size_t n, const pc_climits *l, pc_cima
                 return st;
             }
         } else {
-            /* ASCII: the file, not the header, bounds the storage. */
-            size_t k = 0;
-            size_t cap = 0;
-            while (k < cnt) {
+            /* Each ASCII sample is a digit and a separator (the last may lack one), so the file,
+             * not the header, bounds the reservation (#1110). */
+            size_t rest = n - r.pos;
+            size_t k;
+            if ((st = samples_init(&v, m, cnt < rest / 2 + 1 ? cnt : rest / 2 + 1, err)) != PC_OK) {
+                return st;
+            }
+            for (k = 0; k < cnt; k++) {
                 uint32_t x;
-                if ((st = uint_tok(&r, &x, err)) != PC_OK) {
-                    free(v);
+                if ((st = uint_tok(&r, &x, err)) != PC_OK || (st = samples_push(&v, x, err)) != PC_OK) {
+                    free(v.d);
                     return st;
                 }
-                if (k == cap) {
-                    uint32_t *g = pc_grow_array(v, &cap, k + 1, sizeof *v);
-                    if (g == NULL) {
-                        free(v);
-                        return cx_nomem(err);
-                    }
-                    v = g;
-                }
-                v[k++] = x;
             }
         }
-        return from_values(w, h, layout, m, v, cnt, out, err);
+        return samples_image(&v, w, h, layout, out, err);
     }
     if (kind == '7') {
         return decode_pam(&r, l, out, err);

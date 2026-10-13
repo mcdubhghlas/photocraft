@@ -25,7 +25,53 @@ void pc_paint_preset_fini(pc_paint_preset *p)
     }
     pc_str_fini(&p->name);
     pc_str_fini(&p->group);
+    pc_paint_str_list_fini(&p->folder);
     pc_paint_brush_fini(&p->brush);
+}
+
+void pc_paint_str_list_fini(pc_paint_str_list *l)
+{
+    if (l == NULL) {
+        return;
+    }
+    for (size_t i = 0; i < l->len; i++) {
+        pc_str_fini(&l->v[i]);
+    }
+    free(l->v);
+    l->v = NULL;
+    l->len = 0;
+}
+
+pc_status pc_paint_str_list_clone(const pc_paint_str_list *src, pc_paint_str_list *out, pc_error *err)
+{
+    pc_paint_str_list l = {NULL, 0};
+    if (src->len > 0) {
+        l.v = pc_calloc_array(src->len, sizeof *l.v);
+        if (l.v == NULL) {
+            return pc_fail(err, PC_ERR_NOMEM, "out of memory copying a preset");
+        }
+    }
+    for (; l.len < src->len; l.len++) {
+        if (pc_str_clone(&src->v[l.len], &l.v[l.len], err) != PC_OK) {
+            pc_paint_str_list_fini(&l);
+            return PC_ERR_NOMEM;
+        }
+    }
+    *out = l;
+    return PC_OK;
+}
+
+bool pc_paint_str_list_eq(const pc_paint_str_list *a, const pc_paint_str_list *b)
+{
+    if (a->len != b->len) {
+        return false;
+    }
+    for (size_t i = 0; i < a->len; i++) {
+        if (!pc_str_eq(&a->v[i], &b->v[i])) {
+            return false;
+        }
+    }
+    return true;
 }
 
 pc_status pc_paint_preset_clone(const pc_paint_preset *src, pc_paint_preset *out, pc_error *err)
@@ -33,8 +79,10 @@ pc_status pc_paint_preset_clone(const pc_paint_preset *src, pc_paint_preset *out
     pc_paint_preset p;
     memset(&p, 0, sizeof p);
     if (pc_str_clone(&src->name, &p.name, err) != PC_OK ||
-        pc_str_clone(&src->group, &p.group, err) != PC_OK) {
+        pc_str_clone(&src->group, &p.group, err) != PC_OK ||
+        pc_paint_str_list_clone(&src->folder, &p.folder, err) != PC_OK) {
         pc_str_fini(&p.name);
+        pc_str_fini(&p.group);
         return PC_ERR_NOMEM;
     }
     pc_paint_brush_copy(&p.brush, &src->brush);
@@ -46,7 +94,8 @@ pc_status pc_paint_preset_clone(const pc_paint_preset *src, pc_paint_preset *out
 bool pc_paint_preset_eq(const pc_paint_preset *a, const pc_paint_preset *b)
 {
     return pc_str_eq(&a->name, &b->name) && pc_paint_brush_eq(&a->brush, &b->brush) &&
-           a->builtin == b->builtin && pc_str_eq(&a->group, &b->group);
+           a->builtin == b->builtin && pc_str_eq(&a->group, &b->group) &&
+           pc_paint_str_list_eq(&a->folder, &b->folder);
 }
 
 void pc_paint_preset_list_fini(pc_paint_preset_list *l)
@@ -280,6 +329,9 @@ static void dry_media(builder *bd)
     transfer(&b, pressure_min(0.3f), pc_paint_dynamic_default());
     paper(&b, 5, 0.7f);
     b.texture.mode = PC_PAINT_MASK_SUBTRACT;
+    /* Subtract takes paint away where the pattern is light; inverting keeps the preset as
+     * designed (the dark parts take it away). */
+    b.texture.invert = true;
     add(bd, "Charcoal", &b);
 
     start(bd, &b, 50.0f, bd->base->hardness);
@@ -292,6 +344,9 @@ static void dry_media(builder *bd)
     b.scattering.scatter = pc_paint_dynamic_jitter(0.25f);
     textured(&b, PC_PAINT_STYLE_CANVAS, 64, 2, 0.55f);
     b.texture.mode = PC_PAINT_MASK_SUBTRACT;
+    /* Subtract takes paint away where the pattern is light; inverting keeps the preset as
+     * designed (the dark parts take it away). */
+    b.texture.invert = true;
     add(bd, "Pastel", &b);
 
     start(bd, &b, 22.0f, 0.85f);
@@ -484,6 +539,9 @@ static void special_effects(builder *bd)
     start(bd, &b, 50.0f, 0.8f);
     textured(&b, PC_PAINT_STYLE_CANVAS, 64, 1, 0.7f);
     b.texture.mode = PC_PAINT_MASK_SUBTRACT;
+    /* Subtract takes paint away where the pattern is light; inverting keeps the preset as
+     * designed (the dark parts take it away). */
+    b.texture.invert = true;
     add(bd, "Canvas Texture", &b);
 
     start(bd, &b, 80.0f, 0.5f);

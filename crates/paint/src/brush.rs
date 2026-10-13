@@ -11,7 +11,7 @@ use photocraft_color::BlendMode;
 use serde::{Deserialize, Serialize};
 
 use crate::mixer::MixerSettings;
-use crate::tile::GrayTile;
+use crate::tile::{GrayTile, StoredTile};
 
 /// Largest brush diameter accepted by the rasterizer and brush controls.
 pub const MAX_BRUSH_SIZE: f32 = 5000.0;
@@ -72,7 +72,10 @@ impl Dynamic {
 }
 
 /// The brush tip bitmap source.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+///
+/// A loaded [`TipShape::Stored`] tip serialises as `sampled` (its full bitmap), so tool presets,
+/// recorded actions and `brush.get` see the same JSON as for an embedded tip.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum TipShape {
     /// Computed round/elliptical tip (hardness, angle, roundness).
@@ -80,6 +83,50 @@ pub enum TipShape {
     Round,
     /// Sampled tip: grayscale bitmap where 1 = full paint. Scaled so its larger side equals `size`.
     Sampled(GrayTile),
+    /// A sampled tip its owner (the preset store) keeps outside the settings and loads on demand.
+    Stored(StoredTile),
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+enum TipShapeOut<'a> {
+    Round,
+    Sampled(&'a GrayTile),
+    Stored(&'a StoredTile),
+}
+
+impl Serialize for TipShape {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        match self {
+            TipShape::Round => TipShapeOut::Round,
+            TipShape::Sampled(g) => TipShapeOut::Sampled(g),
+            TipShape::Stored(r) => match r.full.as_deref() {
+                Some(g) => TipShapeOut::Sampled(g),
+                None => TipShapeOut::Stored(r),
+            },
+        }
+        .serialize(s)
+    }
+}
+
+impl TipShape {
+    /// The bitmap a sampled tip paints with (a stored tip's full bitmap, or its preview while it
+    /// isn't loaded); `None` for a computed tip.
+    pub fn bitmap(&self) -> Option<&GrayTile> {
+        match self {
+            TipShape::Round => None,
+            TipShape::Sampled(g) => Some(g),
+            TipShape::Stored(r) => Some(r.bitmap()),
+        }
+    }
+    /// The tip's real pixel size (a stored tip's, not its preview's); `None` for a computed tip.
+    pub fn bitmap_size(&self) -> Option<(u32, u32)> {
+        match self {
+            TipShape::Round => None,
+            TipShape::Sampled(g) => Some((g.width, g.height)),
+            TipShape::Stored(r) => Some((r.width, r.height)),
+        }
+    }
 }
 
 /// Shape Dynamics.
@@ -158,11 +205,52 @@ pub enum PatternStyle {
 }
 
 /// A texture pattern: a procedural generator or an explicit grayscale tile (tiled infinitely).
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// A loaded [`Pattern::Stored`] tile serialises as `tile`, like [`TipShape::Stored`].
+#[derive(Clone, Debug, PartialEq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Pattern {
-    Procedural { style: PatternStyle, size: u32, seed: u32 },
+    Procedural {
+        style: PatternStyle,
+        size: u32,
+        seed: u32,
+    },
     Tile(GrayTile),
+    /// A tile its owner (the preset store) keeps outside the settings and loads on demand.
+    Stored(StoredTile),
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+enum PatternOut<'a> {
+    Procedural { style: PatternStyle, size: u32, seed: u32 },
+    Tile(&'a GrayTile),
+    Stored(&'a StoredTile),
+}
+
+impl Serialize for Pattern {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Pattern::Procedural { style, size, seed } => PatternOut::Procedural { style: *style, size: *size, seed: *seed },
+            Pattern::Tile(g) => PatternOut::Tile(g),
+            Pattern::Stored(r) => match r.full.as_deref() {
+                Some(g) => PatternOut::Tile(g),
+                None => PatternOut::Stored(r),
+            },
+        }
+        .serialize(s)
+    }
+}
+
+impl Pattern {
+    /// The tile a bitmap pattern textures with (a stored tile's full bitmap, or its preview while
+    /// it isn't loaded); `None` for a procedural pattern.
+    pub fn bitmap(&self) -> Option<&GrayTile> {
+        match self {
+            Pattern::Procedural { .. } => None,
+            Pattern::Tile(g) => Some(g),
+            Pattern::Stored(r) => Some(r.bitmap()),
+        }
+    }
 }
 
 impl Default for Pattern {
@@ -182,7 +270,7 @@ pub struct Texture {
     pub scale: f32,
     /// -1..1 (Photoshop's -150..150 mapped to ±1).
     pub brightness: f32,
-    /// -1..1.
+    /// -1..1: Photoshop's -50..0 mapped to -1..0 and its 0..100 to 0..1.
     pub contrast: f32,
     /// Apply the texture to every dab (enables depth jitter) instead of once to the stroke.
     pub each_tip: bool,
@@ -191,6 +279,21 @@ pub struct Texture {
     pub depth: f32,
     /// Depth jitter / control (per tip only); `minimum` is Minimum Depth.
     pub depth_jitter: Dynamic,
+}
+
+impl Texture {
+    /// A pattern value (0..1) after Brightness, Contrast and Invert: the value the mode combines
+    /// with the brush. Measured against Photoshop (#3340): Brightness shifts the pattern by
+    /// `brightness / 255` (±150 moves it 150 levels of 255, not all the way to white or black);
+    /// positive Contrast steepens it around mid-grey by `1 / (1 − c/100)` after the shift (100 is
+    /// a threshold), negative Contrast flattens it by `1 + c/100` before the shift; Invert is last.
+    pub fn level(&self, v: f32) -> f32 {
+        let b = if self.brightness.is_finite() { self.brightness.clamp(-1.0, 1.0) * (150.0 / 255.0) } else { 0.0 };
+        let c = if self.contrast.is_finite() { self.contrast.clamp(-1.0, 1.0) } else { 0.0 };
+        let x = if c >= 0.0 { (v + b - 0.5) / (1.0 - c).max(1e-4) + 0.5 } else { (v - 0.5) * (1.0 + c / 2.0) + 0.5 + b };
+        let x = if x.is_finite() { x.clamp(0.0, 1.0) } else { 0.5 };
+        if self.invert { 1.0 - x } else { x }
+    }
 }
 
 impl Default for Texture {
@@ -397,6 +500,10 @@ pub struct BrushSettings {
     pub flip_y: bool,
     /// Pencil: no anti-aliasing (coverage is 0 or 1).
     pub aliased: bool,
+    /// With `aliased`, a square tip: every pixel of the dab's whole-pixel square
+    /// ([`crate::grid_square`]), whatever its angle or roundness. The Eraser's Block mode.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub square: bool,
     // --- dynamics sections ---
     pub shape_dynamics: ShapeDynamics,
     pub scattering: Scattering,
@@ -445,6 +552,7 @@ impl Default for BrushSettings {
             flip_x: false,
             flip_y: false,
             aliased: false,
+            square: false,
             shape_dynamics: ShapeDynamics::default(),
             scattering: Scattering::default(),
             texture: Texture::default(),
@@ -554,4 +662,8 @@ pub struct BrushPreset {
     /// Preset group (folder) in the Brushes panel, e.g. "General" or an imported file's name.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub group: String,
+    /// Folders inside `group`, outermost first (empty = directly in the group), like the nested
+    /// folders of Photoshop's Brushes panel; e.g. an imported `.abr` file's own folders.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub folder: Vec<String>,
 }

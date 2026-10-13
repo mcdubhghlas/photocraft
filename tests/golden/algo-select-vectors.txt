@@ -159,55 +159,55 @@ sel.tone.3 b9d0059d61083025
 sel.edt.0 810802d504c49ed9
 sel.expand.0.0 bbee753230c07cc0
 sel.contract.0.0 bbde8809719033c5
-sel.border.0.0 2cdd7e0caf683720
+sel.border.0.0 a947e50590de8025
 sel.expand.0.1 5fabcb8198aeb38d
 sel.contract.0.1 0aad39da8f1c0955
-sel.border.0.1 71ef7e94fa44b76d
+sel.border.0.1 df8969a50c242f8d
 sel.expand.0.2.5 c8726f816ac941d9
 sel.contract.0.2.5 f8ec166bceed0a35
-sel.border.0.2.5 d8b10127cde7e7b2
+sel.border.0.2.5 21157cbf382a737e
 sel.expand.0.7 c77356e039b9e72f
 sel.contract.0.7 a947e50590de8025
-sel.border.0.7 c4a1fe8f671cc7dc
+sel.border.0.7 1c03e9438dab61cb
 sel.edt.1 75f4e80320d1b6ba
 sel.expand.1.0 0de1815893d8b208
 sel.contract.1.0 e9cf6a78c2f00b50
-sel.border.1.0 aa4b12cc5ae9232b
+sel.border.1.0 37a9b9857c5bfd95
 sel.expand.1.1 e43f5fb5c71dea19
 sel.contract.1.1 10349df498be5a10
-sel.border.1.1 cf0b505962d9c530
+sel.border.1.1 100f2e01e02be120
 sel.expand.1.2.5 62b8ff948b599b09
 sel.contract.1.2.5 54dbc5f950c8a1e8
-sel.border.1.2.5 3dc0756ae4394cba
+sel.border.1.2.5 c7564948f4ac1fe4
 sel.expand.1.7 ba0fb2011f079735
 sel.contract.1.7 37a9b9857c5bfd95
-sel.border.1.7 e7c54a183e1bcd1d
+sel.border.1.7 acce39851d1e5635
 sel.edt.2 4f37eef4764814d5
 sel.expand.2.0 1a308865f7d403d8
 sel.contract.2.0 1a7400291eb2a998
-sel.border.2.0 6907cc5e64ac3a4b
+sel.border.2.0 943cf28841434e75
 sel.expand.2.1 9815d405ef747fd8
 sel.contract.2.1 943cf28841434e75
-sel.border.2.1 6078d3c1e70bb458
+sel.border.2.1 9815d405ef747fd8
 sel.expand.2.2.5 af86da18b37d77d8
 sel.contract.2.2.5 943cf28841434e75
-sel.border.2.2.5 c457185a1a1d8f18
+sel.border.2.2.5 ce9bea422766ddb0
 sel.expand.2.7 e894af49ae8023d8
 sel.contract.2.7 943cf28841434e75
-sel.border.2.7 d681b819389e7ed8
+sel.border.2.7 d1766076ff49877c
 sel.edt.3 66c7cf44ce480162
 sel.expand.3.0 d884c5efd839782e
 sel.contract.3.0 a4fb3d33ba7f3f28
-sel.border.3.0 cc17cfccb43ee62c
+sel.border.3.0 d80ac658736bb725
 sel.expand.3.1 a84cb465737fa3e5
 sel.contract.3.1 d80ac658736bb725
-sel.border.3.1 1c0b20046772c3e5
+sel.border.3.1 a84cb465737fa3e5
 sel.expand.3.2.5 8e16eb617854d8f8
 sel.contract.3.2.5 d80ac658736bb725
-sel.border.3.2.5 4d8383537ef9d29b
+sel.border.3.2.5 ffc4347bc9b42f6c
 sel.expand.3.7 a742a7bbcc74a1f8
 sel.contract.3.7 d80ac658736bb725
-sel.border.3.7 4fb4ec886e3270f8
+sel.border.3.7 7776dccce044cdef
 sel.edt.none 48b3200dfcc157d5
 sel.polygon.0.true dc1d46fc18131125
 sel.polygon.0.false dc1d46fc18131125
@@ -269,9 +269,9 @@ mat.refine_noimg.1 ce3e32b189f76165
 mat.halo.2 7 6
 mat.refine.2 b1db509dce0c1abb
 mat.refine_noimg.2 b1db509dce0c1abb
-mat.halo.3 10 9
-mat.refine.3 1d3033545dbe99e4
-mat.refine_noimg.3 1d3033545dbe99e4
+mat.halo.3 11 10
+mat.refine.3 2b879a66e61c9cf1
+mat.refine_noimg.3 2b879a66e61c9cf1
 mat.halo.4 15 9
 mat.refine.4 3bc3e73ba70ed753
 mat.refine_noimg.4 efb9a4bdd40fe36f
@@ -281,7 +281,7 @@ mat.refine_noimg.5 ce3e32b189f76165
 mat.refine_mask.0 414c2dd19ecb3cca
 mat.refine_mask.1 2f7736825ec6b778
 mat.refine_mask.2 e1e4a0e2f3f1e35d
-mat.refine_mask.3 0f601d54b4ae00d1
+mat.refine_mask.3 e7903f9918e95995
 mat.refine_mask.4 723c52ff27777cfe
 mat.refine_mask.5 a7ecf8888e02624d
 mat.region_surface 09dbeceaf39324fa
@@ -370,7 +370,6 @@ seg.gmm.fit_em6 c96a73e73934dd6e
 seg.gmm.few 87832e18c9ed1802
 seg.gmm.flat none
 seg.gmm.empty true
-seg.gmm.broad f7e0e68c7bc77a6b
 seg.gmm.labels afe8612727cd7f2f
 seg.kmeans.1 5f5e1e99c0dfbb8e
 seg.kmeans.2 f0aa8ef74c0f15a9
@@ -390,11 +389,9 @@ seg.object_select.tiny none
 seg.two_regions 8947759147b2378a
 seg.stroke_mask 4125340fe4a13441
 seg.stroke_mask2 ecf9b60bf0b5c9d2
-seg.geodesic ea79b329b70b65af
-seg.quick_segment d4f05d14a617f55c 33db09753fd4e194 6e521c3cf003f655
-seg.quick.grow 1ed0f8708f40ea6a
+seg.quick.grow 1b9b1478c853cd0d
 seg.quick.off none
-seg.quick.down c3d9acfc6bf683f5
+seg.quick.down 7439e8e958394ce9
 seg.sky.prior 5e0df3922c50d79d
 seg.sky.landscape 6097bbb2998bc4a4
 seg.sky.likelihood 2334632120836c7d
@@ -413,3 +410,162 @@ seg.sharpness.0.4 ccc69d54b06ba589
 seg.focus.0.5.0 1284b59b72ce25a4
 seg.focus.0.1.0.3 2c66b401d61c3f7e
 seg.focus.0.9.0 77b5b3db3463e2f4
+r5.maxflow.0.0 594027ed8a92e774 none
+r5.maxflow.0.1 3a32a31dd6ca81bd none
+r5.maxflow.0.2 bb8aa1946a039ca7 none
+r5.maxflow.0.3 1c609ed7c152729c none
+r5.maxflow.1.0 5c2ca6493f8092c1 none
+r5.maxflow.1.1 54081c81af2b5935 none
+r5.maxflow.1.2 99014e008769e022 none
+r5.maxflow.1.3 b4646b903bd29d3f none
+r5.maxflow.2.0 9496c86bc91a0f5b none
+r5.maxflow.2.1 7db5cf2a294b9fe9 none
+r5.maxflow.2.2 ba6f549290c0526d none
+r5.maxflow.2.3 133d635644981ca5 none
+r5.maxflow.3.0 3351d60e8b988b77 none
+r5.maxflow.3.1 25e537f585387cb1 0000000000000000
+r5.maxflow.3.2 82d052c63959750b 4070bf0501700000
+r5.maxflow.3.3 addb9a4d87e8b0e8 40714950bf900000
+r5.grid_cut.0 e72499e8880f854f fc5f7d47501fc8f8
+r5.grid_cut.1 1c55800c0bea56c3 1c55800c0bea56c3
+r5.grid_cut.2 1c55800c0bea56c3 1c55800c0bea56c3
+r5.grid_cut.3 87f520ff508a16c6 91ed14ca7c411c97
+r5.quick.step 567284f496c4be04
+r5.quick.half 1dd38ef0ce3c31d9
+r5.quick.flat f305bde402c687b1
+r5.quick.sq220 5b6e7224178f5cf5
+r5.quick.sq240 65b4a3ffe6f2e279
+r5.quick.weak94 9153dba322490dc5
+r5.quick.weak120 65b4a3ffe6f2e279
+r5.quick.bar_mid 5dc74dc3f4d891fa
+r5.quick.bar_end d00a6e72a527cd09
+r5.quick.drag300 2f2ae54768b35ca5
+r5.quick.large 502690283d707e64
+r5.quick.disc_drag ea460133033fe445
+r5.quick.hostile 3e79f10892025df5
+r5.quick.huge 283e52f7d05387e5
+r5.quick.levels.0 1155c901b8ba5b0e 1155c901b8ba5b0e 993ca6a0987a8d37 993ca6a0987a8d37 2d57d1cc122a4dd5 964cc827e6645fcb
+r5.quick.levels.1 a151e1efd2ca59a1 a151e1efd2ca59a1 2d57d1cc122a4dd5 2d57d1cc122a4dd5 2d57d1cc122a4dd5 2d57d1cc122a4dd5
+r5.quick.levels.2 e1e6b0c1f3201fe6 1155c901b8ba5b0e 2d57d1cc122a4dd5 2d57d1cc122a4dd5 2d57d1cc122a4dd5 18f7cf8a4fe0fa7a
+r5.quick.levels.3 740016e6962ef095 6811f26b54e58858 2d57d1cc122a4dd5 2d57d1cc122a4dd5 64ad8346e54c4a30 64ad8346e54c4a30
+r5.quick.levels.4 0123a12bab1d4b60 0123a12bab1d4b60 2d57d1cc122a4dd5 22903e395a201c9d fa9f5b987d57302a 3a3cd0adaad08ca0
+r5.quick.levels.5 871080f38aef74e5 871080f38aef74e5 2d57d1cc122a4dd5 2d57d1cc122a4dd5 2d57d1cc122a4dd5 2d57d1cc122a4dd5
+r5.quick.working 6e521c3cf003f655
+r5.quick.working_tuned c3240f33d8ed1d5b
+r5.quick.upsample.1.13x9 5558855e06e6ad7e
+r5.quick.upsample.2.26x18 a621953e1ad88cb9
+r5.quick.upsample.2.25x17 c3ad38c3bf0b942a
+r5.quick.upsample.3.39x27 b250df6b8ce1ee16
+r5.quick.upsample.3.37x25 c935aa877b66e55a
+r5.edt.0 bf0a685cfb651049
+r5.edt.1 0ab543a964bfd1f8
+r5.edt.2 0ab543a964bfd1f8
+r5.edt.3 d3e4fb3d7292a9bd
+r5.edt.4 0743f6351c9b4a8f
+r5.edt.far.65537x2 1547b4ee39eb0df8
+r5.edt.far.2x65537 7910d302baa75eec
+r5.edt.all 8fed60f1e1889625
+r5.border.4 55aef8a0c767306d b850e5a020ccbfee
+r5.border.1 e640c203159565c5 b03bcb8172252214
+r5.border.2.5 07e4c10937867f35 768c086e177fa690
+r5.border.0 9c1bda7f8c872325 37a9b9857c5bfd95
+r5.border.-1 9c1bda7f8c872325 37a9b9857c5bfd95
+r5.border.NaN 8d2ea6d55b74a325 8dfcddc92ce6ae48
+r5.border.100 ef9d0ddb286bf005 d49bb6f2ea24e5fd
+r5.smooth.8 79101f34648ed7e5 456422d9fd054238
+r5.smooth.1 13d09d229f4adac5 fcd3ca04b44eee05
+r5.smooth.2.5 b174d0f3fc977b45 8bb9a266e22e1245
+r5.smooth.0.4 175cc9c32a828325 08bbcbc1441fce98
+r5.feather.4 f96f75f4008f76b2 5f5ed64b00335755
+r5.feather.1 08bd21c5eed5dfea c6b47b44d75bd4bc
+r5.feather.2.5 a5943f1818d07be9 4044a53ce24d9f1b
+r5.feather.12 cc25af5a3a2c2dfd 113da14bd18e4b7c
+r5.wand.0.false adedc6fd852eceb5 cf688e85e2c4eefc
+r5.wand.0.true dbd1aedde04dd156 80f9329cd15ee3ff
+r5.wand.1.false 66995b967a454828 d9b31ae68b090a28
+r5.wand.1.true 5e096bd866374927 876dfe750964485b
+r5.wand.2.false 66995b967a454828 d9b31ae68b090a28
+r5.wand.2.true 5e096bd866374927 876dfe750964485b
+r5.wand.3.false 5818da09bc481778 3e198d026b27f69e
+r5.wand.3.true d89947e1fc489d14 2296a0c2dbece8ec
+r5.wand.4.false 3b78ad1135ec9bb5 d68ac4b2b1711218
+r5.wand.4.true fe3c56bef9d35f11 8a42c8a735841d2a
+r5.wand.5.false 838530d701ad9e08 44f2ed81aaafd318
+r5.wand.5.true e3e884e1be04f31b ef3c4c10201a1b5b
+r5.to_surface.full 15334f47b000e10a 16
+r5.combine.full.Replace 15334f47b000e10a 16
+r5.combine.full.Add 21a5a4a505e13d83 16
+r5.combine.full.Subtract f83186b523a5482a 3
+r5.combine.full.Intersect c1cdfb2e494db71a 16
+r5.ellipse.0.true e5862533b9a6e0dc 13
+r5.ellipse.0.false 277211acf2b7c324 13
+r5.ellipse.1.true 3df6db8d597d0b6d 1
+r5.ellipse.1.false e88329f79cf5409f 1
+r5.ellipse.2.true dd55115ad40ef38b 1
+r5.ellipse.2.false 5ac4d3a53502f1ab 1
+r5.ellipse.3.true c60f9c8b4f97d3f8 2
+r5.ellipse.3.false 5da7f393af91eee8 2
+r5.ellipse.4.true 1808bf1f36c6b276 2
+r5.ellipse.4.false c2c39c2005bfcf63 2
+r5.ellipse.5.true e49b745015a8d014 6
+r5.ellipse.5.false 7d6e2638f82ba866 6
+r5.ellipse.6.true dc4ace5b7c4332a8 15
+r5.ellipse.6.false dc4ace5b7c4332a8 15
+r5.ellipse.7.true 3319e81b1846de94 1
+r5.ellipse.7.false e33fd7503eb8fb5a 1
+r5.ellipse.8.true f8484065249876ca 0
+r5.ellipse.8.false f8484065249876ca 0
+r5.combine_surfaces.0.0 fd2a96a15ef1252d 12
+r5.combine_surfaces.0.1 4c18b27d0a4f30cd 10
+r5.combine_surfaces.0.2 c17f9bb5d3a5e10c 8
+r5.combine_surfaces.1.0 fd2a96a15ef1252d 12
+r5.combine_surfaces.1.1 73559150791a32c2 4
+r5.combine_surfaces.1.2 c17f9bb5d3a5e10c 8
+r5.combine_surfaces.2.0 4bbb8a01f7bf9954 8
+r5.combine_surfaces.2.1 a27045ef5cb01298 8
+r5.combine_surfaces.2.2 4bbb8a01f7bf9954 8
+r5.combine_surfaces.3.0 345c81b1de05b36f 15
+r5.combine_surfaces.3.1 64725e5d783a2f21 15
+r5.combine_surfaces.3.2 39af6413634e968c 8
+r5.combine_surfaces.part 49cb90701206f1e8 6
+r5.morph.3.true fb289795bbb15543 43ee290bdc6e5514
+r5.morph.3.false 43bf652969502fb4 12a43b5b20de2a78
+r5.morph.4.true d73b13f8c1dd386a 5131ca96dd348bdc
+r5.morph.4.false fa975ae9ede72754 f418982a82d71117
+r5.morph.7.true a7ed8a9181bc4fa8 c5b94bfc8b767fbd
+r5.morph.7.false 9df51d532d3a79d5 4ba91d6a1fcdc0ff
+r5.morph.10.true a7ed8a9181bc4fa8 156463661b570ad9
+r5.morph.10.false 9df51d532d3a79d5 e0e0a03b630e264f
+r5.morph.33.true a7ed8a9181bc4fa8 8994542285a6d36e
+r5.morph.33.false 9df51d532d3a79d5 ae5d0196a3dd6728
+r5.morph.64.true a7ed8a9181bc4fa8 8994542285a6d36e
+r5.morph.64.false 9df51d532d3a79d5 ae5d0196a3dd6728
+r5.morph.18446744073709551615.true a7ed8a9181bc4fa8 8994542285a6d36e
+r5.morph.18446744073709551615.false 9df51d532d3a79d5 ae5d0196a3dd6728
+r5.morph.special.7fc00001 cc0340baad71aba5
+r5.morph.special.ff800000 8d8e1e1274280a9e
+r5.morph.special.80000000 3b6679204913b587
+r5.morph.big 83aba6fec66c2062 5d565badb5ca0c0f
+r5.shift.0 3 2 616bb39095cc8dd8 616bb39095cc8dd8
+r5.shift.1 3 1 1f38cc7ff752a5e5 1f38cc7ff752a5e5
+r5.shift.2 4 3 72a4faa8c6c08ee8 72a4faa8c6c08ee8
+r5.shift.3 16 9 7aac4bcc959407dc 3d54574557d53760
+r5.shift.4 19 7 06570465fc9cd1de 6e7ece0c4ee32e55
+r5.shift.5 3 2 ce3e32b189f76165 ce3e32b189f76165
+r5.shift.6 8 4 0bb455e98dbfac3f ce3e32b189f76165
+r5.shift.7 -2147483583 -2147483584 3c9ab6064438f265 3c9ab6064438f265
+r5.brush.0 408c200000000000 45ce512273dd09df
+r5.brush.1 4094500000000000 29d2ea49a3c1a339
+r5.brush.2 4094500000000000 666bbbcdaa7df249
+r5.brush.3 40904c95a1d90000 f10d74f75b03b311
+r5.brush.4 4072c00000000000 none
+r5.brush.5 41f2b836a4000000 none
+r5.brush.6 3ff0000000000000 09e587a4b056609c
+r5.brushed.0.0 0e101d0ea5b1d3b1 a526118649a3a2f2
+r5.brushed.0.1 745c070116709982 745c070116709982
+r5.brushed.1.0 cc430cfed67f0a28 a526118649a3a2f2
+r5.brushed.1.1 0cac96c2bd593875 745c070116709982
+r5.brushed.2.0 0e101d0ea5b1d3b1 0e101d0ea5b1d3b1
+r5.brushed.2.1 745c070116709982 745c070116709982
+r5.brushed.3.0 cc430cfed67f0a28 0e101d0ea5b1d3b1
+r5.brushed.3.1 0cac96c2bd593875 745c070116709982

@@ -1,4 +1,5 @@
-/* The inline #[test]s of crates/vector/src/{flatten,raster,stroke,shapes,edit,trace}.rs. */
+/* The inline #[test]s of crates/vector/src/{flatten,raster,stroke,shapes,edit,trace}.rs (map.rs:
+ * test_map.c). */
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -557,6 +558,481 @@ static void test_traced_rect_has_corners(void)
     free(v);
 }
 
+/* ---- stroke.rs: closed dashes, validation, non-uniform patterns ---- */
+
+static void test_closed_dashes_have_a_join_at_the_seam(void)
+{
+    double pts[4][2] = {{0.0, 0.0}, {10.0, 0.0}, {10.0, 10.0}, {0.0, 10.0}};
+    bool k[4];
+    pc_vec_polyline sq = line_of(pts, k, 4, true);
+    static const double pat[2] = {8.0, 4.0};
+    static const double full[2] = {80.0, 2.0};
+    pc_vec_polyline *d = NULL;
+    size_t n = 0;
+    CHECK(pc_vec_dash_polyline(&sq, pat, 2, 2.0, &d, &n, NULL) == PC_OK);
+    CHECK_EQ_UINT(n, 3);
+    if (n == 3) {
+        const pc_vec_polyline *c = &d[0];
+        CHECK_EQ_UINT(c->len, 3);
+        if (c->len == 3) {
+            CHECK(c->pts[0][0] == 0.0 && c->pts[0][1] == 6.0);
+            CHECK(c->pts[1][0] == 0.0 && c->pts[1][1] == 0.0);
+            CHECK(c->pts[2][0] == 6.0 && c->pts[2][1] == 0.0);
+            CHECK(c->knot[0] && c->knot[1] && c->knot[2]);
+        }
+    }
+    pc_vec_polylines_free(d, n);
+    CHECK(pc_vec_dash_polyline(&sq, full, 2, 0.0, &d, &n, NULL) == PC_OK);
+    CHECK_EQ_UINT(n, 1);
+    CHECK(n == 1 && d[0].closed);
+    pc_vec_polylines_free(d, n);
+}
+
+static void test_invalid_and_too_dense_dashes_finish_with_bounded_work(void)
+{
+    double pts[2][2] = {{0.0, 0.0}, {100.0, 0.0}};
+    bool k[2];
+    pc_vec_polyline pl = line_of(pts, k, 2, false);
+    double pats[6][33];
+    size_t lens[6] = {2, 2, 2, 2, 33, 2};
+    static const double two_one[2] = {2.0, 1.0};
+    pc_vec_polyline *d = NULL;
+    size_t n = 0;
+    size_t i;
+    memset(pats, 0, sizeof pats);
+    pats[1][0] = INFINITY;
+    pats[1][1] = 1.0;
+    pats[2][0] = NAN;
+    pats[2][1] = 1.0;
+    pats[3][0] = -1.0;
+    pats[3][1] = 2.0;
+    for (i = 0; i < 33; i++) {
+        pats[4][i] = 1.0;
+    }
+    pats[5][0] = 1e-8;
+    pats[5][1] = 1e-8;
+    for (i = 0; i < 6; i++) {
+        n = 99;
+        CHECK(pc_vec_dash_polyline(&pl, pats[i], lens[i], 0.0, &d, &n, NULL) == PC_OK);
+        CHECK(n == 0 && d == NULL);
+        pc_vec_polylines_free(d, n);
+    }
+    CHECK(pc_vec_dash_polyline(&pl, two_one, 2, INFINITY, &d, &n, NULL) == PC_OK);
+    CHECK(n == 0);
+    pc_vec_polylines_free(d, n);
+    pts[0][0] = NAN;
+    pts[1][0] = 1.0;
+    CHECK(pc_vec_dash_polyline(&pl, two_one, 2, 0.0, &d, &n, NULL) == PC_OK);
+    CHECK(n == 0);
+    pc_vec_polylines_free(d, n);
+}
+
+static void test_nonuniform_patterns_and_negative_offsets_repeat_by_arc_length(void)
+{
+    double pts[2][2] = {{0.0, 0.0}, {30.0, 0.0}};
+    bool k[2];
+    pc_vec_polyline pl = line_of(pts, k, 2, false);
+    static const double pat[4] = {4.0, 2.0, 1.0, 3.0};
+    static const double want[6][2] = {{0.0, 4.0},   {6.0, 7.0},   {10.0, 14.0},
+                                      {16.0, 17.0}, {20.0, 24.0}, {26.0, 27.0}};
+    pc_vec_polyline *d = NULL;
+    size_t n = 0;
+    size_t i;
+    CHECK(pc_vec_dash_polyline(&pl, pat, 4, -10.0, &d, &n, NULL) == PC_OK);
+    CHECK_EQ_UINT(n, 6);
+    for (i = 0; i < n && n == 6; i++) {
+        CHECK(d[i].pts[0][0] == want[i][0] && d[i].pts[d[i].len - 1][0] == want[i][1]);
+    }
+    pc_vec_polylines_free(d, n);
+}
+
+/* ---- edit.rs: Add / Delete Anchor Point, Curvature Pen ---- */
+
+static pc_knot at(const pc_path *p, size_t s, size_t k)
+{
+    return p->subpaths[s].knots[k];
+}
+
+static void seg_of(const pc_path *p, size_t s, size_t i, pc_point out[4])
+{
+    pc_subpath_segment(&p->subpaths[s], i, out);
+}
+
+static bool seg_eq(const pc_point a[4], const pc_point b[4])
+{
+    size_t i;
+    for (i = 0; i < 4; i++) {
+        if (a[i].x != b[i].x || a[i].y != b[i].y) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static void test_adding_to_a_curve_splits_it_without_changing_its_shape(void)
+{
+    static const double ts[3] = {0.5, 0.13, 0.9};
+    size_t ti;
+    for (ti = 0; ti < 3; ti++) {
+        double t = ts[ti];
+        pc_path p = vh_curve();
+        pc_path orig = vh_curve();
+        pc_point seg[4];
+        pc_point halves[3][4];
+        pc_point next[4];
+        pc_vec_knot_ref r = {9, 9};
+        pc_knot k;
+        int i;
+        seg_of(&orig, 0, 0, seg);
+        CHECK(pc_vec_add_anchor(&p, kr(0, 0), t, &r, NULL) == PC_OK);
+        CHECK(r.sub == 0 && r.knot == 1);
+        CHECK_EQ_UINT(p.subpaths[0].nknots, 4);
+        if (p.subpaths[0].nknots != 4) {
+            pc_path_fini(&p);
+            pc_path_fini(&orig);
+            continue;
+        }
+        k = at(&p, 0, 1);
+        CHECK(k.smooth); /* a split curve gets a smooth anchor */
+        CHECK(dist(k.anchor, pc_vec_eval(seg, t)) < 1e-9);
+        /* 100 evenly spaced parameters of the old segment land on the two halves. */
+        seg_of(&p, 0, 0, halves[0]);
+        seg_of(&p, 0, 1, halves[1]);
+        seg_of(&p, 0, 2, halves[2]);
+        for (i = 0; i <= 100; i++) {
+            double u = (double)i / 100.0;
+            pc_point q = u <= t ? pc_vec_eval(halves[0], u / t) : pc_vec_eval(halves[1], (u - t) / (1.0 - t));
+            CHECK(dist(q, pc_vec_eval(seg, u)) < 0.01);
+        }
+        seg_of(&orig, 0, 1, next);
+        CHECK(seg_eq(halves[2], next)); /* the next segment is untouched */
+        pc_path_fini(&p);
+        pc_path_fini(&orig);
+    }
+}
+
+static void test_adding_to_a_straight_segment_uses_the_hit_position(void)
+{
+    static const double a[2][2] = {{0.0, 0.0}, {100.0, 0.0}};
+    static const double b[2][2] = {{0.0, 0.0}, {0.0, 100.0}};
+    static const double c[2][2] = {{0.0, 0.0}, {100.0, 100.0}};
+    static const double d[3][2] = {{0.0, 0.0}, {100.0, 0.0}, {100.0, 100.0}};
+    const double (*cases[4])[2] = {a, b, c, d};
+    static const size_t ns[4] = {2, 2, 2, 3};
+    static const bool closed[4] = {false, false, false, true};
+    static const double ts[2] = {0.25, 0.75};
+    size_t ci;
+    size_t ti;
+    for (ci = 0; ci < 4; ci++) {
+        for (ti = 0; ti < 2; ti++) {
+            pc_path p = vh_poly_path(cases[ci], ns[ci], closed[ci]);
+            pc_point seg[4];
+            pc_point clicked;
+            pc_vec_hit h;
+            pc_vec_knot_ref added = {0, 0};
+            pc_knot ins;
+            pc_knot want;
+            seg_of(&p, 0, closed[ci] ? 2 : 0, seg);
+            clicked = pc_vec_eval(seg, ts[ti]);
+            CHECK(pc_vec_hit_test(&p, clicked, 1.0, NULL, 0, &h));
+            CHECK(h.kind == PC_VEC_HIT_SEGMENT);
+            if (h.kind == PC_VEC_HIT_SEGMENT && pc_vec_add_anchor(&p, h.knot, h.t, &added, NULL) == PC_OK) {
+                ins = at(&p, added.sub, added.knot);
+                want = pc_knot_corner(clicked.x, clicked.y);
+                CHECK(dist(ins.anchor, clicked) < 1e-9);
+                CHECK(pc_knot_eq(&ins, &want)); /* straight segments retain retracted handles */
+            } else {
+                CHECK(false);
+            }
+            pc_path_fini(&p);
+        }
+    }
+}
+
+static void test_adding_to_a_straight_segment_makes_a_corner_on_the_line(void)
+{
+    pc_path p = vh_tri();
+    pc_vec_knot_ref r = {0, 0};
+    pc_knot k;
+    pc_knot want;
+    /* The closing segment (2 -> 0) wraps: the new anchor goes last. */
+    CHECK(pc_vec_add_anchor(&p, kr(0, 2), 0.5, &r, NULL) == PC_OK);
+    CHECK(r.sub == 0 && r.knot == 3);
+    k = at(&p, 0, 3);
+    want = pc_knot_corner(25.0, 40.0);
+    CHECK(pc_knot_eq(&k, &want));
+    CHECK(pc_vec_add_anchor(&p, kr(0, 0), 0.25, &r, NULL) == PC_OK);
+    CHECK(r.sub == 0 && r.knot == 1);
+    k = at(&p, 0, 1);
+    want = pc_knot_corner(15.625, 0.0);
+    CHECK(pc_knot_eq(&k, &want));
+    CHECK_EQ_UINT(p.subpaths[0].nknots, 5);
+    CHECK(p.subpaths[0].closed);
+    pc_path_fini(&p);
+}
+
+static void test_deleting_joins_the_neighbours_with_their_handles(void)
+{
+    static const double sqp[4][2] = {{0.0, 0.0}, {10.0, 0.0}, {10.0, 10.0}, {0.0, 10.0}};
+    static const double cp[3][2] = {{0.0, 50.0}, {50.0, 0.0}, {100.0, 50.0}};
+    pc_path sq = vh_poly_path(sqp, 4, true);
+    pc_path c = vh_poly_path(cp, 3, false);
+    bool removed = true;
+    pc_point seg[4];
+    pc_point want[4];
+    CHECK(pc_vec_delete_anchor(&sq, kr(0, 2), &removed, NULL) == PC_OK);
+    CHECK(!removed);
+    CHECK(sq.subpaths[0].nknots == 3 && sq.subpaths[0].closed);
+    c.subpaths[0].knots[0].out_ctrl = pc_point_make(10.0, 20.0);
+    c.subpaths[0].knots[2].in_ctrl = pc_point_make(90.0, 20.0);
+    CHECK(pc_vec_delete_anchor(&c, kr(0, 1), &removed, NULL) == PC_OK);
+    CHECK_EQ_UINT(pc_subpath_segment_count(&c.subpaths[0]), 1);
+    seg_of(&c, 0, 0, seg);
+    want[0] = pc_point_make(0.0, 50.0);
+    want[1] = pc_point_make(10.0, 20.0);
+    want[2] = pc_point_make(90.0, 20.0);
+    want[3] = pc_point_make(100.0, 50.0);
+    CHECK(seg_eq(seg, want));
+    pc_path_fini(&sq);
+    pc_path_fini(&c);
+}
+
+static void test_deleting_a_subpaths_last_anchor_removes_it_but_never_the_last_anchor(void)
+{
+    static const double one_pt[1][2] = {{5.0, 5.0}};
+    pc_path p = vh_tri();
+    pc_path t = vh_tri();
+    pc_path one = vh_poly_path(one_pt, 1, false);
+    pc_path before = vh_clone(&one);
+    bool removed = false;
+    pc_error e;
+    vh_push(&p, vh_polygon(one_pt, 1, false));
+    CHECK(pc_vec_delete_anchor(&p, kr(1, 0), &removed, NULL) == PC_OK);
+    CHECK(removed);
+    CHECK(pc_path_eq(&p, &t));
+    CHECK(pc_vec_delete_anchor(&one, kr(0, 0), &removed, &e) == PC_ERR_INVALID);
+    CHECK_EQ_STR(e.msg, "can't delete the path's only anchor point; delete the path instead");
+    CHECK(pc_path_eq(&one, &before));
+    pc_path_fini(&p);
+    pc_path_fini(&t);
+    pc_path_fini(&one);
+    pc_path_fini(&before);
+}
+
+static void test_bad_anchor_edits_are_errors_and_change_nothing(void)
+{
+    pc_path p = vh_curve();
+    pc_path c = vh_curve();
+    double ts[6];
+    pc_vec_knot_ref r;
+    bool removed;
+    pc_error e;
+    size_t i;
+    ts[0] = 0.0;
+    ts[1] = 1.0;
+    ts[2] = -0.5;
+    ts[3] = 2.0;
+    ts[4] = NAN;
+    ts[5] = INFINITY;
+    for (i = 0; i < 6; i++) {
+        CHECK(pc_vec_add_anchor(&p, kr(0, 0), ts[i], &r, &e) == PC_ERR_INVALID);
+        CHECK_EQ_STR(e.msg, "`t` must be strictly between 0 and 1");
+    }
+    /* An open subpath's last knot starts no segment. */
+    CHECK(pc_vec_add_anchor(&p, kr(0, 2), 0.5, &r, &e) != PC_OK);
+    CHECK_EQ_STR(e.msg, "no segment leaves knot 2 of subpath 0");
+    CHECK(pc_vec_add_anchor(&p, kr(0, SIZE_MAX), 0.5, &r, NULL) != PC_OK);
+    CHECK(pc_vec_add_anchor(&p, kr(SIZE_MAX, 0), 0.5, &r, NULL) != PC_OK);
+    CHECK(pc_vec_delete_anchor(&p, kr(0, 3), &removed, &e) != PC_OK);
+    CHECK_EQ_STR(e.msg, "no knot 3 in subpath 0");
+    CHECK(pc_vec_delete_anchor(&p, kr(1, 0), &removed, NULL) != PC_OK);
+    CHECK(pc_path_eq(&p, &c));
+    pc_path_fini(&p);
+    pc_path_fini(&c);
+}
+
+static void test_curvature_knots_are_smooth_and_finite(void)
+{
+    static const double pts[4][2] = {{0.0, 0.0}, {30.0, 0.0}, {60.0, 30.0}, {60.0, 30.0}};
+    static const bool corners[2] = {false, true};
+    double out[4][3][2];
+    size_t i;
+    size_t j;
+    /* An inner anchor's handles are collinear and a third of the way to each neighbour. */
+    pc_vec_curvature_knots(pts, 3, NULL, 0, false, out);
+    CHECK(fabs(hypot(out[1][1][0] - 30.0, out[1][1][1]) - 10.0) < 1e-9);
+    CHECK(fabs(hypot(out[1][2][0] - 30.0, out[1][2][1]) - hypot(30.0, 30.0) / 3.0) < 1e-9);
+    CHECK(fabs((out[1][1][0] - 30.0) * out[1][2][1] - out[1][1][1] * (out[1][2][0] - 30.0)) < 1e-9);
+    /* A corner keeps retracted handles; coincident points never give NaN. */
+    pc_vec_curvature_knots(pts, 4, corners, 2, true, out);
+    for (i = 0; i < 4; i++) {
+        for (j = 0; j < 3; j++) {
+            CHECK(isfinite(out[i][j][0]) && isfinite(out[i][j][1]));
+        }
+    }
+    CHECK(out[1][1][0] == 30.0 && out[1][2][0] == 30.0 && out[1][1][1] == 0.0);
+    pc_vec_curvature_knots(pts, 0, NULL, 0, false, NULL);
+}
+
+/* ---- trace.rs: fit_trace (the Freeform Pen) ---- */
+
+/* Largest distance from a sample to the fitted subpath (each segment densely sampled). */
+static double max_deviation(const pc_subpath *sp, const double (*samples)[2], size_t n)
+{
+    size_t nseg = pc_subpath_segment_count(sp);
+    double worst = 0.0;
+    size_t i;
+    for (i = 0; i < n; i++) {
+        double best = INFINITY;
+        size_t s;
+        for (s = 0; s < nseg; s++) {
+            pc_point seg[4];
+            int k;
+            pc_subpath_segment(sp, s, seg);
+            for (k = 0; k <= 400; k++) {
+                pc_point c = pc_vec_eval(seg, (double)k / 400.0);
+                double d = hypot(c.x - samples[i][0], c.y - samples[i][1]);
+                if (d < best) {
+                    best = d;
+                }
+            }
+        }
+        if (best > worst) {
+            worst = best;
+        }
+    }
+    return worst;
+}
+
+static void test_fit_trace_follows_fixtures_with_few_anchors(void)
+{
+    const double tol = 2.0;
+    static double line[101][2];
+    static double zig[151][2];
+    static double circle[180][2];
+    static double sine[201][2];
+    static const double turns[6][2] = {{0.0, 0.0},    {60.0, 0.0},    {60.0, 60.0},
+                                       {120.0, 60.0}, {120.0, 120.0}, {180.0, 120.0}};
+    pc_subpath sp;
+    bool ok = false;
+    size_t i;
+    size_t n = 0;
+    /* Straight drag with +-0.5 px of hand jitter, 3 px apart. */
+    for (i = 0; i <= 100; i++) {
+        line[i][0] = 10.0 + 3.0 * (double)i;
+        line[i][1] = 50.0 + (i % 2 == 0 ? 0.5 : -0.5);
+    }
+    CHECK(pc_vec_fit_trace((const double (*)[2])line, 101, tol, false, &sp, &ok, NULL) == PC_OK && ok);
+    if (ok) {
+        CHECK(!sp.closed);
+        CHECK_EQ_UINT(sp.nknots, 2); /* a straight drag is one segment */
+        CHECK(max_deviation(&sp, (const double (*)[2])line, 101) <= tol + 0.05);
+        pc_subpath_fini(&sp);
+    }
+    /* Zig-zag: five 60 px legs at right angles, sampled every 2 px. */
+    for (i = 0; i < 5; i++) {
+        int k;
+        for (k = 0; k < 30; k++) {
+            zig[n][0] = turns[i][0] + (turns[i + 1][0] - turns[i][0]) * (double)k / 30.0;
+            zig[n][1] = turns[i][1] + (turns[i + 1][1] - turns[i][1]) * (double)k / 30.0;
+            n++;
+        }
+    }
+    zig[n][0] = turns[5][0];
+    zig[n][1] = turns[5][1];
+    n++;
+    ok = false;
+    CHECK(pc_vec_fit_trace((const double (*)[2])zig, n, tol, false, &sp, &ok, NULL) == PC_OK && ok);
+    if (ok) {
+        CHECK_EQ_UINT(sp.nknots, 6); /* the corners are kept as anchors, nothing between */
+        for (i = 0; i < sp.nknots && sp.nknots == 6; i++) {
+            CHECK(sp.knots[i].anchor.x == turns[i][0] && sp.knots[i].anchor.y == turns[i][1]);
+            if (i >= 1 && i < 5) {
+                CHECK(!sp.knots[i].smooth);
+            }
+        }
+        CHECK(max_deviation(&sp, (const double (*)[2])zig, n) <= tol + 0.05);
+        pc_subpath_fini(&sp);
+    }
+    /* Circle, radius 80, 180 samples, closed. */
+    for (i = 0; i < 180; i++) {
+        double a = (double)i * (3.141592653589793 / 180.0) * 2.0;
+        circle[i][0] = 100.0 + 80.0 * cos(a);
+        circle[i][1] = 100.0 + 80.0 * sin(a);
+    }
+    ok = false;
+    CHECK(pc_vec_fit_trace((const double (*)[2])circle, 180, tol, true, &sp, &ok, NULL) == PC_OK && ok);
+    if (ok) {
+        CHECK(sp.closed);
+        CHECK(sp.nknots >= 2 && sp.nknots <= 8);
+        for (i = 0; i < sp.nknots; i++) {
+            CHECK(sp.knots[i].smooth); /* a circle has no corners */
+        }
+        CHECK(max_deviation(&sp, (const double (*)[2])circle, 180) <= tol + 0.05);
+        pc_subpath_fini(&sp);
+    }
+    /* Two periods of a sine wave (amplitude 40, wavelength 200) with the same jitter: at most two
+     * segments per half period. */
+    for (i = 0; i <= 200; i++) {
+        double x = (double)i * 2.0;
+        sine[i][0] = x;
+        sine[i][1] = 100.0 + 40.0 * sin(x / 200.0 * 6.283185307179586) + 0.5 - (double)(i % 2);
+    }
+    ok = false;
+    CHECK(pc_vec_fit_trace((const double (*)[2])sine, 201, tol, false, &sp, &ok, NULL) == PC_OK && ok);
+    if (ok) {
+        CHECK(sp.nknots >= 3 && sp.nknots <= 9);
+        for (i = 1; i + 1 < sp.nknots; i++) {
+            CHECK(sp.knots[i].smooth);
+        }
+        CHECK(max_deviation(&sp, (const double (*)[2])sine, 201) <= tol + 0.05);
+        pc_subpath_fini(&sp);
+    }
+}
+
+static void test_fit_trace_survives_hostile_input(void)
+{
+    static double same[50][2];
+    double bad[3][2];
+    double (*lng)[2] = malloc(200000 * sizeof *lng);
+    pc_subpath sp;
+    bool ok = true;
+    size_t i;
+    CHECK(pc_vec_fit_trace(NULL, 0, 2.0, false, &sp, &ok, NULL) == PC_OK && !ok);
+    for (i = 0; i < 50; i++) {
+        same[i][0] = 1.0;
+        same[i][1] = 1.0;
+    }
+    ok = true;
+    CHECK(pc_vec_fit_trace((const double (*)[2])same, 50, 2.0, false, &sp, &ok, NULL) == PC_OK && !ok);
+    bad[0][0] = NAN;
+    bad[0][1] = 0.0;
+    bad[1][0] = INFINITY;
+    bad[1][1] = 1.0;
+    bad[2][0] = 1e300;
+    bad[2][1] = 2.0;
+    ok = true;
+    CHECK(pc_vec_fit_trace((const double (*)[2])bad, 3, NAN, true, &sp, &ok, NULL) == PC_OK && !ok);
+    if (lng == NULL) {
+        CHECK(lng != NULL);
+        return;
+    }
+    for (i = 0; i < 200000; i++) {
+        lng[i][0] = (double)i * 0.01;
+        lng[i][1] = sin((double)i * 0.001) * 40.0;
+    }
+    ok = false;
+    CHECK(pc_vec_fit_trace((const double (*)[2])lng, 200000, -5.0, false, &sp, &ok, NULL) == PC_OK && ok);
+    if (ok) {
+        CHECK(sp.nknots >= 2);
+        for (i = 0; i < sp.nknots; i++) {
+            CHECK(isfinite(sp.knots[i].anchor.x) && isfinite(sp.knots[i].out_ctrl.y));
+        }
+        pc_subpath_fini(&sp);
+    }
+    free(lng);
+}
+
 int main(int argc, char **argv)
 {
     RUN(test_lines_are_not_subdivided);
@@ -583,5 +1059,17 @@ int main(int argc, char **argv)
     RUN(test_handle_names);
     RUN(test_square_contour_orientation_and_count);
     RUN(test_traced_rect_has_corners);
+    RUN(test_closed_dashes_have_a_join_at_the_seam);
+    RUN(test_invalid_and_too_dense_dashes_finish_with_bounded_work);
+    RUN(test_nonuniform_patterns_and_negative_offsets_repeat_by_arc_length);
+    RUN(test_adding_to_a_curve_splits_it_without_changing_its_shape);
+    RUN(test_adding_to_a_straight_segment_uses_the_hit_position);
+    RUN(test_adding_to_a_straight_segment_makes_a_corner_on_the_line);
+    RUN(test_deleting_joins_the_neighbours_with_their_handles);
+    RUN(test_deleting_a_subpaths_last_anchor_removes_it_but_never_the_last_anchor);
+    RUN(test_bad_anchor_edits_are_errors_and_change_nothing);
+    RUN(test_curvature_knots_are_smooth_and_finite);
+    RUN(test_fit_trace_follows_fixtures_with_few_anchors);
+    RUN(test_fit_trace_survives_hostile_input);
     return pc_t_finish();
 }

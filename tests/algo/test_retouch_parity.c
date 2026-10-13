@@ -1,7 +1,7 @@
 /* Bit-exact parity with the L8 part of crates/algo (stack, poisson, inpaint, content_aware, seam,
- * retouch, redeye, erase, paint): replays `rustref algo-retouch-vectors`
- * (tools/rustref/src/algo_retouch_vectors.rs) and compares every line of
- * tests/golden/algo-retouch-vectors.txt. Hashes are FNV-1a over little-endian f32 bits. */
+ * retouch, redeye, erase, paint, nonlocal, remove; the second part is in retouch_parity_more.h):
+ * replays `rustref algo-retouch-vectors` (tools/rustref/src/algo_retouch_vectors.rs) and compares
+ * every line of tests/golden/algo-retouch-vectors.txt. Hashes are FNV-1a over little-endian f32 bits. */
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -20,6 +20,9 @@
 
 static pc_buf OUT;
 
+#if defined(__GNUC__)
+__attribute__((format(printf, 1, 2)))
+#endif
 static void line(const char *fmt, ...)
 {
     char tmp[1024];
@@ -491,17 +494,19 @@ static void content_aware_vectors(void)
         line("ca rotation/%s %016llx", ROT[i], (unsigned long long)of(r, n));
     }
     for (i = 0; i < 5; i++) {
-        float c = pc_algo_ca_color_level(COL[i]);
-        uint32_t u;
-        memcpy(&u, &c, 4);
-        line("ca color/%s %08x", COL[i], u);
+        pc_algo_adapt a = pc_algo_ca_color_level(COL[i]);
+        uint32_t u[3];
+        memcpy(&u[0], &a.gain_lo, 4);
+        memcpy(&u[1], &a.gain_hi, 4);
+        memcpy(&u[2], &a.bias, 4);
+        line("ca color/%s %08x %08x %08x", COL[i], u[0], u[1], u[2]);
     }
     {
         float *im;
         bool *hole, *all = fill_mask(48 * 32, true);
         stripes_ca(48, 32, &im, &hole);
         ca_fill_line("stripes", 48, 32, 1, im, hole, all, &d);
-        o = d, o.color_adaptation = 0.0f;
+        o = d, o.color_adaptation = PC_ALGO_ADAPT_NONE;
         ca_fill_line("stripes0", 48, 32, 1, im, hole, all, &o);
         free(im), free(hole), free(all);
     }
@@ -515,10 +520,10 @@ static void content_aware_vectors(void)
             right[i] = i % w >= 24;
             ramp[i] = (float)(i % w) / (float)w;
         }
-        o = d, o.color_adaptation = 0.0f;
+        o = d, o.color_adaptation = PC_ALGO_ADAPT_NONE;
         ca_fill_line("right", w, h, 1, lr, hole, right, &o);
         ca_fill_line("nosource", w, h, 1, lr, hole, none, &d);
-        o = d, o.color_adaptation = 0.9f;
+        o = d, o.color_adaptation = pc_algo_ca_color_level("veryHigh");
         ca_fill_line("ramp", w, h, 1, ramp, hole2, all, &o);
         free(lr), free(ramp), free(hole), free(right), free(none), free(all), free(hole2);
     }
@@ -531,13 +536,13 @@ static void content_aware_vectors(void)
         for (i = 0; i < w * h; i++) {
             rgb[i * 3] = im[i], rgb[i * 3 + 1] = im[i] * 0.5f, rgb[i * 3 + 2] = 1.0f - im[i];
         }
-        o = (pc_algo_ca_fill_options){0.65f, low, nl, true, true, 7};
+        o = (pc_algo_ca_fill_options){pc_algo_ca_color_level("high"), low, nl, true, true, 7};
         ca_fill_line("adapt", w, h, 3, rgb, hole, src, &o);
-        o = (pc_algo_ca_fill_options){0.35f, full, nf, false, false, 2};
+        o = (pc_algo_ca_fill_options){pc_algo_ca_color_level("default"), full, nf, false, false, 2};
         ca_fill_line("full", w, h, 3, rgb, hole, src, &o);
-        o = (pc_algo_ca_fill_options){0.0f, NULL, 0, false, true, 1};
+        o = (pc_algo_ca_fill_options){PC_ALGO_ADAPT_NONE, NULL, 0, false, true, 1};
         ca_fill_line("mirror", w, h, 3, rgb, hole, src, &o);
-        o = (pc_algo_ca_fill_options){0.35f, &r33, 1, true, false, 4};
+        o = (pc_algo_ca_fill_options){pc_algo_ca_color_level("default"), &r33, 1, true, false, 4};
         ca_fill_line("scale", w, h, 3, rgb, hole, src, &o);
         ca_fill_line("nohole", w, h, 3, rgb, no, src, &d);
         free(im), free(rgb), free(hole), free(src), free(no);
@@ -985,6 +990,8 @@ static void paint_vectors(void)
     pc_surface_fini(&sel);
 }
 
+#include "retouch_parity_more.h"
+
 /* ------------------------------------------------------------------------------------------ */
 
 static char *read_file(const char *path, size_t *len)
@@ -1024,6 +1031,12 @@ static void test_retouch_parity(void)
     redeye_vectors();
     erase_vectors();
     paint_vectors();
+    nonlocal_vectors();
+    remove_vectors();
+    masked_vectors();
+    proximity_vectors();
+    seam_proxy_vectors();
+    ca_more_vectors();
     want = strtok_r(golden, "\n", &wsave);
     got = strtok_r((char *)OUT.data, "\n", &gsave);
     while (want != NULL || got != NULL) {

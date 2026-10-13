@@ -13,7 +13,9 @@
 
 #include "base/status.h"
 
-/* Image > Adjustments > Shadows/Highlights (percentages 0..=100). */
+/* Image > Adjustments > Shadows/Highlights (percentages 0..=100), as measured on Photoshop 25.4
+ * (tone_sh.c): an edge-aware neighbourhood brightness picks the tones, Amount sets a screening
+ * curve, only the new luma is kept and the colour differences are re-added scaled by Color. */
 typedef struct pc_algo_shadows_highlights {
     float shadow_amount, shadow_tone, shadow_radius;
     float highlight_amount, highlight_tone, highlight_radius;
@@ -25,6 +27,11 @@ typedef struct pc_algo_shadows_highlights {
 pc_algo_shadows_highlights_params pc_algo_shadows_highlights_default(void);
 pc_status pc_algo_shadows_highlights(float (*px)[4], size_t n, size_t w, size_t h,
                                      const pc_algo_shadows_highlights_params *p, pc_error *err);
+/* Its pieces, exposed for tests: the tonal mask for Tone (0..=100) at the 256 neighbourhood
+ * levels, the curve strength for Amount (0..=100), and the curve of strength s at v. */
+void pc_algo_sh_tonal_mask(float tone, float mask[256]);
+float pc_algo_sh_strength(float amount);
+float pc_algo_sh_lift(float s, float v);
 
 /* Replace Color: Color Range selection (fuzziness 0..=200) around `color`, then a hue (+-180),
  * saturation and lightness (+-100) shift weighted by it. Writes the mask (n values) when mask is

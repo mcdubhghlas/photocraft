@@ -12,7 +12,8 @@
 #include "base/num.h"
 #include "base/pool.h"
 
-void pc_algo_mix_selection(float *data, pc_rect t, const pc_surface *sel, const pc_algo_image *orig)
+void pc_algo_mix_selection(float *data, pc_rect t, const pc_surface *sel, const pc_algo_image *orig,
+                           bool alpha)
 {
     size_t n = orig->ch > 0 ? orig->ch : 1;
     size_t w = pc_rect_width(t), h = pc_rect_height(t), i, c;
@@ -24,6 +25,29 @@ void pc_algo_mix_selection(float *data, pc_rect t, const pc_surface *sel, const 
         float *px = data + i * n;
         if (k >= 1.0f) {
             continue;
+        }
+        if (k <= 0.0f) {
+            for (c = 0; c < n; c++) {
+                px[c] = pc_algo_image_get(orig, x, y, c);
+            }
+            continue;
+        }
+        if (alpha) {
+            size_t a = n - 1;
+            float original_alpha = pc_algo_image_get(orig, x, y, a), filtered_alpha = px[a];
+            if (original_alpha != filtered_alpha) {
+                float mixed_alpha = original_alpha + (filtered_alpha - original_alpha) * k;
+                float original_weight = original_alpha * (1.0f - k), filtered_weight = filtered_alpha * k;
+                for (c = 0; c < a; c++) {
+                    px[c] =
+                        mixed_alpha > 0.0f
+                            ? (pc_algo_image_get(orig, x, y, c) * original_weight + px[c] * filtered_weight) /
+                                  mixed_alpha
+                            : 0.0f;
+                }
+                px[a] = mixed_alpha;
+                continue;
+            }
         }
         for (c = 0; c < n; c++) {
             float o = pc_algo_image_get(orig, x, y, c);
@@ -138,7 +162,7 @@ static pc_status run_tile(void *vctx, size_t chunk, size_t begin, size_t end)
             return st;
         }
         if (r->selection != NULL) {
-            pc_algo_mix_selection(data, t, r->selection, src);
+            pc_algo_mix_selection(data, t, r->selection, src, r->ctx.alpha);
         }
         pc_algo_image_fini(&owned);
         r->results[k] = data;
@@ -168,6 +192,9 @@ pc_status pc_algo_apply_tiled_with(const pc_surface *s, const pc_algo_filter *f,
     pc_status st;
     if (f == NULL || f->def == NULL) {
         return pc_fail(err, PC_ERR_INVALID, "no filter");
+    }
+    if (pc_interrupt_cancelled(ctl)) {
+        return pc_fail(err, PC_ERR_CANCELLED, "cancelled");
     }
     if (pc_rect_is_empty(area)) {
         return pc_surface_clone(s, out, err);

@@ -172,6 +172,15 @@ fn camera_raw_vectors() {
         r#"{"vignetteAmount":-50,"vignetteStyle":"paintOverlay"}"#,
         r#"{"vignetteAmount":40,"vignetteStyle":"paintOverlay"}"#,
         r#"{"temperature":20,"exposure":0.3,"contrast":20,"highlights":-30,"shadows":30,"clarity":20,"dehaze":10,"vibrance":20,"curveLights":10,"hslSat":[10,0,0,0,0,0,0,0],"gradeGlobal":{"hue":30,"sat":10},"sharpenAmount":40,"noiseLuminance":20,"grainAmount":10,"vignetteAmount":-20}"#,
+        // R6 (resync): local-tone Shadows/Highlights, measured Whites/Blacks, power-law encodings.
+        r#"{"whites":80}"#,
+        r#"{"whites":-60}"#,
+        r#"{"blacks":-70}"#,
+        r#"{"blacks":40,"whites":30}"#,
+        r#"{"shadows":-80}"#,
+        r#"{"highlights":100,"shadows":-30,"encodingGamma":1.8}"#,
+        r#"{"whites":60,"blacks":-40,"encodingGamma":2.2}"#,
+        r#"{"shadows":50,"contrast":30,"whites":-20,"encodingGamma":9}"#,
     ];
     for (w, h) in [(37usize, 23usize), (800, 40), (5, 3)] {
         for js in settings {
@@ -191,8 +200,16 @@ fn camera_raw_vectors() {
             }
         }
     }
+    // Wider than the local-tone work size (1600): the guided upsampling path.
+    for js in [r#"{"shadows":70,"highlights":-50}"#, r#"{"highlights":40,"whites":20,"encodingGamma":1.8}"#] {
+        let p: CameraRaw = serde_json::from_str(js).unwrap();
+        let (w, h) = (1700usize, 9usize);
+        let mut px = photo(w, h, 3);
+        camera_raw::develop(&mut px, w, h, &p, false);
+        println!("cr {w} {h} 0 {js} {:016x}", hpx(&px));
+    }
     // serde round trip (to_value of a parsed value)
-    for js in [settings[0], settings[16], settings[22], settings[33], r#"{"seed":4294967295,"pixelScale":1e-7,"vignetteStyle":"x y"}"#] {
+    for js in [settings[0], settings[16], settings[22], settings[33], r#"{"seed":4294967295,"pixelScale":1e-7,"vignetteStyle":"x y"}"#, r#"{"encodingGamma":1.8}"#] {
         let p: CameraRaw = serde_json::from_str(js).unwrap();
         println!("crjson {}", serde_json::to_string(&p).unwrap());
     }
@@ -468,7 +485,7 @@ fn vp_vectors() {
     let sc = Scene::new(floor_quad(500.0, c, 0.6, 0.4), c, None, 800.0);
     let img = surf(PixelFormat::RGBA8, Rect::new(0, 0, 100, 50), 5, false);
     for (at, width) in [([0.25, 0.25], 0.5), ([0.0, 0.0], 1.0), ([0.6, 0.1], 0.3)] {
-        let out = vanishing::paste(&sc, 0, &img, Rect::new(0, 0, 100, 50), at, width).unwrap();
+        let out = vanishing::paste(&sc, 0, &img, Rect::new(0, 0, 100, 50), at, width).unwrap().unwrap();
         println!("vp_paste {} {} {width} {:016x}", at[0], at[1], hs(&out));
     }
     let h = sc.planes[0].homography().unwrap();
@@ -665,4 +682,63 @@ pub fn run() {
     wide_vectors();
     relight_vectors();
     wide_apply_vectors();
+    vp_check_vectors();
+    direct_vectors();
+}
+
+/// R6 (resync): VpPlane::check and ::normalized.
+fn vp_check_vectors() {
+    let c = [400.0, 300.0];
+    let mut planes: Vec<VpPlane> = [(0.6f64, 0.4f64), (0.3, -0.5), (0.0, 0.0), (1.1, 0.2)].iter().map(|(rx, ry)| floor_quad(500.0, c, *rx, *ry)).collect();
+    for q in [
+        [[10.0, 10.0], [110.0, 10.0], [110.0, 110.0], [10.0, 110.0]],
+        [[10.0, 10.0], [110.0, 110.0], [110.0, 10.0], [10.0, 110.0]],
+        [[10.0, 10.0], [110.0, 10.0], [40.0, 40.0], [10.0, 110.0]],
+        [[10.0, 10.0], [300.0, 10.0], [300.0, 40.0], [200.0, 40.0]],
+        [[110.0, 110.0], [110.0, 10.0], [10.0, 10.0], [10.0, 110.0]],
+        [[f64::NAN, 10.0], [110.0, 10.0], [110.0, 110.0], [10.0, 110.0]],
+        [[0.0, 0.0], [0.5, 0.0], [0.5, 0.5], [0.0, 0.5]],
+        [[50.0, 300.0], [700.0, 280.0], [600.0, 320.0], [100.0, 330.0]],
+        [[100.0, 100.0], [500.0, 120.0], [480.0, 400.0], [120.0, 380.0]],
+    ] {
+        planes.push(VpPlane { corners: q });
+    }
+    for (k, pl) in planes.iter().enumerate() {
+        let check = match pl.check(c) {
+            vanishing::PlaneCheck::Valid => "valid",
+            vanishing::PlaneCheck::Questionable => "questionable",
+            vanishing::PlaneCheck::Invalid => "invalid",
+        };
+        let n = pl.normalized();
+        let mut h = H0;
+        for p in &n.corners {
+            hd(&mut h, p);
+        }
+        println!("vp_check {k} {check} {h:016x}");
+    }
+}
+
+/// R6 (resync): direct (intensity) registration for Auto-Align.
+fn direct_vectors() {
+    use photocraft_algo::direct::{self, Plane as DPlane, Pose};
+    use photocraft_algo::panorama::Motion;
+    let (w, h) = (160usize, 120usize);
+    let reference: Vec<f32> = photo(w, h, 7).iter().map(|q| 0.3 * q[0] + 0.6 * q[1] + 0.1 * q[2]).collect();
+    let rp = DPlane { w, h, luma: &reference, valid: None };
+    let truth = Pose { dx: 2.3 / w as f64, dy: -1.6 / h as f64, scale: 1.01, rot: 0.4f64.to_radians(), ..Pose::IDENTITY };
+    let (target, valid) = direct::warp(&rp, &truth);
+    let mut hw = H0;
+    hf(&mut hw, &target);
+    hu(&mut hw, &valid.iter().map(|b| u64::from(*b)).collect::<Vec<_>>());
+    println!("direct_warp {hw:016x}");
+    let tp = DPlane { w, h, luma: &target, valid: Some(&valid) };
+    for (mname, motion) in [("translation", Motion::Translation), ("euclidean", Motion::Euclidean), ("similarity", Motion::Similarity), ("homography", Motion::Homography)] {
+        for coarsen in [0usize, 1, 5] {
+            let r = direct::register(&rp, &tp, motion, Pose::IDENTITY, coarsen);
+            let mut hh = H0;
+            hd(&mut hh, &r.pose.to_vec());
+            hd(&mut hh, &r.h.0);
+            println!("direct {mname} {coarsen} {hh:016x} {:016x} {} {:016x}", r.rms.to_bits(), r.overlap, r.correlation.to_bits());
+        }
+    }
 }

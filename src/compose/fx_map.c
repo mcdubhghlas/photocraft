@@ -224,9 +224,8 @@ static void dt1(dt_scratch *s, size_t n)
     }
 }
 
-/* Exact Euclidean distance to the nearest `inside` pixel (0 there) and that pixel's index. */
-static pc_status edt_nearest(const bool *inside, size_t w, size_t h, float **dist, size_t **nearest,
-                             pc_error *err)
+pc_status pc_fx_edt_nearest(const bool *inside, size_t w, size_t h, float **dist, size_t **nearest,
+                            pc_error *err)
 {
     const float inf = 1e20f;
     size_t len = w * h;
@@ -423,7 +422,7 @@ pc_status pc_fx_dist_outside(const pc_fxm *s, pc_fx_metric metric, float **out, 
         for (i = 0; i < n; i++) {
             inside[i] = s->v[i] > PC_FX_INSIDE_EPS;
         }
-        st = edt_nearest(inside, s->w, s->h, &d, &near, err);
+        st = pc_fx_edt_nearest(inside, s->w, s->h, &d, &near, err);
         if (st != PC_OK) {
             free(inside);
             return st;
@@ -486,7 +485,7 @@ pc_status pc_fx_dist_inside(const pc_fxm *s, pc_fx_metric metric, float **out, p
         for (i = 0; i < n; i++) {
             outside[i] = s->v[i] <= PC_FX_INSIDE_EPS;
         }
-        st = edt_nearest(outside, s->w, s->h, &d, &near, err);
+        st = pc_fx_edt_nearest(outside, s->w, s->h, &d, &near, err);
         if (st != PC_OK) {
             free(outside);
             return st;
@@ -502,7 +501,7 @@ pc_status pc_fx_dist_inside(const pc_fxm *s, pc_fx_metric metric, float **out, p
 }
 
 pc_status pc_compose_fx_distance_field(pc_compose_fx_field_kind kind, const float *alpha, size_t w, size_t h,
-                                       float **out, pc_error *err)
+                                       float reach, float **out, pc_error *err)
 {
     size_t n;
     pc_fxm s;
@@ -523,6 +522,17 @@ pc_status pc_compose_fx_distance_field(pc_compose_fx_field_kind kind, const floa
     case PC_COMPOSE_FIELD_INSIDE:
         st = pc_fx_dist_inside(&s, PC_FX_EUCLIDEAN, &d, err);
         break;
+    case PC_COMPOSE_FIELD_BEVEL_OUTSIDE:
+    case PC_COMPOSE_FIELD_BEVEL_INSIDE: {
+        pc_fx_sharp_edges sharp;
+        st = pc_fx_sharp_edges_find(&s, &sharp, err);
+        if (st == PC_OK) {
+            st = kind == PC_COMPOSE_FIELD_BEVEL_INSIDE ? pc_fx_bevel_dist_inside(&s, &sharp, reach, &d, err)
+                                                       : pc_fx_bevel_dist_outside(&s, &sharp, reach, &d, err);
+            pc_fx_sharp_edges_fini(&sharp);
+        }
+        break;
+    }
     case PC_COMPOSE_FIELD_STROKE_OUTSIDE:
         st = pc_fx_dist_outside(&s, PC_FX_CHAMFER, &d, err);
         break;
@@ -820,12 +830,62 @@ pc_status pc_compose_fx_contour_lut(const pc_contour *c, float **out, pc_error *
     if (t == NULL) {
         return nomem(err);
     }
-    st = pc_compose_curve_lut(c->points.pts, c->points.len, t, err);
+    /* Corner points bend the curve sharply (each run between corners is its own spline). */
+    st = pc_compose_contour_curve_lut(c->points.pts, c->points.len, c->corners, c->ncorners, t, err);
     if (st != PC_OK) {
         free(t);
         return st;
     }
     *out = t;
+    return PC_OK;
+}
+
+pc_status pc_compose_fx_satin_lut(const pc_contour *c, float **out, pc_error *err)
+{
+    float *l = NULL;
+    float *t;
+    float end;
+    size_t k;
+    const size_t n = PC_COMPOSE_FX_LUT_SIZE;
+    pc_status st = pc_compose_fx_contour_lut(c, &l, err);
+    if (st != PC_OK || l == NULL) {
+        if (st == PC_OK) {
+            *out = NULL;
+        }
+        return st;
+    }
+    t = pc_malloc_array(n, sizeof *t);
+    if (t == NULL) {
+        free(l);
+        return nomem(err);
+    }
+    end = l[n - 1];
+    for (k = 0; k < n; k++) {
+        t[k] = fabsf(l[n - 1 - k] - end);
+    }
+    free(l);
+    *out = t;
+    return PC_OK;
+}
+
+pc_status pc_compose_fx_bevel_contour_lut(const pc_bevel_contour *c, float **out, pc_error *err)
+{
+    float *l = NULL;
+    size_t k;
+    pc_status st = pc_compose_fx_contour_lut(&c->contour, &l, err);
+    if (st != PC_OK) {
+        return st;
+    }
+    if (l == NULL) {
+        l = pc_malloc_array(PC_COMPOSE_FX_LUT_SIZE, sizeof *l);
+        if (l == NULL) {
+            return nomem(err);
+        }
+        for (k = 0; k < PC_COMPOSE_FX_LUT_SIZE; k++) {
+            l[k] = (float)k / 4095.0f;
+        }
+    }
+    *out = l;
     return PC_OK;
 }
 
@@ -896,6 +956,19 @@ static pc_status apply_contour(pc_fxm *m, const pc_contour *c, pc_error *err)
 {
     float *l = NULL;
     pc_status st = pc_compose_fx_contour_lut(c, &l, err);
+    if (st != PC_OK) {
+        return st;
+    }
+    pc_fxm_apply_lut(m, l, PC_COMPOSE_FX_LUT_SIZE);
+    free(l);
+    return PC_OK;
+}
+
+/* Satin's coverage transfer (pc_compose_fx_satin_lut) in place. */
+static pc_status apply_satin_contour(pc_fxm *m, const pc_contour *c, pc_error *err)
+{
+    float *l = NULL;
+    pc_status st = pc_compose_fx_satin_lut(c, &l, err);
     if (st != PC_OK) {
         return st;
     }
@@ -1013,12 +1086,17 @@ pc_status pc_fx_glow_map(const pc_fxm *shape, const pc_glow *g, bool inner, int3
     size_t n = pc_fxm_len(shape);
     size_t i;
     pc_status st;
+    /* An inner glow is built from the edge inwards; a centre-source glow is its inverse, taken
+     * after the contour and Range (Photoshop 27.11: the centre glow is exactly 1 - the edge glow,
+     * for both techniques). */
     if (g->technique == PC_GLOW_PRECISE) {
-        /* An inner glow, from either source, measures from the edge inwards; a centre glow is
-         * the inverse below (#966). The outer glow's source is the shape itself. */
+        /* Coverage falls linearly from 0.5 at the edge to 0 at size + 1 px (centre to centre),
+         * solid within the spread / choke: after the default 50 % Range that is Photoshop's
+         * 1 - D / (size + 1) beyond the solid part. The distances are 0.5 px short of centre to
+         * centre. */
         float *d = NULL;
         float solid = g->size * g->spread;
-        float soft = pc_rs_maxf_k(g->size - solid, 1e-3f);
+        float soft = pc_rs_maxf_k(g->size + 1.0f - solid, 1e-3f);
         st = inner ? pc_fx_dist_inside(shape, PC_FX_EUCLIDEAN, &d, err)
                    : pc_fx_dist_outside(shape, PC_FX_EUCLIDEAN, &d, err);
         if (st != PC_OK) {
@@ -1030,12 +1108,10 @@ pc_status pc_fx_glow_map(const pc_fxm *shape, const pc_glow *g, bool inner, int3
             return st;
         }
         for (i = 0; i < n; i++) {
-            m.v[i] = d[i] <= solid ? 1.0f : pc_clampf(1.0f - (d[i] - solid) / soft, 0.0f, 1.0f);
+            float dd = d[i] + 0.5f;
+            m.v[i] = dd <= solid ? 1.0f : 0.5f * pc_clampf(1.0f - (dd - solid) / soft, 0.0f, 1.0f);
         }
         free(d);
-        if (center) {
-            map_one_minus(&m);
-        }
     } else {
         float r;
         float bw;
@@ -1045,9 +1121,7 @@ pc_status pc_fx_glow_map(const pc_fxm *shape, const pc_glow *g, bool inner, int3
         if (st != PC_OK) {
             return st;
         }
-        /* Inner edge glows grow 1 - alpha; a centre glow is brightest in the middle: coverage
-         * from the distance to the edge, inverted (the reference computes and discards the
-         * shape's own dilation first; it has no effect). */
+        /* Inner glows grow 1 - alpha. */
         if (inner) {
             map_one_minus(&src);
         }
@@ -1060,9 +1134,6 @@ pc_status pc_fx_glow_map(const pc_fxm *shape, const pc_glow *g, bool inner, int3
             pc_fxm_free(&m);
             return st;
         }
-        if (center) {
-            map_one_minus(&m);
-        }
     }
     st = pc_compose_fx_glow_lut(g, &lut, err);
     if (st != PC_OK) {
@@ -1071,6 +1142,9 @@ pc_status pc_fx_glow_map(const pc_fxm *shape, const pc_glow *g, bool inner, int3
     }
     pc_fxm_apply_lut(&m, lut, PC_COMPOSE_FX_LUT_SIZE);
     free(lut);
+    if (center) {
+        map_one_minus(&m);
+    }
     noise(&m, g->noise, ox, oy);
     if (inner) {
         mul_by(&m, shape);
@@ -1088,7 +1162,7 @@ pc_status pc_fx_satin_map(const pc_fxm *shape, const pc_satin *s, pc_fxm *out, p
     size_t i;
     size_t n = pc_fxm_len(shape);
     pc_status st;
-    pc_fx_offset(s->angle, s->distance, &dx, &dy);
+    pc_fx_offset(s->angle, pc_compose_fx_satin_distance(s), &dx, &dy);
     st = shifted(shape, dx, dy, 0.0f, &a, err);
     if (st == PC_OK) {
         st = shifted(shape, -dx, -dy, 0.0f, &b, err);
@@ -1107,7 +1181,7 @@ pc_status pc_fx_satin_map(const pc_fxm *shape, const pc_satin *s, pc_fxm *out, p
         if (s->invert) {
             map_one_minus(&a);
         }
-        st = apply_contour(&a, &s->contour, err);
+        st = apply_satin_contour(&a, &s->contour, err);
     }
     pc_fxm_free(&b);
     if (st != PC_OK) {

@@ -1011,10 +1011,10 @@ static pc_psd_bytes tysh_font(const char *text, const run *runs, size_t nr, cons
     raw.kind = PC_PSD_V_RAW_DATA;
     must(pc_psd_bytes_set(&raw.raw, eb.data, eb.len, NULL));
     dput(&t.text, "EngineData", raw);
-    t.bounds[0] = pc_f64_to_i32(floor(ink[0]));
-    t.bounds[1] = pc_f64_to_i32(floor(ink[1]));
-    t.bounds[2] = pc_f64_to_i32(ceil(ink[2]));
-    t.bounds[3] = pc_f64_to_i32(ceil(ink[3]));
+    t.bounds[0] = (float)pc_f64_to_i32(floor(ink[0]));
+    t.bounds[1] = (float)pc_f64_to_i32(floor(ink[1]));
+    t.bounds[2] = (float)pc_f64_to_i32(ceil(ink[2]));
+    t.bounds[3] = (float)pc_f64_to_i32(ceil(ink[3]));
     must(pc_tysh_write(&t, &out, NULL));
     pc_tysh_fini(&t);
     pc_ed_fini(&ed);

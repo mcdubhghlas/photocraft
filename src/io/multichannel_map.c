@@ -10,10 +10,15 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "base/bytes.h"
 #include "base/mem.h"
 #include "base/num.h"
+#include "codecs/resolution.h"
+#include "io/annotations_map.h"
+#include "io/pattern_map.h"
 #include "io/pixels.h"
 #include "io/psd_common.h"
+#include "io/psd_export_internal.h"
 #include "psd/misc.h"
 #include "psd/resources.h"
 
@@ -104,28 +109,22 @@ pc_status pc_io_multichannel_import(const pc_psd_file *file, const uint8_t *all,
     }
     r = pc_psd_file_resource(file, PC_IO_DISPLAY_INFO);
     if (r != NULL) {
-        pc_io_apply_display_info(r->data.data, r->data.len, true, doc->channels, doc->nchannels);
+        pc_io_apply_display_info(r->data.data, r->data.len, true, 0, doc->channels, doc->nchannels);
     } else if ((r = pc_psd_file_resource(file, PC_IO_DISPLAY_INFO_OLD)) != NULL) {
-        pc_io_apply_display_info(r->data.data, r->data.len, false, doc->channels, doc->nchannels);
+        pc_io_apply_display_info(r->data.data, r->data.len, false, 0, doc->channels, doc->nchannels);
     }
     return PC_OK;
 }
 
-/* Appends resource (id, data) to the array. */
-static pc_status add_res(pc_psd_resource **res, size_t *n, size_t *cap, uint16_t id, const void *data,
-                         size_t len, pc_error *err)
+/* Grid and guides. */
+#define PC_IO_MC_GRID_AND_GUIDES 1032
+/* Alpha identifiers: one u32 per extra channel. */
+#define PC_IO_MC_ALPHA_IDENTIFIERS 1053
+
+/* Resources that only describe layers (a Multichannel document has no layers). */
+static bool layer_only_resource(uint16_t id)
 {
-    pc_psd_resource *v = pc_grow_array(*res, cap, *n + 1, sizeof *v);
-    pc_status st;
-    if (v == NULL) {
-        return pc_io_nomem(err, "adding a resource");
-    }
-    *res = v;
-    st = pc_psd_resource_init(&v[*n], id, data, len, err);
-    if (st == PC_OK) {
-        (*n)++;
-    }
-    return st;
+    return id == PC_PSD_RES_LAYER_STATE || id == PC_PSD_RES_LAYER_GROUP_INFO || id == 1069 || id == 1072;
 }
 
 pc_status pc_io_multichannel_to_psd(const pc_document *doc, bool force_psb, pc_psd_file *out,
@@ -142,9 +141,13 @@ pc_status pc_io_multichannel_to_psd(const pc_document *doc, bool force_psb, pc_p
     bool big = doc->size.width > 30000 || doc->size.height > 30000;
     bool size_exceeds = false;
     pc_psd_file f;
-    pc_psd_resource *res = NULL;
-    size_t nres = 0;
-    size_t cap = 0;
+    pc_io_res_list res = {NULL, 0, 0};
+    pc_doc_psd_global_block *pat = NULL;
+    size_t npat = 0;
+    pc_doc_psd_global_block *ann = NULL;
+    size_t nann = 0;
+    pc_psd_block *gblocks = NULL;
+    size_t ngblocks = 0;
     pc_buf tmp = PC_BUF_INIT;
     pc_status st = PC_OK;
     pc_psd_file_init(&f);
@@ -152,7 +155,7 @@ pc_status pc_io_multichannel_to_psd(const pc_document *doc, bool force_psb, pc_p
     if (sample == PC_SAMPLE_TYPE_F32) {
         st = pc_io_warn(warnings, err,
                         "32-bit Multichannel written as 16 bits/channel "
-                        "(Photoshop has no 32-bit Multichannel)");
+                        "(32-bit Multichannel isn't supported)");
         sample = PC_SAMPLE_TYPE_U16;
     }
     if (st == PC_OK && doc->nlayers > 0) {
@@ -221,9 +224,20 @@ pc_status pc_io_multichannel_to_psd(const pc_document *doc, bool force_psb, pc_p
     }
     if (st == PC_OK) {
         uint8_t ri[16];
+        uint8_t b4[4];
         pc_psd_resolution r = pc_psd_resolution_from_dpi((double)doc->resolution_dpi);
         pc_psd_resolution_write(&r, ri);
-        st = add_res(&res, &nres, &cap, PC_PSD_RES_RESOLUTION_INFO, ri, sizeof ri, err);
+        st = pc_io_res_add(&res, PC_PSD_RES_RESOLUTION_INFO, ri, sizeof ri, err);
+        pc_store_be32(b4, (uint32_t)pc_f32_to_i32(roundf(doc->global_light.angle)));
+        st = st == PC_OK ? pc_io_res_add(&res, PC_PSD_RES_GLOBAL_ANGLE, b4, 4, err) : st;
+        pc_store_be32(b4, (uint32_t)pc_f32_to_i32(roundf(doc->global_light.altitude)));
+        st = st == PC_OK ? pc_io_res_add(&res, PC_PSD_RES_GLOBAL_ALTITUDE, b4, 4, err) : st;
+    }
+    /* Grid and guides: Photoshop writes it in every file, guides or not. */
+    if (st == PC_OK) {
+        pc_buf_truncate(&tmp, 0);
+        st = pc_io_guides_resource(doc, &tmp, err);
+        st = st == PC_OK ? pc_io_res_add(&res, PC_IO_MC_GRID_AND_GUIDES, tmp.data, tmp.len, err) : st;
     }
     if (st == PC_OK && nch > 0) {
         const pc_alpha_channel **chs = pc_malloc_array(nch, sizeof *chs);
@@ -239,53 +253,139 @@ pc_status pc_io_multichannel_to_psd(const pc_document *doc, bool force_psb, pc_p
             st = pc_io_pascal_names_resource(names, nch, &tmp, err);
         }
         if (st == PC_OK) {
-            st = add_res(&res, &nres, &cap, 1006, tmp.data, tmp.len, err);
+            st = pc_io_res_add(&res, 1006, tmp.data, tmp.len, err);
         }
         if (st == PC_OK) {
             st = pc_io_unicode_names_resource(names, nch, &tmp, err);
         }
         if (st == PC_OK) {
-            st = add_res(&res, &nres, &cap, 1045, tmp.data, tmp.len, err);
+            st = pc_io_res_add(&res, 1045, tmp.data, tmp.len, err);
         }
         if (st == PC_OK) {
-            st = pc_io_display_info(chs, nch, &tmp, err);
+            st = pc_io_display_info(chs, nch, false, &tmp, err);
         }
         if (st == PC_OK) {
-            st = add_res(&res, &nres, &cap, PC_IO_DISPLAY_INFO, tmp.data, tmp.len, err);
+            st = pc_io_res_add(&res, PC_IO_DISPLAY_INFO, tmp.data, tmp.len, err);
         }
         free(chs);
         free(names);
     }
-    if (st == PC_OK && doc->metadata.has_xmp) {
-        st = add_res(&res, &nres, &cap, PC_PSD_RES_XMP, doc->metadata.xmp.ptr, doc->metadata.xmp.len, err);
+    if (st == PC_OK) {
+        st = pc_io_path_resources(&res, doc, warnings, err);
+    }
+    /* The XMP and EXIF resolution follow the ResolutionInfo resource, so no copy contradicts it. */
+    {
+        float ppi[2] = {doc->resolution_dpi, doc->resolution_dpi};
+        const float *ppi_ptr = doc->resolution_dpi > 0.0f ? ppi : NULL;
+        if (st == PC_OK && doc->metadata.has_xmp) {
+            char *x = NULL;
+            size_t xl = 0;
+            st = pc_export_xmp(pc_str_c(&doc->metadata.xmp), doc->metadata.xmp.len, ppi_ptr, &x, &xl, err);
+            if (st == PC_OK) {
+                st = x != NULL ? pc_io_res_add(&res, PC_PSD_RES_XMP, x, xl, err)
+                               : pc_io_res_add(&res, PC_PSD_RES_XMP, pc_str_c(&doc->metadata.xmp),
+                                               doc->metadata.xmp.len, err);
+            }
+            free(x);
+        }
+        if (st == PC_OK && doc->metadata.exif != NULL) {
+            uint8_t *x = NULL;
+            size_t xl = 0;
+            st = pc_export_exif(pc_blob_data(doc->metadata.exif), pc_blob_len(doc->metadata.exif), ppi_ptr,
+                                &x, &xl, err);
+            if (st == PC_OK) {
+                st = x != NULL ? pc_io_res_add(&res, PC_PSD_RES_EXIF, x, xl, err)
+                               : pc_io_res_add(&res, PC_PSD_RES_EXIF, pc_blob_data(doc->metadata.exif),
+                                               pc_blob_len(doc->metadata.exif), err);
+            }
+            free(x);
+        }
+    }
+    /* Every other imported resource (print settings, IPTC, the layer-id seed, ...), except the
+     * ones that only describe layers and any already written above. */
+    for (size_t i = 0; i < doc->metadata.npsd_resources && st == PC_OK; i++) {
+        const pc_doc_psd_resource *r = &doc->metadata.psd_resources[i];
+        bool written = false;
+        for (size_t j = 0; j < res.n && !written; j++) {
+            written = res.v[j].id == r->id;
+        }
+        if (layer_only_resource(r->id) || written ||
+            !pc_io_keep_imported_resource(doc, r->id, pc_blob_data(r->data), pc_blob_len(r->data))) {
+            continue;
+        }
+        /* Alpha identifiers: one u32 per channel, only while they still match the channels. */
+        if (r->id == PC_IO_MC_ALPHA_IDENTIFIERS && pc_blob_len(r->data) != nch * 4) {
+            continue;
+        }
+        st = pc_io_res_add_named(&res, r->id, &r->name, pc_blob_data(r->data), pc_blob_len(r->data), err);
     }
     if (st == PC_OK) {
-        pc_psd_resource *v = pc_grow_array(res, &cap, nres + 1, sizeof *v);
+        bool has = false;
+        pc_buf_truncate(&tmp, 0);
+        st = pc_io_fresh_scale_resource(doc, &has, &tmp, err);
+        if (st == PC_OK && has) {
+            st = pc_io_res_add(&res, PC_IO_MEASUREMENT_SCALE, tmp.data, tmp.len, err);
+        }
+    }
+    if (st == PC_OK) {
+        pc_psd_resource *v = pc_grow_array(res.v, &res.cap, res.n + 1, sizeof *v);
         if (v == NULL) {
             st = pc_io_nomem(err, "adding a resource");
         } else {
-            res = v;
-            st = pc_psd_version_info_resource(true, &res[nres], err);
+            res.v = v;
+            st = pc_psd_version_info_resource(true, &res.v[res.n], err);
             if (st == PC_OK) {
-                nres++;
+                res.n++;
             }
         }
     }
+    /* Document-level tagged blocks (patterns, notes, ...) are valid without a layer section; a
+     * kept layer block would describe layers the document doesn't have. */
+    if (st == PC_OK) {
+        st = pc_io_export_pattern_blocks(doc, &pat, &npat, err);
+    }
+    if (st == PC_OK) {
+        st = pc_io_annotation_export_blocks(doc, pat, npat, &ann, &nann, err);
+    }
+    if (st == PC_OK && nann > 0) {
+        gblocks = pc_calloc_array(nann, sizeof *gblocks);
+        if (gblocks == NULL) {
+            st = pc_io_nomem(err, "writing global blocks");
+        }
+    }
+    for (size_t i = 0; i < nann && st == PC_OK; i++) {
+        if (memcmp(ann[i].key, "Layr", 4) == 0 || memcmp(ann[i].key, "Lr16", 4) == 0 ||
+            memcmp(ann[i].key, "Lr32", 4) == 0) {
+            continue;
+        }
+        st = pc_io_global_block(ann[i].signature, ann[i].key, pc_blob_data(ann[i].data),
+                                pc_blob_len(ann[i].data), &gblocks[ngblocks], err);
+        if (st == PC_OK) {
+            ngblocks++;
+        }
+    }
+    for (size_t i = 0; i < nann; i++) {
+        pc_blob_release(ann[i].data);
+    }
+    free(ann);
     if (st == PC_OK) {
         st = pc_psd_color_mode_data_for_depth(f.header.depth, &f.color_mode_data, err);
     }
     pc_buf_fini(&tmp);
     free(planes);
     if (st != PC_OK) {
-        pc_psd_resources_free(res, nres);
+        pc_psd_resources_free(res.v, res.n);
+        pc_psd_blocks_free(gblocks, ngblocks);
         pc_psd_file_fini(&f);
         return st;
     }
-    f.resources = res;
-    f.nresources = nres;
+    f.resources = res.v;
+    f.nresources = res.n;
     f.has_layer_info = false;
     f.placement.where = PC_PSD_LI_SECTION;
-    f.has_global_mask = false;
+    f.has_global_mask = ngblocks > 0;
+    f.global_blocks = gblocks;
+    f.nglobal = ngblocks;
     *out = f;
     return PC_OK;
 }

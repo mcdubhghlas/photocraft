@@ -89,6 +89,79 @@ static void test_mesh_covers_the_shape_only(void)
     pc_surface_fini(&s);
 }
 
+static double orient2(const double *a, const double *b, const double *c)
+{
+    return (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+}
+
+/* Whether p lies in a triangle of the mesh (either orientation). */
+static bool in_mesh(const pc_algo_puppet_mesh *m, double px, double py)
+{
+    double p[2] = {px, py};
+    size_t t;
+    for (t = 0; t < m->ntris; t++) {
+        const double *a = m->verts[m->tris[t][0]], *b = m->verts[m->tris[t][1]], *c = m->verts[m->tris[t][2]];
+        double d0 = orient2(a, b, p), d1 = orient2(b, c, p), d2 = orient2(c, a, p);
+        if ((d0 >= 0.0 && d1 >= 0.0 && d2 >= 0.0) || (d0 <= 0.0 && d1 <= 0.0 && d2 <= 0.0)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* #3105: the mesh was every grid cell touching the shape, a staircase up to a cell outside it. It
+ * now follows the outline grown by the expansion. */
+static void test_mesh_follows_the_outline(void)
+{
+    pc_pixel_format f = {PC_COLOR_MODE_RGB, PC_SAMPLE_TYPE_U8, true};
+    const float c[4] = {0.3f, 0.6f, 0.9f, 1.0f};
+    pc_surface s, l;
+    pc_algo_puppet_mesh m;
+    double area = 0.0, disc = 3.14159265358979323846 * 62.0 * 62.0;
+    size_t i, far = 0;
+    int32_t x, y;
+    pc_surface_init(&s, f);
+    for (y = 40; y < 160; y++) {
+        for (x = 40; x < 160; x++) {
+            if (hypot((double)x + 0.5 - 100.0, (double)y + 0.5 - 100.0) <= 60.0) {
+                CHECK(pc_surface_write_pixel(&s, x, y, c, 4, NULL) == PC_OK);
+            }
+        }
+    }
+    CHECK(pc_algo_puppet_build_mesh(&s, pc_surface_content_bounds(&s), PC_ALGO_PUPPET_DENSITY_NORMAL, 2.0, &m,
+                                    NULL) == PC_OK);
+    for (i = 0; i < m.nverts; i++) {
+        double r = hypot(m.verts[i][0] - 100.0, m.verts[i][1] - 100.0);
+        CHECK(r <= 63.0);
+        far += r > 61.0;
+    }
+    CHECK(far >= 40);
+    for (i = 0; i < m.ntris; i++) {
+        area += fabs(orient2(m.verts[m.tris[i][0]], m.verts[m.tris[i][1]], m.verts[m.tris[i][2]])) / 2.0;
+    }
+    CHECK(fabs(area / disc - 1.0) < 0.03);
+    pc_algo_puppet_mesh_fini(&m);
+    /* Sharp corners and a concave corner: every opaque pixel is inside the mesh even without an
+     * expansion, and the empty corner of the L is not. */
+    blob(PC_SAMPLE_TYPE_U8, &l);
+    CHECK(pc_algo_puppet_build_mesh(&l, pc_surface_content_bounds(&l), PC_ALGO_PUPPET_FEWER, 0.0, &m, NULL) ==
+          PC_OK);
+    for (x = 20; x < 36; x++) {
+        for (y = 10; y < 70; y++) {
+            CHECK(in_mesh(&m, x + 0.5, y + 0.5));
+        }
+    }
+    for (x = 36; x < 70; x++) {
+        for (y = 56; y < 70; y++) {
+            CHECK(in_mesh(&m, x + 0.5, y + 0.5));
+        }
+    }
+    CHECK(!in_mesh(&m, 40.0, 50.0) && !in_mesh(&m, 60.0, 20.0));
+    pc_algo_puppet_mesh_fini(&m);
+    pc_surface_fini(&s);
+    pc_surface_fini(&l);
+}
+
 static bool render_ok(pc_status st)
 {
     CHECK(st == PC_OK);
@@ -389,9 +462,15 @@ static void test_hostile_meshes_and_limits(void)
     double (*v)[2] = NULL, *e = NULL;
     pc_error err;
     blob(PC_SAMPLE_TYPE_U8, &s);
-    /* Bounds the reference could not allocate a block grid for. */
-    CHECK(pc_algo_puppet_build_mesh(&s, pc_rect_make(INT32_MIN, 0, INT32_MAX, 10), PC_ALGO_PUPPET_MORE, 2.0,
-                                    &m, &err) == PC_ERR_LIMIT);
+    /* Huge bounds: the outline field's blocks grow with the layer, so its grid stays bounded. */
+    {
+        pc_status st = pc_algo_puppet_build_mesh(&s, pc_rect_make(INT32_MIN, 0, INT32_MAX, 10),
+                                                 PC_ALGO_PUPPET_MORE, 2.0, &m, &err);
+        CHECK(st == PC_OK || st == PC_ERR_LIMIT);
+        if (st == PC_OK) {
+            pc_algo_puppet_mesh_fini(&m);
+        }
+    }
     /* Empty bounds: the empty mesh; an empty surface: no coverage. */
     CHECK(pc_algo_puppet_build_mesh(&s, PC_RECT_EMPTY, PC_ALGO_PUPPET_MORE, 2.0, &m, NULL) == PC_OK);
     CHECK(m.nverts == 0 && m.ntris == 0 && m.spacing == 0.0);
@@ -459,6 +538,7 @@ static void test_json_and_parse(void)
 int main(int argc, char **argv)
 {
     RUN(test_mesh_covers_the_shape_only);
+    RUN(test_mesh_follows_the_outline);
     RUN(test_no_pins_or_unmoved_pins_are_identity);
     RUN(test_an_expansion_that_empties_the_mesh_warps_nothing);
     RUN(test_a_pin_dragged_absurdly_far_is_refused_before_rendering);

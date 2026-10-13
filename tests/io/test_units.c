@@ -250,11 +250,11 @@ static void test_display_info_roundtrip(void)
     s.has_spot = true;
     s.spot_color = pc_color_rgb(1, 0, 1);
     s.spot_solidity = 0.8f;
-    must(pc_io_display_info(refs, 2, &b, NULL));
-    CHECK_EQ_UINT(b.len, 4 + 28);
+    must(pc_io_display_info(refs, 2, false, &b, NULL));
+    CHECK_EQ_UINT(b.len, 4 + 2 * 13);
     back[0] = gray_channel("A");
     back[1] = gray_channel("S");
-    pc_io_apply_display_info(b.data, b.len, true, back, 2);
+    pc_io_apply_display_info(b.data, b.len, true, 0, back, 2);
     CHECK(pc_color_eq(&back[0].color, &a.color));
     CHECK_NEAR(back[0].opacity, 0.3, 1e-6);
     CHECK(back[0].indicates == PC_INDICATES_SELECTED_AREAS);
@@ -262,7 +262,7 @@ static void test_display_info_roundtrip(void)
           back[1].spot_solidity == 0.8f);
     /* Truncated data is ignored rather than misread. */
     c = gray_channel("x");
-    pc_io_apply_display_info(b.data, 10, true, &c, 1);
+    pc_io_apply_display_info(b.data, 10, true, 0, &c, 1);
     CHECK(c.opacity == 0.5f);
     pc_alpha_channel_fini(&a);
     pc_alpha_channel_fini(&s);

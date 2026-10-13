@@ -243,7 +243,7 @@ fn adjustment(r: &mut Rng) -> Adjustment {
             let cc = curve(r);
             let s = r.below(3);
             let black = curve(r);
-            Adjustment::Curves { master, per_channel: [a, b, cc], space: SPACES[s as usize], black }
+            Adjustment::Curves { master, per_channel: [a, b, cc], space: SPACES[s as usize], black, pencil: false }
         }
         3 => {
             let exposure = r.span(-2.0, 2.0);
@@ -1111,5 +1111,122 @@ pub fn run() {
     split_sweeps();
     for seed in 1..=400u64 {
         doc_line(seed);
+    }
+    r9_sweeps();
+}
+
+/// R9 (resync): functionality added upstream after C2, appended so earlier lines keep their
+/// positions: special-eight Fill blending over every mode (incl. the Paint.NET ones), pencil
+/// Curves, contour corners, Lab-document adjustments and native CMYK flattening.
+fn r9_sweeps() {
+    use photocraft_compose::psblend;
+    let modes: Vec<BlendMode> = BlendMode::layer_modes().collect();
+    let mut h = H0;
+    let mut hc = H0;
+    for (flag, (lab, hdr)) in [(false, false), (true, false), (false, true)].into_iter().enumerate() {
+        psblend::with_lab_mix(lab, || {
+            psblend::with_hdr(hdr, || {
+                for &m in &modes {
+                    for i in 0..16usize {
+                        for j in [0usize, 3, 7, 11, 12, 13, 15] {
+                            let b = [VALS[i], VALS[j], VALS[(i + j) % 16], [1.0, 0.5, 0.0, 0.75][flag % 4]];
+                            let t = [VALS[j], VALS[(i * 3) % 16], VALS[i], [1.0, 0.25, 1.0, 0.6][i % 4]];
+                            for fill in [0.0f32, 0.3, 0.5, 1.0, f32::NAN] {
+                                for v in psblend::blend_rgb_fill(m, [b[0], b[1], b[2]], [t[0], t[1], t[2]], fill) {
+                                    hf(&mut h, v);
+                                }
+                                for (op, g) in [(1.0f32, 1.0f32), (0.6, 1.0), (0.8, 1.45)] {
+                                    for v in psblend::composite_fill(m, b, t, op, fill, g) {
+                                        hf(&mut h, v);
+                                    }
+                                }
+                            }
+                            for v in psblend::composite(m, b, t, 0.7) {
+                                hf(&mut hc, v);
+                            }
+                        }
+                    }
+                }
+            })
+        });
+    }
+    println!("fn\tr9_fill_blend\t{h:016x}");
+    println!("fn\tr9_paint_net_composite\t{hc:016x}");
+
+    let mut hp = H0;
+    let mut hk = H0;
+    for seed in 1..=300u64 {
+        let mut r = Rng(seed.wrapping_mul(0x9e3779b97f4a7c15) | 1);
+        let pts = curve(&mut r);
+        for v in adjust::curve_map_lut(&pts) {
+            hf(&mut hp, v);
+        }
+        let corners: Vec<bool> = (0..pts.len() + r.below(2) as usize).map(|_| r.below(2) == 0).collect();
+        for v in adjust::contour_curve_lut(&pts, &corners) {
+            hf(&mut hk, v);
+        }
+    }
+    println!("fn\tr9_curve_map_lut\t{hp:016x}");
+    println!("fn\tr9_contour_curve_lut\t{hk:016x}");
+
+    let depths = [None, Some(SampleType::U8), Some(SampleType::U16), Some(SampleType::F32)];
+    let mut ha = H0;
+    let mut hl = H0;
+    for seed in 1..=300u64 {
+        let mut r = Rng(seed.wrapping_mul(0x2545f4914f6cdd1d) | 1);
+        let mut a = adjustment(&mut r);
+        if let Adjustment::Curves { pencil, .. } = &mut a {
+            *pencil = r.below(2) == 0;
+        }
+        for d in depths {
+            let mut b = test_buffer();
+            adjust::apply_in(&a, &mut b, Transfer::Srgb, d, ColorMode::Lab);
+            fnv(&mut ha, &hpx(&b.px).to_le_bytes());
+        }
+        if matches!(a, Adjustment::Curves { .. }) {
+            for row in adjust::tone_luts(&a).iter() {
+                for v in row {
+                    hf(&mut hl, *v);
+                }
+            }
+        }
+    }
+    println!("fn\tr9_apply_in_lab\t{ha:016x}");
+    println!("fn\tr9_pencil_tone_luts\t{hl:016x}");
+
+    for seed in 1..=40u64 {
+        let mut r = Rng(seed.wrapping_mul(0x51_7cc1_b727_220a) | 1);
+        let depth = if r.below(2) == 0 { SampleType::U8 } else { SampleType::U16 };
+        let mut doc = Document::new("n", Size::new(1 + r.below(40) as u32, 1 + r.below(30) as u32), ColorMode::Cmyk, depth);
+        let fmt = PixelFormat::new(ColorMode::Cmyk, depth, true);
+        for _ in 0..1 + r.below(3) {
+            let mut l = Layer::raster("ink", fmt);
+            let x0 = r.below(30) as i32 - 5;
+            let y0 = r.below(20) as i32 - 5;
+            let px = [r.unit(), r.unit(), r.unit(), r.unit(), [1.0, 0.5, 0.0, 0.3][r.below(4) as usize]];
+            l.surface_mut().unwrap().fill_rect(Rect::new(x0, y0, x0 + 1 + r.below(30) as i32, y0 + 1 + r.below(20) as i32), &px);
+            l.opacity = [1.0, 0.6, 0.0][r.below(3) as usize];
+            l.fill_opacity = [1.0, 0.5][r.below(2) as usize];
+            l.visible = r.below(6) != 0;
+            if r.below(8) == 0 {
+                l.blend = BlendMode::Multiply;
+            }
+            doc.layers.push(l);
+        }
+        let paper = r.below(2) == 0;
+        let rect = Rect::new(-2, -1, doc.size.width as i32 + 3, doc.size.height as i32 + 1);
+        let out = match photocraft_compose::native::flatten_cmyk(&doc, rect, fmt, paper) {
+            Some(s) => {
+                let mut h = H0;
+                let mut v = Vec::new();
+                s.read_region_into(rect, &mut v);
+                for x in v {
+                    hf(&mut h, x);
+                }
+                format!("{h:016x}\t{}", rs(s.content_bounds()))
+            }
+            None => "none".into(),
+        };
+        println!("native\t{seed}\t{out}");
     }
 }

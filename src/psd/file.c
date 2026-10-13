@@ -145,6 +145,26 @@ pc_status pc_psd_file_decode_merged_channel(const pc_psd_file *f, size_t index, 
     return st;
 }
 
+const pc_psd_block *pc_psd_file_unreadable_layer_block(const pc_psd_file *f, pc_error *why)
+{
+    size_t i;
+    if (f->has_layer_info) {
+        return NULL;
+    }
+    for (i = 0; i < f->nglobal; i++) {
+        const pc_psd_block *b = &f->global_blocks[i];
+        if (pc_psd_block_is(b, "Lr16") || pc_psd_block_is(b, "Lr32") || pc_psd_block_is(b, "Layr")) {
+            pc_psd_layer_info li;
+            if (pc_psd_layer_info_parse(b->data.data, b->data.len, f->header.version, &li, why) == PC_OK) {
+                pc_psd_layer_info_fini(&li);
+                return NULL;
+            }
+            return b;
+        }
+    }
+    return NULL;
+}
+
 pc_status pc_psd_file_parse(const uint8_t *data, size_t len, pc_psd_file *out, pc_error *err)
 {
     psd_rd r = psd_rd_make(data, len);
@@ -179,7 +199,8 @@ pc_status pc_psd_file_parse(const uint8_t *data, size_t len, pc_psd_file *out, p
             CK(psd_u32(&s, &n, err));
             CK(psd_take_bytes(&s, n, &f.global_mask, err));
             f.has_global_mask = true;
-            CK(psd_read_blocks(&s, f.header.version, &f.global_blocks, &f.nglobal, &f.layer_mask_trailing, err));
+            CK(psd_read_blocks(&s, f.header.version, 4, &f.global_blocks, &f.nglobal, &f.layer_mask_trailing,
+                               err));
         } else {
             CK(pc_psd_bytes_set(&f.layer_mask_trailing, psd_rest(&s), psd_remaining(&s), err));
         }
@@ -266,7 +287,7 @@ pc_status pc_psd_file_to_bytes(const pc_psd_file *f, pc_psd_bytes *out, pc_error
             size_t bat;
             size_t start;
             size_t blen;
-            psd_write_blocks(&w, f->global_blocks, idx, v);
+            psd_write_blocks(&w, f->global_blocks, idx, v, 4);
             psd_put(&w, f->placement.signature, 4);
             psd_put(&w, f->placement.key, 4);
             bat = psd_begin_len(&w, wide);
@@ -277,11 +298,11 @@ pc_status pc_psd_file_to_bytes(const pc_psd_file *f, pc_psd_bytes *out, pc_error
             if (f->placement.padding.has) {
                 psd_put(&w, f->placement.padding.v.data, f->placement.padding.v.len);
             } else {
-                psd_put_zeros(&w, blen % 2);
+                psd_put_zeros(&w, (4 - blen % 4) % 4);
             }
-            psd_write_blocks(&w, f->global_blocks + idx, f->nglobal - idx, v);
+            psd_write_blocks(&w, f->global_blocks + idx, f->nglobal - idx, v, 4);
         } else {
-            psd_write_blocks(&w, f->global_blocks, f->nglobal, v);
+            psd_write_blocks(&w, f->global_blocks, f->nglobal, v, 4);
         }
         psd_put(&w, f->layer_mask_trailing.data, f->layer_mask_trailing.len);
     }

@@ -53,6 +53,7 @@ void pc_video_data_fini(pc_video_data *v)
         return;
     }
     PC_DOC_FINI_VEC(v->frames, v->nframes, pc_surface_fini);
+    PC_DOC_FINI_VEC(v->original_frames, v->noriginal_frames, pc_surface_fini);
     pc_video_source_fini(&v->source);
     memset(v, 0, sizeof *v);
 }
@@ -66,9 +67,16 @@ pc_status pc_video_data_clone(const pc_video_data *v, pc_video_data *out, pc_err
     if (s != PC_OK) {
         return s;
     }
+    PC_DOC_CLONE_VEC(s, v->original_frames, v->noriginal_frames, c.original_frames, pc_surface_clone,
+                     pc_surface_fini, err);
+    if (s != PC_OK) {
+        PC_DOC_FINI_VEC(c.frames, c.nframes, pc_surface_fini);
+        return s;
+    }
     s = pc_video_source_clone(&v->source, &c.source, err);
     if (s != PC_OK) {
         PC_DOC_FINI_VEC(c.frames, c.nframes, pc_surface_fini);
+        PC_DOC_FINI_VEC(c.original_frames, c.noriginal_frames, pc_surface_fini);
         return s;
     }
     *out = c;
@@ -78,6 +86,10 @@ pc_status pc_video_data_clone(const pc_video_data *v, pc_video_data *out, pc_err
 bool pc_video_data_eq(const pc_video_data *a, const pc_video_data *b)
 {
     /* By shape, as the reference: surfaces aren't compared. */
+    if (a->has_original_frames != b->has_original_frames ||
+        (a->has_original_frames && a->noriginal_frames != b->noriginal_frames)) {
+        return false;
+    }
     return a->nframes == b->nframes && pc_video_source_eq(&a->source, &b->source) && a->fps == b->fps &&
            a->show_altered == b->show_altered;
 }

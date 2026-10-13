@@ -82,6 +82,8 @@ DEFT(pc_label_color, NOFINI)
 DEFT(pc_fill, pc_fill_fini)
 DEFT(pc_smart_filter, pc_smart_filter_fini)
 DEFT(pc_guides, pc_guides_fini)
+DEFT(pc_guide_color, NOFINI)
+DEFT(pc_file_encoding, NOFINI)
 DEFT(pc_color_indicates, NOFINI)
 DEFT(pc_curve_point, NOFINI)
 DEFT(pc_levels_channel, NOFINI)
@@ -183,6 +185,8 @@ static const struct {
     {"Fill", &TI_pc_fill},
     {"SmartFilter", &TI_pc_smart_filter},
     {"Guides", &TI_pc_guides},
+    {"GuideColor", &TI_pc_guide_color},
+    {"FileEncoding", &TI_pc_file_encoding},
     {"ColorIndicates", &TI_pc_color_indicates},
     {"CurvePoint", &TI_pc_curve_point},
     {"LevelsChannel", &TI_pc_levels_channel},
@@ -2339,8 +2343,8 @@ static void fn_nonfinite(void)
         pc_global_light v = {INFINITY, NAN};
         TJ(&TI_pc_global_light, &v);
     } else if (strcmp(n, "Guides") == 0) {
-        float h[2] = {NAN, 1.0f}, vv[1] = {-INFINITY};
-        pc_guides v = {h, 2, vv, 1};
+        double h[2] = {NAN, 1.0}, vv[1] = {-INFINITY};
+        pc_guides v = {h, 2, vv, 1, NULL, 0};
         TJ(&TI_pc_guides, &v);
     } else if (strcmp(n, "CharStyleValue") == 0) {
         pc_char_style v;
@@ -2356,6 +2360,8 @@ static void fn_nonfinite(void)
     }
 }
 
+#include "parity_resync.h"
+
 typedef struct fn_entry {
     const char *name;
     size_t nargs;
@@ -2363,6 +2369,15 @@ typedef struct fn_entry {
 } fn_entry;
 
 static const fn_entry FNS[] = {
+    {"curve_map", 1, fn_curve_map},
+    {"curve_map_outputs", 1, fn_curve_map_outputs},
+    {"stroke_validate", 5, fn_stroke_validate},
+    {"pattern_paintable", 2, fn_pattern_paintable},
+    {"pattern_limits", 0, fn_pattern_limits},
+    {"effect_in_mode", 2, fn_effect_in_mode},
+    {"effect_set_enabled", 2, fn_effect_set_enabled},
+    {"fill_in_mode", 2, fn_fill_in_mode},
+    {"contour_is_corner", 2, fn_contour_is_corner},
     {"hue_neutral", 1, fn_hue_neutral},
     {"hue_defaults", 0, fn_hue_defaults},
     {"hue_weight_sweep", 1, fn_hue_weight_sweep},

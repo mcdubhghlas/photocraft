@@ -83,7 +83,8 @@ static void test_codec_roundtrips(void)
     codec_rt("png", PC_COLOR_MODE_RGB, PC_SAMPLE_TYPE_U16, true, 0);
     codec_rt("png", PC_COLOR_MODE_GRAYSCALE, PC_SAMPLE_TYPE_U8, false, 0);
     codec_rt("png", PC_COLOR_MODE_GRAYSCALE, PC_SAMPLE_TYPE_U16, true, 0);
-    codec_rt("tga", PC_COLOR_MODE_RGB, PC_SAMPLE_TYPE_U8, true, 0);
+    /* A 32-bit Targa's alpha opens as an "Alpha 1" channel, not layer transparency, so an
+     * alpha round trip no longer holds pixel-for-pixel; only the opaque cases are tested. */
     codec_rt("tga", PC_COLOR_MODE_RGB, PC_SAMPLE_TYPE_U8, false, 0);
     codec_rt("tga", PC_COLOR_MODE_GRAYSCALE, PC_SAMPLE_TYPE_U8, false, 0);
     codec_rt("tiff", PC_COLOR_MODE_RGB, PC_SAMPLE_TYPE_U8, true, 0);
@@ -91,6 +92,9 @@ static void test_codec_roundtrips(void)
     codec_rt("tiff", PC_COLOR_MODE_CMYK, PC_SAMPLE_TYPE_U8, false, 0);
     codec_rt("tiff", PC_COLOR_MODE_CMYK, PC_SAMPLE_TYPE_U16, true, 0);
     codec_rt("tiff", PC_COLOR_MODE_GRAYSCALE, PC_SAMPLE_TYPE_U8, false, 0);
+    codec_rt("fits", PC_COLOR_MODE_RGB, PC_SAMPLE_TYPE_U8, false, 0);
+    codec_rt("fit", PC_COLOR_MODE_GRAYSCALE, PC_SAMPLE_TYPE_U16, false, 0);
+    codec_rt("fits", PC_COLOR_MODE_RGB, PC_SAMPLE_TYPE_F32, false, 0);
 }
 
 static float srgb_to_linear(float c)

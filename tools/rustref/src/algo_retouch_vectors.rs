@@ -274,11 +274,12 @@ fn inpaint_vectors() {
 
 fn content_aware_vectors() {
     use content_aware::{FillOptions, color_level, fill, rotation_level};
+    use photocraft_algo::inpaint::Adapt;
     for l in ["none", "low", "medium", "high", "full", "x"] {
         println!("ca rotation/{l} {:016x}", of(&rotation_level(l)));
     }
     for l in ["none", "default", "high", "veryHigh", "x"] {
-        println!("ca color/{l} {:08x}", color_level(l).to_bits());
+        { let a = color_level(l); println!("ca color/{l} {:08x} {:08x} {:08x}", a.gain.0.to_bits(), a.gain.1.to_bits(), a.bias.to_bits()); }
     }
     let stripes = |w: usize, h: usize| -> (Vec<f32>, Vec<bool>) {
         let img: Vec<f32> = (0..w * h).map(|i| if (i % w) % 6 < 3 { 0.2 } else { 0.8 }).collect();
@@ -289,25 +290,25 @@ fn content_aware_vectors() {
     let (im, hole) = stripes(w, h);
     let all = vec![true; w * h];
     println!("ca fill/stripes {:016x}", of(&fill(w, h, 1, &im, &hole, &all, &FillOptions::default())));
-    println!("ca fill/stripes0 {:016x}", of(&fill(w, h, 1, &im, &hole, &all, &FillOptions { color_adaptation: 0.0, ..Default::default() })));
+    println!("ca fill/stripes0 {:016x}", of(&fill(w, h, 1, &im, &hole, &all, &FillOptions { color_adaptation: Adapt::NONE, ..Default::default() })));
     let (w, h) = (40, 20);
     let lr: Vec<f32> = (0..w * h).map(|i| if i % w < 20 { 0.1 } else { 0.9 }).collect();
     let hole = rect_mask(w, h, 16, 6, 24, 14);
     let right: Vec<bool> = (0..w * h).map(|i| i % w >= 24).collect();
-    println!("ca fill/right {:016x}", of(&fill(w, h, 1, &lr, &hole, &right, &FillOptions { color_adaptation: 0.0, ..Default::default() })));
+    println!("ca fill/right {:016x}", of(&fill(w, h, 1, &lr, &hole, &right, &FillOptions { color_adaptation: Adapt::NONE, ..Default::default() })));
     println!("ca fill/nosource {:016x}", of(&fill(w, h, 1, &lr, &hole, &vec![false; w * h], &FillOptions::default())));
     let ramp: Vec<f32> = (0..w * h).map(|i| (i % w) as f32 / w as f32).collect();
     let hole2 = rect_mask(w, h, 14, 5, 26, 15);
-    println!("ca fill/ramp {:016x}", of(&fill(w, h, 1, &ramp, &hole2, &vec![true; w * h], &FillOptions { color_adaptation: 0.9, ..Default::default() })));
+    println!("ca fill/ramp {:016x}", of(&fill(w, h, 1, &ramp, &hole2, &vec![true; w * h], &FillOptions { color_adaptation: color_level("veryHigh"), ..Default::default() })));
     let (w, h) = (32, 24);
     let (im, hole) = stripes(w, h);
     let rgb: Vec<f32> = im.iter().flat_map(|v| [*v, *v * 0.5, 1.0 - *v]).collect();
     let src = vec![true; w * h];
     for (key, opts) in [
-        ("adapt", FillOptions { color_adaptation: 0.65, rotations: rotation_level("low"), scale: true, mirror: true, seed: 7 }),
-        ("full", FillOptions { color_adaptation: 0.35, rotations: rotation_level("full"), scale: false, mirror: false, seed: 2 }),
-        ("mirror", FillOptions { color_adaptation: 0.0, rotations: vec![], scale: false, mirror: true, seed: 1 }),
-        ("scale", FillOptions { color_adaptation: 0.35, rotations: vec![33.0], scale: true, mirror: false, seed: 4 }),
+        ("adapt", FillOptions { color_adaptation: color_level("high"), rotations: rotation_level("low"), scale: true, mirror: true, seed: 7 }),
+        ("full", FillOptions { color_adaptation: color_level("default"), rotations: rotation_level("full"), scale: false, mirror: false, seed: 2 }),
+        ("mirror", FillOptions { color_adaptation: Adapt::NONE, rotations: vec![], scale: false, mirror: true, seed: 1 }),
+        ("scale", FillOptions { color_adaptation: color_level("default"), rotations: vec![33.0], scale: true, mirror: false, seed: 4 }),
     ] {
         println!("ca fill/{key} {:016x}", of(&fill(w, h, 3, &rgb, &hole, &src, &opts)));
     }
@@ -555,6 +556,306 @@ fn paint_vectors() {
     }
 }
 
+fn hb(v: &[bool]) -> u64 {
+    let mut h = H0;
+    for b in v {
+        fnv(&mut h, &[*b as u8]);
+    }
+    h
+}
+fn show_opt(group: &str, key: &str, r: Option<Vec<f32>>) {
+    match r {
+        Some(v) => println!("{group} {key} {:016x}", of(&v)),
+        None => println!("{group} {key} none"),
+    }
+}
+/// SplitMix64 `busy` image of the inpaint tests: structure, fine noise and flat patches.
+fn busy(w: usize, h: usize, ch: usize, seed: u64) -> Vec<f32> {
+    let mut s: u64 = seed ^ 0x9E37_79B9_7F4A_7C15;
+    let mut next = || {
+        s = s.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = s;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    };
+    let mut v = Vec::with_capacity(w * h * ch);
+    for i in 0..w * h {
+        let (x, y) = (i % w, i / w);
+        let flat = (x / 9 + y / 7) % 5 == 0;
+        let n = (next() % 1000) as f32 / 1000.0;
+        for c in 0..ch {
+            v.push(if flat { 0.25 + 0.1 * c as f32 } else { (0.2 + 0.004 * x as f32 + 0.1 * ((x + 2 * y + c) % 6) as f32 + 0.05 * n).min(1.0) });
+        }
+    }
+    v
+}
+/// Roles of the inpaint tests: a hole, a context-only band, a corner that is no image.
+fn roles(w: usize, h: usize, hole: &[bool]) -> Vec<inpaint::Px> {
+    use inpaint::Px;
+    (0..w * h)
+        .map(|i| {
+            let (x, y) = (i % w, i / w);
+            if hole[i] {
+                Px::Hole
+            } else if x < 4 && y < 6 {
+                Px::Void
+            } else if (w * 3 / 4..w * 3 / 4 + 3).contains(&x) {
+                Px::Known
+            } else {
+                Px::Source
+            }
+        })
+        .collect()
+}
+
+fn nonlocal_vectors() {
+    use nonlocal::Params;
+    use photocraft_raster::Interrupt;
+    let run = |key: &str, w: usize, h: usize, ch: usize, im: &[f32], hole: &[bool], p: &Params| {
+        match nonlocal::complete_with(w, h, ch, im, hole, p, &Interrupt::NONE) {
+            Ok(r) => show_opt("nonlocal", key, r),
+            Err(_) => println!("nonlocal {key} cancelled"),
+        }
+    };
+    let d = Params::default();
+    let nz = |i: usize| ((i as u32).wrapping_mul(2_654_435_761) >> 8) as f32 / (1u32 << 24) as f32;
+    let (w, h) = (96, 64);
+    let flat: Vec<f32> = (0..w * h).map(|i| if i % w < 48 { 0.5 } else { 0.25 + 0.5 * nz(i) }).collect();
+    run("flat", w, h, 1, &flat, &rect_mask(w, h, 60, 20, 84, 44), &d);
+    let (w, h) = (80, 60);
+    let grad: Vec<f32> = (0..w * h).flat_map(|i| [(i % w) as f32 / w as f32, 1.0]).collect();
+    run("gradient", w, h, 2, &grad, &rect_mask(w, h, 30, 20, 50, 40), &d);
+    let tex = texture(48, 40);
+    let hole = disc(48, 40, 24.0, 20.0, 7.0);
+    run("tex", 48, 40, 3, &tex, &hole, &d);
+    run("tex/r2", 48, 40, 3, &tex, &hole, &Params { patch_radius: 2, lambda: 0.0, seed: 5, ..Default::default() });
+    run("tex/iters", 48, 40, 3, &tex, &hole, &Params { max_iters: 3, pm_passes: 1, tolerance: 0.0, ..Default::default() });
+    run("tex/r1", 48, 40, 3, &tex, &hole, &Params { patch_radius: 1, lambda: 7.5, ..Default::default() });
+    run("pyramid", 120, 100, 4, &smooth(120, 100, 4, 2), &disc(120, 100, 60.0, 50.0, 22.0), &d);
+    run("ties", 64, 48, 1, &noise(64 * 48, 5, 3), &rect_mask(64, 48, 20, 10, 36, 30), &d);
+    run("edge", 40, 30, 3, &smooth(40, 30, 3, 1), &rect_mask(40, 30, 0, 0, 10, 12), &d);
+    run("busy", 70, 56, 3, &busy(70, 56, 3, 2), &disc(70, 56, 33.0, 27.0, 9.0), &d);
+    run("allhole", 12, 12, 1, &img(12, 12, 1, 1), &vec![true; 144], &d);
+    run("nohole", 12, 12, 1, &img(12, 12, 1, 1), &vec![false; 144], &d);
+}
+
+fn remove_vectors() {
+    use photocraft_raster::Interrupt;
+    let grid = |w: usize, h: usize, f: &dyn Fn(usize, usize) -> bool| -> Vec<bool> { (0..w * h).map(|i| f(i % w, i / w)).collect() };
+    let ring = grid(40, 40, &|x, y| (10.0..12.0).contains(&(x as f32 - 20.0).hypot(y as f32 - 20.0)));
+    println!("remove close/ring {:016x}", hb(&remove::close_loops(40, 40, &ring)));
+    let mut sq = grid(20, 20, &|x, y| (x == 5 || x == 14 || y == 5 || y == 14) && (5..=14).contains(&x) && (5..=14).contains(&y));
+    println!("remove close/square {:016x}", hb(&remove::close_loops(20, 20, &sq)));
+    sq[5 * 20 + 9] = false;
+    println!("remove close/open {:016x}", hb(&remove::close_loops(20, 20, &sq)));
+    let speck: Vec<bool> = noise(23 * 17, 10, 4).iter().map(|v| *v > 0.8).collect();
+    println!("remove close/speck {:016x}", hb(&remove::close_loops(23, 17, &speck)));
+    for r in 0..5 {
+        println!("remove dilate/{r} {:016x}", hb(&remove::dilate(23, 17, &speck, r)));
+    }
+    let line = grid(30, 30, &|x, y| y == 10 && (5..25).contains(&x));
+    let block = grid(30, 30, &|x, y| (5..16).contains(&x) && (5..16).contains(&y));
+    println!(
+        "remove radius {} {} {} {} {}",
+        remove::hole_radius(30, 30, &line),
+        remove::hole_radius(30, 30, &block),
+        remove::hole_radius(30, 30, &vec![true; 900]),
+        remove::hole_radius(23, 17, &speck),
+        remove::hole_radius(40, 40, &disc(40, 40, 20.0, 20.0, 13.0))
+    );
+    let (w, h, ch) = (64, 48, 2);
+    let truth: Vec<f32> = (0..w * h).flat_map(|i| [(i % w) as f32 / w as f32, 1.0]).collect();
+    for (key, hole) in [("thin", grid(w, h, &|x, y| y == 24 && (10..54).contains(&x))), ("wide", grid(w, h, &|x, y| (24..40).contains(&x) && (16..32).contains(&y)))] {
+        let mut im = truth.clone();
+        for (i, m) in hole.iter().enumerate() {
+            if *m {
+                im[i * ch] = 1.0;
+            }
+        }
+        println!("remove gradient/{key} {:016x}", of(&remove::remove_with(w, h, ch, &im, &hole, 7, &Interrupt::NONE).unwrap()));
+    }
+    let tex = texture(48, 40);
+    println!("remove tex {:016x}", of(&remove::remove_with(48, 40, 3, &tex, &disc(48, 40, 24.0, 20.0, 6.0), 3, &Interrupt::NONE).unwrap()));
+    let (w, h) = (900, 700);
+    let stripes: Vec<f32> = (0..w * h).map(|i| 0.3 + 0.4 * (((i % w) / 7 + (i / w) / 5) % 2) as f32).collect();
+    let diag = grid(w, h, &|x, y| (x as f32 - y as f32 * 1.2 - 20.0).abs() < 3.0 && (40..680).contains(&y));
+    println!("remove tiles {:016x}", of(&remove::remove_with(w, h, 1, &stripes, &diag, 3, &Interrupt::NONE).unwrap()));
+    println!("remove allhole {:016x}", of(&remove::remove_with(10, 8, 2, &img(10, 8, 2, 1), &vec![true; 80], 1, &Interrupt::NONE).unwrap()));
+}
+
+fn masked_vectors() {
+    use inpaint::{Adapt, CompleteParams, Px};
+    use photocraft_raster::Interrupt;
+    let none = Interrupt::NONE;
+    let (w, h) = (64, 52);
+    let hole = disc(w, h, 30.0, 26.0, 8.0);
+    let px = roles(w, h, &hole);
+    for ch in [1usize, 3, 4] {
+        let im = busy(w, h, ch, 6);
+        for (ai, adapt) in [Adapt::NONE, Adapt { gain: (0.9, 1.1), bias: 0.04 }, Adapt { gain: (0.67, 1.5), bias: 0.14 }].into_iter().enumerate() {
+            let p = CompleteParams { adapt, ..Default::default() };
+            show_opt("inpaint", &format!("masked/{ch}/{ai}"), complete_masked_ok(w, h, ch, &im, &px, &p));
+        }
+        let p = CompleteParams { adapt: Adapt { gain: (0.8, 1.25), bias: 0.08 }, patch_radius: 2, seed: 9, ..Default::default() };
+        match inpaint::complete_masked_owned(w, h, ch, im.clone(), &px, &p, &none).unwrap() {
+            Ok(v) => println!("inpaint owned/{ch} {:016x}", of(&v)),
+            Err(v) => println!("inpaint owned/{ch} back {:016x}", of(&v)),
+        }
+    }
+    let im = busy(w, h, 3, 6);
+    let known: Vec<Px> = px.iter().map(|k| if *k == Px::Source { Px::Known } else { *k }).collect();
+    show_opt("inpaint", "masked/known", complete_masked_ok(w, h, 3, &im, &known, &CompleteParams::default()));
+    match inpaint::complete_masked_owned(w, h, 3, im.clone(), &known, &CompleteParams::default(), &none).unwrap() {
+        Ok(v) => println!("inpaint owned/known {:016x}", of(&v)),
+        Err(v) => println!("inpaint owned/known back {:016x}", of(&v)),
+    }
+    // The thread-independence cases (results_do_not_depend_on_the_thread_count).
+    let (w, h) = (300, 260);
+    for (ch, adapt) in [(3usize, Adapt::NONE), (4, Adapt { gain: (0.9, 1.1), bias: 0.04 })] {
+        let im = busy(w, h, ch, 3);
+        let hole = disc(w, h, 140.0, 130.0, 40.0);
+        let px = roles(w, h, &hole);
+        let p = CompleteParams { adapt, ..Default::default() };
+        show_opt("inpaint", &format!("busy/{ch}"), complete_masked_ok(w, h, ch, &im, &px, &p));
+    }
+}
+fn complete_masked_ok(w: usize, h: usize, ch: usize, im: &[f32], px: &[inpaint::Px], p: &inpaint::CompleteParams) -> Option<Vec<f32>> {
+    inpaint::complete_masked(w, h, ch, im, px, p, &photocraft_raster::Interrupt::NONE).unwrap()
+}
+
+fn proximity_vectors() {
+    let (w, h) = (61, 49);
+    for ch in [1usize, 3, 4, 5] {
+        for depth in [8, 16, 32] {
+            let im: Vec<f32> = (0..w * h * ch)
+                .map(|i| {
+                    let value = ((i * 101 + i / (w * ch) * 37) % 251) as f32 / 250.0;
+                    match depth {
+                        8 => (value * 255.0).round() / 255.0,
+                        16 => (value * 65535.0).round() / 65535.0,
+                        _ => value * 2.0 - 0.5,
+                    }
+                })
+                .collect();
+            let mut hh = H0;
+            for kind in 0..5 {
+                let hole: Vec<bool> = (0..w * h)
+                    .map(|i| {
+                        let (x, y) = (i % w, i / w);
+                        match kind {
+                            0 => (27..32).contains(&x) && (20..25).contains(&y),
+                            1 => x < 2 && y < 3,
+                            2 => (x == 11 && y == 12) || (x == 38 && y == 30),
+                            3 => x == 30 && y == 24,
+                            _ => false,
+                        }
+                    })
+                    .collect();
+                for (ring, radius) in [(1usize, 5i32), (3, 17), (5, 30), (1, 49), (0, 2), (2, 1000)] {
+                    match inpaint::best_offset(w, h, ch, &im, &hole, ring, radius) {
+                        Some((x, y)) => hi(&mut hh, &[1, x, y]),
+                        None => hi(&mut hh, &[0]),
+                    }
+                }
+            }
+            println!("inpaint proximity/{ch}/{depth} {hh:016x}");
+        }
+    }
+    let (w, h, ch) = (40, 35, 3);
+    let hole = rect_mask(w, h, 18, 16, 22, 20);
+    for (k, value) in [0.5f32, f32::NAN, f32::INFINITY, f32::NEG_INFINITY].into_iter().enumerate() {
+        let f = |o: Option<(i32, i32)>| o.map_or("none".to_string(), |(x, y)| format!("{x},{y}"));
+        println!("inpaint proximity/value{k} {}", f(inpaint::best_offset(w, h, ch, &vec![value; w * h * ch], &hole, 3, 20)));
+    }
+}
+
+fn seam_proxy_vectors() {
+    let (w, h) = (96, 2100);
+    let sm = smooth(w, h, 3, 1);
+    println!("seam proxy/plain {:016x}", of(&seam::carve_width(w, h, 3, &sm, None, 30)));
+    let prot = noise(w * h, 3, 5);
+    println!("seam proxy/protect {:016x}", of(&seam::carve_width(w, h, 3, &sm, Some(&prot), 31)));
+    let n1 = noise(80 * 2048, 7, 9);
+    println!("seam proxy/noise {:016x}", of(&seam::carve_width(80, 2048, 1, &n1, None, 16)));
+    let tall = smooth(2100, 100, 1, 2);
+    println!("seam proxy/height {:016x}", of(&seam::carve(2100, 100, 1, &tall, None, 2100, 20)));
+}
+
+fn ca_more_vectors() {
+    use content_aware::{auto_sampling, color_amount, level_transform, sampling_window};
+    use photocraft_algo::inpaint::Adapt;
+    // Sampling windows: random selections in random canvases, and a few extremes.
+    let mut s = 12345u32;
+    let mut next = |n: u32| {
+        s ^= s << 13;
+        s ^= s >> 17;
+        s ^= s << 5;
+        (s % n) as i32
+    };
+    let mut hh = H0;
+    for _ in 0..400 {
+        let canvas = Rect::new(next(50) - 25, next(50) - 25, 100 + next(2000), 100 + next(1500));
+        let (x0, y0) = (next(2200) - 100, next(1700) - 100);
+        let hole = Rect::new(x0, y0, x0 + next(400), y0 + next(300));
+        hrect(&mut hh, sampling_window(hole, canvas));
+    }
+    for (hole, canvas) in [
+        (Rect::new(i32::MIN, i32::MIN, i32::MAX, i32::MAX), Rect::new(i32::MIN, 0, i32::MAX, 10)),
+        (Rect::new(0, 0, 3, 3), Rect::new(i32::MIN, i32::MIN, i32::MAX, i32::MAX)),
+        (Rect::new(-5, -5, 0, 0), Rect::new(0, 0, 10, 10)),
+        (Rect::new(100, 100, 101, 101), Rect::new(0, 0, 1, 1)),
+    ] {
+        hrect(&mut hh, sampling_window(hole, canvas));
+    }
+    println!("ca window {hh:016x}");
+    // Auto sampling: the reference test's two scenes, other channel counts, a scaled-down window.
+    let (w, h) = (200, 200);
+    let tex: Vec<f32> = {
+        let mut z = 3u64;
+        (0..w * h * 3)
+            .map(|_| {
+                z = z.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+                0.2 + 0.6 * ((z >> 40) as f32 / (1u64 << 24) as f32)
+            })
+            .collect()
+    };
+    let hole = rect_mask(w, h, 75, 75, 125, 125);
+    for band in [false, true] {
+        let shade = |x: usize| if band { if (130..150).contains(&x) { 0.55 } else { 0.35 } } else if x < 135 { 0.35 } else { 0.55 };
+        let im: Vec<f32> = (0..w * h * 3).map(|i| shade((i / 3) % w) + (tex[i] - 0.5) * 0.1).collect();
+        println!("ca auto/{band} {:016x}", hb(&auto_sampling(w, h, 3, &im, &hole)));
+    }
+    for ch in [1usize, 2, 4] {
+        let im = smooth(90, 70, ch, 3);
+        println!("ca auto/smooth{ch} {:016x}", hb(&auto_sampling(90, 70, ch, &im, &disc(90, 70, 40.0, 30.0, 12.0))));
+    }
+    let im = img(500, 420, 3, 2);
+    println!("ca auto/big {:016x}", hb(&auto_sampling(500, 420, 3, &im, &rect_mask(500, 420, 200, 150, 260, 230))));
+    println!("ca auto/tiny {:016x}", hb(&auto_sampling(12, 10, 3, &img(12, 10, 3, 1), &rect_mask(12, 10, 5, 4, 7, 6))));
+    println!("ca auto/nohole {:016x}", hb(&auto_sampling(12, 10, 3, &img(12, 10, 3, 1), &vec![false; 120])));
+    // Colour amount and level transform.
+    let mut hh = H0;
+    for c in 0..=12u8 {
+        let a = color_amount(c);
+        hf(&mut hh, &[a.gain.0, a.gain.1, a.bias]);
+    }
+    println!("ca amount {hh:016x}");
+    let from = smooth(30, 10, 3, 1);
+    let to: Vec<f32> = img(25, 10, 3, 4).iter().map(|v| v * 0.5 + 0.1).collect();
+    for (key, a) in [("none", Adapt::NONE), ("c3", color_amount(3)), ("c10", color_amount(10)), ("wide", Adapt { gain: (0.1, 9.0), bias: 2.0 })] {
+        let mut hh = H0;
+        for ch in [1usize, 2, 3] {
+            for (f, t) in [(&from[..], &to[..]), (&to[..], &from[..]), (&from[..7], &to[..]), (&from[..0], &to[..])] {
+                for (g, b) in level_transform(ch, f, t, a) {
+                    hf(&mut hh, &[g, b]);
+                }
+            }
+        }
+        println!("ca level/{key} {hh:016x}");
+    }
+}
+
 pub fn run() {
     stack_vectors();
     poisson_vectors();
@@ -565,4 +866,10 @@ pub fn run() {
     redeye_vectors();
     erase_vectors();
     paint_vectors();
+    nonlocal_vectors();
+    remove_vectors();
+    masked_vectors();
+    proximity_vectors();
+    seam_proxy_vectors();
+    ca_more_vectors();
 }

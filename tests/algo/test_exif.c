@@ -33,6 +33,7 @@ static pc_algo_camera_info sample_info(void)
     info.iso = N(200.0);
     info.focal_length = N(35.0);
     info.focal_length_35mm = N(52.0);
+    info.date_taken = S("2024:02:17 12:40:19");
     return info;
 }
 
@@ -172,11 +173,84 @@ static void test_values_and_text_rules(void)
     pc_algo_camera_info_fini(&r);
 }
 
+static void put_entry(uint8_t *b, uint16_t tag, uint16_t typ, uint32_t count, uint32_t value)
+{
+    pc_store_le16(b, tag);
+    pc_store_le16(b + 2, typ);
+    pc_store_le32(b + 4, count);
+    pc_store_le32(b + 8, value);
+}
+
+static void read_any(const uint8_t *b, size_t n)
+{
+    pc_algo_camera_info r;
+    uint8_t *copy = malloc(n > 0 ? n : 1); /* exact size, so sanitizers see any over-read */
+    memcpy(copy, b, n);
+    read_ok(copy, n, &r);
+    pc_algo_camera_info_fini(&r);
+    free(copy);
+}
+
+/* hostile_payloads_never_panic: huge counts, offsets near u32::MAX, self-referencing IFDs and
+ * random bytes read as unset fields. */
+static void test_hostile_payloads_never_panic(void)
+{
+    uint8_t b[8 + 2 + 7 * 12], be[8];
+    pc_algo_camera_info r, empty, good;
+    pc_buf g = PC_BUF_INIT;
+    uint32_t x = 0x2545F491u;
+    size_t k, cut;
+    memset(&empty, 0, sizeof empty);
+    memcpy(b, "II*\0", 4);
+    pc_store_le32(b + 4, 8);
+    pc_store_le16(b + 8, 7 + 3); /* claims more entries than exist */
+    put_entry(b + 10, 0x010F, 2, UINT32_MAX, 8);
+    put_entry(b + 22, 0x0110, 2, 16, UINT32_MAX - 1);
+    put_entry(b + 34, 0x829A, 5, UINT32_MAX, 20);
+    put_entry(b + 46, 0x829D, 5, 1, UINT32_MAX - 3);
+    put_entry(b + 58, 0x9003, 2, 0x40000000u, 8);
+    put_entry(b + 70, 0x8769, 4, 1, 8);
+    put_entry(b + 82, 0x8769, 4, 1, UINT32_MAX);
+    read_ok(b, sizeof b, &r);
+    CHECK(pc_algo_camera_info_equal(&r, &empty));
+    pc_algo_camera_info_fini(&r);
+    memcpy(be, "MM\0*", 4);
+    pc_store_be32(be + 4, UINT32_MAX);
+    read_ok(be, sizeof be, &r);
+    CHECK(pc_algo_camera_info_equal(&r, &empty));
+    pc_algo_camera_info_fini(&r);
+    for (k = 0; k < 200; k++) {
+        uint8_t n[8 + 96];
+        size_t i;
+        memcpy(n, "II*\0\x08\0\0\0", 8);
+        for (i = 0; i < 96; i++) {
+            x ^= x << 13;
+            x ^= x >> 17;
+            x ^= x << 5;
+            n[8 + i] = (uint8_t)x;
+        }
+        read_any(n, sizeof n);
+    }
+    memset(&good, 0, sizeof good);
+    good.make = S("Make");
+    good.date_taken = S("2024:02:17 12:40:19");
+    good.exposure_time = N(0.004);
+    CHECK(pc_algo_exif_build(&good, &g, NULL) == PC_OK);
+    read_ok(g.data, g.len, &r);
+    CHECK(pc_algo_camera_info_equal(&r, &good));
+    pc_algo_camera_info_fini(&r);
+    for (cut = 0; cut < g.len; cut++) {
+        read_any(g.data, cut);
+    }
+    pc_buf_fini(&g);
+}
+
 int main(int argc, char **argv)
 {
     RUN(test_round_trips_and_survives_garbage);
     RUN(test_every_truncation_and_byte_flip);
     RUN(test_hostile_structures);
     RUN(test_values_and_text_rules);
+    RUN(test_hostile_payloads_never_panic);
     return pc_t_finish();
 }

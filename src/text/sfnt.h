@@ -66,7 +66,25 @@ bool pc_sfnt_has_name(const pc_sfnt *f);
 bool pc_sfnt_each_name(const pc_sfnt *f, uint16_t id, bool (*fn)(void *ctx, const char *s, size_t len),
                        void *ctx);
 
-enum { PC_SFNT_NAME_FAMILY = 1, PC_SFNT_NAME_POSTSCRIPT = 6, PC_SFNT_NAME_TYPOGRAPHIC_FAMILY = 16 };
+/* The class of a name record's language as skrifa reads it (LocalizedString::language). */
+typedef enum pc_sfnt_lang {
+    PC_SFNT_LANG_NONE,    /* None: an unknown language id or an unreadable tag */
+    PC_SFNT_LANG_EMPTY,   /* an empty language tag (name table version 1) */
+    PC_SFNT_LANG_ENGLISH, /* primary subtag "en" */
+    PC_SFNT_LANG_OTHER
+} pc_sfnt_lang;
+
+/* pc_sfnt_each_name with each record's language class. */
+bool pc_sfnt_each_name_lang(const pc_sfnt *f, uint16_t id,
+                            bool (*fn)(void *ctx, const char *s, size_t len, pc_sfnt_lang lang), void *ctx);
+
+enum {
+    PC_SFNT_NAME_FAMILY = 1,
+    PC_SFNT_NAME_SUBFAMILY = 2,
+    PC_SFNT_NAME_POSTSCRIPT = 6,
+    PC_SFNT_NAME_TYPOGRAPHIC_FAMILY = 16,
+    PC_SFNT_NAME_TYPOGRAPHIC_SUBFAMILY = 17
+};
 
 /* ---- font attributes (fontique read_attributes) ---- */
 

@@ -270,6 +270,7 @@ pc_status rx_tiffep_decode(const rx_tiff *t, pc_raw_format format, const pc_raw_
     double co[2];
     double cs[2];
     rx_ifd ifd0;
+    bool craw;
     memset(&plane, 0, sizeof plane);
     if (!raw_ifd(t, ifds, n, &raw)) {
         if (rx_is_sony_non_cfa(t, ifds, n)) {
@@ -280,9 +281,11 @@ pc_status rx_tiffep_decode(const rx_tiff *t, pc_raw_format format, const pc_raw_
     if (format == PC_RAW_NEF) {
         nikon = nikon_maker_note(t, ifds, n, &note_t, &note);
     }
-    if (format == PC_RAW_ARW && rx_sony_is_craw(t, &raw)) {
+    craw = format == PC_RAW_ARW && rx_sony_is_craw(t, &raw);
+    if (craw) {
         st = rx_sony_read_craw(t, &raw, limits, &plane, err);
-    } else if (format == PC_RAW_NEF && rx_tag_uint(t, &raw, RX_COMPRESSION, &comp) && comp == RX_NIKON_COMPRESSION) {
+    } else if (format == PC_RAW_NEF && rx_tag_uint(t, &raw, RX_COMPRESSION, &comp) &&
+               comp == RX_NIKON_COMPRESSION) {
         st = rx_nef_read_compressed(t, &raw, nikon ? &note_t : NULL, nikon ? &note : NULL, limits, &plane, err);
     } else {
         st = rx_read_plane(t, &raw, limits, RX_QUADS, &plane, err);
@@ -330,6 +333,11 @@ pc_status rx_tiffep_decode(const rx_tiff *t, pc_raw_format format, const pc_raw_
         st = rx_black_uniform(&s.black, pc_f64_to_f32(bl[0]), err);
     } else if (rx_rggb_by_position(&cfa, vb, nvb, rggb)) {
         st = rx_black_2x2(&s.black, rggb, err);
+    } else if (craw) {
+        /* First-generation cRAW files (an ILCE-7) carry no BlackLevel tag; the tone curve maps the
+         * black code to 512, so their decoded data has a 512 black level (a floor for other
+         * tag-less bodies, still far closer than 0). */
+        st = rx_black_uniform(&s.black, 512.0f, err);
     } else if (nikon) {
         /* Nikon bodies that write no BlackLevel tag subtract the black level in camera. */
         st = rx_black_uniform(&s.black, 0.0f, err);

@@ -69,6 +69,7 @@ const char *const pc_algo_filter_tags[PC_ALGO_FILTER_VARIANTS] = {
     "pathBlur",
     "custom",
     "hsbHsl",
+    "colorToAlpha",
     "deInterlace",
     "ntscColors",
     "filterGallery",
@@ -131,6 +132,7 @@ const char *const pc_algo_filter_labels[PC_ALGO_FILTER_VARIANTS] = {
     "Path Blur",
     "Custom",
     "HSB/HSL",
+    "Color to Alpha",
     "De-Interlace",
     "NTSC Colors",
     "Filter Gallery",
@@ -411,6 +413,11 @@ pc_algo_halo pc_algo_filter_halo_for(const pc_algo_filter *f, pc_rect bounds)
 bool pc_algo_filter_is_global(const pc_algo_filter *f)
 {
     return pc_algo_filter_halo(f).bounds;
+}
+
+bool pc_algo_filter_makes_transparency(const pc_algo_filter *f)
+{
+    return f->def != NULL && strcmp(f->def->tag, "colorToAlpha") == 0;
 }
 
 const char *pc_algo_filter_label(const pc_algo_filter *f)

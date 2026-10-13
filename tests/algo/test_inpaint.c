@@ -2,11 +2,15 @@
  * cancellation, progress and never-crash cases. */
 #include <math.h>
 #include <stdatomic.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "algo/algo.h"
+#include "algo/inpaint_int.h"
 #include "harness.h"
+
+static const char *ARGV0;
 
 #define TAU_F 6.28318530717958647692f
 
@@ -139,6 +143,218 @@ static void test_synthesis_fills_hole_with_plausible_values(void)
     free(clean), free(hole), free(out);
 }
 
+static void test_proximity_search_clamps_hostile_radii_without_overflow_or_hanging(void)
+{
+    size_t w = 24, h = 20, i;
+    float *im = malloc(w * h * sizeof(float));
+    bool *hole = disc(w, h, 12, 10, 2), found = true;
+    int32_t dx = 0, dy = 0;
+    for (i = 0; i < w * h; i++) {
+        im[i] = (float)(i % w) / (float)w;
+    }
+    /* User-supplied values used to overflow i32 loops, cast a huge ring into a negative number, or
+     * take billions of search iterations. */
+    CHECK(pc_algo_inpaint_best_offset(w, h, 1, im, w * h, hole, w * h, SIZE_MAX, INT32_MAX, &found, &dx, &dy,
+                                      NULL) == PC_OK);
+    if (found) {
+        CHECK(abs(dx) <= (int)w && abs(dy) <= (int)h);
+    }
+    CHECK(pc_algo_inpaint_best_offset(w, h, 1, im, w * h, hole, w * h, 2, -1, &found, &dx, &dy, NULL) ==
+          PC_OK);
+    CHECK(!found);
+    CHECK(pc_algo_inpaint_best_offset(w, h, 1, im, w * h, hole, w * h, 2, 0, &found, &dx, &dy, NULL) ==
+          PC_OK);
+    CHECK(!found);
+    free(im), free(hole);
+}
+
+/* Structure, fine noise and flat patches (so that some matches tie exactly), ch channels. */
+static float *busy(size_t w, size_t h, size_t ch, uint64_t seed)
+{
+    float *v = malloc(w * h * ch * sizeof(float));
+    pc_ip_rng rng = pc_ip_rng_new(seed);
+    size_t i, c;
+    for (i = 0; i < w * h; i++) {
+        size_t x = i % w, y = i / w;
+        bool flat = (x / 9 + y / 7) % 5 == 0;
+        float n = (float)(pc_ip_rng_next(&rng) % 1000) / 1000.0f;
+        for (c = 0; c < ch; c++) {
+            v[i * ch + c] =
+                flat
+                    ? 0.25f + 0.1f * (float)c
+                    : fminf(0.2f + 0.004f * (float)x + 0.1f * (float)((x + 2 * y + c) % 6) + 0.05f * n, 1.0f);
+        }
+    }
+    return v;
+}
+
+/* Roles: a hole, a band that is context only, a corner that is no image. */
+static uint8_t *roles(size_t w, size_t h, const bool *hole)
+{
+    uint8_t *px = malloc(w * h);
+    size_t i;
+    for (i = 0; i < w * h; i++) {
+        size_t x = i % w, y = i / w;
+        px[i] = hole[i]                                 ? PC_ALGO_PX_HOLE
+                : (x < 4 && y < 6)                      ? PC_ALGO_PX_VOID
+                : (x >= w * 3 / 4 && x < w * 3 / 4 + 3) ? PC_ALGO_PX_KNOWN
+                                                        : PC_ALGO_PX_SOURCE;
+    }
+    return px;
+}
+
+static uint64_t fnv_floats(const float *v, size_t n)
+{
+    uint64_t hsh = 0xcbf29ce484222325ull;
+    size_t i, b;
+    for (i = 0; i < n; i++) {
+        uint32_t u;
+        memcpy(&u, &v[i], 4);
+        for (b = 0; b < 4; b++) {
+            hsh ^= (u >> (8 * b)) & 0xffu;
+            hsh *= 0x100000001b3ull;
+        }
+    }
+    return hsh;
+}
+
+/* The busy 300 x 260 completion of results_do_not_depend_on_the_thread_count: case 0 is 3 channels
+ * without adaptation, case 1 four channels with it. Returns the hash of the result (0 on failure). */
+static uint64_t busy_case(int which)
+{
+    size_t w = 300, h = 260, ch = which == 0 ? 3 : 4, n = w * h;
+    float *im = busy(w, h, ch, 3), *out = NULL;
+    bool *hole = disc(w, h, 140, 130, 40);
+    uint8_t *px = roles(w, h, hole);
+    pc_algo_complete_params p = pc_algo_complete_params_default();
+    uint64_t hsh = 0;
+    if (which == 1) {
+        p.adapt = (pc_algo_adapt){0.9f, 1.1f, 0.04f};
+    }
+    if (pc_algo_inpaint_complete_masked(w, h, ch, im, n * ch, px, n, &p, NULL, &out, NULL) == PC_OK && out) {
+        hsh = fnv_floats(out, n * ch);
+    }
+    free(im), free(hole), free(px), free(out);
+    return hsh;
+}
+
+/* Run busy_case in a fresh process with PHOTOCRAFT_THREADS=threads (the pool's size is fixed per
+ * process). */
+static uint64_t busy_case_in_child(int which, int threads)
+{
+    char cmd[4096];
+    unsigned long long v = 0;
+    FILE *f;
+    if (ARGV0 == NULL || strchr(ARGV0, '\'') != NULL ||
+        snprintf(cmd, sizeof cmd, "PHOTOCRAFT_THREADS=%d '%s' --busy-child %d", threads, ARGV0, which) >=
+            (int)sizeof cmd) {
+        return 0;
+    }
+    f = popen(cmd, "r");
+    if (f == NULL) {
+        return 0;
+    }
+    if (fscanf(f, "%llx", &v) != 1) {
+        v = 0;
+    }
+    if (pclose(f) != 0) {
+        v = 0;
+    }
+    return (uint64_t)v;
+}
+
+static void test_results_do_not_depend_on_the_thread_count(void)
+{
+    /* Big enough for the parallel passes. Each thread count runs in its own process. */
+    int which;
+    for (which = 0; which < 2; which++) {
+        uint64_t one = busy_case_in_child(which, 1);
+        CHECK(one != 0);
+        CHECK(one == busy_case_in_child(which, 3));
+        CHECK(one == busy_case_in_child(which, 16));
+    }
+}
+
+static bool yes2(void *ctx)
+{
+    (void)ctx;
+    return true;
+}
+
+static void test_owned_completion_fills_in_place_or_gives_the_pixels_back(void)
+{
+    size_t w = 64, h = 52, ch = 3, n = w * h, i;
+    float *im = busy(w, h, ch, 6), *borrowed = NULL, *owned = malloc(n * ch * sizeof(float)),
+          *none_out = NULL;
+    bool *hole = disc(w, h, 30, 26, 8), filled = false;
+    uint8_t *px = roles(w, h, hole), *known = malloc(n);
+    pc_algo_complete_params p = pc_algo_complete_params_default();
+    pc_interrupt stop = {yes2, NULL, NULL};
+    CHECK(pc_algo_inpaint_complete_masked(w, h, ch, im, n * ch, px, n, &p, NULL, &borrowed, NULL) == PC_OK);
+    memcpy(owned, im, n * ch * sizeof(float));
+    CHECK(pc_algo_inpaint_complete_masked_inplace(w, h, ch, owned, n * ch, px, n, &p, NULL, &filled, NULL) ==
+          PC_OK);
+    CHECK(filled);
+    CHECK(borrowed != NULL && memcmp(owned, borrowed, n * ch * sizeof(float)) == 0);
+    /* Nothing may be copied: no completion, and the pixels come back as they were. */
+    for (i = 0; i < n; i++) {
+        known[i] = px[i] == PC_ALGO_PX_SOURCE ? PC_ALGO_PX_KNOWN : px[i];
+    }
+    none_out = (float *)&w;
+    CHECK(pc_algo_inpaint_complete_masked(w, h, ch, im, n * ch, known, n, &p, NULL, &none_out, NULL) ==
+          PC_OK);
+    CHECK(none_out == NULL);
+    memcpy(owned, im, n * ch * sizeof(float));
+    filled = true;
+    CHECK(pc_algo_inpaint_complete_masked_inplace(w, h, ch, owned, n * ch, known, n, &p, NULL, &filled,
+                                                  NULL) == PC_OK);
+    CHECK(!filled);
+    CHECK(memcmp(owned, im, n * ch * sizeof(float)) == 0);
+    /* Cancelled, it stops. */
+    memcpy(owned, im, n * ch * sizeof(float));
+    CHECK(pc_algo_inpaint_complete_masked_inplace(w, h, ch, owned, n * ch, px, n, &p, &stop, &filled, NULL) ==
+          PC_ERR_CANCELLED);
+    free(im), free(borrowed), free(owned), free(hole), free(px), free(known);
+}
+
+static void test_masked_never_crash(void)
+{
+    size_t w = 20, h = 16, n = w * h, i;
+    float *im = busy(w, h, 2, 1), *out = NULL;
+    bool *hole = disc(w, h, 10, 8, 3), filled;
+    uint8_t *px = roles(w, h, hole);
+    pc_algo_complete_params p = pc_algo_complete_params_default();
+    /* Unknown roles, bad lengths, unusable adaptation limits. */
+    px[5] = 4;
+    CHECK(pc_algo_inpaint_complete_masked(w, h, 2, im, n * 2, px, n, &p, NULL, &out, NULL) == PC_ERR_INVALID);
+    px[5] = 255;
+    CHECK(pc_algo_inpaint_complete_masked_inplace(w, h, 2, im, n * 2, px, n, &p, NULL, &filled, NULL) ==
+          PC_ERR_INVALID);
+    px[5] = PC_ALGO_PX_SOURCE;
+    CHECK(pc_algo_inpaint_complete_masked(w, h, 2, im, n * 2, px, n - 1, &p, NULL, &out, NULL) ==
+          PC_ERR_INVALID);
+    CHECK(pc_algo_inpaint_complete_masked(w, h, 2, im, n * 2, NULL, n, &p, NULL, &out, NULL) ==
+          PC_ERR_INVALID);
+    p.adapt = (pc_algo_adapt){1.1f, 0.9f, 0.0f};
+    CHECK(pc_algo_inpaint_complete_masked(w, h, 2, im, n * 2, px, n, &p, NULL, &out, NULL) == PC_ERR_INVALID);
+    p.adapt = (pc_algo_adapt){0.9f, 1.1f, NAN};
+    CHECK(pc_algo_inpaint_complete_masked(w, h, 2, im, n * 2, px, n, &p, NULL, &out, NULL) == PC_ERR_INVALID);
+    CHECK(pc_algo_adapt_check((pc_algo_adapt){0.9f, 1.1f, -1.0f}, NULL) == PC_ERR_INVALID);
+    CHECK(pc_algo_adapt_check(PC_ALGO_ADAPT_NONE, NULL) == PC_OK);
+    /* Extreme but valid limits, NaN pixels, every role void. */
+    p.adapt = (pc_algo_adapt){0.0f, INFINITY, INFINITY};
+    for (i = 0; i < n * 2; i += 7) {
+        im[i] = NAN;
+    }
+    CHECK(pc_algo_inpaint_complete_masked(w, h, 2, im, n * 2, px, n, &p, NULL, &out, NULL) == PC_OK);
+    free(out);
+    out = NULL;
+    memset(px, PC_ALGO_PX_VOID, n);
+    CHECK(pc_algo_inpaint_complete_masked(w, h, 2, im, n * 2, px, n, &p, NULL, &out, NULL) == PC_OK);
+    free(out);
+    free(im), free(hole), free(px);
+}
+
 static bool yes(void *ctx)
 {
     (void)ctx;
@@ -246,8 +462,9 @@ static void test_never_crash(void)
     q = p, q.patch_radius = PC_ALGO_INPAINT_MAX_RADIUS; /* larger than the image: None */
     CHECK(pc_algo_inpaint_complete(10, 10, 1, im, 100, hole, 100, &q, NULL, &out, NULL) == PC_OK);
     CHECK(out == NULL);
+    /* A huge ring is clamped to the image's extent (as the reference). */
     CHECK(pc_algo_inpaint_best_offset(10, 10, 1, im, 100, hole, 100, SIZE_MAX, 5, &found, &dx, &dy, NULL) ==
-          PC_ERR_LIMIT);
+          PC_OK);
     /* The reference never finishes for radii near i32::MAX (its counters overflow). */
     CHECK(pc_algo_inpaint_best_offset(10, 10, 1, im, 100, hole, 100, 1, INT32_MAX, &found, &dx, &dy, NULL) ==
           PC_OK);
@@ -281,9 +498,18 @@ static void test_never_crash(void)
 
 int main(int argc, char **argv)
 {
+    if (argc == 3 && strcmp(argv[1], "--busy-child") == 0) {
+        printf("%016llx\n", (unsigned long long)busy_case(atoi(argv[2])));
+        return 0;
+    }
+    ARGV0 = argv[0];
     RUN(test_completion_fills_blemish_from_texture);
     RUN(test_completion_continues_structure);
     RUN(test_proximity_finds_matching_offset);
+    RUN(test_proximity_search_clamps_hostile_radii_without_overflow_or_hanging);
+    RUN(test_results_do_not_depend_on_the_thread_count);
+    RUN(test_owned_completion_fills_in_place_or_gives_the_pixels_back);
+    RUN(test_masked_never_crash);
     RUN(test_synthesis_fills_hole_with_plausible_values);
     RUN(test_cancel_and_progress);
     RUN(test_none_and_trivial);

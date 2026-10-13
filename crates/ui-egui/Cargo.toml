@@ -8,6 +8,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+craft-ui = { workspace = true }
 photocraft-geom = { workspace = true }
 photocraft-color = { workspace = true }
 photocraft-cms = { workspace = true }
@@ -34,11 +35,18 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 log = { workspace = true }
 base64 = "0.22"
+# Inflating the translation catalogs, stored deflated (build.rs); already linked through photocraft-io.
+flate2 = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rayon = { workspace = true }
 # Safe native UI-language APIs (Windows/macOS); no subprocess or web dependency.
 sys-locale = "=0.3.2"
+
+# Installed RAM for the GPU memory budget (`gpu_canvas::physical_memory`): the safe binding the
+# desktop app already uses, pinned to the same version.
+[target.'cfg(target_os = "windows")'.dependencies]
+winsafe = { version = "=0.0.29", default-features = false, features = ["kernel"] }
 
 [dev-dependencies]
 # Synthetic raw files for the open-time Camera Raw dialog tests.
@@ -50,5 +58,7 @@ photocraft-testkit = { workspace = true }
 photocraft-psd = { workspace = true }
 
 [build-dependencies]
+# Deflates the translation catalogs (build.rs); already linked at run time to inflate them.
+flate2 = { workspace = true }
 serde_json = { workspace = true }
 toml = "1"

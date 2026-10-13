@@ -187,7 +187,7 @@ pc_status pc_algo_stack_combine(const float (*const *layers)[4], const size_t *l
             continue;
         }
         for (c = 0; c < 3; c++) {
-            o[i][c] = pc_clampf(pc_algo_stack_stat_of(&samples[c * count], n, s), 0.0f, 1.0f);
+            o[i][c] = pc_algo_stack_stat_of(&samples[c * count], n, s);
         }
         o[i][3] = alpha;
     }

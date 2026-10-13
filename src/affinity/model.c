@@ -499,7 +499,15 @@ static pc_status kind(ax_reader *r, size_t id, pc_af_tag cls, pc_af_affine world
         bool ok;
         bool even_odd;
         pc_af_path local = {NULL, 0};
-        if (is4(cls, "ShpN") && ax_bool(s, id, "ABEn", &ab) && ab) {
+        size_t props;
+        /* Current .af boards carry artboard properties (aprp) in phrp; older documents use ABEn.
+         * Converted curve boards keep those properties too. Other property classes also use
+         * phrp, so the field alone is not a marker. */
+        if ((ax_bool(s, id, "ABEn", &ab) && ab) ||
+            (ax_obj(s, id, "phrp", &props) && ax_is(s, props, "aprp"))) {
+            if (!is4(cls, "ShpN")) {
+                ax_warn(r, "a converted artboard outline (imported at its bounding box)");
+            }
             return artboard(r, id, world, n, err);
         }
         if ((st = ax_outline(r, id, cls, world, &ok, &local, &even_odd, err)) != PC_OK) {

@@ -45,13 +45,11 @@ bool pc_format_unhex(const char *s, size_t len, uint8_t *out, size_t cap, size_t
         int hi = hexdigit(s[i]);
         int lo = hexdigit(s[i + 1]);
         int v;
-        if (hi >= 0 && lo >= 0) {
-            v = hi * 16 + lo;
-        } else if (s[i] == '+' && lo >= 0) {
-            v = lo; /* from_str_radix accepts a leading '+' */
-        } else {
+        /* Two ASCII hex digits only: from_str_radix's leading '+' is refused (#1818). */
+        if (hi < 0 || lo < 0) {
             return false;
         }
+        v = hi * 16 + lo;
         if (i / 2 < cap) {
             out[i / 2] = (uint8_t)v;
         }
@@ -164,13 +162,111 @@ static pc_status idmap_set(idmap *m, uint64_t k, uint64_t v, pc_error *err)
     return PC_OK;
 }
 
+/* ---- byte-string keys -> a value or a tile (open addressing; first insert of a key wins) ---- */
+
+typedef struct smap_ent {
+    char *key; /* NULL = empty slot */
+    size_t klen;
+    uint64_t val;
+    pc_raster_tile *tile; /* one reference, or NULL */
+} smap_ent;
+
+typedef struct smap {
+    smap_ent *slots;
+    size_t cap; /* 0 or a power of two */
+    size_t count;
+} smap;
+
+static uint64_t smap_hash(const char *k, size_t n)
+{
+    uint64_t h = 0xcbf29ce484222325ull; /* FNV-1a */
+    for (size_t i = 0; i < n; i++) {
+        h ^= (uint8_t)k[i];
+        h *= 0x100000001b3ull;
+    }
+    return h ^ (h >> 31);
+}
+
+static void smap_fini(smap *m)
+{
+    for (size_t i = 0; i < m->cap; i++) {
+        free(m->slots[i].key);
+        pc_raster_tile_release(m->slots[i].tile);
+    }
+    free(m->slots);
+    memset(m, 0, sizeof *m);
+}
+
+static smap_ent *smap_get(const smap *m, const char *k, size_t n)
+{
+    if (m->cap == 0) {
+        return NULL;
+    }
+    for (size_t i = (size_t)smap_hash(k, n) & (m->cap - 1);; i = (i + 1) & (m->cap - 1)) {
+        smap_ent *e = &m->slots[i];
+        if (e->key == NULL) {
+            return NULL;
+        }
+        if (e->klen == n && memcmp(e->key, k, n) == 0) {
+            return e;
+        }
+    }
+}
+
+/* Inserts a new key (absent: the caller checked with smap_get); takes over *tile on success. */
+static pc_status smap_put(smap *m, const char *k, size_t n, uint64_t val, pc_raster_tile *tile, pc_error *err)
+{
+    char *key;
+    if (m->count + 1 > m->cap / 2) {
+        size_t nc = m->cap == 0 ? 64 : m->cap * 2;
+        smap_ent *v;
+        if (nc < m->cap) {
+            return pc_fail(err, PC_ERR_NOMEM, "out of memory");
+        }
+        v = pc_calloc_array(nc, sizeof *v);
+        if (v == NULL) {
+            return pc_fail(err, PC_ERR_NOMEM, "out of memory");
+        }
+        for (size_t i = 0; i < m->cap; i++) {
+            if (m->slots[i].key != NULL) {
+                size_t j = (size_t)smap_hash(m->slots[i].key, m->slots[i].klen) & (nc - 1);
+                while (v[j].key != NULL) {
+                    j = (j + 1) & (nc - 1);
+                }
+                v[j] = m->slots[i];
+            }
+        }
+        free(m->slots);
+        m->slots = v;
+        m->cap = nc;
+    }
+    key = malloc(n > 0 ? n : 1);
+    if (key == NULL) {
+        return pc_fail(err, PC_ERR_NOMEM, "out of memory");
+    }
+    if (n > 0) {
+        memcpy(key, k, n);
+    }
+    for (size_t i = (size_t)smap_hash(k, n) & (m->cap - 1);; i = (i + 1) & (m->cap - 1)) {
+        if (m->slots[i].key == NULL) {
+            m->slots[i] = (smap_ent){key, n, val, tile};
+            m->count++;
+            return PC_OK;
+        }
+    }
+}
+
 /* ---- the loader ---- */
 
 typedef struct loader {
     pc_format_fetch *fetch;
     bool preserve_ids;
-    uint64_t max_id;
-    idmap ids; /* stored layer id -> loaded id, for layer comp states and slices */
+    idmap ids;          /* stored layer id -> loaded id, for layer comp states and slices */
+    idmap contents_ids; /* stored smart contents id -> loaded id */
+    smap legacy_linked; /* linked path -> contents id, for bundles without contents ids */
+    /* Decoded tiles by sample type and content hash ("<sample>:<hash>"): a load decodes and
+     * charges the byte budget once per distinct tile and shares it copy-on-write (#3315). */
+    smap tiles;
 } loader;
 
 static pc_status fetch_blob(loader *L, const pc_str *hash, pc_blob **out, pc_error *err)
@@ -207,6 +303,8 @@ static pc_status load_surface(loader *L, const pc_mf_surface *m, pc_surface *out
     size_t len;
     pc_surface s;
     pc_buf bytes = PC_BUF_INIT;
+    pc_buf key = PC_BUF_INIT;
+    smap_ent *cached;
     pc_status st = PC_OK;
 
     if (!pc_format_unhex(pc_str_c(&m->def), m->def.len, dp, sizeof dp, &n)) {
@@ -239,15 +337,44 @@ static pc_status load_surface(loader *L, const pc_mf_surface *m, pc_surface *out
             st = pc_format_corrupt(err, "invalid tile hash `%s`", pc_str_c(&t->hash));
             break;
         }
+        key.len = 0;
+        st = pc_buf_appendf(&key, err, "%u:%s", (unsigned)f.sample, pc_str_c(&t->hash));
+        if (st != PC_OK) {
+            break;
+        }
+        cached = smap_get(&L->tiles, (const char *)key.data, key.len);
+        if (cached != NULL) {
+            /* One hash names one byte string: a cached tile of another length means the hash
+             * was referenced from formats of different pixel sizes. */
+            pc_tile_entry e;
+            if (pc_raster_tile_len(cached->tile) != len) {
+                st = pc_format_corrupt(err, "tile %s is referenced with different sizes", pc_str_c(&t->hash));
+                break;
+            }
+            e.coord = c;
+            e.tile = pc_raster_tile_retain(cached->tile);
+            st = pc_surface_put_tiles(&s, &e, 1, err);
+            continue;
+        }
         st = pc_format_fetch_tile(L->fetch, pc_str_c(&t->hash), len, &bytes, err);
         if (st == PC_OK) {
             pc_format_swap_to_le(bytes.data, bytes.len, f.sample);
             st = pc_surface_tile_mut(&s, c, &data, err);
         }
         if (st == PC_OK && bytes.len == len) {
+            const pc_raster_tile *tile;
             memcpy(data, bytes.data, len);
+            tile = pc_surface_tile(&s, c);
+            if (tile != NULL) {
+                pc_raster_tile *ref = pc_raster_tile_retain((pc_raster_tile *)(uintptr_t)tile);
+                st = smap_put(&L->tiles, (const char *)key.data, key.len, 0, ref, err);
+                if (st != PC_OK) {
+                    pc_raster_tile_release(ref);
+                }
+            }
         }
     }
+    pc_buf_fini(&key);
     pc_buf_fini(&bytes);
     if (st != PC_OK) {
         pc_surface_fini(&s);
@@ -292,17 +419,44 @@ static pc_status load_effects(loader *L, pc_mf_effects *m, pc_effects *out, pc_e
 
 static pc_status layer_id(loader *L, uint64_t raw, uint64_t *out, pc_error *err)
 {
-    uint64_t id;
-    if (L->preserve_ids) {
-        if (raw > L->max_id) {
-            L->max_id = raw;
-        }
-        id = raw;
-    } else {
-        id = pc_layer_id_fresh();
-    }
+    uint64_t id = L->preserve_ids ? raw : pc_layer_id_fresh();
     *out = id;
     return idmap_set(&L->ids, raw, id, err);
+}
+
+/* Loader::contents_id: a stored id keeps its sharing group (remapped together); bundles without
+ * one share only a non-empty linked path (equal embedded blobs may be independent objects). */
+static pc_status contents_id(loader *L, const pc_mf_content *m, uint64_t *out, pc_error *err)
+{
+    smap_ent *e;
+    uint64_t id;
+    pc_status st;
+    if (m->has_contents_id) {
+        if (idmap_get(&L->contents_ids, m->contents_id, out)) {
+            return PC_OK;
+        }
+        id = L->preserve_ids ? m->contents_id : pc_smart_contents_id_fresh();
+        st = idmap_set(&L->contents_ids, m->contents_id, id, err);
+        if (st == PC_OK) {
+            *out = id;
+        }
+        return st;
+    }
+    if (m->source.kind == PC_MF_LINKED && m->source.path.len > 0) {
+        e = smap_get(&L->legacy_linked, pc_str_c(&m->source.path), m->source.path.len);
+        if (e != NULL) {
+            *out = e->val;
+            return PC_OK;
+        }
+        id = pc_smart_contents_id_fresh();
+        st = smap_put(&L->legacy_linked, pc_str_c(&m->source.path), m->source.path.len, id, NULL, err);
+        if (st == PC_OK) {
+            *out = id;
+        }
+        return st;
+    }
+    *out = pc_smart_contents_id_fresh();
+    return PC_OK;
 }
 
 static void str_move(pc_str *dst, pc_str *src)
@@ -416,6 +570,10 @@ static pc_status load_content(loader *L, pc_mf_content *m, pc_layer *kids, size_
     }
     case PC_LAYER_SMART: {
         pc_smart_object *s = &out->u.smart;
+        st = contents_id(L, m, &s->contents_id, err);
+        if (st != PC_OK) {
+            break;
+        }
         if (m->source.kind == PC_MF_EMBEDDED) {
             st = fetch_blob(L, &m->source.blob, &s->source.bytes, err);
             if (st == PC_OK) {
@@ -530,6 +688,23 @@ static pc_status load_layer_with(loader *L, pc_mf_layer *m, pc_layer *kids, size
             st = load_surface(L, &v->frames[i], &l.video.frames[i], err);
             if (st == PC_OK) {
                 l.video.nframes = i + 1;
+            }
+        }
+        if (st == PC_OK && v->has_original_frames) {
+            if (v->original_frames.n != v->nframes) {
+                st = pc_format_corrupt(err, "video original frame count differs from edited frame count");
+            } else if (v->nframes > 0) {
+                l.video.original_frames = pc_calloc_array(v->nframes, sizeof *l.video.original_frames);
+                if (l.video.original_frames == NULL) {
+                    st = pc_fail(err, PC_ERR_NOMEM, "out of memory");
+                }
+            }
+            l.video.has_original_frames = st == PC_OK;
+            for (size_t i = 0; st == PC_OK && i < v->original_frames.n; i++) {
+                st = load_surface(L, &v->original_frames.v[i], &l.video.original_frames[i], err);
+                if (st == PC_OK) {
+                    l.video.noriginal_frames = i + 1;
+                }
             }
         }
         l.video.source = v->source;
@@ -677,6 +852,31 @@ static pc_status zalloc(void **p, size_t n, size_t size, pc_error *err)
     return *p != NULL ? PC_OK : pc_fail(err, PC_ERR_NOMEM, "out of memory");
 }
 
+/* The largest stored layer and smart contents id (Loader::document's max_ids), bounded by the
+ * group depth limit like the conversion itself. */
+static pc_status max_ids(const pc_mf_layer_list *layers, size_t depth, uint64_t *max, pc_error *err)
+{
+    if (depth > PC_MAX_GROUP_DEPTH && layers->n > 0) {
+        return pc_format_limit(err, "layer groups nested deeper than %d", PC_MAX_GROUP_DEPTH);
+    }
+    for (size_t i = 0; i < layers->n; i++) {
+        const pc_mf_layer *l = &layers->v[i];
+        if (l->id > *max) {
+            *max = l->id;
+        }
+        if (l->content.kind == PC_LAYER_GROUP) {
+            pc_status st = max_ids(&l->content.children, depth + 1, max, err);
+            if (st != PC_OK) {
+                return st;
+            }
+        } else if (l->content.kind == PC_LAYER_SMART && l->content.has_contents_id &&
+                   l->content.contents_id > *max) {
+            *max = l->content.contents_id;
+        }
+    }
+    return PC_OK;
+}
+
 /* Loader::document, in the reference's order of fetches. */
 static pc_status load_document(loader *L, pc_mf_doc *m, pc_document *out, pc_error *err)
 {
@@ -685,6 +885,16 @@ static pc_status load_document(loader *L, pc_mf_doc *m, pc_document *out, pc_err
     void *p = NULL;
     memset(&d, 0, sizeof d);
 
+    /* Reserve every stored id before minting identities missing from older bundles; an
+     * implausibly large one remaps the whole document (shared contents groups stay together). */
+    if (L->preserve_ids) {
+        uint64_t max = m->id;
+        st = max_ids(&m->layers, 0, &max, err);
+        if (st != PC_OK) {
+            return st;
+        }
+        L->preserve_ids = pc_format_reserve_ids_through(max);
+    }
     st = zalloc(&p, m->layers.n, sizeof *d.layers, err);
     d.layers = p;
     for (size_t i = 0; st == PC_OK && i < m->layers.n; i++) {
@@ -710,6 +920,12 @@ static pc_status load_document(loader *L, pc_mf_doc *m, pc_document *out, pc_err
     /* metadata */
     if (st == PC_OK) {
         st = opt_blob(L, m->metadata.has_exif, &m->metadata.exif, &d.metadata.exif, err);
+    }
+    if (st == PC_OK) {
+        d.metadata.text = m->metadata.text;
+        d.metadata.ntext = m->metadata.ntext;
+        m->metadata.text = NULL;
+        m->metadata.ntext = 0;
     }
     if (st == PC_OK) {
         st = zalloc(&p, m->metadata.npsd_resources, sizeof *d.metadata.psd_resources, err);
@@ -764,6 +980,19 @@ static pc_status load_document(loader *L, pc_mf_doc *m, pc_document *out, pc_err
     }
     for (size_t i = 0; st == PC_OK && i < m->npatterns; i++) {
         pc_mf_pattern *pt = &m->patterns[i];
+        /* Sizes come from the file: a pattern without tiles can claim any size, and renderers
+         * allocate per pixel. */
+        if (pt->width == 0 || pt->height == 0) {
+            st = pc_format_corrupt(err, "pattern `%s` is %lu\xc3\x97%lu px", pc_str_c(&pt->name),
+                                   (unsigned long)pt->width, (unsigned long)pt->height);
+            break;
+        }
+        if (pt->width > PC_PATTERN_MAX_EDGE || pt->height > PC_PATTERN_MAX_EDGE) {
+            st = pc_format_limit(err, "pattern `%s` is %lu\xc3\x97%lu px (max %lu per side)",
+                                 pc_str_c(&pt->name), (unsigned long)pt->width, (unsigned long)pt->height,
+                                 (unsigned long)PC_PATTERN_MAX_EDGE);
+            break;
+        }
         st = load_surface(L, &pt->surface, &d.patterns[i].surface, err);
         if (st == PC_OK) {
             str_move(&d.patterns[i].id, &pt->id);
@@ -803,14 +1032,7 @@ static pc_status load_document(loader *L, pc_mf_doc *m, pc_document *out, pc_err
                 }
             }
         }
-        if (L->preserve_ids) {
-            if (m->id > L->max_id) {
-                L->max_id = m->id;
-            }
-            d.id = m->id;
-        } else {
-            d.id = pc_doc_id_fresh();
-        }
+        d.id = L->preserve_ids ? m->id : pc_doc_id_fresh();
         st = opt_blob(L, m->has_icc_profile, &m->icc_profile, &d.icc_profile, err);
     }
     if (st == PC_OK && m->has_selection) {
@@ -849,6 +1071,8 @@ static pc_status load_document(loader *L, pc_mf_doc *m, pc_document *out, pc_err
     memset(&m->variables, 0, sizeof m->variables);
     d.has_timeline = m->has_timeline;
     d.timeline = m->timeline;
+    d.quick_mask_unselected = m->quick_mask_unselected;
+    d.file_encoding = m->file_encoding;
     d.has_last_applied_comp = m->has_last_applied_comp;
     d.last_applied_comp = m->last_applied_comp;
     d.measurement = m->measurement;
@@ -864,7 +1088,7 @@ static pc_status load_document(loader *L, pc_mf_doc *m, pc_document *out, pc_err
 }
 
 pc_status pc_format_manifest_to_document(pc_format_manifest *m, pc_format_fetch *fetch, bool preserve_ids,
-                                         pc_document *out, uint64_t *max_id, pc_error *err)
+                                         pc_document *out, pc_error *err)
 {
     loader L;
     pc_status st;
@@ -872,11 +1096,16 @@ pc_status pc_format_manifest_to_document(pc_format_manifest *m, pc_format_fetch 
     L.fetch = fetch;
     L.preserve_ids = preserve_ids;
     st = load_document(&L, &m->document, out, err);
-    if (st == PC_OK) {
-        *max_id = L.max_id;
-    }
     idmap_fini(&L.ids);
+    idmap_fini(&L.contents_ids);
+    smap_fini(&L.legacy_linked);
+    smap_fini(&L.tiles);
     return st;
+}
+
+pc_size pc_format_manifest_canvas(const pc_format_manifest *m)
+{
+    return m->document.size;
 }
 
 bool pc_format_reserve_ids_through(uint64_t max)

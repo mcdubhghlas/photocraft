@@ -232,7 +232,7 @@ static pc_status gradient_from(const pc_psd_desc *d, pc_gradient *out, pc_error 
     memset(&g, 0, sizeof g);
     if (grad != NULL) {
         size_t n = 0;
-        const uint8_t *m = pc_io_desc_enum(d, "gs99", &n);
+        const uint8_t *m = pc_io_desc_gradient_method(d, &n);
         st = pc_io_gradient_stops_with(grad, m, n, &g.stops, &g.nstops, &g.opacity_stops, &g.nopacity_stops,
                                        err);
         if (st != PC_OK) {

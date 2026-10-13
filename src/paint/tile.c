@@ -191,6 +191,113 @@ bool pc_paint_gray_tile_eq(const pc_paint_gray_tile *a, const pc_paint_gray_tile
            memcmp(a->data->samples, b->data->samples, n * sizeof(uint16_t)) == 0;
 }
 
+pc_status pc_paint_gray_tile_preview(const pc_paint_gray_tile *t, uint32_t max_side, pc_paint_gray_tile *out,
+                                     pc_error *err)
+{
+    size_t w = t->width, h = t->height, big = w > h ? w : h, m = max_side > 0 ? max_side : 1, f, nw, nh, n;
+    uint64_t *sum;
+    uint32_t *cnt;
+    uint16_t *q;
+    pc_status st;
+    if (!pc_paint_gray_tile_is_valid(t)) {
+        uint16_t zero = 0;
+        return pc_paint_gray_tile_from_u16(1, 1, &zero, 1, out, err);
+    }
+    f = big / m + (big % m != 0);
+    f = f > 0 ? f : 1;
+    nw = w / f + (w % f != 0);
+    nh = h / f + (h % f != 0);
+    n = nw * nh; /* <= w * h, which is allocated */
+    sum = pc_calloc_array(n, sizeof *sum);
+    cnt = pc_calloc_array(n, sizeof *cnt);
+    q = pc_malloc_array(n, sizeof *q);
+    if (sum == NULL || cnt == NULL || q == NULL) {
+        free(sum);
+        free(cnt);
+        free(q);
+        return pc_fail(err, PC_ERR_NOMEM, "out of memory for a tile preview");
+    }
+    for (size_t y = 0; y < h; y++) {
+        const uint16_t *row = t->data->samples + y * w;
+        size_t base = (y / f) * nw;
+        for (size_t x = 0; x < w; x++) {
+            sum[base + x / f] += row[x];
+            cnt[base + x / f]++;
+        }
+    }
+    for (size_t i = 0; i < n; i++) {
+        uint32_t v = cnt[i] > 0 ? (uint32_t)(sum[i] / cnt[i]) : 0;
+        q[i] = (uint16_t)((v + 128) / 257 * 257);
+    }
+    st = pc_paint_gray_tile_from_u16((uint32_t)nw, (uint32_t)nh, q, n, out, err);
+    free(sum);
+    free(cnt);
+    free(q);
+    return st;
+}
+
+/* ---- stored tiles ---- */
+
+pc_status pc_paint_stored_tile_init(const char *key, size_t key_len, uint32_t width, uint32_t height,
+                                    const pc_paint_gray_tile *preview, const pc_paint_gray_tile *full,
+                                    pc_paint_stored_tile *out, pc_error *err)
+{
+    pc_blob *k = NULL;
+    if (key_len > 0) {
+        pc_status st = pc_blob_new(key, key_len, &k, err);
+        if (st != PC_OK) {
+            return st;
+        }
+    }
+    memset(out, 0, sizeof *out);
+    out->key = k;
+    out->width = width;
+    out->height = height;
+    pc_paint_gray_tile_copy(&out->preview, preview);
+    if (full != NULL) {
+        out->loaded = true;
+        pc_paint_gray_tile_copy(&out->full, full);
+    }
+    return PC_OK;
+}
+
+void pc_paint_stored_tile_copy(pc_paint_stored_tile *dst, const pc_paint_stored_tile *src)
+{
+    *dst = *src;
+    dst->key = pc_blob_retain(src->key);
+    pc_paint_gray_tile_copy(&dst->preview, &src->preview);
+    pc_paint_gray_tile_copy(&dst->full, &src->full);
+}
+
+void pc_paint_stored_tile_fini(pc_paint_stored_tile *t)
+{
+    if (t == NULL) {
+        return;
+    }
+    pc_blob_release(t->key);
+    pc_paint_gray_tile_fini(&t->preview);
+    pc_paint_gray_tile_fini(&t->full);
+    memset(t, 0, sizeof *t);
+}
+
+const char *pc_paint_stored_tile_key(const pc_paint_stored_tile *t, size_t *len)
+{
+    *len = pc_blob_len(t->key);
+    return t->key != NULL ? (const char *)pc_blob_data(t->key) : "";
+}
+
+bool pc_paint_stored_tile_eq(const pc_paint_stored_tile *a, const pc_paint_stored_tile *b)
+{
+    size_t la, lb;
+    const char *ka = pc_paint_stored_tile_key(a, &la), *kb = pc_paint_stored_tile_key(b, &lb);
+    return la == lb && (la == 0 || memcmp(ka, kb, la) == 0) && a->width == b->width && a->height == b->height;
+}
+
+const pc_paint_gray_tile *pc_paint_stored_tile_bitmap(const pc_paint_stored_tile *t)
+{
+    return t->loaded ? &t->full : &t->preview;
+}
+
 /* ---- base64 ---- */
 
 static const char B64[65] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";

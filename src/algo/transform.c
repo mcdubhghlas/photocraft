@@ -121,6 +121,64 @@ double pc_algo_homography_local_scale(const pc_algo_homography *h, double x, dou
     }
 }
 
+bool pc_algo_homography_is_identity(const pc_algo_homography *h)
+{
+    const double *m = h->m;
+    double w = m[8];
+    if (fabs(m[8]) < 1e-12) {
+        return false;
+    }
+    return fabs((m[0] / w) - 1.0) < 1e-9 && fabs((m[4] / w) - 1.0) < 1e-9 && fabs(m[1] / w) < 1e-9 &&
+           fabs(m[2] / w) < 1e-9 && fabs(m[3] / w) < 1e-9 && fabs(m[5] / w) < 1e-9 && fabs(m[6] / w) < 1e-9 &&
+           fabs(m[7] / w) < 1e-9;
+}
+
+bool pc_algo_convex_quad(const double q[4][2])
+{
+    double area2 = 0.0;
+    int i;
+    for (i = 0; i < 4; i++) {
+        if (!isfinite(q[i][0]) || !isfinite(q[i][1])) {
+            return false;
+        }
+    }
+    for (i = 0; i < 4; i++) {
+        const double *a = q[i], *b = q[(i + 1) % 4], *c = q[(i + 2) % 4];
+        double e1[2] = {b[0] - a[0], b[1] - a[1]}, e2[2] = {c[0] - b[0], c[1] - b[1]};
+        double cross = e1[0] * e2[1] - e1[1] * e2[0];
+        /* sin(turn) = cross / (|e1| |e2|): positive (clockwise on screen) and not a straight angle. */
+        if (isnan(cross) || cross <= 1e-3 * hypot(e1[0], e1[1]) * hypot(e2[0], e2[1])) {
+            return false;
+        }
+        area2 += a[0] * b[1] - b[0] * a[1];
+    }
+    return isfinite(area2) && area2 >= 2.0;
+}
+
+void pc_algo_quad_size(const double q[4][2], double *w, double *h)
+{
+    /* q is TL, TR, BR, BL. */
+    double top = hypot(q[1][0] - q[0][0], q[1][1] - q[0][1]),
+           bot = hypot(q[2][0] - q[3][0], q[2][1] - q[3][1]);
+    double left = hypot(q[3][0] - q[0][0], q[3][1] - q[0][1]),
+           right = hypot(q[2][0] - q[1][0], q[2][1] - q[1][1]);
+    *w = (top + bot) / 2.0;
+    *h = (left + right) / 2.0;
+}
+
+bool pc_algo_quad_to_rect(const double q[4][2], double w, double h, pc_algo_homography *out)
+{
+    const double r[4] = {0.0, 0.0, w, h};
+    pc_algo_homography fwd;
+    if (!(pc_algo_convex_quad(q) && isfinite(w) && isfinite(h) && w > 0.0 && h > 0.0)) {
+        return false;
+    }
+    if (!pc_algo_homography_rect_to_quad(r, q, &fwd)) {
+        return false;
+    }
+    return pc_algo_homography_inverse(&fwd, out);
+}
+
 pc_algo_interp pc_algo_interp_parse(const char *s)
 {
     if (s != NULL && (strcmp(s, "nearest") == 0 || strcmp(s, "nearestNeighbor") == 0)) {
@@ -145,6 +203,8 @@ typedef struct warp_ctx {
     const pc_surface *src;
     pc_rect src_rect, dst;
     pc_algo_homography inv;
+    double side; /* 1 or -1: the sign the forward w keeps over the source; 0 when it changes */
+    double w_lo; /* every sampled pixel's inverse w is at least this far from the horizon */
     pc_algo_interp interp;
     size_t n;
     pc_tile first;
@@ -156,20 +216,20 @@ typedef struct warp_ctx {
 } warp_ctx;
 
 /* Min / max over values as `fold(f64::MAX, f64::min)` / `fold(f64::MIN, f64::max)` do. */
-static double fold_min(const double *v, int n)
+static double fold_min(const double *v, size_t n)
 {
     double m = 1.7976931348623157e308;
-    int i;
+    size_t i;
     for (i = 0; i < n; i++) {
         m = pc_rs_min(m, v[i]);
     }
     return m;
 }
 
-static double fold_max(const double *v, int n)
+static double fold_max(const double *v, size_t n)
 {
     double m = -1.7976931348623157e308;
-    int i;
+    size_t i;
     for (i = 0; i < n; i++) {
         m = pc_rs_max(m, v[i]);
     }
@@ -179,8 +239,10 @@ static double fold_max(const double *v, int n)
 /* One destination tile; *out stays NULL when nothing in it is covered. */
 static pc_status warp_tile(const warp_ctx *w, pc_rect t, float **out, pc_error *err)
 {
-    double xs[4], ys[4];
+    double tx[4], ty[4], wc[4], xs[8], ys[8];
+    size_t np = 0, pi;
     int32_t fx0, fy0, fx1, fy1;
+    bool straddles = false, neg = false, pos = false;
     pc_rect foot;
     float *px = NULL, *outp = NULL;
     size_t plen = 0, fw, tw, n = w->n, a = n - 1, olen, c;
@@ -192,16 +254,53 @@ static pc_status warp_tile(const warp_ctx *w, pc_rect t, float **out, pc_error *
     if (n < 1 || n > PC_RASTER_MAX_CHANNELS) {
         return pc_fail(err, PC_ERR_INVALID, "warp of a %zu-channel surface", n);
     }
-    /* Source footprint of this tile (inverse-mapped corners), padded for the filter. */
-    pc_algo_homography_apply(&w->inv, (double)t.x0, (double)t.y0, &xs[0], &ys[0]);
-    pc_algo_homography_apply(&w->inv, (double)t.x1, (double)t.y0, &xs[1], &ys[1]);
-    pc_algo_homography_apply(&w->inv, (double)t.x1, (double)t.y1, &xs[2], &ys[2]);
-    pc_algo_homography_apply(&w->inv, (double)t.x0, (double)t.y1, &xs[3], &ys[3]);
-    fx0 = pc_i32_wrapping_sub(pc_f64_to_i32(floor(fold_min(xs, 4))), 3);
-    fy0 = pc_i32_wrapping_sub(pc_f64_to_i32(floor(fold_min(ys, 4))), 3);
-    fx1 = pc_i32_wrapping_add(pc_f64_to_i32(ceil(fold_max(xs, 4))), 3);
-    fy1 = pc_i32_wrapping_add(pc_f64_to_i32(ceil(fold_max(ys, 4))), 3);
-    foot = pc_rect_intersect(pc_rect_make(fx0, fy0, fx1, fy1), w->src_rect);
+    /* Source footprint of this tile (inverse-mapped corners of its sampled part), padded for the
+     * filter. */
+    tx[0] = (double)t.x0, ty[0] = (double)t.y0, tx[1] = (double)t.x1, ty[1] = (double)t.y0;
+    tx[2] = (double)t.x1, ty[2] = (double)t.y1, tx[3] = (double)t.x0, ty[3] = (double)t.y1;
+    for (pi = 0; pi < 4; pi++) {
+        wc[pi] = w->inv.m[6] * tx[pi] + w->inv.m[7] * ty[pi] + w->inv.m[8];
+    }
+    if (w->side != 0.0) {
+        /* Sutherland-Hodgman against side * w >= w_lo. */
+        double d[4];
+        for (pi = 0; pi < 4; pi++) {
+            d[pi] = w->side * wc[pi] - w->w_lo;
+        }
+        for (pi = 0; pi < 4; pi++) {
+            size_t j = (pi + 1) % 4;
+            if (d[pi] >= 0.0) {
+                xs[np] = tx[pi], ys[np] = ty[pi], np++;
+            }
+            if ((d[pi] >= 0.0) != (d[j] >= 0.0)) {
+                double k = d[pi] / (d[pi] - d[j]);
+                xs[np] = tx[pi] + (tx[j] - tx[pi]) * k, ys[np] = ty[pi] + (ty[j] - ty[pi]) * k, np++;
+            }
+        }
+    } else {
+        for (pi = 0; pi < 4; pi++) {
+            xs[pi] = tx[pi], ys[pi] = ty[pi];
+        }
+        np = 4;
+    }
+    if (np == 0) {
+        return PC_OK;
+    }
+    for (pi = 0; pi < np; pi++) {
+        pc_algo_homography_apply(&w->inv, xs[pi], ys[pi], &xs[pi], &ys[pi]);
+    }
+    fx0 = pc_i32_wrapping_sub(pc_f64_to_i32(floor(fold_min(xs, np))), 3);
+    fy0 = pc_i32_wrapping_sub(pc_f64_to_i32(floor(fold_min(ys, np))), 3);
+    fx1 = pc_i32_wrapping_add(pc_f64_to_i32(ceil(fold_max(xs, np))), 3);
+    fy1 = pc_i32_wrapping_add(pc_f64_to_i32(ceil(fold_max(ys, np))), 3);
+    /* Without a one-signed forward w, a tile straddling the inverse horizon has no bounded
+     * footprint. */
+    for (pi = 0; pi < 4; pi++) {
+        neg = neg || wc[pi] <= 0.0;
+        pos = pos || wc[pi] >= 0.0;
+    }
+    straddles = w->side == 0.0 && neg && pos;
+    foot = straddles ? w->src_rect : pc_rect_intersect(pc_rect_make(fx0, fy0, fx1, fy1), w->src_rect);
     if (pc_rect_is_empty(foot) || !pc_surface_has_tiles_in(w->src, foot)) {
         return PC_OK;
     }
@@ -281,7 +380,8 @@ static pc_status warp_tile(const warp_ctx *w, pc_rect t, float **out, pc_error *
             any = true;
             o = ((size_t)((int64_t)y - t.y0) * tw + (size_t)((int64_t)x - t.x0)) * n;
             for (c = 0; c < a; c++) {
-                outp[o + c] = (float)pc_clampd(acc[c] / al, 0.0, 1.0);
+                /* Integer storage clips on write; float colours keep their signed / HDR range. */
+                outp[o + c] = (float)(acc[c] / al);
             }
             outp[o + a] = (float)al;
         }
@@ -310,16 +410,16 @@ static pc_status warp_job(void *vctx, size_t chunk, size_t begin, size_t end)
     return PC_OK;
 }
 
-pc_status pc_algo_warp_surface(const pc_surface *src, pc_rect src_rect, const pc_algo_homography *h,
-                               pc_algo_interp interp, pc_surface *out, pc_error *err)
+static pc_status warp(const pc_surface *src, pc_rect src_rect, const pc_algo_homography *h,
+                      pc_algo_interp interp, const pc_rect *clip, pc_surface *out, pc_error *err)
 {
     pc_pixel_format fmt = pc_surface_format(src);
     pc_surface converted, reduced, res;
     const pc_surface *s = src;
     bool have_conv = false, have_red = false;
     pc_algo_homography hh = *h, inv;
-    double cx, cy, scale, xs[4], ys[4], lim = (double)(1 << 20);
-    int32_t bx0, by0, bx1, by1;
+    double cx, cy, scale, xs[4], ys[4], lim = (double)(1 << 20), fwd[4], sx0, sy0, sx1, sy1, wmax = 0.0;
+    bool finite = true;
     pc_tile first, last;
     warp_ctx w;
     size_t group, total, g0, i;
@@ -335,12 +435,18 @@ pc_status pc_algo_warp_surface(const pc_surface *src, pc_rect src_rect, const pc
         s = &converted;
     }
     pc_surface_init(&res, fmt);
-    if (pc_rect_is_empty(src_rect)) {
+    if (pc_rect_is_empty(src_rect) || (clip != NULL && pc_rect_is_empty(*clip))) {
         goto finish;
     }
-    /* Pre-reduce for large downscales (bicubic alone aliases below ~50%). */
-    cx = (double)pc_i32_wrapping_add(src_rect.x0, src_rect.x1) / 2.0;
-    cy = (double)pc_i32_wrapping_add(src_rect.y0, src_rect.y1) / 2.0;
+    /* Pre-reduce for large downscales (bicubic alone aliases below ~50%). With a clip, the scale
+     * that matters is the one at the source point landing in the clip's centre. */
+    if (clip != NULL && pc_algo_homography_inverse(&hh, &inv)) {
+        pc_algo_homography_apply(&inv, ((double)clip->x0 + (double)clip->x1) / 2.0,
+                                 ((double)clip->y0 + (double)clip->y1) / 2.0, &cx, &cy);
+    } else {
+        cx = (double)pc_i32_wrapping_add(src_rect.x0, src_rect.x1) / 2.0;
+        cy = (double)pc_i32_wrapping_add(src_rect.y0, src_rect.y1) / 2.0;
+    }
     scale = pc_algo_homography_local_scale(&hh, cx, cy);
     if (interp != PC_ALGO_INTERP_NEAREST && scale < 0.5 && scale > 0.0) {
         /* 2f64.powf(x) is exp2(x) after LLVM; the remaining scale lands in [0.5, 1). */
@@ -363,16 +469,52 @@ pc_status pc_algo_warp_surface(const pc_surface *src, pc_rect src_rect, const pc
     pc_algo_homography_apply(&hh, (double)src_rect.x1, (double)src_rect.y0, &xs[1], &ys[1]);
     pc_algo_homography_apply(&hh, (double)src_rect.x1, (double)src_rect.y1, &xs[2], &ys[2]);
     pc_algo_homography_apply(&hh, (double)src_rect.x0, (double)src_rect.y1, &xs[3], &ys[3]);
-    for (i = 0; i < 4; i++) {
-        if (!isfinite(xs[i]) || !isfinite(ys[i])) {
-            goto finish;
+    /* A sampled pixel's inverse w is 1 / (forward w at its source point). While the forward w keeps
+     * one sign over the source (plus the margin the sampler reads), every sampled pixel lies at
+     * least w_lo from the inverse horizon, so clipping a tile there keeps its footprint exact and
+     * bounded even when a steep Distort brings that horizon into the tile (#2271). */
+    sx0 = (double)src_rect.x0 - 1.0, sy0 = (double)src_rect.y0 - 1.0;
+    sx1 = (double)src_rect.x1 + 1.0, sy1 = (double)src_rect.y1 + 1.0;
+    fwd[0] = hh.m[6] * sx0 + hh.m[7] * sy0 + hh.m[8];
+    fwd[1] = hh.m[6] * sx1 + hh.m[7] * sy0 + hh.m[8];
+    fwd[2] = hh.m[6] * sx1 + hh.m[7] * sy1 + hh.m[8];
+    fwd[3] = hh.m[6] * sx0 + hh.m[7] * sy1 + hh.m[8];
+    w.side = 0.0;
+    {
+        static const double sides[2] = {1.0, -1.0};
+        int k;
+        for (k = 0; k < 2 && w.side == 0.0; k++) {
+            bool all = true;
+            for (i = 0; i < 4; i++) {
+                all = all && sides[k] * fwd[i] > 0.0;
+            }
+            if (all) {
+                w.side = sides[k];
+            }
         }
     }
-    bx0 = pc_f64_to_i32(pc_rs_max_k(floor(fold_min(xs, 4)), -lim)) - 1;
-    by0 = pc_f64_to_i32(pc_rs_max_k(floor(fold_min(ys, 4)), -lim)) - 1;
-    bx1 = pc_f64_to_i32(pc_rs_min_k(ceil(fold_max(xs, 4)), lim)) + 1;
-    by1 = pc_f64_to_i32(pc_rs_min_k(ceil(fold_max(ys, 4)), lim)) + 1;
-    w.dst = pc_rect_make(bx0, by0, bx1, by1);
+    for (i = 0; i < 4; i++) {
+        wmax = pc_rs_max(wmax, fabs(fwd[i]));
+        finite = finite && isfinite(xs[i]) && isfinite(ys[i]);
+    }
+    w.w_lo = 1.0 / wmax;
+    if (finite) {
+        int32_t bx0 = pc_f64_to_i32(pc_rs_max_k(floor(fold_min(xs, 4)), -lim)) - 1;
+        int32_t by0 = pc_f64_to_i32(pc_rs_max_k(floor(fold_min(ys, 4)), -lim)) - 1;
+        int32_t bx1 = pc_f64_to_i32(pc_rs_min_k(ceil(fold_max(xs, 4)), lim)) + 1;
+        int32_t by1 = pc_f64_to_i32(pc_rs_min_k(ceil(fold_max(ys, 4)), lim)) + 1;
+        w.dst = pc_rect_make(bx0, by0, bx1, by1);
+    }
+    if (clip != NULL) {
+        /* The warped corners only bound the result while the whole source is in front of the
+         * horizon. */
+        w.dst = finite && w.side != 0.0 ? pc_rect_intersect(w.dst, *clip) : *clip;
+    } else if (!finite) {
+        goto finish;
+    }
+    if (pc_rect_is_empty(w.dst)) {
+        goto finish;
+    }
     if (!pc_rect_tile_range(w.dst, &first, &last)) {
         goto finish;
     }
@@ -450,4 +592,16 @@ finish:
     }
     *out = res;
     return PC_OK;
+}
+
+pc_status pc_algo_warp_surface(const pc_surface *src, pc_rect src_rect, const pc_algo_homography *h,
+                               pc_algo_interp interp, pc_surface *out, pc_error *err)
+{
+    return warp(src, src_rect, h, interp, NULL, out, err);
+}
+
+pc_status pc_algo_warp_surface_clipped(const pc_surface *src, pc_rect src_rect, const pc_algo_homography *h,
+                                       pc_algo_interp interp, pc_rect clip, pc_surface *out, pc_error *err)
+{
+    return warp(src, src_rect, h, interp, &clip, out, err);
 }

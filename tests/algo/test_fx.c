@@ -531,6 +531,9 @@ static const char *const NEW_FILTERS[] = {
     "{\"filter\":\"custom\",\"kernel\":[0,0,0,0,0,0,0,-1,0,0,0,-1,5,-1,0,0,0,-1,0,0,0,0,0,0,0],\"scale\":1,"
     "\"offset\":0}",
     "{\"filter\":\"hsbHsl\",\"input\":\"rgb\",\"output\":\"hsl\"}",
+    "{\"filter\":\"colorToAlpha\",\"color\":[1,1,1,1],\"transparencyThreshold\":0,\"opacityThreshold\":1}",
+    "{\"filter\":\"colorToAlpha\",\"color\":[0.5,0.25,0.75,1],\"transparencyThreshold\":0.1,"
+    "\"opacityThreshold\":0.9}",
     "{\"filter\":\"deInterlace\",\"eliminateEven\":false,\"interpolate\":true}",
     "{\"filter\":\"ntscColors\"}",
 };
@@ -1226,7 +1229,6 @@ static void test_curve_passes_through_points_and_clamps(void)
 
 /* ---- tests_mosaic.rs ---- */
 
-
 /* ---- never crash ---- */
 
 static void test_hostile_parameters_never_crash(void)
@@ -1283,8 +1285,11 @@ static void test_hostile_parameters_never_crash(void)
         CHECK(pc_algo_filter_make(&pc_algo_def_extrude, &e, &f, NULL) == PC_OK);
         CHECK(pc_algo_apply(&s, &f, R, R, NULL, &o, NULL) == PC_ERR_INVALID);
         pc_algo_filter_fini(&f);
+        /* A NaN Tilt-Shift amount blurs nothing (the reference now floors the sigma at 0). */
         CHECK(pc_algo_filter_make(&pc_algo_def_tilt_shift, &t, &f, NULL) == PC_OK);
-        CHECK(pc_algo_apply(&s, &f, R, R, NULL, &o, NULL) == PC_ERR_INVALID);
+        CHECK(pc_algo_apply(&s, &f, R, R, NULL, &o, NULL) == PC_OK);
+        CHECK(same_region(&s, &o, R));
+        pc_surface_fini(&o);
         pc_algo_filter_fini(&f);
     }
     /* A displace map with zero channels is ignored. */

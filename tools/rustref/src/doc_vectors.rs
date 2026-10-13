@@ -129,7 +129,7 @@ fn blend_modes() -> Vec<BlendMode> {
 
 fn curve(pts: &[(f32, f32)]) -> Vec<CurvePoint> { pts.iter().map(|&(i, o)| CurvePoint { input: i, output: o }).collect() }
 
-fn custom_contour() -> Contour { Contour::Custom { name: "Cone – Inverted".into(), points: curve(&[(0.0, 1.0), (0.5, 0.1), (1.0, 0.0)]) } }
+fn custom_contour() -> Contour { Contour::Custom { name: "Cone – Inverted".into(), points: curve(&[(0.0, 1.0), (0.5, 0.1), (1.0, 0.0)]), corners: Vec::new() } }
 
 fn gradient_full() -> Gradient {
     Gradient {
@@ -231,7 +231,7 @@ fn adjustments() -> Vec<Adjustment> {
             black: LevelsChannel { out_white: 0.5, ..Default::default() },
         },
         Adjustment::identity_curves(),
-        Adjustment::Curves { master: vec![], per_channel: [vec![], curve(&[(0.5, 0.5)]), vec![]], space: ToneSpace::Lab, black: curve(&[(0.0, 0.1), (1.0, 0.9)]) },
+        Adjustment::Curves { master: vec![], per_channel: [vec![], curve(&[(0.5, 0.5)]), vec![]], space: ToneSpace::Lab, black: curve(&[(0.0, 0.1), (1.0, 0.9)]), pencil: false },
         Adjustment::Exposure { exposure: 1.5, offset: -0.1, gamma: 1.0 },
         Adjustment::Vibrance { vibrance: 100.0, saturation: -100.0 },
         Adjustment::default_hue_saturation(),
@@ -462,7 +462,7 @@ fn ser_lines() {
         SmartFilter { command: "y".into(), params: json!("str"), blend: BlendMode::Divide, opacity: sub1(), visible: true },
         SmartFilter { command: "z".into(), params: json!({}), blend: BlendMode::Luminosity, opacity: 0.5, visible: true },
     );
-    ser!(Guides: Guides::default(), Guides { horizontal: vec![0.1, -0.0, 1e20], vertical: vec![f32::MAX] });
+    ser!(Guides: Guides::default(), Guides { horizontal: vec![0.1, -0.0, 1e20], vertical: vec![f64::from(f32::MAX)], colors: Vec::new() });
     ser!(ColorIndicates: ColorIndicates::MaskedAreas, ColorIndicates::SelectedAreas);
     ser!(CurvePoint: CurvePoint { input: 0.1, output: 0.2 }, CurvePoint { input: -0.0, output: 1e-45 });
     ser!(LevelsChannel: LevelsChannel::default(), LevelsChannel { in_black: 0.1, in_white: 0.9, gamma: 1e-7, out_black: -0.0, out_white: 1e20 });
@@ -482,7 +482,7 @@ fn ser_lines() {
         ser!(GradientStyle: s);
     }
     ser!(Gradient: Gradient::default(), gradient_full());
-    ser!(Contour: Contour::Linear, custom_contour(), Contour::Custom { name: String::new(), points: vec![] });
+    ser!(Contour: Contour::Linear, custom_contour(), Contour::Custom { name: String::new(), points: vec![], corners: Vec::new() });
     ser!(FxPaint: FxPaint::Color(colors()[1]), FxPaint::Gradient(gradient_full()), FxPaint::Pattern { name: "n".into(), id: "i".into(), scale: 0.1 });
     ser!(FxCommon: FxCommon::new(BlendMode::Multiply, 0.75), fxc(false, BlendMode::HardMix, -0.0));
     ser!(Shadow: shadow2());
@@ -1455,8 +1455,176 @@ fn nonfinite_fns() {
     l!("nonfinite", "MeasurementScale", js!(&MeasurementScale { pixel_length: f64::NAN, logical_length: f64::INFINITY, units: "x".into() }));
     l!("nonfinite", "Timeline", js!(&Timeline { fps: f32::NAN, duration: 1, current: 0, work_start: 0, work_end: 1 }));
     l!("nonfinite", "GlobalLight", js!(&GlobalLight { angle: f32::INFINITY, altitude: f32::NAN }));
-    l!("nonfinite", "Guides", js!(&Guides { horizontal: vec![f32::NAN, 1.0], vertical: vec![f32::NEG_INFINITY] }));
+    l!("nonfinite", "Guides", js!(&Guides { horizontal: vec![f64::NAN, 1.0], vertical: vec![f64::NEG_INFINITY], colors: Vec::new() }));
     l!("nonfinite", "CharStyleValue", js!(&serde_json::to_value(CharStyle { size_pt: f32::NAN, leading_pt: Some(f32::INFINITY), ..Default::default() }).unwrap()));
+}
+
+// ---------------------------------------------------------------------------------------------
+// R4 (Phase 5R resync): the fields and functions upstream added after efa62efa. Appended last so
+// every earlier line keeps its place.
+
+fn h32s(v: impl IntoIterator<Item = f32>) -> String {
+    let mut h = H0;
+    for x in v {
+        fnv(&mut h, &x.to_bits().to_le_bytes());
+    }
+    format!("{h:016x}")
+}
+
+fn resync_lines() {
+    use photocraft_doc::adjust::{curve_map, curve_map_outputs};
+    use photocraft_doc::{FileEncoding, GuideColor};
+    ser!(Adjustment: Adjustment::Curves {
+        master: curve(&[(0.0, 0.2), (1.0, 0.8)]),
+        per_channel: [vec![], curve(&[(0.5, 0.25)]), vec![]],
+        space: ToneSpace::Cmyk,
+        black: vec![],
+        pencil: true
+    });
+    ser!(Contour:
+        Contour::Custom { name: "c".into(), points: curve(&[(0.0, 0.0), (0.5, 1.0), (1.0, 0.0)]), corners: vec![false, true] },
+        Contour::Custom { name: String::new(), points: vec![], corners: vec![true] });
+    ser!(Guides: Guides {
+        horizontal: vec![118.11023622047244, -0.5, 1e300],
+        vertical: vec![7.03125],
+        colors: vec![GuideColor { vertical: true, position: 7.03125, rgb: [0x33, 0x66, 0xff] }, GuideColor { vertical: false, position: f64::MAX, rgb: [0, 0, 255] }],
+    });
+    ser!(GuideColor: GuideColor { vertical: false, position: -0.0, rgb: [1, 2, 3] }, GuideColor { vertical: true, position: 5e-324, rgb: [255, 255, 255] });
+    ser!(FileEncoding:
+        FileEncoding::default(),
+        FileEncoding { jpeg_quality: Some(87), ..Default::default() },
+        FileEncoding { jpeg_quality: None, webp_lossless: Some(false), webp_quality: Some(100) },
+        FileEncoding { jpeg_quality: Some(0), webp_lossless: Some(true), webp_quality: Some(255) });
+    serp!(FileEncoding: FileEncoding { jpeg_quality: Some(12), webp_lossless: Some(true), webp_quality: None });
+    serp!(Guides: Guides { horizontal: vec![1.5], vertical: vec![], colors: vec![GuideColor { vertical: false, position: 1.5, rgb: [9, 8, 7] }] });
+    de!(Adjustment: r#"{"Curves":{"master":[],"per_channel":[[],[],[]],"pencil":true}}"#,
+        r#"{"Curves":{"master":[],"per_channel":[[],[],[]],"pencil":1}}"#,
+        r#"{"Curves":{"master":[],"per_channel":[[],[],[]],"pencil":null}}"#);
+    de!(Contour: r#"{"Custom":{"name":"a","points":[]}}"#, r#"{"Custom":{"name":"a","points":[],"corners":[true,false,true]}}"#,
+        r#"{"Custom":{"name":"a","points":[],"corners":null}}"#, r#"{"Custom":{"name":"a","points":[],"corners":[1]}}"#,
+        r#"{"Custom":["a",[],[true]]}"#, r#"{"Custom":["a",[]]}"#);
+    de!(Guides: r#"{"horizontal":[1],"vertical":[]}"#,
+        r#"{"horizontal":[1.5],"vertical":[2],"colors":[{"vertical":true,"position":2,"rgb":[1,2,3]}]}"#,
+        r#"{"horizontal":[],"vertical":[],"colors":null}"#,
+        r#"{"horizontal":[],"vertical":[],"colors":[{"vertical":true,"position":2,"rgb":[1,2]}]}"#,
+        r#"{"horizontal":[],"vertical":[],"colors":[{"vertical":true,"position":2,"rgb":[256,0,0]}]}"#,
+        r#"{"horizontal":[1e300,-1.7976931348623157e308,18446744073709551615],"vertical":[0.30000000000000004]}"#,
+        r#"[[1],[2],[{"vertical":false,"position":1,"rgb":[0,0,0]}]]"#, r#"[[1],[2]]"#);
+    de!(GuideColor: r#"{"vertical":1,"position":0,"rgb":[0,0,0]}"#, r#"{"position":0,"rgb":[0,0,0]}"#,
+        r#"{"vertical":false,"position":"x","rgb":[0,0,0]}"#, r#"[true,2.5,[1,2,3]]"#, r#"{"vertical":false,"position":1,"rgb":[0,0,0,0]}"#);
+    de!(FileEncoding: r#"{}"#, r#"{"jpegQuality":90}"#, r#"{"jpegQuality":null,"webpLossless":true}"#, r#"{"jpegQuality":256}"#,
+        r#"{"jpeg_quality":5}"#, r#"null"#, r#"[]"#, r#"[90]"#, r#"[90,true,50]"#, r#"[90,true,50,1]"#, r#"{"webpQuality":-1}"#,
+        r#"{"webpLossless":"yes"}"#, r#"{"webpQuality":1.0}"#);
+
+    // Pencil curve maps.
+    let maps: Vec<Vec<f32>> = vec![
+        vec![],
+        vec![0.5],
+        (0..256).map(|k| k as f32 / 255.0).collect(),
+        (0..300).map(|k| ((k * 37) % 101) as f32 / 50.0 - 0.5).collect(),
+        vec![f32::NAN, 0.25, f32::INFINITY, -0.0, 2.0, -1.0, sub1(), f32::NEG_INFINITY, 0.75],
+        (0..255).map(|k| 1.0 - k as f32 / 254.0).collect(),
+    ];
+    for m in &maps {
+        let pts = curve_map(m);
+        l!("curve_map", xs32(m), pts.len(), h32s(pts.iter().flat_map(|p| [p.input, p.output])));
+    }
+    let pts: Vec<Vec<CurvePoint>> = vec![
+        vec![],
+        curve(&[(0.5, 0.5)]),
+        curve(&[(0.0, 0.0), (1.0, 1.0)]),
+        curve(&[(1.0, 0.0), (0.0, 1.0)]),
+        curve(&[(0.2, 0.1), (0.2, 0.9), (0.8, 0.3)]),
+        curve(&[(-0.0, 0.5), (0.0, 0.25), (1.0, 0.75)]),
+        curve(&[(0.3, 0.6), (f32::NAN, 0.1), (0.7, f32::INFINITY), (0.9, 0.2)]),
+        curve(&[(-1.0, -2.0), (0.5, 3.0), (2.0, 0.5)]),
+        curve(&[(0.25, 0.0), (0.25, 1.0)]),
+        curve(&[(0.1, 0.0), (0.4, 1.0), (0.4, 0.0), (0.6, 1.0), (0.6, 0.5), (0.95, 0.05)]),
+        curve(&[(0.5, 1e30), (0.6, -1e30)]),
+        curve(&[(0.0, 3e38), (1.0, -3e38)]),
+    ];
+    for c in &pts {
+        let o = curve_map_outputs(c);
+        let flat: Vec<f32> = c.iter().flat_map(|p| [p.input, p.output]).collect();
+        l!("curve_map_outputs", xs32(&flat), o.len(), h32s(o.iter().copied()), xs32(&o[..o.len().min(8)]));
+    }
+
+    // Shape stroke limits.
+    let base = ShapeStroke::default();
+    let strokes: Vec<ShapeStroke> = vec![
+        base.clone(),
+        ShapeStroke { width: f32::NAN, ..base.clone() },
+        ShapeStroke { width: -0.0, ..base.clone() },
+        ShapeStroke { width: 1_000_000.0, ..base.clone() },
+        ShapeStroke { width: 1_000_000.1, ..base.clone() },
+        ShapeStroke { opacity: 1.0001, ..base.clone() },
+        ShapeStroke { opacity: f32::INFINITY, ..base.clone() },
+        ShapeStroke { miter_limit: 0.999, ..base.clone() },
+        ShapeStroke { miter_limit: 500.0, ..base.clone() },
+        ShapeStroke { dash_offset: -1_000_000.0, ..base.clone() },
+        ShapeStroke { dash_offset: 1_000_000.5, ..base.clone() },
+        ShapeStroke { dashes: vec![1.0; 32], ..base.clone() },
+        ShapeStroke { dashes: vec![1.0; 33], ..base.clone() },
+        ShapeStroke { dashes: vec![0.0, 0.005, 0.004], ..base.clone() },
+        ShapeStroke { dashes: vec![0.0, 0.01], ..base.clone() },
+        ShapeStroke { dashes: vec![10000.0, f32::NAN], ..base.clone() },
+        ShapeStroke { dashes: vec![-0.0, 10000.01], ..base.clone() },
+        ShapeStroke { dashes: vec![0.003, 0.003, 0.004], ..base.clone() },
+    ];
+    for st in &strokes {
+        l!("stroke_validate", x32(st.width), x32(st.opacity), x32(st.miter_limit), x32(st.dash_offset), xs32(&st.dashes), st.validate().err().unwrap_or("ok"));
+    }
+
+    // Pattern size limits.
+    for (w, h) in [(0u32, 5u32), (5, 0), (1, 1), (8192, 8192), (8193, 8192), (30000, 30000), (u32::MAX, u32::MAX), (1 << 26, 1), ((1 << 26) + 1, 1)] {
+        let p = Pattern { id: String::new(), name: String::new(), width: w, height: h, surface: Surface::new(PixelFormat::RGBA8) };
+        l!("pattern_paintable", w, h, p.pixel_count(), p.is_paintable());
+    }
+    l!("pattern_limits", pattern::MAX_EDGE, pattern::MAX_PAINT_PIXELS);
+
+    // Paragraph runs keep the empty paragraph after a trailing line break.
+    let run = |len: usize, size: f32| TextRun { len, style: CharStyle { size_pt: size, ..Default::default() } };
+    let prun = |len: usize, a: TextAlign| ParagraphRun { len, style: ParagraphStyle { align: a, ..Default::default() } };
+    let cases: Vec<(&str, Vec<TextRun>, Vec<ParagraphRun>)> = vec![
+        ("ab\r", vec![run(3, 1.0)], vec![prun(3, TextAlign::Center), prun(0, TextAlign::Right)]),
+        ("ab\r", vec![], vec![prun(3, TextAlign::Center), prun(1, TextAlign::Right)]),
+        ("ab\r", vec![], vec![prun(3, TextAlign::Center), prun(2, TextAlign::Right)]),
+        ("ab\n", vec![], vec![prun(2, TextAlign::Center), prun(1, TextAlign::Right)]),
+        ("ab\n", vec![], vec![prun(1, TextAlign::Center), prun(1, TextAlign::Left), prun(1, TextAlign::Right)]),
+        ("a\rb\r", vec![], vec![prun(2, TextAlign::Center), prun(2, TextAlign::Left), prun(0, TextAlign::JustifyAll)]),
+        ("ab", vec![], vec![prun(2, TextAlign::Center), prun(0, TextAlign::Right)]),
+        ("\n", vec![], vec![prun(1, TextAlign::Center), prun(0, TextAlign::Right)]),
+        ("\n", vec![], vec![prun(0, TextAlign::Right)]),
+        ("ab\r", vec![], vec![prun(usize::MAX, TextAlign::Center), prun(0, TextAlign::Right)]),
+        ("é\r", vec![], vec![prun(3, TextAlign::Center), prun(1, TextAlign::Right)]),
+    ];
+    for (text, runs, paras) in cases {
+        let text = text.to_string();
+        let t = TextLayer { text: text.clone(), font_family: "Fam".into(), size_pt: 9.0, color: Color::rgb(0.1, 0.2, 0.3), runs, paragraphs: paras, ..Default::default() };
+        let cr = t.char_runs();
+        let pr = t.paragraph_runs();
+        l!("text_runs", text.replace('\r', "\\r").replace('\n', "\\n"), js!(&t.runs), js!(&t.paragraphs), js!(&cr), js!(&pr));
+    }
+
+    // Colours into a document mode, and switching an effect on and off.
+    let modes = [ColorMode::Rgb, ColorMode::Grayscale, ColorMode::Cmyk, ColorMode::Lab, ColorMode::Indexed, ColorMode::Bitmap, ColorMode::Duotone, ColorMode::Multichannel];
+    for e in effects_all() {
+        for m in modes {
+            l!("effect_in_mode", js!(&e), js!(&m), js!(&e.clone().in_mode(m)));
+        }
+        let mut off = e.clone();
+        off.set_enabled(!e.enabled());
+        l!("effect_set_enabled", js!(&e), !e.enabled(), js!(&off));
+    }
+    for f in fills() {
+        for m in modes {
+            l!("fill_in_mode", js!(&f), js!(&m), js!(&f.clone().in_mode(m)));
+        }
+    }
+    let cc = Contour::Custom { name: "k".into(), points: curve(&[(0.0, 0.0), (0.5, 1.0), (1.0, 0.0)]), corners: vec![false, true] };
+    for (c, i) in [(&cc, 0usize), (&cc, 1), (&cc, 2), (&cc, usize::MAX), (&Contour::Linear, 0)] {
+        l!("contour_is_corner", js!(c), i, c.is_corner(i));
+    }
 }
 
 pub fn doc_vectors() {
@@ -1476,4 +1644,5 @@ pub fn doc_vectors() {
     styles_fns();
     doc_fns();
     nonfinite_fns();
+    resync_lines();
 }

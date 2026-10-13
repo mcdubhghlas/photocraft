@@ -15,6 +15,9 @@
 /* Bytes per band when converting or exporting a band of rows at a time. */
 #define PC_IO_BAND_BYTES ((size_t)32 << 20)
 
+/* The quality a lossy WebP is saved at when its own can't be read (DEFAULT_LOSSY_WEBP_QUALITY). */
+#define PC_IO_DEFAULT_LOSSY_WEBP_QUALITY 75
+
 /* ---- public ---- */
 
 /* Opens one page of a TIFF or BigTIFF file: has_page false is the page Photoshop opens (the
@@ -41,6 +44,11 @@ pc_status pc_io_import_flat(const char *name, const uint8_t *bytes, size_t len, 
  * come first. */
 pc_status pc_io_image_to_document(const char *name, const pc_cimage *img, pc_io_import_result *out,
                                   pc_error *err);
+/* image_surface: the pixels of a decoded image as a new surface in the target layout and sample
+ * (Gray, RGB or CMYK layouts -> that mode, U8/U16 kept, anything else F32; always with alpha), converted a
+ * band of rows at a time. Not pruned. *out initialised on success. */
+pc_status pc_io_image_surface(const pc_cimage *img, pc_clayout target, pc_csample cs, pc_surface *out,
+                              pc_error *err);
 /* The one visible, unmasked, Normal, opaque raster layer whose pixels can be written natively,
  * or NULL. Borrowed. */
 const pc_surface *pc_io_single_layer(const pc_document *doc);

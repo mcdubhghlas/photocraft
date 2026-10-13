@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "algo/algo.h"
+#include "algo/direct.h"
 #include "base/num.h"
 #include "base/rmath.h"
 #include "base/buf.h"
@@ -1001,6 +1002,84 @@ static void wide_apply_vectors(void)
     }
 }
 
+/* ---- R6 (resync): VpPlane check / normalized, direct registration ---- */
+
+static void vp_check_vectors(void)
+{
+    const double c[2] = {400.0, 300.0}, rots[4][2] = {{0.6, 0.4}, {0.3, -0.5}, {0.0, 0.0}, {1.1, 0.2}};
+    static const double quads[9][4][2] = {
+        {{10, 10}, {110, 10}, {110, 110}, {10, 110}},    {{10, 10}, {110, 110}, {110, 10}, {10, 110}},
+        {{10, 10}, {110, 10}, {40, 40}, {10, 110}},      {{10, 10}, {300, 10}, {300, 40}, {200, 40}},
+        {{110, 110}, {110, 10}, {10, 10}, {10, 110}},    {{0, 10}, {110, 10}, {110, 110}, {10, 110}},
+        {{0, 0}, {0.5, 0}, {0.5, 0.5}, {0, 0.5}},        {{50, 300}, {700, 280}, {600, 320}, {100, 330}},
+        {{100, 100}, {500, 120}, {480, 400}, {120, 380}}};
+    int k;
+    for (k = 0; k < 13; k++) {
+        pc_algo_vp_plane pl, n;
+        uint64_t h = H0;
+        int q;
+        if (k < 4) {
+            pl = floor_quad(500.0, c, rots[k][0], rots[k][1]);
+        } else {
+            memcpy(pl.corners, quads[k - 4], sizeof pl.corners);
+            if (k == 9) {
+                pl.corners[0][0] = NAN;
+            }
+        }
+        n = pc_algo_vp_plane_normalized(&pl);
+        for (q = 0; q < 4; q++) {
+            hd(&h, n.corners[q], 2);
+        }
+        line("vp_check %d %s %016llx", k, pc_algo_vp_plane_check_name(pc_algo_vp_plane_check_at(&pl, c)),
+             (unsigned long long)h);
+    }
+}
+
+static void direct_vectors(void)
+{
+    static const char *const names[4] = {"translation", "euclidean", "similarity", "homography"};
+    static const size_t coarsens[3] = {0, 1, 5};
+    const size_t w = 160, h = 120;
+    float (*px)[4] = photo(w, h, 7), *ref = malloc(w * h * sizeof *ref), *tgt = NULL;
+    bool *valid = NULL;
+    pc_algo_direct_plane rp = {w, h, NULL, NULL}, tp = {w, h, NULL, NULL};
+    pc_algo_pose truth = PC_ALGO_POSE_IDENTITY;
+    uint64_t hw = H0;
+    size_t i;
+    int m, c;
+    for (i = 0; i < w * h; i++) {
+        ref[i] = 0.3f * px[i][0] + 0.6f * px[i][1] + 0.1f * px[i][2];
+    }
+    rp.luma = ref;
+    truth.dx = 2.3 / (double)w, truth.dy = -1.6 / (double)h, truth.scale = 1.01;
+    truth.rot = 0.4 * (3.141592653589793 / 180.0);
+    CHECK(pc_algo_direct_warp(&rp, &truth, &tgt, &valid, NULL) == PC_OK);
+    hf(&hw, tgt, w * h);
+    for (i = 0; i < w * h; i++) {
+        h64(&hw, valid[i] ? 1u : 0u);
+    }
+    line("direct_warp %016llx", (unsigned long long)hw);
+    tp.luma = tgt;
+    tp.valid = valid;
+    for (m = 0; m < 4; m++) {
+        for (c = 0; c < 3; c++) {
+            pc_algo_registration r;
+            uint64_t hh = H0, rb, cb;
+            double v[PC_ALGO_POSE_N];
+            CHECK(pc_algo_direct_register(&rp, &tp, (pc_algo_motion)m, PC_ALGO_POSE_IDENTITY, coarsens[c], &r,
+                                          NULL) == PC_OK);
+            pc_algo_pose_to_vec(&r.pose, v);
+            hd(&hh, v, PC_ALGO_POSE_N);
+            hd(&hh, r.h.m, 9);
+            memcpy(&rb, &r.rms, 8);
+            memcpy(&cb, &r.correlation, 8);
+            line("direct %s %zu %016llx %016llx %zu %016llx", names[m], coarsens[c], (unsigned long long)hh,
+                 (unsigned long long)rb, r.overlap, (unsigned long long)cb);
+        }
+    }
+    free(px), free(ref), free(tgt), free(valid);
+}
+
 /* ---------------------------------------------------------------------------------------------- */
 
 static char *read_file(const char *path, size_t *len)
@@ -1045,6 +1124,8 @@ static void test_photo_parity(void)
     wide_vectors();
     relight_vectors();
     wide_apply_vectors();
+    vp_check_vectors();
+    direct_vectors();
     (void)pc_buf_append_byte(&OUT, '\0', NULL);
     got = strtok_r((char *)OUT.data, "\n", &gsave);
     for (i = 0; i < NG || got != NULL; i++) {

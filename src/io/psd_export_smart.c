@@ -26,7 +26,26 @@
 #include "io/smart_internal.h"
 #include "raster/pixel.h"
 
+#include <blake3.h>
+
 static const char LINK_KEYS[4][5] = {"lnk2", "lnk3", "lnkD", "lnkE"};
+
+/* contents_uuid: an embedded/linked source's uuid for a given contents identity and bytes, so
+ * equal bytes in independent objects get distinct uuids. */
+static void contents_uuid(pc_smart_contents_id cid, const uint8_t *bytes, size_t len, char out[37])
+{
+    blake3_hasher h;
+    uint8_t le[8];
+    uint8_t digest[PC_BLAKE3_LEN];
+    for (size_t i = 0; i < 8; i++) {
+        le[i] = (uint8_t)((cid >> (8 * i)) & 0xffu);
+    }
+    blake3_hasher_init(&h);
+    blake3_hasher_update(&h, le, 8);
+    blake3_hasher_update(&h, bytes, len);
+    blake3_hasher_finalize(&h, digest, sizeof digest);
+    pc_io_uuid_from(digest, sizeof digest, out);
+}
 
 static bool is_link_key(const uint8_t k[4])
 {
@@ -43,6 +62,81 @@ static bool is_fx_key(const uint8_t k[4])
     return memcmp(k, "FEid", 4) == 0 || memcmp(k, "FXid", 4) == 0;
 }
 
+static pc_status placed_owner_insert(pc_io_ex_smart *s, const char *p, size_t len, uint64_t layer,
+                                     pc_error *err);
+static pc_status unplaced_owner_insert(pc_io_ex_smart *s, pc_smart_contents_id c, uint64_t layer,
+                                       pc_error *err);
+static pc_status linked_contents_entry(pc_io_ex_smart *s, const char *path, size_t len,
+                                       pc_smart_contents_id contents, pc_smart_contents_id *out,
+                                       pc_error *err);
+
+/* Orders doc.walk() as SmartOut::new does: layers with a psd_id first (a duplicate clears it and
+ * gets a newer id), then by runtime id. */
+static int walk_sort_cmp(const void *a, const void *b)
+{
+    const pc_walk_item *x = a;
+    const pc_walk_item *y = b;
+    int fx = x->layer->has_psd_id ? 0 : 1;
+    int fy = y->layer->has_psd_id ? 0 : 1;
+    if (fx != fy) {
+        return fx - fy;
+    }
+    return x->layer->id < y->layer->id ? -1 : x->layer->id > y->layer->id ? 1 : 0;
+}
+
+/* SmartOut::new's owner maps: original linked instances reserve their imported placement. */
+static pc_status smart_init_owners(pc_io_ex_smart *s, const pc_document *doc, pc_error *err)
+{
+    pc_walk walk;
+    pc_walk_item *items = NULL;
+    pc_status st = pc_document_walk(doc, &walk, err);
+    if (st != PC_OK) {
+        return st;
+    }
+    if (walk.len > 0) {
+        items = pc_malloc_array(walk.len, sizeof *items);
+        if (items == NULL) {
+            pc_walk_fini(&walk);
+            return pc_io_nomem(err, "ordering smart layers");
+        }
+        memcpy(items, walk.items, walk.len * sizeof *items);
+        qsort(items, walk.len, sizeof *items, walk_sort_cmp);
+    }
+    for (size_t i = 0; i < walk.len && st == PC_OK; i++) {
+        const pc_layer *l = items[i].layer;
+        const pc_smart_object *sm;
+        pc_io_placed placed;
+        bool found = false;
+        if (l->content.kind != PC_LAYER_SMART) {
+            continue;
+        }
+        sm = &l->content.u.smart;
+        if (!sm->source.linked || sm->psd_raw == NULL) {
+            continue;
+        }
+        st = pc_io_parse_sold(pc_blob_data(sm->psd_raw), pc_blob_len(sm->psd_raw), &found, &placed, err);
+        if (st != PC_OK) {
+            break;
+        }
+        if (found && pc_str_eq(&placed.idnt, &sm->source.path)) {
+            pc_smart_contents_id kept;
+            st = linked_contents_entry(s, pc_str_c(&sm->source.path), sm->source.path.len, sm->contents_id,
+                                       &kept, err);
+            if (st == PC_OK && placed.placed.len == 0) {
+                st = unplaced_owner_insert(s, sm->contents_id, l->id, err);
+            } else if (st == PC_OK) {
+                st = placed_owner_insert(s, pc_str_c(&placed.placed), placed.placed.len, l->id, err);
+            }
+        }
+        if (found) {
+            pc_io_placed_fini(&placed);
+        }
+    }
+    free(items);
+    pc_walk_fini(&walk);
+    return st;
+}
+
 bool pc_io_ex_strs_has(const pc_io_strs *s, const char *p, size_t len)
 {
     for (size_t i = 0; i < s->n; i++) {
@@ -56,6 +150,119 @@ bool pc_io_ex_strs_has(const pc_io_strs *s, const char *p, size_t len)
 static pc_status strs_insert(pc_io_strs *s, const char *p, size_t len, pc_error *err)
 {
     return pc_io_ex_strs_has(s, p, len) ? PC_OK : pc_io_strs_push(s, p, len, err);
+}
+
+/* placed_owners.get(placed): the layer id that owns placed id `p`, or false. */
+static bool placed_owner_get(const pc_io_ex_smart *s, const char *p, size_t len, uint64_t *out)
+{
+    for (size_t i = 0; i < s->nplaced_owners; i++) {
+        if (strlen(s->placed_owners[i].placed) == len && memcmp(s->placed_owners[i].placed, p, len) == 0) {
+            *out = s->placed_owners[i].layer;
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool placed_owner_has(const pc_io_ex_smart *s, const char *p, size_t len)
+{
+    uint64_t dummy;
+    return placed_owner_get(s, p, len, &dummy);
+}
+
+/* placed_owners.entry(p).or_insert(layer): only inserts when `p` is new. */
+static pc_status placed_owner_insert(pc_io_ex_smart *s, const char *p, size_t len, uint64_t layer,
+                                     pc_error *err)
+{
+    struct pc_io_placed_owner *g;
+    char *dup;
+    if (placed_owner_has(s, p, len)) {
+        return PC_OK;
+    }
+    g = pc_grow_array(s->placed_owners, &s->capplaced_owners, s->nplaced_owners + 1, sizeof *g);
+    dup = pc_strndup(p, len);
+    if (g == NULL || dup == NULL) {
+        if (g != NULL) {
+            s->placed_owners = g;
+        }
+        free(dup);
+        return pc_io_nomem(err, "reserving placed ids");
+    }
+    s->placed_owners = g;
+    g[s->nplaced_owners].placed = dup;
+    g[s->nplaced_owners].layer = layer;
+    s->nplaced_owners++;
+    return PC_OK;
+}
+
+static bool unplaced_owner_get(const pc_io_ex_smart *s, pc_smart_contents_id c, uint64_t *out)
+{
+    for (size_t i = 0; i < s->nunplaced_owners; i++) {
+        if (s->unplaced_owners[i].contents == c) {
+            *out = s->unplaced_owners[i].layer;
+            return true;
+        }
+    }
+    return false;
+}
+
+static pc_status unplaced_owner_insert(pc_io_ex_smart *s, pc_smart_contents_id c, uint64_t layer,
+                                       pc_error *err)
+{
+    struct pc_io_unplaced_owner *g;
+    uint64_t dummy;
+    if (unplaced_owner_get(s, c, &dummy)) {
+        return PC_OK;
+    }
+    g = pc_grow_array(s->unplaced_owners, &s->capunplaced_owners, s->nunplaced_owners + 1, sizeof *g);
+    if (g == NULL) {
+        return pc_io_nomem(err, "reserving placed ids");
+    }
+    s->unplaced_owners = g;
+    g[s->nunplaced_owners].contents = c;
+    g[s->nunplaced_owners].layer = layer;
+    s->nunplaced_owners++;
+    return PC_OK;
+}
+
+/* linked_contents.entry(path).or_insert(contents): returns the kept identity for `path`. */
+static pc_status linked_contents_entry(pc_io_ex_smart *s, const char *path, size_t len,
+                                       pc_smart_contents_id contents, pc_smart_contents_id *out, pc_error *err)
+{
+    struct pc_io_linked_contents *g;
+    char *dup;
+    for (size_t i = 0; i < s->nlinked_contents; i++) {
+        if (strlen(s->linked_contents[i].path) == len && memcmp(s->linked_contents[i].path, path, len) == 0) {
+            *out = s->linked_contents[i].contents;
+            return PC_OK;
+        }
+    }
+    g = pc_grow_array(s->linked_contents, &s->caplinked_contents, s->nlinked_contents + 1, sizeof *g);
+    dup = pc_strndup(path, len);
+    if (g == NULL || dup == NULL) {
+        if (g != NULL) {
+            s->linked_contents = g;
+        }
+        free(dup);
+        return pc_io_nomem(err, "tracking linked sources");
+    }
+    s->linked_contents = g;
+    g[s->nlinked_contents].path = dup;
+    g[s->nlinked_contents].contents = contents;
+    s->nlinked_contents++;
+    *out = contents;
+    return PC_OK;
+}
+
+static bool linked_copy_has(const pc_io_ex_smart *s, const char *path, size_t len, pc_smart_contents_id c)
+{
+    for (size_t i = 0; i < s->nlinked_copies; i++) {
+        if (s->linked_copies[i].contents == c && strlen(s->linked_copies[i].path) == len &&
+            memcmp(s->linked_copies[i].path, path, len) == 0) {
+            return true;
+        }
+    }
+    return false;
 }
 
 static pc_status push_fx(pc_psd_fx_item **v, size_t *n, size_t *cap, pc_psd_fx_item *it, pc_error *err)
@@ -102,6 +309,9 @@ pc_status pc_io_ex_smart_init(pc_io_ex_smart *s, const pc_document *doc, uint32_
             }
         }
     }
+    if (st == PC_OK) {
+        st = smart_init_owners(s, doc, err);
+    }
     if (st != PC_OK) {
         pc_io_ex_smart_fini(s);
     }
@@ -139,6 +349,21 @@ void pc_io_ex_smart_fini(pc_io_ex_smart *s)
         pc_psd_fx_item_fini(&s->new_fx[i]);
     }
     free(s->new_fx);
+    pc_io_strs_fini(&s->placed_used);
+    for (size_t i = 0; i < s->nplaced_owners; i++) {
+        free(s->placed_owners[i].placed);
+    }
+    free(s->placed_owners);
+    free(s->unplaced_owners);
+    for (size_t i = 0; i < s->nlinked_contents; i++) {
+        free(s->linked_contents[i].path);
+    }
+    free(s->linked_contents);
+    for (size_t i = 0; i < s->nlinked_copies; i++) {
+        free(s->linked_copies[i].path);
+        pc_blob_release(s->linked_copies[i].data);
+    }
+    free(s->linked_copies);
     memset(s, 0, sizeof *s);
 }
 
@@ -293,6 +518,64 @@ pc_status pc_io_ex_smart_finish(pc_io_ex_smart *s, pc_doc_psd_global_block *bloc
         }
         pc_buf_fini(&nb);
     }
+    /* Independent copies of preserved linked items, in (path, contents id) order (BTreeMap): each
+     * appended to the matching link block, or pushed as its own. */
+    if (st == PC_OK && s->nlinked_copies > 0) {
+        size_t *order = pc_malloc_array(s->nlinked_copies, sizeof *order);
+        if (order == NULL) {
+            st = pc_io_nomem(err, "writing linked copies");
+        } else {
+            for (size_t ci = 0; ci < s->nlinked_copies; ci++) {
+                order[ci] = ci;
+            }
+            for (size_t ci = 1; ci < s->nlinked_copies; ci++) {
+                size_t v = order[ci];
+                size_t j = ci;
+                while (j > 0) {
+                    const struct pc_io_linked_copy *a = &s->linked_copies[order[j - 1]];
+                    const struct pc_io_linked_copy *b = &s->linked_copies[v];
+                    int c = strcmp(a->path, b->path);
+                    bool gt = c > 0 || (c == 0 && a->contents > b->contents);
+                    if (!gt) {
+                        break;
+                    }
+                    order[j] = order[j - 1];
+                    j--;
+                }
+                order[j] = v;
+            }
+            for (size_t oi = 0; oi < s->nlinked_copies && st == PC_OK; oi++) {
+                const struct pc_io_linked_copy *lc = &s->linked_copies[order[oi]];
+                size_t at = no;
+                for (size_t k = 0; k < no; k++) {
+                    if (memcmp(o[k].signature, lc->signature, 4) == 0 && memcmp(o[k].key, lc->key, 4) == 0) {
+                        at = k;
+                        break;
+                    }
+                }
+                if (at < no) {
+                    pc_buf b = PC_BUF_INIT;
+                    pc_blob *d = NULL;
+                    st = pc_buf_append(&b, pc_blob_data(o[at].data), pc_blob_len(o[at].data), err);
+                    if (st == PC_OK) {
+                        st = pc_buf_append(&b, pc_blob_data(lc->data), pc_blob_len(lc->data), err);
+                    }
+                    if (st == PC_OK) {
+                        st = pc_blob_new(b.data, b.len, &d, err);
+                    }
+                    if (st == PC_OK) {
+                        pc_blob_release(o[at].data);
+                        o[at].data = d;
+                    }
+                    pc_buf_fini(&b);
+                } else {
+                    pc_blob *d = pc_blob_retain(lc->data);
+                    st = out_push(&o, &no, &cap, lc->signature, (const char *)lc->key, d, err);
+                }
+            }
+            free(order);
+        }
+    }
     if (st == PC_OK && !fx_placed && s->nnew_fx > 0) {
         pc_psd_filter_effects fx = {3, NULL, 0};
         size_t cap_items = 0;
@@ -423,8 +706,9 @@ static pc_status source_set(pc_io_ex_source *s, const char *uuid, size_t len, co
 
 /* convert_source: one new embedded file (a .pcraft bundle becomes a PSB of the nested document).
  * *reason (malloc'd) set and PC_OK returned when it can't be embedded. */
-static pc_status convert_source(pc_io_ex *ex, const char *file_name, size_t fn_len, const uint8_t *bytes,
-                                size_t len, pc_io_ex_source *out, char **reason, pc_error *err)
+static pc_status convert_source(pc_io_ex *ex, pc_smart_contents_id contents_id, const char *file_name,
+                                size_t fn_len, const uint8_t *bytes, size_t len, pc_io_ex_source *out,
+                                char **reason, pc_error *err)
 {
     pc_io_ex_smart *s = &ex->smart;
     char uuid[37];
@@ -540,7 +824,7 @@ static pc_status convert_source(pc_io_ex *ex, const char *file_name, size_t fn_l
             return st;
         }
     }
-    pc_io_uuid_from(data, dlen, uuid);
+    contents_uuid(contents_id, data, dlen, uuid);
     if (nested) {
         pc_io_ex_doc *g = pc_grow_array(s->docs, &s->capdocs, s->ndocs + 1, sizeof *g);
         char *u = pc_strndup(uuid, strlen(uuid));
@@ -593,9 +877,11 @@ static pc_status convert_source(pc_io_ex *ex, const char *file_name, size_t fn_l
     return source_set(out, uuid, strlen(uuid), size, dpi, err);
 }
 
-/* embed: adds bytes as an embedded file, once per distinct content. */
-static pc_status embed(pc_io_ex *ex, const char *file_name, size_t fn_len, const uint8_t *bytes, size_t len,
-                       pc_io_ex_source *out, char **reason, pc_error *err)
+/* embed: adds bytes as an embedded file, once per contents identity and content. Equal bytes in
+ * independent objects stay independent. */
+static pc_status embed(pc_io_ex *ex, pc_smart_contents_id contents_id, const char *file_name,
+                       size_t fn_len, const uint8_t *bytes, size_t len, pc_io_ex_source *out,
+                       char **reason, pc_error *err)
 {
     pc_io_ex_smart *s = &ex->smart;
     uint8_t key[32];
@@ -604,7 +890,7 @@ static pc_status embed(pc_io_ex *ex, const char *file_name, size_t fn_len, const
     pc_status st;
     pc_blake3(bytes, len, key);
     for (size_t i = 0; i < s->nconverted; i++) {
-        if (memcmp(s->converted[i].key, key, 32) == 0) {
+        if (s->converted[i].contents == contents_id && memcmp(s->converted[i].key, key, 32) == 0) {
             if (!s->converted[i].ok) {
                 *reason = pc_strndup(s->converted[i].reason, strlen(s->converted[i].reason));
                 return *reason != NULL ? PC_OK : pc_io_nomem(err, "embedding a smart object");
@@ -615,8 +901,9 @@ static pc_status embed(pc_io_ex *ex, const char *file_name, size_t fn_len, const
         }
     }
     memset(&c, 0, sizeof c);
+    c.contents = contents_id;
     memcpy(c.key, key, 32);
-    st = convert_source(ex, file_name, fn_len, bytes, len, &c.src, &c.reason, err);
+    st = convert_source(ex, contents_id, file_name, fn_len, bytes, len, &c.src, &c.reason, err);
     if (st != PC_OK) {
         return st;
     }
@@ -690,7 +977,76 @@ static pc_status smart_source(pc_io_ex *ex, const pc_smart_object *sm, const pc_
                 size_from_layer(sm, size);
                 dpi = (double)ex->dpi;
             }
-            return source_set(out, path, plen, size, dpi, err);
+            {
+                /* An absent Idnt is not a shared-source identity; import treats each as fresh. */
+                pc_smart_contents_id original;
+                pc_status st = linked_contents_entry(s, path, plen, sm->contents_id, &original, err);
+                if (st != PC_OK) {
+                    return st;
+                }
+                if (plen == 0 || original == sm->contents_id) {
+                    return source_set(out, path, plen, size, dpi, err);
+                }
+                /* A different object reuses this path: it gets its own uuid, and an independent
+                 * copy of the linked record under that uuid. */
+                {
+                    char uuid[37];
+                    contents_uuid(sm->contents_id, (const uint8_t *)path, plen, uuid);
+                    if (!linked_copy_has(s, path, plen, sm->contents_id)) {
+                        bool made = false;
+                        for (size_t i = 0; i < s->nglobals && st == PC_OK && !made; i++) {
+                            const pc_doc_psd_global_block *g = &s->globals[i];
+                            pc_buf cb = PC_BUF_INIT;
+                            bool cfound = false;
+                            if (!is_link_key(g->key)) {
+                                continue;
+                            }
+                            st = pc_io_copy_linked_item(pc_blob_data(g->data), pc_blob_len(g->data), path, plen,
+                                                        uuid, strlen(uuid), &cfound, &cb, err);
+                            if (st == PC_OK && cfound) {
+                                pc_blob *d = NULL;
+                                st = pc_blob_new(cb.data, cb.len, &d, err);
+                                if (st == PC_OK) {
+                                    struct pc_io_linked_copy *gc =
+                                        pc_grow_array(s->linked_copies, &s->caplinked_copies,
+                                                      s->nlinked_copies + 1, sizeof *gc);
+                                    char *dp = pc_strndup(path, plen);
+                                    if (gc == NULL || dp == NULL) {
+                                        if (gc != NULL) {
+                                            s->linked_copies = gc;
+                                        }
+                                        free(dp);
+                                        pc_blob_release(d);
+                                        st = pc_io_nomem(err, "copying a linked source");
+                                    } else {
+                                        s->linked_copies = gc;
+                                        gc[s->nlinked_copies].path = dp;
+                                        gc[s->nlinked_copies].contents = sm->contents_id;
+                                        memcpy(gc[s->nlinked_copies].signature, g->signature, 4);
+                                        memcpy(gc[s->nlinked_copies].key, g->key, 4);
+                                        gc[s->nlinked_copies].data = d;
+                                        s->nlinked_copies++;
+                                        made = true;
+                                    }
+                                }
+                            }
+                            pc_buf_fini(&cb);
+                        }
+                        if (st == PC_OK && !made) {
+                            char msg[PC_ERROR_MSG_MAX + 64];
+                            (void)snprintf(msg, sizeof msg,
+                                           "the linked source %s has no readable record to copy independently",
+                                           path);
+                            *reason = pc_strndup(msg, strlen(msg));
+                            return *reason != NULL ? PC_OK : pc_io_nomem(err, "copying a linked source");
+                        }
+                    }
+                    if (st != PC_OK) {
+                        return st;
+                    }
+                    return source_set(out, uuid, strlen(uuid), size, dpi, err);
+                }
+            }
         }
         {
             pc_buf b = PC_BUF_INIT;
@@ -718,13 +1074,13 @@ static pc_status smart_source(pc_io_ex *ex, const pc_smart_object *sm, const pc_
                             "the linked smart object %.*s was embedded (PSD export keeps no external links)",
                             (int)(nlen > 4096 ? 4096 : nlen), nm);
             if (st == PC_OK) {
-                st = embed(ex, nm, nlen, b.data, b.len, out, reason, err);
+                st = embed(ex, sm->contents_id, nm, nlen, b.data, b.len, out, reason, err);
             }
             pc_buf_fini(&b);
             return st;
         }
     }
-    return embed(ex, pc_str_c(&src->file_name), src->file_name.len, pc_blob_data(src->bytes),
+    return embed(ex, sm->contents_id, pc_str_c(&src->file_name), src->file_name.len, pc_blob_data(src->bytes),
                  pc_blob_len(src->bytes), out, reason, err);
 }
 
@@ -1081,11 +1437,71 @@ pc_status pc_io_ex_smart_blocks(pc_io_ex *ex, const pc_layer *l, const pc_smart_
     stack.mask_enabled = !sm->has_filter_mask || sm->filter_mask.enabled;
     stack.mask_linked = sm->has_filter_mask && sm->filter_mask.linked;
     same = tmpl != NULL && pc_str_eq(&tmpl->idnt, &src.uuid) ? tmpl : NULL;
-    if (st == PC_OK && same != NULL && sm->psd_raw != NULL) {
+    {
         bool unchanged = false;
-        st = placed_unchanged(ex, same, pc_blob_data(sm->psd_raw), pc_blob_len(sm->psd_raw), sm, &stack,
-                              &unchanged, err);
-        if (st == PC_OK && unchanged) {
+        uint64_t owner = 0;
+        if (st == PC_OK && same != NULL && sm->psd_raw != NULL) {
+            st = placed_unchanged(ex, same, pc_blob_data(sm->psd_raw), pc_blob_len(sm->psd_raw), sm, &stack,
+                                  &unchanged, err);
+        }
+        if (st != PC_OK) {
+            pc_str_fini(&src.uuid);
+            return st;
+        }
+        /* Each placed layer gets its own id. An original instance keeps its imported placement
+         * (empty, when unplaced, or its reserved id); any other layer gets a fresh id that no
+         * owner reserved and no sibling used. */
+        if (same != NULL && same->placed.len == 0 && unchanged &&
+            unplaced_owner_get(&ex->smart, sm->contents_id, &owner) && owner == l->id) {
+            placed = "";
+        } else if (same != NULL && same->placed.len > 0 &&
+                   placed_owner_get(&ex->smart, pc_str_c(&same->placed), same->placed.len, &owner) &&
+                   owner == l->id &&
+                   !pc_io_ex_strs_has(&ex->smart.placed_used, pc_str_c(&same->placed), same->placed.len)) {
+            placed_own = pc_strndup(pc_str_c(&same->placed), same->placed.len);
+            placed = placed_own;
+            if (placed == NULL) {
+                pc_str_fini(&src.uuid);
+                return pc_io_nomem(err, "writing placed-layer data");
+            }
+            st = pc_io_strs_push(&ex->smart.placed_used, pc_str_c(&same->placed), same->placed.len, err);
+        } else {
+            uint64_t suffix = 0;
+            for (;;) {
+                pc_buf seed = PC_BUF_INIT;
+                st = pc_buf_append(&seed, pc_str_c(&src.uuid), src.uuid.len, err);
+                if (st == PC_OK) {
+                    st = pc_buf_appendf(&seed, err, ":%llu", (unsigned long long)l->id);
+                }
+                if (st == PC_OK && suffix > 0) {
+                    st = pc_buf_appendf(&seed, err, ":%llu", (unsigned long long)suffix);
+                }
+                if (st == PC_OK) {
+                    pc_io_uuid_from(seed.data, seed.len, placed_buf);
+                }
+                pc_buf_fini(&seed);
+                if (st != PC_OK) {
+                    pc_str_fini(&src.uuid);
+                    return st;
+                }
+                if (!placed_owner_has(&ex->smart, placed_buf, strlen(placed_buf)) &&
+                    !pc_io_ex_strs_has(&ex->smart.placed_used, placed_buf, strlen(placed_buf))) {
+                    st = pc_io_strs_push(&ex->smart.placed_used, placed_buf, strlen(placed_buf), err);
+                    placed = placed_buf;
+                    break;
+                }
+                suffix++;
+            }
+        }
+        if (st != PC_OK) {
+            free(placed_own);
+            pc_str_fini(&src.uuid);
+            return st;
+        }
+        /* An unchanged imported placement whose id didn't change is written verbatim. */
+        if (same != NULL && sm->psd_raw != NULL && unchanged &&
+            same->placed.len == strlen(placed) &&
+            memcmp(pc_str_c(&same->placed), placed, same->placed.len) == 0) {
             size_t len = pc_blob_len(sm->psd_raw);
             uint8_t *d = pc_malloc(len);
             size_t at = raw->n;
@@ -1118,36 +1534,10 @@ pc_status pc_io_ex_smart_blocks(pc_io_ex *ex, const pc_layer *l, const pc_smart_
             if (st == PC_OK && stack.nfilters > 0) {
                 st = strs_insert(&ex->smart.keep_fx, pc_str_c(&same->placed), same->placed.len, err);
             }
+            free(placed_own);
             pc_str_fini(&src.uuid);
             return st;
         }
-    }
-    if (st != PC_OK) {
-        pc_str_fini(&src.uuid);
-        return st;
-    }
-    if (same != NULL && same->placed.len > 0) {
-        placed_own = pc_strndup(pc_str_c(&same->placed), same->placed.len);
-        placed = placed_own;
-        if (placed == NULL) {
-            pc_str_fini(&src.uuid);
-            return pc_io_nomem(err, "writing placed-layer data");
-        }
-    } else {
-        pc_buf seed = PC_BUF_INIT;
-        st = pc_buf_append(&seed, pc_str_c(&src.uuid), src.uuid.len, err);
-        if (st == PC_OK) {
-            st = pc_buf_appendf(&seed, err, ":%llu", (unsigned long long)l->id);
-        }
-        if (st == PC_OK) {
-            pc_io_uuid_from(seed.data, seed.len, placed_buf);
-        }
-        pc_buf_fini(&seed);
-        if (st != PC_OK) {
-            pc_str_fini(&src.uuid);
-            return st;
-        }
-        placed = placed_buf;
     }
     if (same == NULL || !pc_io_stored_size(&same->descriptor, size)) {
         size[0] = src.size[0];

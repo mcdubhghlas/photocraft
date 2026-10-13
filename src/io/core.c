@@ -200,6 +200,15 @@ pc_io_err_kind pc_io_error_kind(pc_status s, const pc_error *err)
     if (starts_with(m, "SVG: ")) {
         return PC_IO_ERR_SVG;
     }
+    if (starts_with(m, "PDN: ")) {
+        return PC_IO_ERR_PDN;
+    }
+    if (starts_with(m, "OpenRaster: ")) {
+        return PC_IO_ERR_ORA;
+    }
+    if (starts_with(m, "Krita: ")) {
+        return PC_IO_ERR_KRA;
+    }
     if (starts_with(m, "not a camera raw file") || starts_with(m, "unsupported camera raw: ") ||
         starts_with(m, "malformed camera raw: ") || starts_with(m, "camera raw exceeds limits: ")) {
         return PC_IO_ERR_RAW;
@@ -266,6 +275,7 @@ pc_io_export_opts pc_io_export_opts_default(void)
     o.force_psb = false;
     o.tiff_layers = false;
     o.xmp = PC_IO_XMP_ALL;
+    o.image_previews = true;
     return o;
 }
 

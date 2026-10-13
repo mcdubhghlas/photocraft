@@ -37,6 +37,7 @@
 //!
 //! JSON objects are serde_json::Value (keys sorted). Failures print {"error": "..."} and exit 1,
 //! so differential tests can compare errors too.
+mod codecs_fixtures;
 mod affinity_vectors;
 mod doc_vectors;
 mod ops_vectors;
@@ -53,6 +54,7 @@ mod algo_warp_vectors;
 mod vector_vectors;
 mod text_vectors;
 mod text_psd_vectors;
+mod text_r8_vectors;
 mod io_core_vectors;
 mod io_psd_vectors;
 mod io_export_vectors;
@@ -65,6 +67,7 @@ mod compose_fx_vectors;
 mod format_vectors;
 mod format2_vectors;
 mod raw_vectors;
+mod raw_vectors_r3;
 use base64::Engine;
 use half::f16;
 fn fnv(h: &mut u64, b: &[u8]) { for &x in b { *h ^= x as u64; *h = h.wrapping_mul(0x100000001b3); } }
@@ -174,6 +177,31 @@ fn composite(path: &str, raw: &str) {
     }));
 }
 
+/// Transform a sweep of CMYK values through the embedded CMYK profile's CmykSpace (CMYK->sRGB,
+/// Relative, BPC), mirroring photocraft_color::CmykSpace. Prints "c m y k -> r g b".
+fn cmyk_probe(path: &str) {
+    let r = photocraft_io::import(path, &read(path)).unwrap_or_else(|e| fail(&e.to_string()));
+    let space = photocraft_color::convert::CmykSpace::for_profile(r.document.icc_profile.as_ref());
+    let probe = || {
+        let vals = [0.0f32, 0.25, 0.5, 0.75, 1.0];
+        for &c in &vals {
+            for &m in &vals {
+                for &y in &vals {
+                    for &k in &vals {
+                        let rgb = photocraft_color::convert::cmyk_to_rgb([c, m, y, k]);
+                        println!("{c} {m} {y} {k} -> {:08x} {:08x} {:08x}",
+                            rgb[0].to_bits(), rgb[1].to_bits(), rgb[2].to_bits());
+                    }
+                }
+            }
+        }
+    };
+    match space.as_ref() {
+        Some(s) => photocraft_color::convert::with_cmyk_space(Some(s), probe),
+        None => { println!("no-space"); probe(); }
+    }
+}
+
 /// The same sweep as tests/geom/test_warp.c; each hash covers the raw little-endian f64 bits.
 fn geom_vectors() {
     use photocraft_geom::warp::{BezierMesh, Warp, WarpStyle};
@@ -263,6 +291,32 @@ fn geom_vectors() {
     put(&mut ha, q.y);
     put(&mut ha, a.determinant());
     println!("affine {ha:016x}");
+    // 4. Interactive mesh edits: pull (grabs inside, near and on the border) and drag_point
+    // (anchors, handles both ways, inner points), on a one-patch grid and an unevenly cut one.
+    let mut hp = 0xcbf29ce484222325u64;
+    let one = BezierMesh::identity([0.0, 0.0, 600.0, 800.0], 1, 1);
+    let mut cut = BezierMesh::identity([0.0, 0.0, 300.0, 300.0], 1, 1);
+    for s in [0.3, 0.55, 0.9] {
+        cut.split_u(s);
+        cut.split_v(s);
+    }
+    let grid3 = BezierMesh::identity(b, 3, 2);
+    for base in [&one, &cut, &grid3] {
+        for (s, t) in [(0.5, 0.5), (0.1, 0.9), (0.42, 0.42), (0.0, 0.5), (1.0, 0.3), (0.05, 0.02), (0.86, 0.5), (0.97, 0.99)] {
+            for d in [[7.0, -4.5], [-180.0, 40.0], [170.0, 0.0], [0.0, 0.0]] {
+                let mut m = base.clone();
+                m.pull(&base.points, s, t, d);
+                pts(&m, &mut hp);
+            }
+        }
+        let nx = base.nx();
+        for idx in [0, 1, 2, 3, 4, nx, nx + 1, 2 * nx + 3, 3 * nx + 3, 3 * nx + 4, 4 * nx + 3, base.points.len() - 1, base.points.len() / 2] {
+            let mut m = base.clone();
+            m.drag_point(&base.points, idx.min(base.points.len() - 1), [23.0, -31.0]);
+            pts(&m, &mut hp);
+        }
+    }
+    println!("pull {hp:016x}");
 }
 
 struct Lcg(u64);
@@ -601,6 +655,60 @@ fn color_vectors() {
         }
     }
     println!("color {hq:016x}");
+    // Paint.NET modes (not in PassThrough + LAYER_MODES above): channel sweep, random triples.
+    let mut hp = F0;
+    let mut r = Lcg(23);
+    for m in BlendMode::PAINT_NET_MODES {
+        for &cb in &v {
+            for &cs in &v {
+                h_f32(&mut hp, &[blend::blend_channel(m, cb, cs), blend::blend_channel_hdr(m, cb, cs)]);
+            }
+        }
+        for i in 0..2000 {
+            let mut t = |k: f32| if i % 5 == 0 { (r.next() * 1.4 - 0.2) * k } else { r.next() };
+            let cb = [t(1.0), t(1.0), t(1.0)];
+            let cs = [t(1.0), t(1.0), t(1.0)];
+            let (ab, as_, op) = (t(1.0), t(1.0), t(1.0));
+            h_f32(&mut hp, &blend::blend_rgb(m, cb, cs));
+            h_f32(&mut hp, &blend::blend_rgb_hdr(m, cb, cs));
+            h_f32(&mut hp, &blend::composite(m, [cb[0], cb[1], cb[2], ab], [cs[0], cs[1], cs[2], as_], op));
+        }
+    }
+    println!("blend-pdn {hp:016x}");
+    // blend_rgb_within at several tops, with HDR inputs (32-bit Hue/Sat/Color/Luminosity).
+    let mut hw = F0;
+    let mut r = Lcg(29);
+    let tops = [1.0f32, 2.0, f32::MAX];
+    for m in [BlendMode::Hue, BlendMode::Saturation, BlendMode::Color, BlendMode::Luminosity] {
+        for i in 0..3000 {
+            let k = if i % 3 == 0 { 4.0 } else { 1.2 };
+            let cb = [r.next() * k - 0.1, r.next() * k - 0.1, r.next() * k - 0.1];
+            let cs = [r.next() * k - 0.1, r.next() * k - 0.1, r.next() * k - 0.1];
+            h_f32(&mut hw, &blend::blend_rgb_within(m, cb, cs, tops[i % 3]));
+        }
+        for &g in &v {
+            for &top in &tops {
+                h_f32(&mut hw, &blend::blend_rgb_within(m, [g, g, g], [0.5, 0.25, 0.125], top));
+                h_f32(&mut hw, &blend::blend_rgb_within(m, [0.5, 0.25, 0.125], [g, g, 1.999_999], top));
+            }
+        }
+    }
+    println!("blend-within {hw:016x}");
+    // Color::in_mode between every pair of modes.
+    let mut hi = F0;
+    let mut r = Lcg(31);
+    for &from in &cmodes {
+        for &to in &cmodes {
+            for _ in 0..60 {
+                let c = Color { mode: from, c: [r.next(), r.next(), r.next(), r.next()], alpha: r.next() };
+                let o = c.in_mode(to);
+                fnv(&mut hi, &[o.mode as u8]);
+                h_f32(&mut hi, &o.c);
+                h_f32(&mut hi, &[o.alpha]);
+            }
+        }
+    }
+    println!("in-mode {hi:016x}");
 }
 
 /// Hash sweeps over crates/raster (tests/raster/test_parity.c replays them).
@@ -756,6 +864,7 @@ fn psd_vectors() {
         println!("case\t{}\t{hb:016x}\t{hd:016x}", c.name);
     }
     // Builder documents (RLE and raw are deterministic).
+    let mut readback = Vec::new();
     for (mode, depth) in [(ColorMode::Rgb, 8u16), (ColorMode::Rgb, 16), (ColorMode::Grayscale, 8), (ColorMode::Cmyk, 16)] {
         for comp in [Compression::Raw, Compression::Rle] {
             for version in [Version::Psd, Version::Psb] {
@@ -788,11 +897,35 @@ fn psd_vectors() {
                 let _ = b.end_group();
                 b.composite(px((w * h) as usize, 3));
                 let mut hb = F0;
+                let mut hr = F0;
                 match b.to_bytes() {
-                    Ok(bytes) => fnv(&mut hb, &bytes),
+                    Ok(bytes) => {
+                        fnv(&mut hb, &bytes);
+                        // R2: read the document back (composites are stored against white).
+                        match PsdFile::from_bytes(&bytes) {
+                            Ok(f) => {
+                                match f.decode_merged() {
+                                    Ok(m) => fnv(&mut hr, &m),
+                                    Err(e) => fnv(&mut hr, e.to_string().as_bytes()),
+                                }
+                                match f.composite_rgba8() {
+                                    Ok(img) => fnv(&mut hr, &img.data),
+                                    Err(e) => fnv(&mut hr, e.to_string().as_bytes()),
+                                }
+                                for l in f.iter_layers() {
+                                    match l.rgba8() {
+                                        Ok(img) => fnv(&mut hr, &img.data),
+                                        Err(e) => fnv(&mut hr, e.to_string().as_bytes()),
+                                    }
+                                }
+                            }
+                            Err(e) => fnv(&mut hr, e.to_string().as_bytes()),
+                        }
+                    }
                     Err(e) => fnv(&mut hb, e.to_string().as_bytes()),
                 }
                 println!("builder\t{mode:?} {depth} {comp:?} {version:?}\t{hb:016x}");
+                readback.push(format!("readback\t{mode:?} {depth} {comp:?} {version:?}\t{hr:016x}"));
             }
         }
     }
@@ -820,6 +953,41 @@ fn psd_vectors() {
     let fx = filter_effects::FilterEffects { version: 3, items: vec![filter_effects::FilterEffectsItem { id: "a-1".into(), version: 1, rect, depth: 8, max_channels: 2, slots, mask: Some((rect, plane(128))) }] };
     fnv(&mut hx, &fx.to_bytes());
     println!("misc\t{hx:016x}");
+    for l in readback {
+        println!("{l}");
+    }
+    // R2: RGB merged composites with alpha at 16 and 32 bits remove the white matte.
+    for depth in [16u16, 32] {
+        let (w, h) = (4u32, 3u32);
+        let n = (w * h) as usize;
+        let mut f = testgen::merged_only(Version::Psd, ColorMode::Rgb, depth, Compression::Raw, w, h);
+        f.header.channels = 4;
+        let alpha32 = [0.0f32, 0.25, 0.5, 1.0, f32::NAN, -0.5, 1.5, 1e-9, 0.75, 0.125, 0.999, 0.01];
+        let mut native = Vec::new();
+        for c in 0..4usize {
+            for i in 0..n {
+                if depth == 16 {
+                    let v = if c == 3 { [0u16, 16384, 32768, 65535, 1, 65534, 300, 40000, 49151, 8192, 65000, 655][i] } else { ((i * 7919 + c * 131) % 65536) as u16 };
+                    native.extend_from_slice(&v.to_be_bytes());
+                } else {
+                    let v = if c == 3 { alpha32[i] } else { (((i * 13 + c * 7) % 12) as f32) * 0.1 - 0.1 };
+                    native.extend_from_slice(&v.to_be_bytes());
+                }
+            }
+        }
+        let mut hu = F0;
+        match ImageData::encode(Compression::Raw, &native, &f.header) {
+            Ok(d) => {
+                f.image_data = d;
+                match f.composite_rgba8() {
+                    Ok(img) => fnv(&mut hu, &img.data),
+                    Err(e) => fnv(&mut hu, e.to_string().as_bytes()),
+                }
+            }
+            Err(e) => fnv(&mut hu, e.to_string().as_bytes()),
+        }
+        println!("unmatte\t{depth}\t{hu:016x}");
+    }
 }
 
 /// Hash sweeps over crates/psd/src/tiff.rs (tests/psd/test_tiff.c replays them).
@@ -1368,6 +1536,125 @@ fn f9_vectors() {
         fnv(&mut h, &v.to_bits().to_le_bytes());
     }
     line("abr misc", h);
+
+    // ---- abr preset hierarchy (phry, R2) ----
+    let abr_folders_dump = |f: &abr::AbrFile, o: &mut Vec<u8>| {
+        abr_dump(f, o);
+        o.extend_from_slice(&(f.folders.len() as u32).to_le_bytes());
+        for p in &f.folders {
+            o.extend_from_slice(&(p.len() as u32).to_le_bytes());
+            for n in p {
+                f9_str(o, n.as_bytes());
+            }
+        }
+    };
+    let named = |n: &str| Descriptor::new("brushPreset").with("Nm  ", Value::Text(UnicodeString::new_nul(n)));
+    let path = |p: &[&str]| p.iter().map(|s| s.to_string()).collect::<Vec<String>>();
+    let presets: Vec<Descriptor> = (0..6).map(|i| named(&format!("B{i}"))).collect();
+    let folders = vec![path(&[]), path(&["Set", "Ink \u{2713}"]), path(&["Set", "Ink \u{2713}"]), path(&["Set"]), path(&["Other"]), path(&["Set", "Ink \u{2713}"])];
+    let mut h = F0;
+    let b = abr::write_v6_folders(2, &samples[..1], &[], &presets, &folders, true).unwrap();
+    f9_sweep(&mut h, &b, &abr::parse, &abr_folders_dump);
+    line("abr phry", h);
+    // Hand-made token streams: `G<name>` opens, `P` a preset, `E` closes.
+    let phry = |toks: &[&str]| {
+        let items = toks
+            .iter()
+            .map(|t| {
+                Value::Descriptor(match t.as_bytes().first() {
+                    Some(b'G') => Descriptor::new("Grup")
+                        .with("Nm  ", Value::Text(UnicodeString::new_nul(&t[1..])))
+                        .with("zuid", Value::Text(UnicodeString::new_nul("c9ee8fd5-eb7d-924c-9e95-ddc98e40bb6c"))),
+                    Some(b'P') => Descriptor::new("preset"),
+                    _ => Descriptor::new("groupEnd"),
+                })
+            })
+            .collect();
+        VersionedDescriptor::new(Descriptor::new("null").with("hierarchy", Value::List(items))).to_bytes()
+    };
+    let with_section = |mut file: Vec<u8>, key: &[u8; 4], data: &[u8]| {
+        let pad = (4 - data.len() % 4) % 4;
+        file.extend_from_slice(b"8BIM");
+        file.extend_from_slice(key);
+        file.extend_from_slice(&((data.len() + pad) as u32).to_be_bytes());
+        file.extend_from_slice(data);
+        file.extend(std::iter::repeat_n(0u8, pad));
+        file
+    };
+    let base = |n: usize| abr::write_v6(2, &[], &[], &(0..n).map(|i| named(&format!("B{i}"))).collect::<Vec<_>>(), false).unwrap();
+    let long = format!("G  {}  ", "\u{e9}".repeat(300));
+    let deep: Vec<String> = (0..40).map(|i| format!("Gd{i}")).collect();
+    let mut deep_toks: Vec<&str> = deep.iter().map(String::as_str).collect();
+    deep_toks.extend(["P"; 1]);
+    deep_toks.extend(["E"; 40]);
+    deep_toks.extend(["G   ", "P", "E", "P"]);
+    let cases: Vec<Vec<u8>> = vec![
+        with_section(base(5), b"phry", &phry(&["P", "GAnimals", "GBirds", "P", "E", "P", "GFish", "P", "E", "E", "P"])),
+        with_section(base(2), b"phry", &phry(&["E", "GA", "P", "E", "E", "GB", "P"])),
+        with_section(base(3), b"phry", &phry(&["GA", "P", "E"])),
+        with_section(base(1), b"phry", &phry(&["GA", "P", "P", "P", "E"])),
+        with_section(base(3), b"phry", &phry(&deep_toks)),
+        with_section(base(2), b"phry", &phry(&[&long, "P", "E", "G", "P"])),
+        with_section(base(2), b"phry", &phry(&["P", "P"])),
+        with_section(base(1), b"phry", &[0, 0, 0, 16, 0xff, 0xff]),
+        with_section(base(1), b"phry", &VersionedDescriptor::new(Descriptor::new("null")).to_bytes()),
+        {
+            let mut b = base(2);
+            let at = b.windows(8).position(|w| w == b"8BIMdesc").unwrap();
+            let s = with_section(Vec::new(), b"phry", &phry(&["GA", "P", "E", "P"]));
+            b.splice(at..at, s);
+            b
+        },
+    ];
+    let mut h = F0;
+    for c in &cases {
+        f9_outcome(&mut h, abr::parse(c), &abr_folders_dump);
+    }
+    f9_sweep(&mut h, &cases[0], &abr::parse, &abr_folders_dump);
+    bytes_or(&mut h, abr::write_v6_folders(2, &[], &[], &presets, &folders[..2], true));
+    bytes_or(&mut h, abr::write_v6_folders(2, &[], &[], &presets, &vec![Vec::new(); 6], true));
+    let deep_path: Vec<String> = (0..40).map(|i| format!("f{i}")).collect();
+    bytes_or(&mut h, abr::write_v6_folders(1, &[], &[], &presets[..2], &[deep_path, path(&["f0", "x"])], false));
+    line("abr phry misc", h);
+
+    // ---- shc (contour presets, R2) ----
+    use photocraft_psd::shc;
+    let shc_dump = |c: &Vec<shc::ShcContour>, o: &mut Vec<u8>| {
+        o.extend_from_slice(&(c.len() as u32).to_le_bytes());
+        for x in c {
+            f9_str(o, x.name.as_bytes());
+            o.extend_from_slice(&(x.points.len() as u32).to_le_bytes());
+            for p in &x.points {
+                o.extend_from_slice(&p.input.to_bits().to_le_bytes());
+                o.extend_from_slice(&p.output.to_bits().to_le_bytes());
+                o.push(p.continuous as u8);
+            }
+        }
+    };
+    let pt = |input: f32, output: f32, continuous: bool| shc::ShcPoint { input, output, continuous };
+    let contours = vec![
+        shc::ShcContour { name: "Cone \u{2713}".into(), points: vec![pt(0.0, 0.0, true), pt(128.0, 255.0, false), pt(255.0, 0.0, true)] },
+        shc::ShcContour { name: String::new(), points: Vec::new() },
+        shc::ShcContour { name: "Odd".into(), points: vec![pt(300.0, -5.0, true), pt(f32::NAN, f32::INFINITY, false), pt(127.5, 0.49, true)] },
+    ];
+    let mut h = F0;
+    let b = shc::write(&contours).unwrap();
+    f9_sweep(&mut h, &b, &shc::parse, &shc_dump);
+    line("shc sample", h);
+    let mut h = F0;
+    let mut v1 = b"8BFS".to_vec();
+    v1.extend_from_slice(&[0, 1, 0, 0, 0, 2]);
+    v1.extend_from_slice(&[0, 0, 0, 1, 0, 0, 0, 2, 0, b'O', 0, b'K', 0, 0, 0, 2, 0, 0, 0, 0, 1, 0, 0, 255, 0, 0, 0, 0, 0, 0, 0, 255]);
+    v1.extend_from_slice(&[0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 9, 0, 9, 0, 0, 0, 0, 0, 0, 0, 255]);
+    f9_sweep(&mut h, &v1, &shc::parse, &shc_dump);
+    for b in [&b""[..], b"8BFX\0\x01\0\0\0\0", b"8BFS\0\x02\0\0\0\0", b"8BFS\0\x01\xff\xff\xff\xff", b"8BFS\0\x01\0\0\0\0", b"8BFS\0\x01\0\0\0\x01\0\0\0\x03\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0"] {
+        f9_outcome(&mut h, shc::parse(b), &shc_dump);
+    }
+    let many = shc::ShcContour { name: String::new(), points: vec![pt(0.0, 0.0, true); shc::MAX_POINTS + 1] };
+    bytes_or(&mut h, shc::write(&[many]));
+    let long_name = shc::ShcContour { name: "\u{1F600}".repeat(600), points: vec![pt(1.0, 2.0, true)] };
+    bytes_or(&mut h, shc::write(&[long_name]));
+    line("shc misc", h);
 }
 
 /// One line describing a parsed ICC profile and how it converts (or the error).
@@ -1438,8 +1725,11 @@ fn main() {
         ["psd-vectors"] => psd_vectors(),
         ["tiff-vectors"] => tiff_vectors(),
         ["f9-vectors"] => f9_vectors(),
+        ["codecs-fixtures", d] => codecs_fixtures::codecs_fixtures(d),
         ["raster-vectors"] => raster_vectors(),
         ["raw-vectors"] => raw_vectors::raw_vectors(),
+        ["raw-fixtures", d] => raw_vectors_r3::raw_fixtures(d),
+        ["raw-pixls-vectors", d] => raw_vectors_r3::raw_pixls_vectors(d),
         ["affinity-vectors", d] => affinity_vectors::affinity_vectors(d),
         ["affinity-mutations", f] => affinity_vectors::affinity_mutations(f),
         ["doc-vectors"] => doc_vectors::doc_vectors(),
@@ -1473,6 +1763,11 @@ fn main() {
         ["psd-info", f] => psd_info(f),
         ["decode", f, out] => decode(f, out),
         ["composite", f, out] => composite(f, out),
+        ["psd-doc-dump", f] => {
+            let (full, _hashed) = io_psd_vectors::import(&read(f));
+            println!("{full}");
+        }
+        ["cmyk-probe", f] => cmyk_probe(f),
         _ => {
             eprintln!("usage: rustref vectors | psd-info FILE | decode FILE OUT.raw | composite FILE OUT.raw");
             std::process::exit(2)

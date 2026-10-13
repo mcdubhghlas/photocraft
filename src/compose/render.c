@@ -4,6 +4,7 @@
  * Tiles render on pc_pool_global(), each tile on one thread from the root of the layer tree, so
  * results don't depend on the thread count (D6). Every tile enters the document's CMYK space and
  * sets the Lab / HDR blend flags on its own thread (they are per thread). */
+#include <math.h>
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
@@ -57,6 +58,8 @@ pc_status pc_cmp_ctx_init_doc(pc_cmp_ctx_store *s, const pc_document *doc, const
     if (st != PC_OK) {
         return st;
     }
+    /* Patterns paint in the document's colour mode (PreparedPatterns::in_mode). */
+    pc_compose_patterns_set_mode(s->patterns, pc_document_pixel_format(doc).mode);
     s->cx.doc = doc;
     s->cx.canvas = pc_document_bounds(doc);
     s->cx.transfer = pc_compose_transfer_for_document(doc->mode, doc->depth);
@@ -107,12 +110,14 @@ static pc_status render_one(const pc_document *doc, pc_rect rect, const pc_cmp_c
     pc_compose_buffer b;
     pc_status st = pc_cmp_backdrop(doc, rect, &b, err);
     if (st == PC_OK) {
-        /* Lab documents mix Normal blending in CIELAB; 32-bit documents don't clip Add / Divide. */
-        pc_psblend_set_lab_mix(doc->mode == PC_COLOR_MODE_LAB);
-        pc_psblend_set_hdr(doc->depth == PC_SAMPLE_TYPE_F32);
+        /* Lab documents mix Normal blending in CIELAB; 32-bit documents don't clip Add / Divide
+         * or Hue / Saturation / Color / Luminosity at 1. The flags are restored to what they were
+         * (a pool thread waiting inside another tile may run this one, #1112). */
+        bool lab = pc_psblend_set_lab_mix(doc->mode == PC_COLOR_MODE_LAB);
+        bool hdr = pc_psblend_set_hdr(doc->depth == PC_SAMPLE_TYPE_F32);
         st = pc_cmp_composite_stack_at(doc->layers, doc->nlayers, &b, cx, PC_CMP_SCOPE_ROOT, err);
-        pc_psblend_set_lab_mix(false);
-        pc_psblend_set_hdr(false);
+        (void)pc_psblend_set_lab_mix(lab);
+        (void)pc_psblend_set_hdr(hdr);
         if (st != PC_OK) {
             pc_compose_buffer_fini(&b);
         }
@@ -205,6 +210,7 @@ static pc_status render_tiled_with(const pc_document *doc, pc_rect rect, int32_t
     if (pc_rect_is_empty(rect)) {
         return pc_compose_buffer_transparent(rect, out, err);
     }
+    pc_cmp_set_fx_clip(cx, rect);
     st = pc_cmp_rect_pixels(rect, &n, err);
     if (st != PC_OK) {
         return st;
@@ -326,6 +332,9 @@ typedef struct flat_job {
     const float *bg;
     float *data;
     size_t cap;
+    float empty[PC_RASTER_MAX_CHANNELS]; /* the surface's default pixel */
+    size_t nempty;
+    pc_cmyk_space *cmyk;
 } flat_job;
 
 static pc_status flat_sink(void *ctx, pc_compose_buffer *band, pc_error *err)
@@ -351,10 +360,24 @@ static pc_status flat_sink(void *ctx, pc_compose_buffer *band, pc_error *err)
         j->data = d;
         j->cap = total;
     }
-    for (i = 0; i < band->len; i++) {
-        float px[PC_RASTER_MAX_CHANNELS];
-        size_t c = pc_from_rgba(j->fmt, band->px[i], px);
-        memcpy(j->data + i * n, px, (c < n ? c : n) * sizeof *px);
+    {
+        /* The composite separates back to CMYK through the document's own profile, the one its
+         * pixels were read through. */
+        pc_cmyk_space *prev = pc_cmyk_space_enter(j->cmyk);
+        for (i = 0; i < band->len; i++) {
+            const float *p = band->px[i];
+            float px[PC_RASTER_MAX_CHANNELS];
+            size_t c;
+            /* Fully transparent pixels are the default pixel: converted, transparent black leaves
+             * colour behind in CMYK (K = 100 %) and Lab (a, b = 0.5) and would count as content. */
+            if (j->fmt.alpha && (p[3] <= 0.0f || isnan(p[3])) && j->nempty == n) {
+                memcpy(j->data + i * n, j->empty, n * sizeof *px);
+                continue;
+            }
+            c = pc_from_rgba(j->fmt, p, px);
+            memcpy(j->data + i * n, px, (c < n ? c : n) * sizeof *px);
+        }
+        pc_cmyk_space_leave(prev);
     }
     return pc_surface_write_region(j->s, band->rect, j->data, total, err);
 }
@@ -362,15 +385,35 @@ static pc_status flat_sink(void *ctx, pc_compose_buffer *band, pc_error *err)
 pc_status pc_compose_flatten_to_surface(const pc_document *doc, pc_pixel_format fmt, const float *background,
                                         pc_surface *out, pc_error *err)
 {
+    return pc_compose_composite_to_surface(doc, pc_document_bounds(doc), fmt, background, out, err);
+}
+
+pc_status pc_compose_composite_to_surface(const pc_document *doc, pc_rect rect, pc_pixel_format fmt,
+                                          const float *background, pc_surface *out, pc_error *err)
+{
     pc_surface s;
     flat_job j;
+    bool paper =
+        background != NULL && background[0] == 1.0f && background[1] == 1.0f && background[2] == 1.0f;
     pc_status st;
+    /* A CMYK document of plain Normal layers is composited in its ink values (#3778). */
+    if (background == NULL || paper) {
+        bool done = false;
+        st = pc_compose_flatten_cmyk(doc, rect, fmt, paper, &done, out, err);
+        if (st != PC_OK || done) {
+            return st;
+        }
+    }
     pc_surface_init(&s, fmt);
     memset(&j, 0, sizeof j);
     j.s = &s;
     j.fmt = fmt;
     j.bg = background;
-    st = pc_compose_render_bands(doc, pc_document_bounds(doc), 0, NULL, flat_sink, &j, err);
+    j.nempty = pc_surface_channels(&s);
+    pc_surface_default_pixel(&s, j.empty);
+    j.cmyk = pc_compose_cmyk_space(doc);
+    st = pc_compose_render_bands(doc, rect, 0, NULL, flat_sink, &j, err);
+    pc_cmyk_space_release(j.cmyk);
     free(j.data);
     if (st != PC_OK) {
         pc_surface_fini(&s);
@@ -406,6 +449,25 @@ pc_status pc_compose_render_layer(const pc_layer *layer, pc_rect rect, pc_compos
 
 /* ---- thumbnails ---- */
 
+void pc_compose_thumbnail_size(const pc_document *doc, uint32_t max_side, uint32_t *w, uint32_t *h)
+{
+    pc_rect b = pc_document_bounds(doc);
+    uint32_t bw = pc_rect_width(b);
+    uint32_t bh = pc_rect_height(b);
+    uint32_t longest = bw > bh ? bw : bh;
+    float scale;
+    uint32_t tw;
+    uint32_t th;
+    if (longest < 1) {
+        longest = 1;
+    }
+    scale = pc_rs_minf_k((float)max_side / (float)longest, 1.0f);
+    tw = pc_f32_to_u32(roundf((float)bw * scale));
+    th = pc_f32_to_u32(roundf((float)bh * scale));
+    *w = tw > 1 ? tw : 1;
+    *h = th > 1 ? th : 1;
+}
+
 pc_status pc_compose_thumbnail_buffer(const pc_document *doc, uint32_t max_side, pc_compose_buffer *out,
                                       pc_error *err)
 {
@@ -413,7 +475,6 @@ pc_status pc_compose_thumbnail_buffer(const pc_document *doc, uint32_t max_side,
     uint32_t bw = pc_rect_width(b);
     uint32_t bh = pc_rect_height(b);
     uint32_t longest = bw > bh ? bw : bh;
-    float scale;
     uint32_t w;
     uint32_t h;
     uint32_t div;
@@ -421,11 +482,7 @@ pc_status pc_compose_thumbnail_buffer(const pc_document *doc, uint32_t max_side,
     if (longest < 1) {
         longest = 1;
     }
-    scale = pc_rs_minf_k((float)max_side / (float)longest, 1.0f);
-    w = pc_f32_to_u32(roundf((float)bw * scale));
-    h = pc_f32_to_u32(roundf((float)bh * scale));
-    w = w > 1 ? w : 1;
-    h = h > 1 ? h : 1;
+    pc_compose_thumbnail_size(doc, max_side, &w, &h);
     div = max_side > 1 ? max_side : 1;
     div = div > UINT32_MAX / 2 ? UINT32_MAX : div * 2;
     k = longest / div;

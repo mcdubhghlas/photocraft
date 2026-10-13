@@ -4,6 +4,8 @@
 # One line per upstream:  corpus|prefix|owner/repo|commit|subdir|extras
 #   prefix  manifest paths starting with it come from this upstream (longest prefix wins)
 #   extras  comma-separated from:to licence/readme files copied next to the corpus
+# A repo field that is an https:// URL pins one file instead (prefix = its name in the corpus;
+# commit, subdir and extras empty): raw.pixls.us files are not in a git repository.
 # The manifest tools/corpus/<corpus>.sha256 ("<sha256>  <path>") selects and verifies the files.
 psd|psd-tools/|psd-tools/psd-tools|96eb134c17b2c65edf4c4151c0f00b802ada86c2|tests/psd_files|LICENSE:psd-tools/LICENSE
 psd|ag-psd/|Agamnentzar/ag-psd|387049670cb89b88fb8fe1b7c01aeacf98dd2e3b|test|LICENSE:ag-psd/LICENSE
@@ -16,3 +18,11 @@ affinity|vector-art/|samuel-etver/vector-art|255f8add3c8f0740196e22bd59502b811b5
 affinity|afdesignload/|NickBeeuwsaert/AFDesignLoad|a18dd50a7079fb861a28835eeefa0d015f03f4a1|testDesigns|LICENSE:afdesignload/LICENSE
 affinity|jac21/|Jac21/Branding|57ae3f45bf4637f6927c0b07de25b922c55f944f|Logos/JC/DesignerFiles/Affinity|LICENSE.md:jac21/LICENSE.md
 affinity|asset-store-template/|eviltwo/AssetStoreTemplate|f671981ee89d15526285b3cc87b4393d3defe644|AssetStoreTemplate|LICENSE:asset-store-template/LICENSE
+affinity|affinity-samples/|satoshoe-dev/affinity-samples|96aca6bd86bbe7a677f1cf0630bd832d23943be8||LICENSE:affinity-samples/LICENSE,README.md:affinity-samples/README.md
+pixls|IMG_4059.CR2|https://raw.pixls.us/data/Canon/PowerShot%20SX50%20HS/IMG_4059.CR2|||
+pixls|CRW_4061.DNG|https://raw.pixls.us/data/Canon/PowerShot%20SX50%20HS/CRW_4061.DNG|||
+pixls|JD1_8203.NEF|https://raw.pixls.us/data/Nikon/D3/JD1_8203.NEF|||
+pixls|DSC00009.ARW|https://raw.pixls.us/data/Sony/DSC-RX0/DSC00009.ARW|||
+pixls|P1000475.RW2|https://raw.pixls.us/data/Panasonic/DC-G9/P1000475.RW2|||
+pixls|E_1__C106743_gredos.ORF|https://raw.pixls.us/data/Olympus/E-1/E_1__C106743_gredos.ORF|||
+pixls|_7061961_copy.ORF|https://raw.pixls.us/data/Olympus/E-5/_7061961_copy.ORF|||

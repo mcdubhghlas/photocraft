@@ -205,9 +205,14 @@ static void test_arc_raises_the_middle_relative_to_the_ends(void)
 {
     pc_style_warp w = warp_of("arc", 50.0f), s = warp_of("arc", -50.0f);
     pc_point mid = pc_style_warp_apply(&w, 100.0, -15.0), end = pc_style_warp_apply(&w, 0.0, -15.0);
-    CHECK(fabs(mid.y - -15.0) < 1e-9);
+    /* As in Photoshop: the bottom edge keeps its corners, the middle rises and the ends of the
+     * upper rows swing out and down along the arc. */
+    pc_point corner = pc_style_warp_apply(&w, 0.0, 10.0);
+    CHECK(fabs(corner.x) < 1e-9 && fabs(corner.y - 10.0) < 1e-9);
+    CHECK(mid.y < -15.0);
     CHECK(end.y > mid.y + 5.0);
-    CHECK(end.x > 0.0);
+    CHECK(end.x < 0.0);
+    /* A negative bend smiles. */
     CHECK(pc_style_warp_apply(&s, 0.0, -15.0).y < -20.0);
 }
 
@@ -215,7 +220,25 @@ static void test_bulge_and_squeeze_change_height_in_the_middle(void)
 {
     pc_style_warp b = warp_of("bulge", 50.0f), s = warp_of("squeeze", 50.0f);
     CHECK(pc_style_warp_apply(&b, 100.0, -40.0).y < -50.0);
-    CHECK(pc_style_warp_apply(&s, 100.0, -40.0).y > -40.0);
+    /* Squeeze (Photoshop) pinches the sides in while the top and bottom bow out a little. */
+    CHECK(pc_style_warp_apply(&s, 0.0, -15.0).x > 10.0);
+    CHECK(pc_style_warp_apply(&s, 100.0, -40.0).y < -40.0);
+}
+
+/* #218: the Warp Text dialog shows a layer's PSD style by its short id. */
+static void test_short_ids_round_trip_with_psd_styles(void)
+{
+    size_t i;
+    CHECK_EQ_STR(pc_text_warp_short_style("warpFlag", 8), "flag");
+    CHECK_EQ_STR(pc_text_warp_short_style("warpNone", 8), "none");
+    CHECK(pc_text_warp_short_style("warpCustom", 10) == NULL);
+    CHECK(pc_text_warp_short_style(NULL, 0) == NULL);
+    for (i = 0; i < 15; i++) {
+        const char *psd = PC_TEXT_WARP_STYLES[i][0];
+        const char *sh = pc_text_warp_short_style(psd, strlen(psd));
+        CHECK(sh != NULL && strcmp(sh, PC_TEXT_WARP_STYLES[i][1]) == 0);
+        CHECK(sh != NULL && strcmp(pc_text_warp_psd_style(sh, strlen(sh)), psd) == 0);
+    }
 }
 
 int main(int argc, char **argv)
@@ -231,5 +254,6 @@ int main(int argc, char **argv)
     RUN(test_every_style_is_continuous_and_fixes_the_centre_column);
     RUN(test_arc_raises_the_middle_relative_to_the_ends);
     RUN(test_bulge_and_squeeze_change_height_in_the_middle);
+    RUN(test_short_ids_round_trip_with_psd_styles);
     return pc_t_finish();
 }

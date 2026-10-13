@@ -175,3 +175,14 @@ bool pc_fill_eq(const pc_fill *a, const pc_fill *b)
     }
     return false;
 }
+
+void pc_fill_in_mode(pc_fill *f, pc_color_mode mode)
+{
+    if (f->kind == PC_FILL_SOLID) {
+        f->u.solid = pc_color_in_mode(&f->u.solid, mode);
+    } else if (f->kind == PC_FILL_GRADIENT) {
+        for (size_t i = 0; i < f->u.gradient.nstops; i++) {
+            f->u.gradient.stops[i].color = pc_color_in_mode(&f->u.gradient.stops[i].color, mode);
+        }
+    }
+}

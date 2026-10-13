@@ -390,3 +390,73 @@ pc_status cx_bmp_encode(const pc_cimage *src, cx_plan p, pc_buf *out, pc_error *
     pc_cimage_fini(&tmp);
     return w.st;
 }
+
+pc_status pc_cbmp_palette(const uint8_t *b, size_t n, bool *has, uint8_t (**palette)[3], size_t *npal,
+                          pc_error *err)
+{
+    size_t dib = 14;
+    uint32_t hsize;
+    uint16_t bpp;
+    uint32_t comp = 0;
+    uint32_t used = 0;
+    size_t entry;
+    size_t count;
+    size_t avail;
+    size_t at;
+    size_t i;
+    uint8_t (*pal)[3];
+    *has = false;
+    *palette = NULL;
+    *npal = 0;
+    if (n < 18 || b[0] != 'B' || b[1] != 'M') {
+        return cx_malformed(err, F, "BMP signature not found");
+    }
+    hsize = cx_le32(b + dib);
+    if (!(hsize == 12 || hsize == 16 || hsize == 40 || hsize == 52 || hsize == 56 || hsize == 64 ||
+          hsize == 108 || hsize == 124)) {
+        return cx_unsupported(err, F, "BMP header size %u", (unsigned)hsize);
+    }
+    if (n - dib < hsize) {
+        return trunc_err(err, F);
+    }
+    if (hsize == 12) {
+        bpp = cx_le16(b + dib + 10);
+    } else {
+        bpp = cx_le16(b + dib + 14);
+        if (hsize >= 20) {
+            comp = cx_le32(b + dib + 16);
+        }
+        if (hsize >= 36) {
+            used = cx_le32(b + dib + 32);
+        }
+    }
+    /* Only indexed images (1/4/8-bit RGB, RLE8, RLE4) carry a colour table. */
+    if (!(bpp == 1 || bpp == 2 || bpp == 4 || bpp == 8) ||
+        !(comp == 0 || (comp == 1 && bpp == 8) || (comp == 2 && bpp == 4))) {
+        return PC_OK;
+    }
+    if (used > (1u << bpp)) {
+        return cx_malformed(err, F, "palette size %u exceeds the maximum for %u bits per pixel",
+                            (unsigned)used, (unsigned)bpp);
+    }
+    entry = hsize == 12 ? 3 : 4;
+    count = used == 0 ? (size_t)1 << bpp : used;
+    at = dib + hsize;
+    avail = n - at;
+    if (avail / entry < count) {
+        return trunc_err(err, F);
+    }
+    pal = calloc(256, sizeof *pal);
+    if (pal == NULL) {
+        return cx_nomem(err);
+    }
+    for (i = 0; i < count; i++) {
+        pal[i][0] = b[at + i * entry + 2];
+        pal[i][1] = b[at + i * entry + 1];
+        pal[i][2] = b[at + i * entry];
+    }
+    *has = true;
+    *palette = pal;
+    *npal = 256;
+    return PC_OK;
+}

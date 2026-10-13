@@ -1,6 +1,7 @@
 /* Expressions mirror crates/geom/src/warp.rs operation for operation (same order, same libm
  * calls), so results are bit-identical to the reference. */
 #include "warp.h"
+#include "warp_internal.h"
 
 #include <float.h>
 #include <math.h>
@@ -9,11 +10,11 @@
 
 #include "base/mem.h"
 #include "base/num.h"
+#include "base/rmath.h"
 #include "base/utf8.h"
 
 /* std::f64::consts (M_PI is not ISO C). */
 static const double PI = 3.14159265358979323846;
-static const double FRAC_PI_2 = 1.57079632679489661923;
 
 /* ---- styles ---- */
 
@@ -113,11 +114,326 @@ bool pc_warp_style_parse(const char *text, size_t len, pc_warp_style *out)
     return false;
 }
 
-/* ---- preset maps ---- */
+/* ---- preset maps ----
+ *
+ * Every preset is a single bicubic Bezier patch whose 4 x 4 control grid follows the bend
+ * (measured from Photoshop's renders upstream, not taken from Adobe's code). Grids are in box
+ * units (0..1, y down), [row][column]. */
+
+typedef double grid4[4][4][2];
+typedef double row4[4][2];
 
 static double pct(double v)
 {
     return isfinite(v) ? pc_clampd(v / 100.0, -1.0, 1.0) : 0.0;
+}
+
+/* The rest grid (no warp). */
+static void rest_grid(grid4 g)
+{
+    int i;
+    int j;
+    for (j = 0; j < 4; j++) {
+        for (i = 0; i < 4; i++) {
+            g[j][i][0] = (double)i / 3.0;
+            g[j][i][1] = (double)j / 3.0;
+        }
+    }
+}
+
+/* A horizontal edge at height y bent into a circular arc of |b|*pi that keeps its chord, bowing
+ * up when up == (b > 0). h is the box's height over its width: the arc is circular in pixels. */
+static void edge_arc(double y, double b, bool up, double h, row4 out)
+{
+    double th;
+    double k;
+    double s;
+    double c;
+    double n;
+    double dy;
+    int i;
+    if (fabs(b) < 1e-9) {
+        for (i = 0; i < 4; i++) {
+            out[i][0] = (double)i / 3.0;
+            out[i][1] = y;
+        }
+        return;
+    }
+    th = fabs(b) * PI;
+    k = 4.0 / 3.0 * tan(th / 4.0) * 0.5 / sin(th / 2.0);
+    s = (b > 0.0) == up ? -1.0 : 1.0;
+    c = cos(th / 2.0);
+    n = sin(th / 2.0);
+    dy = s * k * n / h;
+    out[0][0] = 0.0;
+    out[0][1] = y;
+    out[1][0] = k * c;
+    out[1][1] = y + dy;
+    out[2][0] = 1.0 - k * c;
+    out[2][1] = y + dy;
+    out[3][0] = 1.0;
+    out[3][1] = y;
+}
+
+/* Arc: every row is a circular arc of |b|*pi around one centre; the edge on the inside of the
+ * bend keeps its chord and the rows' radii grow by the box height towards the other edge. Worked
+ * in units of the box width (h = height / width) so the arcs are circular in pixels. */
+static void arc_grid(double b, double h, grid4 g)
+{
+    bool up;
+    double th;
+    double r;
+    double k;
+    double s;
+    double cy;
+    int j;
+    int q;
+    if (fabs(b) < 1e-9) {
+        rest_grid(g);
+        return;
+    }
+    up = b > 0.0;
+    th = fabs(b) * PI;
+    r = 0.5 / sin(th / 2.0);
+    k = 4.0 / 3.0 * tan(th / 4.0);
+    s = up ? -1.0 : 1.0;
+    cy = up ? h + r * cos(th / 2.0) : -r * cos(th / 2.0);
+    for (j = 0; j < 4; j++) {
+        double v = (double)j / 3.0;
+        double big = r + h * (up ? 1.0 - v : v);
+        double a0 = -th / 2.0;
+        double a1 = th / 2.0;
+        double p0[2] = {0.5 + big * sin(a0), cy + s * big * cos(a0)};
+        double p3[2] = {0.5 + big * sin(a1), cy + s * big * cos(a1)};
+        double t0[2] = {cos(a0), -s * sin(a0)};
+        double t1[2] = {cos(a1), -s * sin(a1)};
+        double l = k * big;
+        double pts[4][2];
+        pts[0][0] = p0[0];
+        pts[0][1] = p0[1];
+        pts[1][0] = p0[0] + l * t0[0];
+        pts[1][1] = p0[1] + l * t0[1];
+        pts[2][0] = p3[0] - l * t1[0];
+        pts[2][1] = p3[1] - l * t1[1];
+        pts[3][0] = p3[0];
+        pts[3][1] = p3[1];
+        for (q = 0; q < 4; q++) {
+            g[j][q][0] = pts[q][0];
+            g[j][q][1] = pts[q][1] / h;
+        }
+    }
+}
+
+/* Rows blended from top to bottom. */
+static void blend_rows(const row4 top, const row4 bottom, grid4 g)
+{
+    int i;
+    int j;
+    for (j = 0; j < 4; j++) {
+        double t = (double)j / 3.0;
+        for (i = 0; i < 4; i++) {
+            g[j][i][0] = top[i][0] + (bottom[i][0] - top[i][0]) * t;
+            g[j][i][1] = top[i][1] + (bottom[i][1] - top[i][1]) * t;
+        }
+    }
+}
+
+/* Offsets of the four inner points: (row, column, dx, dy). */
+static const int INNER[4][4] = {{1, 1, -1, -1}, {1, 2, 1, -1}, {2, 1, -1, 1}, {2, 2, 1, 1}};
+
+static void style_grid(pc_warp_style style, double b, double h, grid4 g)
+{
+    row4 e0;
+    row4 e1;
+    grid4 a;
+    int i;
+    int j;
+    rest_grid(g);
+    switch (style) {
+    case PC_WARP_ARC:
+        arc_grid(b, h, g);
+        break;
+    case PC_WARP_ARCH:
+        for (j = 0; j < 4; j++) {
+            edge_arc((double)j / 3.0, b, true, h, g[j]);
+        }
+        break;
+    case PC_WARP_BULGE:
+        edge_arc(0.0, b, true, h, e0);
+        edge_arc(1.0, b, false, h, e1);
+        blend_rows((const double (*)[2])e0, (const double (*)[2])e1, g);
+        break;
+    case PC_WARP_ARC_LOWER:
+        memcpy(e0, g[0], sizeof e0);
+        edge_arc(1.0, b, false, h, e1);
+        blend_rows((const double (*)[2])e0, (const double (*)[2])e1, g);
+        break;
+    case PC_WARP_ARC_UPPER:
+        edge_arc(0.0, b, true, h, e0);
+        memcpy(e1, g[3], sizeof e1);
+        blend_rows((const double (*)[2])e0, (const double (*)[2])e1, g);
+        break;
+    /* The bulging edge and the outer points of the row next to it come from Arc (bent the other
+     * way for Shell Lower); the rest stays put. */
+    case PC_WARP_SHELL_LOWER:
+        arc_grid(-b, h, a);
+        memcpy(g[3], a[3], sizeof g[3]);
+        memcpy(g[2][0], a[2][0], sizeof g[2][0]);
+        memcpy(g[2][3], a[2][3], sizeof g[2][3]);
+        break;
+    case PC_WARP_SHELL_UPPER:
+        arc_grid(b, h, a);
+        memcpy(g[0], a[0], sizeof g[0]);
+        memcpy(g[1][0], a[1][0], sizeof g[1][0]);
+        memcpy(g[1][3], a[1][3], sizeof g[1][3]);
+        break;
+    case PC_WARP_FLAG:
+        for (j = 0; j < 4; j++) {
+            g[j][1][1] -= 2.0 * b;
+            g[j][2][1] += 2.0 * b;
+        }
+        break;
+    case PC_WARP_WAVE:
+        for (j = 1; j < 3; j++) {
+            g[j][1][1] += 4.0 / 3.0 * b;
+            g[j][2][1] -= 4.0 / 3.0 * b;
+        }
+        break;
+    case PC_WARP_FISH: {
+        static const double F[4] = {-2.0, -2.0 / 3.0, 2.0 / 3.0, 2.0};
+        for (j = 0; j < 4; j++) {
+            g[j][1][1] += F[j] * b;
+            g[j][2][1] -= F[j] * b;
+        }
+        break;
+    }
+    case PC_WARP_RISE:
+        for (j = 0; j < 4; j++) {
+            g[j][0][1] += 2.0 * b;
+            g[j][1][1] += 2.0 * b;
+        }
+        break;
+    case PC_WARP_FISHEYE:
+        for (i = 0; i < 4; i++) {
+            double dx = (double)INNER[i][2];
+            double dy = (double)INNER[i][3];
+            g[INNER[i][0]][INNER[i][1]][0] += dx * 2.0 / 3.0 * b;
+            g[INNER[i][0]][INNER[i][1]][1] += dy * 2.0 / 3.0 * b;
+        }
+        break;
+    /* Edge midpoints move out (Inflate) or the sides in (Squeeze) by b/3, the inner points by b/9. */
+    case PC_WARP_INFLATE:
+    case PC_WARP_SQUEEZE: {
+        double s = style == PC_WARP_INFLATE ? 1.0 : -1.0;
+        for (i = 1; i < 3; i++) {
+            g[0][i][1] -= b / 3.0;
+        }
+        for (i = 1; i < 3; i++) {
+            g[3][i][1] += b / 3.0;
+        }
+        for (j = 1; j < 3; j++) {
+            g[j][0][0] -= s * b / 3.0;
+            g[j][3][0] += s * b / 3.0;
+        }
+        for (i = 0; i < 4; i++) {
+            double dx = (double)INNER[i][2];
+            double dy = (double)INNER[i][3];
+            g[INNER[i][0]][INNER[i][1]][0] += s * dx * b / 9.0;
+            g[INNER[i][0]][INNER[i][1]][1] += dy * b / 9.0;
+        }
+        break;
+    }
+    /* The inner points turn round the centre (the other way for a negative bend). */
+    case PC_WARP_TWIST: {
+        double a1 = fabs(b);
+        if (b >= 0.0) {
+            g[1][1][0] += a1;
+            g[1][2][1] += a1;
+            g[2][1][1] -= a1;
+            g[2][2][0] -= a1;
+        } else {
+            g[1][1][1] += a1;
+            g[1][2][0] -= a1;
+            g[2][1][0] += a1;
+            g[2][2][1] -= a1;
+        }
+        break;
+    }
+    case PC_WARP_NONE:
+    case PC_WARP_CUSTOM:
+    case PC_WARP_STYLE_COUNT:
+    default:
+        break;
+    }
+}
+
+/* Vertical distortion: the top and bottom rows scale about their end points' midpoint (by
+ * 1 -/+ vd), the middle rows follow by the blend of those two moves. */
+static void row_move(const row4 row, double s, row4 out)
+{
+    double m[2];
+    int i;
+    m[0] = (row[0][0] + row[3][0]) / 2.0;
+    m[1] = (row[0][1] + row[3][1]) / 2.0;
+    for (i = 0; i < 4; i++) {
+        out[i][0] = m[0] + (row[i][0] - m[0]) * s - row[i][0];
+        out[i][1] = m[1] + (row[i][1] - m[1]) * s - row[i][1];
+    }
+}
+
+/* Photoshop's warp presets as Bezier control grids; b, hd, vd are -1..1, aspect = box height
+ * over width. A vertical warp is the horizontal one with the axes (and distortions) swapped. */
+static void preset_grid(pc_warp_style style, double b, double hd, double vd, bool vertical, double aspect,
+                        grid4 g)
+{
+    double h = vertical ? 1.0 / aspect : aspect;
+    int i;
+    int j;
+    if (vertical) {
+        double t = hd;
+        hd = vd;
+        vd = t;
+    }
+    style_grid(style, b, h, g);
+    if (vd != 0.0) {
+        row4 d0;
+        row4 d3;
+        row_move((const double (*)[2])g[0], 1.0 - vd, d0);
+        row_move((const double (*)[2])g[3], 1.0 + vd, d3);
+        for (j = 0; j < 4; j++) {
+            double t = (double)j / 3.0;
+            for (i = 0; i < 4; i++) {
+                g[j][i][0] += d0[i][0] + (d3[i][0] - d0[i][0]) * t;
+                g[j][i][1] += d0[i][1] + (d3[i][1] - d0[i][1]) * t;
+            }
+        }
+    }
+    /* Horizontal distortion: each column scales about its end points' midpoint by
+     * 1 + hd*(2i/3 - 1). */
+    if (hd != 0.0) {
+        for (i = 0; i < 4; i++) {
+            double s = 1.0 + hd * (2.0 * (double)i / 3.0 - 1.0);
+            double m[2];
+            m[0] = (g[0][i][0] + g[3][i][0]) / 2.0;
+            m[1] = (g[0][i][1] + g[3][i][1]) / 2.0;
+            for (j = 0; j < 4; j++) {
+                double x = m[0] + (g[j][i][0] - m[0]) * s;
+                double y = m[1] + (g[j][i][1] - m[1]) * s;
+                g[j][i][0] = x;
+                g[j][i][1] = y;
+            }
+        }
+    }
+    if (vertical) {
+        grid4 t;
+        for (j = 0; j < 4; j++) {
+            for (i = 0; i < 4; i++) {
+                t[j][i][0] = g[i][j][1];
+                t[j][i][1] = g[i][j][0];
+            }
+        }
+        memcpy(g, t, sizeof t);
+    }
 }
 
 bool pc_style_warp_init(pc_style_warp *out, pc_warp_style style, double bend, double h_distort, double v_distort,
@@ -137,132 +453,62 @@ bool pc_style_warp_init(pc_style_warp *out, pc_warp_style style, double bend, do
     if (b == 0.0 && hd == 0.0 && vd == 0.0) {
         return false;
     }
-    out->style = style;
-    out->b = b;
-    out->hd = hd;
-    out->vd = vd;
-    out->vertical = vertical;
-    out->cx = (bounds[0] + bounds[2]) / 2.0;
-    out->cy = (bounds[1] + bounds[3]) / 2.0;
-    out->hw = hw;
-    out->hh = hh;
+    preset_grid(style, b, hd, vd, vertical, hh / hw, out->grid);
+    out->ox = bounds[0];
+    out->oy = bounds[1];
+    out->w = 2.0 * hw;
+    out->h = 2.0 * hh;
     return true;
 }
 
 double pc_style_warp_max_segment(const pc_style_warp *w)
 {
-    return fmax(fmin(w->hw, w->hh) / 16.0, 0.5);
-}
-
-/* Along a circular arc: the box centre line becomes an arc spanning b x 180 degrees. */
-static pc_point arc(double u, double v, double b, double aspect)
-{
-    double half;
-    double theta_max;
-    double r;
-    double theta;
-    double rr;
-    if (fabs(b) < 1e-6) {
-        return pc_point_make(u, v);
-    }
-    half = aspect;
-    theta_max = b * FRAC_PI_2;
-    r = half / theta_max;
-    theta = u * theta_max;
-    rr = r - v;
-    return pc_point_make(rr * sin(theta) / half, r - rr * cos(theta));
-}
-
-static pc_point lerp2(pc_point a, pc_point b, double t)
-{
-    t = pc_clampd(t, 0.0, 1.0);
-    return pc_point_make(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t);
-}
-
-/* The style's mapping in normalised space; aspect = half-length along / across the axis. */
-static pc_point bend(const pc_style_warp *w, double u, double v, double aspect)
-{
-    double b = w->b;
-    double bell = fmax(1.0 - u * u, 0.0);
-    switch (w->style) {
-    case PC_WARP_ARC: return arc(u, v, b, aspect);
-    case PC_WARP_ARC_LOWER: return lerp2(pc_point_make(u, v), arc(u, v, b, aspect), (v + 1.0) / 2.0);
-    case PC_WARP_ARC_UPPER: return lerp2(pc_point_make(u, v), arc(u, v, b, aspect), (1.0 - v) / 2.0);
-    case PC_WARP_ARCH: return pc_point_make(u, v - b * bell);
-    case PC_WARP_BULGE: return pc_point_make(u, v * (1.0 + b * bell));
-    case PC_WARP_SHELL_LOWER: return pc_point_make(u, v + b * bell * (v + 1.0) / 2.0);
-    case PC_WARP_SHELL_UPPER: return pc_point_make(u, v - b * bell * (1.0 - v) / 2.0);
-    case PC_WARP_FLAG: return pc_point_make(u, v - b * 0.5 * sin(PI * u));
-    case PC_WARP_WAVE: return pc_point_make(u, v - b * 0.5 * sin(PI * u + v * FRAC_PI_2));
-    case PC_WARP_FISH: return pc_point_make(u, v * (1.0 + b * 0.6 * (1.0 - u) * sqrt(bell)) - b * 0.35 * bell);
-    case PC_WARP_RISE: return pc_point_make(u, v - b * 0.5 * sin(FRAC_PI_2 * u));
-    case PC_WARP_FISHEYE: {
-        double r2 = fmin(u * u + v * v, 1.0);
-        double k = 1.0 + b * (1.0 - r2);
-        return pc_point_make(u * k, v * k);
-    }
-    case PC_WARP_INFLATE: {
-        double bu = fmax(1.0 - v * v, 0.0);
-        return pc_point_make(u * (1.0 + b * 0.5 * bu), v * (1.0 + b * 0.5 * bell));
-    }
-    case PC_WARP_SQUEEZE:
-        return pc_point_make(u * (1.0 + b * 0.5 * fmax(1.0 - v * v, 0.0)), v * (1.0 - b * 0.5 * bell));
-    case PC_WARP_TWIST: {
-        double r = sqrt(u * u + v * v);
-        double a;
-        double s;
-        double c;
-        double x;
-        if (r >= 1.0) {
-            return pc_point_make(u, v);
-        }
-        /* Rotate in an isotropic frame so the twist stays circular on wide boxes. */
-        a = b * FRAC_PI_2 * (1.0 - r) * (1.0 - r);
-        s = sin(a);
-        c = cos(a);
-        x = u * aspect;
-        return pc_point_make((x * c - v * s) / aspect, x * s + v * c);
-    }
-    case PC_WARP_NONE:
-    case PC_WARP_CUSTOM:
-    case PC_WARP_STYLE_COUNT:
-    default: break;
-    }
-    return pc_point_make(u, v);
+    return fmax(fmin(w->w, w->h) / 32.0, 0.5);
 }
 
 pc_point pc_style_warp_apply(const pc_style_warp *w, double x, double y)
 {
-    double dx = x - w->cx;
-    double dy = y - w->cy;
-    double u;
-    double v;
-    double hu;
-    double hv;
-    pc_point p;
-    if (w->vertical) {
-        u = dy / w->hh;
-        v = dx / w->hw;
-        hu = w->hh;
-        hv = w->hw;
-    } else {
-        u = dx / w->hw;
-        v = dy / w->hh;
-        hu = w->hw;
-        hv = w->hh;
+    double bu[4];
+    double bv[4];
+    double px = 0.0;
+    double py = 0.0;
+    int i;
+    int j;
+    pc_geom_bernstein((x - w->ox) / w->w, bu);
+    pc_geom_bernstein((y - w->oy) / w->h, bv);
+    for (j = 0; j < 4; j++) {
+        for (i = 0; i < 4; i++) {
+            px += bu[i] * bv[j] * w->grid[j][i][0];
+            py += bu[i] * bv[j] * w->grid[j][i][1];
+        }
     }
-    p = bend(w, u, v, hu / hv);
-    /* Distortions: a perspective-like taper along each axis. */
-    if (w->hd != 0.0) {
-        p.y *= fmax(1.0 + w->hd * p.x, 0.05);
+    return pc_point_make(w->ox + px * w->w, w->oy + py * w->h);
+}
+
+pc_status pc_style_warp_mesh(const pc_style_warp *w, pc_mesh *out, pc_error *err)
+{
+    pc_mesh m;
+    int i;
+    int j;
+    memset(&m, 0, sizeof m);
+    m.us = pc_calloc_array(2, sizeof *m.us);
+    m.vs = pc_calloc_array(2, sizeof *m.vs);
+    m.points = pc_calloc_array(16, sizeof *m.points);
+    if (m.us == NULL || m.vs == NULL || m.points == NULL) {
+        pc_mesh_fini(&m);
+        return pc_fail(err, PC_ERR_NOMEM, "out of memory building a warp mesh");
     }
-    if (w->vd != 0.0) {
-        p.x *= fmax(1.0 + w->vd * p.y, 0.05);
+    m.nus = m.nvs = 2;
+    m.us[1] = m.vs[1] = 1.0;
+    m.npoints = 16;
+    for (j = 0; j < 4; j++) {
+        for (i = 0; i < 4; i++) {
+            m.points[j * 4 + i] =
+                pc_point_make(w->ox + w->grid[j][i][0] * w->w, w->oy + w->grid[j][i][1] * w->h);
+        }
     }
-    if (w->vertical) {
-        return pc_point_make(w->cx + p.y * w->hw, w->cy + p.x * w->hh);
-    }
-    return pc_point_make(w->cx + p.x * w->hw, w->cy + p.y * w->hh);
+    *out = m;
+    return PC_OK;
 }
 
 /* ---- Bezier meshes ---- */
@@ -276,7 +522,7 @@ static const double BERN_INV[4][4] = {
     {0.0, 0.0, 0.0, 1.0},
 };
 
-static void bernstein(double t, double out[4])
+void pc_geom_bernstein(double t, double out[4])
 {
     double s = 1.0 - t;
     out[0] = s * s * s;
@@ -319,7 +565,7 @@ size_t pc_mesh_ny(const pc_mesh *m)
 }
 
 /* Knot counts and point count consistent: safe to index (values may still be odd). */
-static bool structural(const pc_mesh *m)
+bool pc_geom_mesh_structural(const pc_mesh *m)
 {
     size_t n;
     return m->nus >= 2 && m->nvs >= 2 && m->us != NULL && m->vs != NULL && m->points != NULL &&
@@ -490,7 +736,7 @@ pc_status pc_mesh_identity(const double bounds[4], size_t cols, size_t rows, pc_
 bool pc_mesh_point(const pc_mesh *m, size_t i, size_t j, pc_point *out)
 {
     size_t nx = pc_mesh_nx(m);
-    if (!structural(m) || i >= nx || j >= pc_mesh_ny(m)) {
+    if (!pc_geom_mesh_structural(m) || i >= nx || j >= pc_mesh_ny(m)) {
         return false;
     }
     *out = m->points[j * nx + i];
@@ -514,7 +760,7 @@ static bool knots_ok(const double *k, size_t n)
 bool pc_mesh_is_valid(const pc_mesh *m)
 {
     size_t i;
-    if (!structural(m) || !knots_ok(m->us, m->nus) || !knots_ok(m->vs, m->nvs)) {
+    if (!pc_geom_mesh_structural(m) || !knots_ok(m->us, m->nus) || !knots_ok(m->vs, m->nvs)) {
         return false;
     }
     for (i = 0; i < m->npoints; i++) {
@@ -526,7 +772,7 @@ bool pc_mesh_is_valid(const pc_mesh *m)
 }
 
 /* Which patch holds s, and the local parameter within it. */
-static size_t locate(const double *knots, size_t nknots, double s, double *local)
+size_t pc_geom_mesh_locate(const double *knots, size_t nknots, double s, double *local)
 {
     size_t n = nknots - 1;
     size_t i = 0;
@@ -552,13 +798,13 @@ pc_point pc_mesh_eval(const pc_mesh *m, double s, double t)
     pc_point out = {0.0, 0.0};
     int i;
     int j;
-    if (!structural(m)) {
+    if (!pc_geom_mesh_structural(m)) {
         return pc_point_make(NAN, NAN);
     }
-    pi = locate(m->us, m->nus, s, &a);
-    pj = locate(m->vs, m->nvs, t, &b);
-    bernstein(a, ba);
-    bernstein(b, bb);
+    pi = pc_geom_mesh_locate(m->us, m->nus, s, &a);
+    pj = pc_geom_mesh_locate(m->vs, m->nvs, t, &b);
+    pc_geom_bernstein(a, ba);
+    pc_geom_bernstein(b, bb);
     nx = pc_mesh_nx(m);
     for (j = 0; j < 4; j++) {
         for (i = 0; i < 4; i++) {
@@ -597,10 +843,10 @@ pc_status pc_mesh_split_u(pc_mesh *m, double s, bool *did_split, pc_error *err)
     pc_point *pts;
     pc_status st;
 
-    if (!structural(m)) {
+    if (!pc_geom_mesh_structural(m)) {
         return pc_fail(err, PC_ERR_INVALID, "malformed warp mesh");
     }
-    pi = locate(m->us, m->nus, s, &a);
+    pi = pc_geom_mesh_locate(m->us, m->nus, s, &a);
     if (!(a >= 0.01 && a <= 0.99)) {
         *did_split = false;
         return PC_OK;
@@ -642,7 +888,7 @@ pc_status pc_mesh_remove_split_u(pc_mesh *m, size_t k, bool *removed, pc_error *
     pc_point *pts;
     double *us;
 
-    if (!structural(m)) {
+    if (!pc_geom_mesh_structural(m)) {
         return pc_fail(err, PC_ERR_INVALID, "malformed warp mesh");
     }
     if (k == 0 || k + 1 >= m->nus) {
@@ -726,7 +972,7 @@ static pc_status via_transpose(pc_mesh *m, pc_status (*op)(pc_mesh *, double, si
     pc_mesh t;
     pc_mesh back;
     pc_status st;
-    if (!structural(m)) {
+    if (!pc_geom_mesh_structural(m)) {
         return pc_fail(err, PC_ERR_INVALID, "malformed warp mesh");
     }
     st = transposed(m, &t, err);
@@ -970,7 +1216,7 @@ bool pc_warp_is_identity(const pc_warp *w)
         if (!w->has_mesh) {
             return true;
         }
-        if (!structural(&w->mesh)) {
+        if (!pc_geom_mesh_structural(&w->mesh)) {
             return false;
         }
         memcpy(c.b, w->bounds, sizeof c.b);
@@ -995,8 +1241,30 @@ static pc_point warp_box_map(void *ctx, double s, double t)
 
 pc_status pc_warp_to_mesh(const pc_warp *w, size_t cols, size_t rows, pc_mesh *out, pc_error *err)
 {
+    pc_style_warp sw;
     if (w->style == PC_WARP_CUSTOM && w->has_mesh) {
         return pc_mesh_clone(&w->mesh, out, err);
+    }
+    /* A preset is one Bezier patch: split it exactly. */
+    if (style_warp(w, &sw)) {
+        pc_mesh m;
+        size_t c = clamp_patches(cols);
+        size_t r = clamp_patches(rows);
+        size_t i;
+        bool done;
+        pc_status st = pc_style_warp_mesh(&sw, &m, err);
+        for (i = 1; st == PC_OK && i < c; i++) {
+            st = pc_mesh_split_u(&m, (double)i / (double)c, &done, err);
+        }
+        for (i = 1; st == PC_OK && i < r; i++) {
+            st = pc_mesh_split_v(&m, (double)i / (double)r, &done, err);
+        }
+        if (st != PC_OK) {
+            pc_mesh_fini(&m);
+            return st;
+        }
+        *out = m;
+        return PC_OK;
     }
     /* fit_uniform calls warp_box_map with a const pc_warp; the callback only reads it. */
     return fit_uniform(warp_box_map, (void *)(uintptr_t)w, cols, rows, out, err);

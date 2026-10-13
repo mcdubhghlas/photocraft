@@ -70,6 +70,10 @@ static const jvariant blend_v[] = {
     JVU("HardLight"),   JVU("VividLight"),  JVU("LinearLight"),  JVU("PinLight"), JVU("HardMix"),
     JVU("Difference"),  JVU("Exclusion"),   JVU("Subtract"),     JVU("Divide"),   JVU("Hue"),
     JVU("Saturation"),  JVU("Color"),       JVU("Luminosity"),
+    /* The six Paint.NET-only modes after Luminosity (PC_BLEND_COUNT 34); a PDN import uses them
+     * and the manifest must round-trip them (serde variant names, no rename). */
+    JVU("Reflect"),     JVU("Glow"),        JVU("Negation"),     JVU("Xor"),
+    JVU("PaintNetColorBurn"), JVU("PaintNetColorDodge"),
 };
 static const jenum blend_e = JENUM_UNITS(pc_blend_mode, blend_v);
 const jtype pc_jt_blend_mode = JT_UNIT_ENUM(pc_blend_mode, blend_e);
@@ -153,12 +157,33 @@ static const jstruct smart_filter_s = {"struct SmartFilter", smart_filter_f, JCO
                                        sizeof(pc_smart_filter)};
 static const jtype jt_smart_filter = JT_STRUCT(pc_smart_filter, smart_filter_s);
 
+static const jtype jt_rgb8 = JT_ARRAY(uint8_t, pc_jt_u8, 3);
+static const jfield guide_color_f[] = {
+    JFV("vertical", pc_guide_color, vertical, pc_jt_bool),
+    JFV("position", pc_guide_color, position, pc_jt_f64),
+    JFV("rgb", pc_guide_color, rgb, jt_rgb8),
+};
+static const jstruct guide_color_s = {"struct GuideColor", guide_color_f, JCOUNT(guide_color_f), NULL,
+                                      sizeof(pc_guide_color)};
+static const jtype jt_guide_color = JT_STRUCT(pc_guide_color, guide_color_s);
+
 static const jfield guides_f[] = {
-    JFVEC("horizontal", pc_guides, horizontal, nhorizontal, pc_jt_f32),
-    JFVEC("vertical", pc_guides, vertical, nvertical, pc_jt_f32),
+    JFVEC("horizontal", pc_guides, horizontal, nhorizontal, pc_jt_f64),
+    JFVEC("vertical", pc_guides, vertical, nvertical, pc_jt_f64),
+    JFVECSKIP("colors", pc_guides, colors, ncolors, jt_guide_color, JD_ZERO),
 };
 static const jstruct guides_s = {"struct Guides", guides_f, JCOUNT(guides_f), NULL, sizeof(pc_guides)};
 static const jtype jt_guides = JT_STRUCT(pc_guides, guides_s);
+
+/* #[serde(default, rename_all = "camelCase")], every field skip_serializing_if Option::is_none. */
+static const jfield file_encoding_f[] = {
+    JFOSKIP("jpegQuality", pc_file_encoding, jpeg_quality, has_jpeg_quality, pc_jt_u8, JD_ZERO),
+    JFOSKIP("webpLossless", pc_file_encoding, webp_lossless, has_webp_lossless, pc_jt_bool, JD_ZERO),
+    JFOSKIP("webpQuality", pc_file_encoding, webp_quality, has_webp_quality, pc_jt_u8, JD_ZERO),
+};
+static const jstruct file_encoding_s = {"struct FileEncoding", file_encoding_f, JCOUNT(file_encoding_f), NULL,
+                                        sizeof(pc_file_encoding)};
+static const jtype jt_file_encoding = JT_STRUCT(pc_file_encoding, file_encoding_s);
 
 static const jvariant indicates_v[] = {JVU("maskedAreas"), JVU("selectedAreas")};
 static const jenum indicates_e = JENUM_UNITS(pc_color_indicates, indicates_v);
@@ -178,4 +203,6 @@ PC_JSON_API(pc_label_color, jt_label_color)
 PC_JSON_API(pc_fill, pc_jt_fill)
 PC_JSON_API(pc_smart_filter, jt_smart_filter)
 PC_JSON_API(pc_guides, jt_guides)
+PC_JSON_API(pc_guide_color, jt_guide_color)
+PC_JSON_API(pc_file_encoding, jt_file_encoding)
 PC_JSON_API(pc_color_indicates, jt_color_indicates)

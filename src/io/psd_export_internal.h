@@ -27,8 +27,10 @@ typedef struct pc_io_ex_source {
     double dpi;
 } pc_io_ex_source;
 
-/* One embed() result, by content hash (ok false = the reason it can't be embedded). */
+/* One embed() result, by contents identity and content hash (ok false = the reason it can't be
+ * embedded). Equal bytes in independent objects stay independent. */
 typedef struct pc_io_ex_converted {
+    pc_smart_contents_id contents;
     uint8_t key[32];
     bool ok;
     pc_io_ex_source src;
@@ -75,6 +77,39 @@ typedef struct pc_io_ex_smart {
     pc_psd_fx_item *new_fx; /* regenerated FEid items */
     size_t nnew_fx;
     size_t capnew_fx;
+    /* Each placed layer has its own id, even when it duplicates an imported layer. */
+    pc_io_strs placed_used;
+    /* Original instances reserve their imported placement regardless of layer order
+     * (placed id -> layer id) and their contents (contents id -> layer id). */
+    struct pc_io_placed_owner {
+        char *placed;
+        uint64_t layer;
+    } *placed_owners;
+    size_t nplaced_owners;
+    size_t capplaced_owners;
+    struct pc_io_unplaced_owner {
+        pc_smart_contents_id contents;
+        uint64_t layer;
+    } *unplaced_owners;
+    size_t nunplaced_owners;
+    size_t capunplaced_owners;
+    /* The imported identity that keeps each original linked UUID (path -> contents id). */
+    struct pc_io_linked_contents {
+        char *path;
+        pc_smart_contents_id contents;
+    } *linked_contents;
+    size_t nlinked_contents;
+    size_t caplinked_contents;
+    /* Independent copies of preserved linked items, keyed by (path, contents id). */
+    struct pc_io_linked_copy {
+        char *path;
+        pc_smart_contents_id contents;
+        uint8_t signature[4];
+        uint8_t key[4];
+        pc_blob *data;
+    } *linked_copies;
+    size_t nlinked_copies;
+    size_t caplinked_copies;
 } pc_io_ex_smart;
 
 /* u64 -> u32 open-addressing map (document layer id -> PSD layer id). */
@@ -95,6 +130,9 @@ typedef struct pc_io_ex {
     pc_psd_version version;
     uint32_t next_id;
     pc_io_ex_idmap layer_ids;
+    /* Generated Txt2 object number of each type layer (layer id -> index, stored as u32); a
+     * preserved TySh keeps its own TextIndex, others get the next free number. */
+    pc_io_ex_idmap text_index;
     pc_rect canvas;
     pc_psd_layer *records;
     size_t nrecords;
@@ -128,6 +166,32 @@ pc_status pc_io_legacy_name(const char *s, size_t len, pc_psd_bytes *out, pc_err
 pc_status pc_io_document_to_psd_nested(const pc_document *doc, const pc_io_psd_export_opts *opts,
                                        uint32_t depth, pc_psd_file *out, pc_io_warnings *warnings,
                                        pc_error *err);
+
+/* ---- resource helpers shared with multichannel_map.c (psd_export_file.c) ---- */
+
+/* A growable list of image resources. */
+typedef struct pc_io_res_list {
+    pc_psd_resource *v;
+    size_t n;
+    size_t cap;
+} pc_io_res_list;
+
+/* Appends a resource (id, data); pc_io_res_add_named also sets its legacy name. */
+pc_status pc_io_res_add(pc_io_res_list *r, uint16_t id, const void *data, size_t len, pc_error *err);
+pc_status pc_io_res_add_named(pc_io_res_list *r, uint16_t id, const pc_str *name, const void *data,
+                              size_t len, pc_error *err);
+/* The grid-and-guides (1032) resource bytes for doc (Photoshop writes it in every file). */
+pc_status pc_io_guides_resource(const pc_document *doc, pc_buf *out, pc_error *err);
+/* Saved paths (2000+), the work path (1025) and the clipping path name (2999), appended to res. */
+pc_status pc_io_path_resources(pc_io_res_list *res, const pc_document *doc, pc_io_warnings *warnings,
+                               pc_error *err);
+/* Whether an imported (unmodelled) resource still describes the document and is written back. */
+bool pc_io_keep_imported_resource(const pc_document *doc, uint16_t id, const uint8_t *data, size_t len);
+/* A document-level (global) tagged block: key/data, Photoshop's 4-byte padding, signature kept. */
+pc_status pc_io_global_block(const uint8_t signature[4], const uint8_t key[4], const uint8_t *data,
+                             size_t len, pc_psd_block *out, pc_error *err);
+/* The signature a kept tagged block is written with: 8B64 (PSB-only) becomes 8BIM in a PSD. */
+void pc_io_block_signature(const uint8_t sig[4], pc_psd_version version, uint8_t out[4]);
 
 /* ---- psd_export_smart.c ---- */
 

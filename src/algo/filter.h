@@ -40,7 +40,7 @@
 /* Bytes of float filter results held at once by the tiled driver. */
 #define PC_ALGO_RESULT_BUDGET ((size_t)256 << 20)
 /* Number of FilterParams variants in the reference. */
-#define PC_ALGO_FILTER_VARIANTS 59
+#define PC_ALGO_FILTER_VARIANTS 60
 
 /* How far outside an output tile a filter reads: a margin of `radius` pixels, or (bounds) the
  * whole reference bounds (distortions, radial blur). */
@@ -161,6 +161,9 @@ bool pc_algo_filter_eq(const pc_algo_filter *a, const pc_algo_filter *b);
 pc_algo_halo pc_algo_filter_halo(const pc_algo_filter *f);
 pc_algo_halo pc_algo_filter_halo_for(const pc_algo_filter *f, pc_rect bounds);
 bool pc_algo_filter_is_global(const pc_algo_filter *f);
+/* FilterParams::makes_transparency: the filter's job is to make pixels transparent (Color to
+ * Alpha), so callers give it a layer that can hold transparency. */
+bool pc_algo_filter_makes_transparency(const pc_algo_filter *f);
 const char *pc_algo_filter_label(const pc_algo_filter *f);
 
 /* ---- running ---- */
@@ -198,7 +201,10 @@ pc_status pc_algo_apply_tiled_with(const pc_surface *s, const pc_algo_filter *f,
                                    const pc_interrupt *ctl, pc_surface *out, pc_error *err);
 
 /* Mixes filtered `data` (t.w * t.h * orig->ch samples) for tile t back toward the original
- * pixels in `orig` by the selection's coverage (channel 0 of sel, clamped to 0..1). */
-void pc_algo_mix_selection(float *data, pc_rect t, const pc_surface *sel, const pc_algo_image *orig);
+ * pixels in `orig` by the selection's coverage (channel 0 of sel, clamped to 0..1). With `alpha`
+ * (the last channel is alpha) a pixel whose alpha the filter changed is mixed premultiplied, so
+ * hidden colours don't leak into feathered edges; coverage 0 restores the original exactly. */
+void pc_algo_mix_selection(float *data, pc_rect t, const pc_surface *sel, const pc_algo_image *orig,
+                           bool alpha);
 
 #endif

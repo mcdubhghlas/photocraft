@@ -4,7 +4,7 @@ Codecs for flat raster image formats, written in pure Rust. The crate is standal
 workspace crate and defines its own `Image` type. It also builds for `wasm32-unknown-unknown` and
 does no I/O: decoders take `&[u8]` and encoders return `Vec<u8>`.
 
-It follows the "avoid GIMP's hole" rules in `plan/architecture.md` §1.1:
+It follows the "Avoiding GIMP's hole" rules in `docs/architecture.md` §1.1:
 
 * **Symmetric.** Every format we write, we can also read. The only exceptions are listed in
   `ASYMMETRIC_EXCEPTIONS`, each with a reason. The test suite checks this.
@@ -44,6 +44,7 @@ let out = encode(&img, Format::Tiff, &EncodeOptions::default())?;
 | QOI | yes | yes | U8 | RGB, RGBA | yes | no | no | no | no | no | no | `image` |
 | OpenEXR | yes | yes | F16, F32 | Y, YA, RGB, RGBA | yes | no | no | no | no | no | no | `exr` |
 | Radiance HDR | yes | yes | F32 | RGB | no | no | no | no | no | no | yes (RGBE) | `image` |
+| FITS | yes | yes | U8, U16, F32 | Gray, RGB | no | no | no | no | no | yes (header cards) | no | built in |
 | AVIF | **no** | only with feature `avif` | U8 | RGB, RGBA | yes | no | no | no | no | no | yes | `image` + `ravif` |
 | HEIF/HEIC | with feature `heif` | **no** | U8, U16 (10/12-bit decodes to U16) | RGB, RGBA | yes (auxiliary alpha) | yes (`colr` prof) | yes | yes | no | no | n/a | `heic-rs` |
 
@@ -60,7 +61,18 @@ the encode plan, and `fidelity_warnings` reports the conversion when it loses in
 `Image::convert` applies the same ICC rule: it keeps the profile only when the colour model stays
 the same.
 
+Palette BMP pixels decode as RGB in `Image`; `bmp_palette` exposes the embedded table so
+`photocraft-io` can open them in Indexed Color mode.
+
 ## Documented asymmetries and limitations
+
+* **FITS.** The image in the primary HDU, or the first `IMAGE` extension, is read; `NAXIS3 = 3`
+  opens as RGB and any other plane count opens the first plane with `DecodeWarning::MorePages`.
+  Rows follow `ROWORDER` (bottom-up by default, as Siril and DS9 do). Physical values that fit
+  stay exact as U8/U16 (a camera's `BITPIX = 16`, `BZERO = 32768`); the rest become F32, taken as
+  normalised when at most 2 and scaled by 65535 (or the maximum) otherwise. Header cards are
+  kept as text (`HIERARCH` for long names). Tile-compressed (fpack) files are refused with
+  `CodecError::Unsupported`; Bayer mosaics open undebayered.
 
 * **Camera raw files** (DNG, CR2, NEF, ARW… which are TIFF-structured) are recognised and refused
   with `CodecError::Unsupported`: they are sensor data, not flat images. `photocraft-raw` decodes
@@ -92,7 +104,10 @@ the same.
   `DecodeWarning::MoreFrames` / `MorePages` in `Image::warnings`, with the total when the file
   states it (frames and TIFF directories are counted without decoding them; reduced-resolution
   TIFF directories and transparency masks are not pages). Any TIFF page can still be opened
-  with `decode_tiff_page` (and `photocraft_io::import_tiff_page`).
+  with `decode_tiff_page` (and `photocraft_io::import_tiff_page`). Every frame of a GIF comes
+  from `decode_gif_frames`: each frame composited onto the logical screen with the disposal
+  methods applied, as RGBA8 with its delay in milliseconds, within `Limits` and
+  `MAX_GIF_FRAMES`. The video-layer commands use it (`photocraft_io::import_gif_frames`).
 * **EXIF in TIFF** is stored as a sub-IFD rather than a blob, so it is not preserved yet.
   `caps.exif = false` for TIFF, and a warning is raised.
 * **Orientation** (EXIF tag 274 in JPEG, PNG `eXIf` and WebP; the decoded page's tag in TIFF and
@@ -106,6 +121,15 @@ the same.
   size (5–8 swap width and height), and the rotated buffer is allocated fallibly.
   `Image::oriented` turns any layout and depth in parallel bands (about 10 ms for 24 MP RGB8 in
   release).
+* **Resolution** (#1691, module `resolution`): a file without a resolution of its own format
+  (no PNG `pHYs`, a WebP, HEIF, …) takes it from its XMP `tiff:XResolution` / `YResolution` /
+  `ResolutionUnit`, else from EXIF IFD0 (RATIONAL X/YResolution, unit 2 inch — the default when
+  absent — or 3 cm; unit 1 or anything malformed counts as no resolution). A JPEG uses, like
+  Photoshop, the first usable of: APP13 Photoshop ResolutionInfo (0x03ED), XMP, EXIF, and only
+  then the JFIF density (cameras write EXIF only, many tools write a default JFIF 72). On export
+  the EXIF and XMP resolution are rewritten to the image's (`export_exif`, `export_xmp`): the
+  RATIONAL values in place, ResolutionUnit set to 2, an entry that can't be rewritten removed
+  from IFD0 without moving any other data. IFD1 (the thumbnail's) is left as it is.
 * **JPEG**
   * 8-bit only. Neither decoder backend supports 12-bit.
   * A file cut off inside its image data decodes leniently (a baseline JPEG's missing rows come
@@ -142,9 +166,21 @@ the same.
 * **TIFF encode** writes classic TIFF, or BigTIFF when `EncodeOptions::tiff_bigtiff` is set or
   the file could pass 4 GiB.
 * **EXR**
-  * Reads the first valid layer at full resolution, from its data window.
+  * Multi-part files (a Maya/Arnold render writes one part per AOV) open the part that
+    looks most like a colour image — RGBA beats RGB beats YA beats a single channel, so a
+    depth-only part no longer fails the file — with `DecodeWarning::MoreParts` naming how
+    many parts exist. `exr_info` lists every part (name, view, size, channels, deep/tiled)
+    without decoding pixels, and `decode_exr_part` decodes a chosen one. Deep parts stay
+    with the deep decoder: a file that has any is refused here with a pointer to it.
+  * Reads at full resolution, from the data window.
   * Channel names are matched by suffix, so `layer.R` counts as `R`.
   * Subsampled channels are unsupported.
+  * Cryptomatte layers (specification 1.2, as written by Arnold, V-Ray, Redshift, Mantra/Karma
+    and Cycles) are listed and decoded structurally: `cryptomatte_layers` reads the header
+    attributes, channels and embedded manifest without pixels, `decode_cryptomatte` returns the
+    per-pixel (ID, coverage) pairs, and `cryptomatte_id`/`cryptomatte_key`/`cryptomatte_preview_color`
+    hash names to IDs the way the reference implementation does (official test vectors in the
+    test suite).
   * Deep data (scanlines or single-level tiles, compressed NONE, RLE or ZIPS) opens as a flat
     image: each pixel's samples are composited into one, with
     `DecodeWarning::DeepFlattened` because per-pixel depth is not kept. Deep ZIP (16-line

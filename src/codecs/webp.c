@@ -12,6 +12,7 @@
 
 #include "base/utf8.h"
 #include "codecs/internal.h"
+#include "codecs/resolution.h"
 #include "codecs/orientation.h"
 
 #define F PC_CF_WEBP
@@ -56,6 +57,12 @@ pc_status cx_webp_decode(const uint8_t *b, size_t n, const pc_climits *l, pc_cim
     }
     layout = feat.has_alpha ? PC_CL_RGBA : PC_CL_RGB;
     if ((st = pc_climits_check(l, (uint32_t)feat.width, (uint32_t)feat.height, layout, PC_CS_U8, err)) != PC_OK) {
+        return st;
+    }
+    /* VP8L back-references and VP8 skipped macroblocks compress flat areas extremely well, so the
+     * ratio is generous; it still stops a header-only file from asking for a gigabyte. */
+    if ((st = cx_check_plausible((uint64_t)feat.width * (uint64_t)feat.height * pc_clayout_channels(layout),
+                                 n, (uint64_t)1 << 16, err)) != PC_OK) {
         return st;
     }
     if ((st = pc_cimage_new((uint32_t)feat.width, (uint32_t)feat.height, layout, PC_CS_U8, &img, err)) != PC_OK) {
@@ -199,6 +206,11 @@ pc_status cx_webp_encode(const pc_cimage *src, cx_plan p, const pc_cencode_opts 
         cfg.quality = (float)(o->webp_quality > 100 ? 100 : o->webp_quality);
         cfg.method = 4;
         cfg.alpha_quality = 100;
+        /* No spatial noise shaping: every segment then uses the quality's own quantiser, as the
+         * reference's encoder does, so pc_webp_encoding_of reads the saved quality back exactly
+         * (File > Save keeps it). With SNS the per-segment quantisers spread by up to +-45 %
+         * around it and their mean drifts by several quality steps (§7). */
+        cfg.sns_strength = 0;
     }
     pic.use_argb = 1;
     pic.width = (int)img->width;
@@ -247,13 +259,17 @@ pc_status cx_webp_encode(const pc_cimage *src, cx_plan p, const pc_cencode_opts 
                 st = cx_encode(err, F, "cannot add metadata chunks");
                 goto done;
             }
-            /* The pixels are written as they are shown: never let a viewer rotate them again. */
-            if (exif && (st = pc_upright_exif(img->meta.exif.data, img->meta.exif.len, &ex, &exn, err)) != PC_OK) {
+            /* The pixels are written as they are shown: never let a viewer rotate them again; and
+             * the metadata's resolution is the image's. */
+            float dpiv[2] = {img->meta.dpi_x, img->meta.dpi_y};
+            const float *dpi = img->meta.has_dpi ? dpiv : NULL;
+            if (exif && (st = pc_export_exif(img->meta.exif.data, img->meta.exif.len, dpi, &ex, &exn, err)) !=
+                            PC_OK) {
                 WebPMuxDelete(mux);
                 goto done;
             }
-            if (xmp && (st = pc_upright_xmp((const char *)img->meta.xmp.data, img->meta.xmp.len, &xm, &xmn, err)) !=
-                           PC_OK) {
+            if (xmp && (st = pc_export_xmp((const char *)img->meta.xmp.data, img->meta.xmp.len, dpi, &xm,
+                                           &xmn, err)) != PC_OK) {
                 WebPMuxDelete(mux);
                 goto done;
             }

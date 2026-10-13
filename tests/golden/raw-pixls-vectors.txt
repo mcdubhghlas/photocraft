@@ -1,0 +1,40 @@
+pfile CRW_4061.DNG 19219280 0ef19e94d1849b7d
+ppreviews CRW_4061.DNG 0
+pcspace CRW_4061.DNG none
+pdecode CRW_4061.DNG eb646ae236747d62
+pdevelop CRW_4061.DNG bilinear f994d88f7f841f45
+pdevelop CRW_4061.DNG ahd d2a2fbbb9c0dd331
+pfile DSC00009.ARW 16158464 0ba73ef8d01b74ca
+ppreviews DSC00009.ARW 2 1616x1080:434465 160x120:6788
+pcspace DSC00009.ARW Srgb
+pdecode DSC00009.ARW 36c3232136bc858d
+pdevelop DSC00009.ARW bilinear e48d1e76e6b3950f
+pdevelop DSC00009.ARW ahd 397a8bf14844b801
+pfile E_1__C106743_gredos.ORF 10661632 3bf01e64e6adfc86
+ppreviews E_1__C106743_gredos.ORF 2 1280x960:291265 160x120:6395
+pcspace E_1__C106743_gredos.ORF none
+pdecode E_1__C106743_gredos.ORF b6bfa1510d4f0094
+pdevelop E_1__C106743_gredos.ORF bilinear 615b7397384c5a45
+pdevelop E_1__C106743_gredos.ORF ahd ddcdfd9709f850bc
+pfile IMG_4059.CR2 13804693 c4d86cb3bdf93a4f
+ppreviews IMG_4059.CR2 2 1600x1200:879091 160x120:14138
+pcspace IMG_4059.CR2 Srgb
+pdecode IMG_4059.CR2 3783632d81667588
+pdevelop IMG_4059.CR2 bilinear 1733c3a5763f0fe1
+pdevelop IMG_4059.CR2 ahd 1e33599994d7ceca
+pfile JD1_8203.NEF 8891234 ff9e64292529973b
+ppreviews JD1_8203.NEF 1 4256x2832:583324
+pcspace JD1_8203.NEF none
+pdecode JD1_8203.NEF cb717cfefc9cec62
+pdevelop JD1_8203.NEF bilinear a7ba072b85ba00ce
+pdevelop JD1_8203.NEF ahd 2183fd04ad31523f
+pfile P1000475.RW2 131372032 eaa5b0adcd9cd5ab
+ppreviews P1000475.RW2 1 1920x1440:606497
+pcspace P1000475.RW2 none
+pdecode P1000475.RW2 2ae934c0a93cdc32
+pdevelop P1000475.RW2 bilinear 1b367c54c39cb089
+pdevelop P1000475.RW2 ahd e73501f5e9a150c8
+pfile _7061961_copy.ORF 12248527 e86be181c781815a
+ppreviews _7061961_copy.ORF 1 3200x2400:1081645
+pcspace _7061961_copy.ORF none
+pdecode _7061961_copy.ORF err unsupported camera raw: Olympus compressed (or packed) ORF is not decoded

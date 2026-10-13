@@ -109,6 +109,11 @@ typedef struct pc_algo_liquify_field {
     size_t w, h;
     float (*d)[2];
     float *freeze;
+    /* The brush stroke in progress (transient brush state, not part of the result; ignored by
+     * pc_algo_liquify_field_eq): the point its last segment ended at, its last dab and how far
+     * the brush has travelled since that dab, so dab spacing runs on across segments. */
+    bool has_cursor;
+    double cursor_end[2], cursor_last_dab[2], cursor_carry;
 } pc_algo_liquify_field;
 
 /* auto_cell: 2 px per node up to 4.2 MP, 4 px beyond. */
@@ -129,16 +134,28 @@ void pc_algo_liquify_sample(const pc_algo_liquify_field *f, double x, double y, 
 /* Freeze value at a document point (bilinear, clamped to the field). */
 float pc_algo_liquify_freeze_at(const pc_algo_liquify_field *f, double x, double y);
 
+/* A dab's strength at squared distance t2 (in brush radii, 0..1) for Density 0..1: 1 at the
+ * centre, 0 with a flat slope at the rim at every density (NaN density counts as 0.5). */
+double pc_algo_liquify_falloff(double t2, double density);
+
 /* Applies one stroke; *dirty (may be NULL) receives the document rect whose output changed. On
  * failure (NOMEM) the field may hold part of the stroke. */
 pc_status pc_algo_liquify_apply_stroke(pc_algo_liquify_field *f, const pc_algo_liquify_stroke *s,
                                        pc_rect *dirty, pc_error *err);
 /* Interactive use: start a stroke at p = [x, y, pressure] (stationary tools dab once), then one
- * segment per new point; apply_stroke is exactly begin + segments over the point list. */
+ * segment per new point; apply_stroke is exactly begin + segments over the point list. Dabs fall
+ * every dab spacing (a twentieth of the radius) along the whole stroke, carried from segment to
+ * segment, so any sampling of a path gives the same field; a segment that does not start where
+ * the previous one ended starts afresh. */
 pc_status pc_algo_liquify_stroke_begin(pc_algo_liquify_field *f, const pc_algo_liquify_stroke *s,
                                        const double p[3], pc_rect *dirty, pc_error *err);
 pc_status pc_algo_liquify_stroke_segment(pc_algo_liquify_field *f, const pc_algo_liquify_stroke *s,
                                          const double a[3], const double b[3], pc_rect *dirty, pc_error *err);
+/* stroke_segment with `skip` false walks every dab, even those that cannot reach a field node
+ * (the reference walk tests compare the skipping one with). */
+pc_status pc_algo_liquify_walk_segment(pc_algo_liquify_field *f, const pc_algo_liquify_stroke *s,
+                                       const double a[3], const double b[3], bool skip, pc_rect *dirty,
+                                       pc_error *err);
 /* Replays strokes on a fresh field (`out` initialised on success). */
 pc_status pc_algo_liquify_field_from_strokes(pc_rect bounds, double cell,
                                              const pc_algo_liquify_stroke *strokes, size_t n,
@@ -169,5 +186,19 @@ pc_status pc_algo_liquify_proxy_render(const pc_algo_liquify_proxy *p, const pc_
                                        const size_t r[4], uint8_t (*out)[4], size_t out_len, pc_error *err);
 /* The proxy pixel rectangle covering document rect r. */
 void pc_algo_liquify_proxy_rect(const pc_algo_liquify_proxy *p, pc_rect r, size_t out[4]);
+
+/* Source pixels a full-resolution render reuses between updates (start zeroed; free px). */
+typedef struct pc_algo_liquify_scratch {
+    float (*px)[4];
+    size_t cap;
+} pc_algo_liquify_scratch;
+
+/* ProxyImage::render_full_resolution: renders a document-pixel-resolution preview of `region`
+ * into the matching part of out (premultiplied RGBA8 covering bounds ∩ the field's bounds, exactly
+ * out_len pixels). Source reads are limited to the region plus the displacement range that can
+ * reach it (at most 8 MP). False (out untouched or partly written) when nothing could be rendered. */
+bool pc_algo_liquify_render_full_resolution(const pc_surface *src, const pc_algo_liquify_field *field,
+                                            pc_rect bounds, pc_rect region, uint8_t (*out)[4], size_t out_len,
+                                            pc_algo_liquify_scratch *scratch);
 
 #endif

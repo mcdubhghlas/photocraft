@@ -12,6 +12,9 @@
  *   Raw           the raw status            "<raw error>" (no prefix)
  *   Svg           PC_ERR_FORMAT             "SVG: <reason>"
  *   Cancelled     PC_ERR_CANCELLED          "cancelled"
+ *   Pdn           PC_ERR_FORMAT             "PDN: <reason>"          (Paint.NET, R10)
+ *   Ora           PC_ERR_FORMAT             "OpenRaster: <reason>"
+ *   Kra           PC_ERR_FORMAT             "Krita: <reason>"
  * Out of memory is PC_ERR_NOMEM with a plain message (the reference aborts); it is never
  * prefixed. pc_io_error_kind recovers the variant from status and text.
  *
@@ -77,6 +80,9 @@ typedef enum pc_io_err_kind {
     PC_IO_ERR_RAW,
     PC_IO_ERR_SVG,
     PC_IO_ERR_CANCELLED,
+    PC_IO_ERR_PDN,
+    PC_IO_ERR_ORA,
+    PC_IO_ERR_KRA,
     PC_IO_ERR_OTHER /* out of memory, invalid arguments */
 } pc_io_err_kind;
 
@@ -100,6 +106,13 @@ void pc_io_fail_set(pc_error *err, pc_status code, const char *prefix, const cha
 /* IoError::Svg("..."): PC_ERR_FORMAT "SVG: ...". */
 #define pc_io_svg_error(err, ...)                                                                            \
     (pc_io_fail_set((err), PC_ERR_FORMAT, "SVG: ", __VA_ARGS__), (pc_status)PC_ERR_FORMAT)
+/* IoError::Pdn / Ora / Kra("..."): PC_ERR_FORMAT "PDN: ...", "OpenRaster: ...", "Krita: ...". */
+#define pc_io_pdn_error(err, ...)                                                                            \
+    (pc_io_fail_set((err), PC_ERR_FORMAT, "PDN: ", __VA_ARGS__), (pc_status)PC_ERR_FORMAT)
+#define pc_io_ora_error(err, ...)                                                                            \
+    (pc_io_fail_set((err), PC_ERR_FORMAT, "OpenRaster: ", __VA_ARGS__), (pc_status)PC_ERR_FORMAT)
+#define pc_io_kra_error(err, ...)                                                                            \
+    (pc_io_fail_set((err), PC_ERR_FORMAT, "Krita: ", __VA_ARGS__), (pc_status)PC_ERR_FORMAT)
 /* Out of memory while doing `what`. */
 #define pc_io_nomem(err, what)                                                                               \
     (pc_io_fail_set((err), PC_ERR_NOMEM, "", "out of memory %s", (what)), (pc_status)PC_ERR_NOMEM)
@@ -135,6 +148,7 @@ typedef struct pc_io_export_opts {
     bool force_psb;         /* write PSB even for .psd names */
     bool tiff_layers;       /* TIFF: keep the layers (tag 37724); off = Discard Layers */
     pc_io_xmp_embed xmp;
+    bool image_previews;    /* PSD/PSB: write the 1036 thumbnail (Preferences default: on) */
 } pc_io_export_opts;
 
 pc_io_export_opts pc_io_export_opts_default(void); /* codec defaults, false, false, All */

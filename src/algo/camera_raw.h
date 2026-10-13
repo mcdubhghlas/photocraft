@@ -63,6 +63,9 @@ typedef struct pc_algo_camera_raw {
     uint32_t seed;
     /* Pixel-size multiplier for previews on downsampled proxies (radii in px scale by it). */
     float pixel_scale;
+    /* The document's transfer curve: 0 for sRGB's, else the gamma of a power-law space (1.8 for
+     * ProPhoto). Set from the document's profile; Highlights/Shadows/Whites/Blacks act on light. */
+    float encoding_gamma;
 } pc_algo_camera_raw;
 
 /* Hue band centres of the Color Mixer (degrees). */

@@ -19,7 +19,6 @@
 
 #define GOLDEN "tests/golden/text-psd-vectors.txt"
 
-
 static int skipped;
 static int shown;
 
@@ -835,6 +834,145 @@ static void compare(const char *line, const pc_buf *got, const char *want)
     }
 }
 
+/* ---- R8 kinds (text_psd_vectors.rs r8_section) ---- */
+
+/* r8b2 <layer>:<index>,... <prev hex|-> => needs len hash dump(parse back) */
+static void r8b2_line(pc_buf *o, char *spec, const char *prev)
+{
+    pc_text_layer layers[8];
+    pc_txt2_object objs[8];
+    size_t n = 0, k, plen = 0;
+    uint8_t *pb = NULL;
+    bool needs = false;
+    pc_buf out = PC_BUF_INIT;
+    pc_ed_value back;
+    char *save = NULL, *tok;
+    if (strcmp(spec, "-") != 0) {
+        for (tok = strtok_r(spec, ",", &save); tok != NULL && n < 8; tok = strtok_r(NULL, ",", &save)) {
+            char *colon = strrchr(tok, ':');
+            if (colon == NULL) {
+                continue;
+            }
+            *colon = '\0';
+            if (!layer_named(tok, &layers[n])) {
+                pc_buf_append_str(o, "NOLAYER", NULL);
+                for (k = 0; k < n; k++) {
+                    pc_text_layer_fini(&layers[k]);
+                }
+                return;
+            }
+            objs[n].index = (int32_t)strtol(colon + 1, NULL, 10);
+            objs[n].layer = &layers[n];
+            n++;
+        }
+    }
+    if (strcmp(prev, "-") != 0) {
+        pb = unhex(prev, strlen(prev), &plen);
+    }
+    CHECK(pc_txt2_needed(objs, n, &needs, NULL) == PC_OK);
+    CHECK(pc_txt2_build(objs, n, pb, plen, pb != NULL, &out, NULL) == PC_OK);
+    pc_buf_appendf(o, NULL, "%d %zu %016" PRIx64 " ", needs ? 1 : 0, out.len, fnv64(out.data, out.len));
+    if (pc_txt2_parse(out.data, out.len, &back, NULL) == PC_OK) {
+        size_t from = o->len;
+        dump(o, &back);
+        shorten(o, from);
+        pc_ed_fini(&back);
+    } else {
+        pc_buf_append_str(o, "NOTXT2", NULL);
+    }
+    pc_buf_fini(&out);
+    free(pb);
+    for (k = 0; k < n; k++) {
+        pc_text_layer_fini(&layers[k]);
+    }
+}
+
+static void r8bare_line(pc_buf *o, const char *hex)
+{
+    size_t n;
+    uint8_t *b = unhex(hex, strlen(hex), &n);
+    pc_ed_value v;
+    if (b != NULL && pc_txt2_parse(b, n, &v, NULL) == PC_OK) {
+        pc_buf out = PC_BUF_INIT;
+        CHECK(pc_ed_write_bare(&v, &out, NULL) == PC_OK);
+        pc_buf_appendf(o, NULL, "%zu %016" PRIx64, out.len, fnv64(out.data, out.len));
+        pc_buf_fini(&out);
+        pc_ed_fini(&v);
+    } else {
+        pc_buf_append_str(o, "NOTXT2", NULL);
+    }
+    free(b);
+}
+
+static void r8tix_line(pc_buf *o, const char *ref, const char *idx)
+{
+    const named *r = name_get(ref);
+    pc_psd_bytes b = {NULL, 0};
+    bool has = false;
+    int32_t i = 0;
+    if (r == NULL) {
+        pc_buf_append_str(o, "NOREF", NULL);
+    } else if (pc_tysh_set_text_index(r->data, r->len, (int32_t)strtol(idx, NULL, 10), &b, NULL) != PC_OK) {
+        pc_buf_append_str(o, "NONE", NULL);
+    } else {
+        CHECK(pc_tysh_text_index(b.data, b.len, &has, &i, NULL) == PC_OK);
+        pc_buf_appendf(o, NULL, "%zu %016" PRIx64 " ", b.len, fnv64(b.data, b.len));
+        if (has) {
+            pc_buf_appendf(o, NULL, "%d", (int)i);
+        } else {
+            pc_buf_append_byte(o, '-', NULL);
+        }
+        pc_psd_bytes_fini(&b);
+    }
+}
+
+static double f64of(const char *hex)
+{
+    uint64_t u = strtoull(hex, NULL, 16);
+    double d;
+    memcpy(&d, &u, 8);
+    return d;
+}
+
+static void r8move_bytes(pc_buf *o, const uint8_t *d, size_t n, double dx, double dy, bool len_only)
+{
+    pc_psd_bytes b = {NULL, 0};
+    if (pc_tysh_translate(d, n, dx, dy, &b, NULL) != PC_OK) {
+        pc_buf_append_str(o, "NONE", NULL);
+        return;
+    }
+    if (len_only) {
+        pc_buf_appendf(o, NULL, "%zu", b.len);
+    } else {
+        pc_buf_appendf(o, NULL, "%zu %016" PRIx64, b.len, fnv64(b.data, b.len));
+    }
+    pc_psd_bytes_fini(&b);
+}
+
+static void r8frame_line(pc_buf *o, const char *ref, const char *hex)
+{
+    size_t n;
+    uint8_t *b = unhex(hex, strlen(hex), &n);
+    const named *r = name_get(ref);
+    pc_ed_value txt2;
+    pc_text_layer l;
+    if (b == NULL || r == NULL) {
+        pc_buf_append_str(o, "NOREF", NULL);
+    } else if (pc_txt2_parse(b, n, &txt2, NULL) != PC_OK) {
+        pc_buf_append_str(o, "NOTXT2", NULL);
+    } else {
+        if (pc_text_layer_from_tysh(r->data, r->len, 72.0f, &l, NULL) != PC_OK) {
+            pc_buf_append_str(o, "NONE", NULL);
+        } else {
+            CHECK(pc_txt2_apply_frame(&l, r->data, r->len, &txt2, NULL) == PC_OK);
+            ldump(o, &l);
+            pc_text_layer_fini(&l);
+        }
+        pc_ed_fini(&txt2);
+    }
+    free(b);
+}
+
 static void replay_line(char *line, bool have_corpus)
 {
     char *arrow = strstr(line, " => ");
@@ -987,6 +1125,65 @@ static void replay_line(char *line, bool have_corpus)
         }
     } else if (strcmp(kind, "wss") == 0) {
         wss_line(&got, args);
+    } else if (strcmp(kind, "r8b2") == 0 || strcmp(kind, "r8frame") == 0 || strcmp(kind, "r8tix") == 0 ||
+               strcmp(kind, "r8move") == 0) {
+        char a[4096], b[16];
+        char *sp = strchr(args, ' ');
+        if (sp != NULL && (size_t)(sp - args) < sizeof a) {
+            char *rest = sp + 1, *end = strstr(rest, " => ");
+            memcpy(a, args, (size_t)(sp - args));
+            a[sp - args] = '\0';
+            if (end != NULL) {
+                *end = '\0';
+            }
+            if (kind[2] == 'b') {
+                r8b2_line(&got, a, rest);
+            } else if (kind[2] == 'f') {
+                r8frame_line(&got, a, rest);
+            } else if (kind[2] == 't') {
+                r8tix_line(&got, a, rest);
+            } else {
+                const named *r = name_get(a);
+                char dx[32] = "", dy[32] = "";
+                (void)b;
+                if (r != NULL && sscanf(rest, "%31s %31s", dx, dy) == 2) {
+                    r8move_bytes(&got, r->data, r->len, f64of(dx), f64of(dy), false);
+                } else {
+                    pc_buf_append_str(&got, "NOREF", NULL);
+                }
+            }
+            if (end != NULL) {
+                *end = ' ';
+            }
+        }
+    } else if (strcmp(kind, "r8tixr") == 0 || strcmp(kind, "r8bare") == 0 || strcmp(kind, "r8movehex") == 0) {
+        char *end = strstr(args, " => ");
+        if (end != NULL) {
+            *end = '\0';
+        }
+        if (kind[2] == 'b') {
+            r8bare_line(&got, args);
+        } else if (kind[2] == 'm') {
+            size_t n;
+            uint8_t *bb = unhex(args, strlen(args), &n);
+            r8move_bytes(&got, bb, n, 1.0, 1.0, true);
+            free(bb);
+        } else {
+            const named *r = name_get(args);
+            bool has = false;
+            int32_t i = 0;
+            if (r != NULL) {
+                CHECK(pc_tysh_text_index(r->data, r->len, &has, &i, NULL) == PC_OK);
+            }
+            if (has) {
+                pc_buf_appendf(&got, NULL, "%d", (int)i);
+            } else {
+                pc_buf_append_byte(&got, '-', NULL);
+            }
+        }
+        if (end != NULL) {
+            *end = ' ';
+        }
     } else if (strcmp(kind, "corpusfile") == 0) {
         if (!have_corpus) {
             skipped++;

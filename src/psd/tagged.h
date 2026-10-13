@@ -80,10 +80,13 @@ pc_status pc_psd_block_check_structure(const pc_psd_block *b, pc_error *err);
 /* Reads blocks until the reader is exhausted; bytes that don't form a block become trailing. */
 struct psd_rd;
 struct psd_w;
-pc_status psd_read_blocks(struct psd_rd *r, pc_psd_version v, pc_psd_block **blocks, size_t *n,
-                          pc_psd_bytes *trailing, pc_error *err);
-void psd_write_block(struct psd_w *w, const pc_psd_block *b, pc_psd_version v);
-void psd_write_blocks(struct psd_w *w, const pc_psd_block *blocks, size_t n, pc_psd_version v);
+/* `alignment` is the default (canonical) padding: 4 for global blocks, 2 for layer blocks. Padding
+ * equal to zeros up to it reads as "default" (padding.has == false). */
+pc_status psd_read_blocks(struct psd_rd *r, pc_psd_version v, size_t alignment, pc_psd_block **blocks,
+                          size_t *n, pc_psd_bytes *trailing, pc_error *err);
+void psd_write_block(struct psd_w *w, const pc_psd_block *b, pc_psd_version v, size_t alignment);
+void psd_write_blocks(struct psd_w *w, const pc_psd_block *blocks, size_t n, pc_psd_version v,
+                      size_t alignment);
 void pc_psd_blocks_free(pc_psd_block *blocks, size_t n);
 pc_status pc_psd_blocks_clone(const pc_psd_block *blocks, size_t n, pc_psd_block **out, pc_error *err);
 bool pc_psd_blocks_eq(const pc_psd_block *a, size_t na, const pc_psd_block *b, size_t nb);

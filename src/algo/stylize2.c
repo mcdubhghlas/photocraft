@@ -1,10 +1,24 @@
 /* Stylize: Diffuse, Extrude, Tiles, Trace Contour, Wind (port of crates/algo/src/stylize2.rs). */
 #include <float.h>
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "algo/fx.h"
 #include "algo/fx_defs.h"
+#include "base/mem.h"
+
+static atomic_bool direct_only;
+
+void pc_algo_fx_set_direct_only(bool on)
+{
+    atomic_store(&direct_only, on);
+}
+
+bool pc_algo_fx_direct_only(void)
+{
+    return atomic_load(&direct_only);
+}
 
 static void read_px(const pc_algo_image *src, int32_t x, int32_t y, float *buf, size_t n)
 {
@@ -200,6 +214,175 @@ static bool sweep(float p, float m, float o, float half, float *lo, float *hi)
     return *lo <= *hi;
 }
 
+static pc_status extrude_direct(const pc_algo_extrude_params *spec, const pc_algo_image *src, pc_rect out,
+                                const pc_algo_ctx *ctx, float *dst, pc_error *err);
+
+#define EXTRUDE_MAX_PIXELS 4194304u
+#define EXTRUDE_MAX_CELLS 262144
+/* Beyond this, f32 pixel centres can lose enough precision to widen the sweep bounds. */
+#define EXTRUDE_MAX_COORD (1 << 22)
+
+static bool beyond_coord(int32_t v)
+{
+    return (v < 0 ? -(int64_t)v : (int64_t)v) > EXTRUDE_MAX_COORD;
+}
+
+/* extrude::blocks (Blocks only): rasterizes each swept block only where it can hit, in the
+ * original cell order (ascending gy, then gx: the tie order of every pixel's candidate search), so
+ * the result is the direct search's. dst holds the crop of src; false (dst may be partly written)
+ * when this path doesn't apply and the direct one must run; *nomem on allocation failure. */
+static bool extrude_blocks(const pc_algo_extrude_params *spec, const pc_algo_image *src, pc_rect out,
+                           const pc_algo_ctx *ctx, float *dst, bool *nomem)
+{
+    pc_rect b = ctx->bounds, area;
+    size_t n = src->ch, w = pc_rect_width(out), count, i, cc;
+    int32_t cs, k, gx0, gy0, gx1, gy1, cx0, cy0, cx1, cy1, cx, cy;
+    float reach, bcx, bcy, half_diag, half, *heights;
+    bool sub;
+    *nomem = false;
+    if (spec->kind != PC_ALGO_EXTRUDE_BLOCKS || n == 0 || n > PC_ALGO_MAXC || !isfinite(spec->size) ||
+        !isfinite(spec->depth)) {
+        return false;
+    }
+    if (beyond_coord(b.x0) || beyond_coord(b.y0) || beyond_coord(b.x1) || beyond_coord(b.y1) ||
+        beyond_coord(out.x0) || beyond_coord(out.y0) || beyond_coord(out.x1) || beyond_coord(out.y1)) {
+        return false;
+    }
+    count = w * (size_t)pc_rect_height(out);
+    if (count > EXTRUDE_MAX_PIXELS) {
+        return false;
+    }
+    area = pc_rect_intersect(out, b);
+    if (pc_rect_is_empty(area)) {
+        return true;
+    }
+    cs = pc_f32_to_i32(roundf(pc_clampf(spec->size, 2.0f, 255.0f)));
+    reach = pc_algo_stylize2_extrude_reach(spec->depth);
+    k = pc_f32_to_i32(ceilf(reach / (float)cs)) + 1;
+    gx0 = pc_fx_div_euclid(area.x0 - b.x0, cs);
+    gy0 = pc_fx_div_euclid(area.y0 - b.y0, cs);
+    gx1 = pc_fx_div_euclid(area.x1 - 1 - b.x0, cs);
+    gy1 = pc_fx_div_euclid(area.y1 - 1 - b.y0, cs);
+    cx0 = gx0 - k > 0 ? gx0 - k : 0;
+    cy0 = gy0 - k > 0 ? gy0 - k : 0;
+    cx1 = gx1 + k < ((int32_t)pc_rect_width(b) - 1) / cs ? gx1 + k : ((int32_t)pc_rect_width(b) - 1) / cs;
+    cy1 = gy1 + k < ((int32_t)pc_rect_height(b) - 1) / cs ? gy1 + k : ((int32_t)pc_rect_height(b) - 1) / cs;
+    if ((int64_t)(cx1 - cx0 + 1) * (int64_t)(cy1 - cy0 + 1) > EXTRUDE_MAX_CELLS) {
+        return false;
+    }
+    heights = pc_malloc_array(count, sizeof *heights);
+    if (heights == NULL) {
+        *nomem = true;
+        return false;
+    }
+    for (i = 0; i < count; i++) {
+        heights[i] = -INFINITY;
+    }
+    bcx = (float)(b.x0 + b.x1) / 2.0f;
+    bcy = (float)(b.y0 + b.y1) / 2.0f;
+    half_diag = pc_rs_maxf_k(hypotf((float)pc_rect_width(b), (float)pc_rect_height(b)) / 2.0f, 1.0f);
+    half = (float)cs / 2.0f;
+    cc = pc_algo_ncol(ctx, n);
+    sub = pc_algo_subtractive(ctx);
+    for (cy = cy0; cy <= cy1; cy++) {
+        for (cx = cx0; cx <= cx1; cx++) {
+            pc_rect r =
+                pc_rect_make(b.x0 + cx * cs, b.y0 + cy * cs, b.x0 + (cx + 1) * cs, b.y0 + (cy + 1) * cs);
+            pc_rect clipped = pc_rect_intersect(r, b), sw;
+            float col[PC_ALGO_MAXC] = {0}, cnt = 0.0f, h, mx, my, off, ox, oy;
+            int64_t step = cs / 8 > 1 ? cs / 8 : 1, xx, yy;
+            int32_t x, y;
+            size_t c;
+            if (spec->mask_incomplete && !pc_rect_eq(clipped, r)) {
+                continue;
+            }
+            for (yy = clipped.y0; yy < clipped.y1; yy += step) {
+                for (xx = clipped.x0; xx < clipped.x1; xx += step) {
+                    float a = ctx->alpha ? pc_algo_image_get(src, (int32_t)xx, (int32_t)yy, n - 1) : 1.0f;
+                    for (c = 0; c < n; c++) {
+                        float sv = pc_algo_image_get(src, (int32_t)xx, (int32_t)yy, c);
+                        col[c] += ctx->alpha && c < n - 1 ? sv * a : sv;
+                    }
+                    cnt += 1.0f;
+                }
+            }
+            if (cnt > 0.0f) {
+                for (c = 0; c < n; c++) {
+                    col[c] /= cnt;
+                }
+            }
+            pc_algo_unpremul_px(col, n, ctx->alpha);
+            h = spec->level_based ? pc_clampf(pc_algo_luma(ctx, col, n), 0.0f, 1.0f)
+                                  : pc_algo_hash01(cx, cy, 21, spec->seed);
+            if (!isfinite(h)) {
+                free(heights);
+                return false;
+            }
+            mx = (float)r.x0 + half;
+            my = (float)r.y0 + half;
+            off = reach * h / half_diag;
+            ox = (mx - bcx) * off;
+            oy = (my - bcy) * off;
+            /* Two extra pixels conservatively cover rounding in the unchanged interval test. */
+            sw = pc_rect_intersect(pc_rect_make(pc_f32_to_i32(floorf(pc_rs_minf(mx, mx + ox) - half)) - 2,
+                                                pc_f32_to_i32(floorf(pc_rs_minf(my, my + oy) - half)) - 2,
+                                                pc_f32_to_i32(ceilf(pc_rs_maxf(mx, mx + ox) + half)) + 2,
+                                                pc_f32_to_i32(ceilf(pc_rs_maxf(my, my + oy) + half)) + 2),
+                                   area);
+            for (y = sw.y0; y < sw.y1; y++) {
+                int32_t gy = pc_fx_div_euclid(y - b.y0, cs);
+                float fy = (float)y + 0.5f, iy0, iy1;
+                if (abs(cy - gy) > k || !sweep(fy, my, oy, half, &iy0, &iy1)) {
+                    continue;
+                }
+                for (x = sw.x0; x < sw.x1; x++) {
+                    size_t idx = (size_t)(y - out.y0) * w + (size_t)(x - out.x0);
+                    float fx = (float)x + 0.5f, ix0, ix1, lo, hi, *px;
+                    int face;
+                    if (abs(cx - pc_fx_div_euclid(x - b.x0, cs)) > k || heights[idx] >= h) {
+                        continue;
+                    }
+                    if (!sweep(fx, mx, ox, half, &ix0, &ix1)) {
+                        continue;
+                    }
+                    lo = pc_rs_maxf(ix0, iy0);
+                    hi = pc_rs_minf(ix1, iy1);
+                    if (lo > hi) {
+                        continue;
+                    }
+                    heights[idx] = h;
+                    if (hi >= 1.0f) {
+                        face = 0;
+                    } else if (ix1 < iy1) {
+                        face = ox > 0.0f ? 1 : 2;
+                    } else {
+                        face = oy > 0.0f ? 3 : 4;
+                    }
+                    px = dst + idx * n;
+                    if (face == 0 && !spec->solid_front) {
+                        int32_t sx = pc_f32_to_i32(floorf(fx - (mx - bcx) * off));
+                        int32_t sy = pc_f32_to_i32(floorf(fy - (my - bcy) * off));
+                        read_px(src, pc_clamp_i32(sx, r.x0, r.x1 - 1), pc_clamp_i32(sy, r.y0, r.y1 - 1), px,
+                                n);
+                    } else {
+                        static const float shades[5] = {1.0f, 0.85f, 0.55f, 0.95f, 0.45f};
+                        for (c = 0; c < cc; c++) {
+                            px[c] =
+                                pc_clampf(sub ? 1.0f - (1.0f - col[c]) * shades[face] : col[c] * shades[face],
+                                          0.0f, 1.0f);
+                        }
+                        if (ctx->alpha) {
+                            px[n - 1] = col[n - 1];
+                        }
+                    }
+                }
+            }
+        }
+    }
+    free(heights);
+    return true;
+}
+
 /* The bounds are cut into square cells. Blocks are pushed toward the viewer (front faces shift
  * away from the bounds' centre by their height, with shaded sides); Pyramids raise four shaded
  * triangular faces. Heights are random or follow the cell's brightness. */
@@ -207,6 +390,23 @@ static pc_status extrude_k(const void *p, const void *prep, const pc_algo_image 
                            const pc_algo_ctx *ctx, float *dst, pc_error *err)
 {
     const pc_algo_extrude_params *spec = p;
+    bool nomem = false;
+    (void)prep;
+    pc_algo_image_crop_into(src, out, dst);
+    if (!pc_algo_fx_direct_only() && extrude_blocks(spec, src, out, ctx, dst, &nomem)) {
+        return PC_OK;
+    }
+    if (!pc_algo_fx_direct_only() && nomem) {
+        return pc_fail(err, PC_ERR_NOMEM, "out of memory for Extrude");
+    }
+    return extrude_direct(spec, src, out, ctx, dst, err);
+}
+
+/* The direct search (extrude_direct in the reference): every pixel looks for the block whose front
+ * face or sides cover it. */
+static pc_status extrude_direct(const pc_algo_extrude_params *spec, const pc_algo_image *src, pc_rect out,
+                                const pc_algo_ctx *ctx, float *dst, pc_error *err)
+{
     pc_rect b = ctx->bounds;
     size_t n = src->ch, w = pc_rect_width(out), i, c;
     float bcx = (float)pc_i32_wrapping_add(b.x0, b.x1) / 2.0f,
@@ -214,7 +414,6 @@ static pc_status extrude_k(const void *p, const void *prep, const pc_algo_image 
     float half_diag = pc_rs_maxf_k(hypotf((float)pc_rect_width(b), (float)pc_rect_height(b)) / 2.0f, 1.0f);
     float reach = pc_algo_stylize2_extrude_reach(spec->depth), csf;
     extrude_ctx *e;
-    (void)prep;
     pc_algo_image_crop_into(src, out, dst);
     if (n == 0 || n > PC_ALGO_MAXC || w == 0) {
         return PC_OK;
@@ -481,6 +680,99 @@ float pc_algo_stylize2_wind_reach(pc_algo_wind_method method)
     }
 }
 
+#define WIND_MAX_ROW 1048576u
+
+typedef struct wind_hit {
+    float weight;
+    int32_t k;
+} wind_hit;
+
+/* wind::streaks (Wind and Blast): scatters each source streak once, keeping the per-pixel search's
+ * nearest-source tie rule (equal weights prefer the smallest k). dst holds the crop of src; false
+ * (dst untouched) when this path doesn't apply; *nomem on allocation failure. */
+static bool wind_streaks(const pc_algo_wind_params *wp, const pc_algo_image *src, pc_rect out,
+                         const pc_algo_ctx *ctx, float *dst, bool *nomem)
+{
+    size_t n = src->ch, w = pc_rect_width(out), sources, step, x;
+    int32_t lmax = pc_f32_to_i32(pc_algo_stylize2_wind_reach(wp->method)), d = wp->from_right ? -1 : 1, y;
+    int64_t start;
+    float tmp[PC_ALGO_MAXC], strength = wp->method == PC_ALGO_WIND_BLAST ? 8.0f : 4.0f;
+    wind_hit *best;
+    *nomem = false;
+    if (wp->method == PC_ALGO_WIND_STAGGER || n == 0 || n > PC_ALGO_MAXC || w == 0 || w > WIND_MAX_ROW ||
+        pc_rect_is_empty(out)) {
+        return false;
+    }
+    /* Include the upstream halo and one more source for the edge difference. */
+    start = wp->from_right ? (int64_t)out.x1 + (lmax - 1) : (int64_t)out.x0 - lmax;
+    if (start > INT32_MAX || start < INT32_MIN || start - d > INT32_MAX || start - d < INT32_MIN) {
+        return false;
+    }
+    sources = w + (size_t)lmax;
+    if (start + (int64_t)d * (int64_t)(sources - 1) > INT32_MAX ||
+        start + (int64_t)d * (int64_t)(sources - 1) < INT32_MIN) {
+        return false;
+    }
+    best = pc_malloc_array(w, sizeof *best);
+    if (best == NULL) {
+        *nomem = true;
+        return false;
+    }
+    for (y = out.y0; y < out.y1; y++) {
+        float prev;
+        size_t row = (size_t)(y - out.y0) * w * n;
+        for (x = 0; x < w; x++) {
+            best[x].weight = 0.0f;
+            best[x].k = lmax + 1;
+        }
+        read_px(src, (int32_t)(start - d), y, tmp, n);
+        prev = pc_algo_luma(ctx, tmp, n);
+        for (step = 0; step < sources; step++) {
+            int32_t s = (int32_t)(start + (int64_t)d * (int64_t)step), kk, kmax;
+            float lum, edge, hl, len;
+            read_px(src, s, y, tmp, n);
+            lum = pc_algo_luma(ctx, tmp, n);
+            edge = pc_rs_minf_k(fabsf(lum - prev) * strength, 1.0f);
+            prev = lum;
+            if (edge <= 0.0f) {
+                continue;
+            }
+            hl = pc_algo_hash01(s, y, 44, wp->seed);
+            len = pc_rs_maxf_k(hl * hl * (float)lmax, 1.0f);
+            kmax = pc_f32_to_i32(floorf(len));
+            kmax = kmax < lmax ? kmax : lmax;
+            for (kk = 1; kk <= kmax; kk++) {
+                int64_t xt = (int64_t)s + (int64_t)d * kk;
+                float weight;
+                wind_hit *hit;
+                if (xt < out.x0 || xt >= out.x1) {
+                    continue;
+                }
+                weight = edge * (1.0f - (float)kk / (len + 1.0f));
+                hit = &best[xt - out.x0];
+                /* Sources are visited downwind; equal weights prefer the smallest original k. */
+                if (weight > hit->weight || (weight == hit->weight && kk < hit->k)) {
+                    hit->weight = weight;
+                    hit->k = kk;
+                }
+            }
+        }
+        for (x = 0; x < w; x++) {
+            if (best[x].weight > 0.0f) {
+                int64_t sx = (int64_t)out.x0 + (int64_t)x - (int64_t)d * best[x].k;
+                float *px = dst + row + x * n;
+                size_t c;
+                read_px(src, (int32_t)sx, y, tmp, n);
+                for (c = 0; c < n; c++) {
+                    px[c] += (tmp[c] - px[c]) * best[x].weight;
+                }
+            }
+        }
+    }
+    free(best);
+    return true;
+}
+
 /* Streaks trail downwind from edges (Blast: longer and denser); Stagger shifts random row segments
  * along the wind. */
 static pc_status wind_k(const void *p, const void *prep, const pc_algo_image *src, pc_rect out,
@@ -492,8 +784,15 @@ static pc_status wind_k(const void *p, const void *prep, const pc_algo_image *sr
     /* Streaks move downwind: from the left they extend to the right (+x). */
     int32_t d = wp->from_right ? -1 : 1;
     float tmp[PC_ALGO_MAXC], tmp2[PC_ALGO_MAXC];
-    (void)prep, (void)err;
+    bool nomem = false;
+    (void)prep;
     pc_algo_image_crop_into(src, out, dst);
+    if (!pc_algo_fx_direct_only() && wind_streaks(wp, src, out, ctx, dst, &nomem)) {
+        return PC_OK;
+    }
+    if (!pc_algo_fx_direct_only() && nomem) {
+        return pc_fail(err, PC_ERR_NOMEM, "out of memory for Wind");
+    }
     if (n == 0 || n > PC_ALGO_MAXC) {
         return PC_OK;
     }

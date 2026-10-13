@@ -37,7 +37,8 @@ bool pc_algo_stack_stat_from_name(const char *s, size_t len, pc_algo_stack_stat 
 float pc_algo_stack_stat_of(float *v, size_t n, pc_algo_stack_stat s);
 
 /* Combines `count` layers (layer k holds lens[k] RGBA pixels) with statistic s: *out holds
- * max(lens) pixels (free()), *out_len that count. */
+ * max(lens) pixels (free()), *out_len that count. Colour results keep their float range (no clamp);
+ * Entropy, Skewness and Kurtosis apply their own 0..1 normalisation. */
 pc_status pc_algo_stack_combine(const float (*const *layers)[4], const size_t *lens, size_t count,
                                 pc_algo_stack_stat s, float (**out)[4], size_t *out_len, pc_error *err);
 

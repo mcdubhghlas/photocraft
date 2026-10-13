@@ -91,6 +91,9 @@ typedef struct out {
     size_t cap;
 } out;
 
+#if defined(__GNUC__)
+__attribute__((format(printf, 2, 3)))
+#endif
 static void put(out *o, const char *fmt, ...)
 {
     va_list ap;

@@ -228,33 +228,125 @@ static float luma4(const float *p)
     return 0.299f * p[0] + 0.587f * p[1] + 0.114f * p[2];
 }
 
-static void test_shadows_lift_dark_pixels_more_than_bright(void)
+/* tone/shadows_highlights.rs: a flat 121 x 121 image with one different pixel in the middle;
+ * returns that pixel after Shadows/Highlights. */
+static void sh_probe(const float bg[3], const float v[3], const pc_algo_shadows_highlights_params *p,
+                     float out[3])
 {
-    float (*px)[4] = ramp(32, 8), (*orig)[4] = ramp(32, 8), (*px2)[4] = ramp(32, 8);
-    pc_algo_shadows_highlights_params p = pc_algo_shadows_highlights_default(), id = p;
-    float g3, g30;
-    p.black_clip = 0.0f, p.white_clip = 0.0f;
-    CHECK(pc_algo_shadows_highlights(px, 256, 32, 8, &p, NULL) == PC_OK);
-    g3 = luma4(px[3]) - luma4(orig[3]);
-    g30 = luma4(px[30]) - luma4(orig[30]);
-    CHECK(g3 > 0.02f);
-    CHECK(g3 > g30);
-    id.shadow_amount = 0.0f, id.highlight_amount = 0.0f, id.color = 0.0f, id.black_clip = 0.0f,
-    id.white_clip = 0.0f;
-    CHECK(pc_algo_shadows_highlights(px2, 256, 32, 8, &id, NULL) == PC_OK);
-    CHECK(memcmp(px2, orig, 256 * sizeof *px2) == 0);
-    free(px), free(orig), free(px2);
+    const size_t w = 121, h = 121;
+    float (*img)[4] = malloc(w * h * sizeof *img);
+    size_t i;
+    for (i = 0; i < w * h; i++) {
+        img[i][0] = bg[0], img[i][1] = bg[1], img[i][2] = bg[2], img[i][3] = 1.0f;
+    }
+    img[60 * w + 60][0] = v[0], img[60 * w + 60][1] = v[1], img[60 * w + 60][2] = v[2];
+    CHECK(pc_algo_shadows_highlights(img, w * h, w, h, p, NULL) == PC_OK);
+    memcpy(out, img[60 * w + 60], 3 * sizeof *out);
+    free(img);
 }
 
-static void test_highlights_darken_bright_pixels(void)
+static float sh_off(const float a[3], const int b[3])
 {
-    float (*px)[4] = ramp(32, 8), (*orig)[4] = ramp(32, 8);
+    float m = 0.0f;
+    int c;
+    for (c = 0; c < 3; c++) {
+        float d = fabsf(a[c] - (float)b[c] / 32768.0f) * 255.0f;
+        m = d > m ? d : m;
+    }
+    return m;
+}
+
+/* grey_matches_photoshop: Photoshop 25.4's results (16-bit levels of 32768) for grey pixels
+ * lifted by the default Shadows (35 %, Tone 50 %, Radius 30 px; Color 0). */
+static void test_sh_grey_matches_photoshop(void)
+{
+    static const float vs[4] = {0.125f, 0.25f, 0.5f, 0.749969f};
+    static const int want[2][4] = {{11389, 19422, 28451, 31931}, {5211, 9909, 18229, 25700}};
     pc_algo_shadows_highlights_params p = pc_algo_shadows_highlights_default();
-    p.shadow_amount = 0.0f, p.highlight_amount = 80.0f, p.black_clip = 0.0f, p.white_clip = 0.0f;
-    CHECK(pc_algo_shadows_highlights(px, 256, 32, 8, &p, NULL) == PC_OK);
-    CHECK(px[30][0] < orig[30][0]);
-    CHECK(fabsf(px[1][0] - orig[1][0]) < 1e-6f);
-    free(px), free(orig);
+    int b, k;
+    p.color = 0.0f, p.black_clip = 0.0f, p.white_clip = 0.0f;
+    for (b = 0; b < 2; b++) {
+        float bg[3] = {(float)b * 0.5f, (float)b * 0.5f, (float)b * 0.5f};
+        for (k = 0; k < 4; k++) {
+            float v[3] = {vs[k], vs[k], vs[k]}, got[3];
+            int wl[3] = {want[b][k], want[b][k], want[b][k]};
+            sh_probe(bg, v, &p, got);
+            CHECK(sh_off(got, wl) < 2.0f);
+        }
+    }
+}
+
+/* colour_matches_photoshop: colour differences scaled by Color (+20; Amount 35 %, Radius 10). */
+static void test_sh_colour_matches_photoshop(void)
+{
+    static const float bgs[4] = {0.0f, 0.0f, 4915.0f / 32768.0f, 9830.0f / 32768.0f};
+    static const int pxs[4][3] = {
+        {3277, 1638, 0}, {8192, 6554, 4915}, {4915, 3277, 1638}, {11469, 9830, 8192}};
+    static const int want[4][3] = {
+        {8235, 5202, 2170}, {19350, 16514, 13676}, {10124, 7424, 4723}, {16540, 14376, 12214}};
+    pc_algo_shadows_highlights_params p = pc_algo_shadows_highlights_default();
+    int k, c;
+    p.shadow_radius = 10.0f, p.black_clip = 0.0f, p.white_clip = 0.0f;
+    for (k = 0; k < 4; k++) {
+        float bg[3] = {bgs[k], bgs[k], bgs[k]}, v[3], got[3];
+        for (c = 0; c < 3; c++) {
+            v[c] = (float)pxs[k][c] / 32768.0f;
+        }
+        sh_probe(bg, v, &p, got);
+        CHECK(sh_off(got, want[k]) < 2.0f);
+    }
+}
+
+/* edge_matches_photoshop: across a strong edge the neighbourhood barely leaks. */
+static void test_sh_edge_matches_photoshop(void)
+{
+    static const int xs[7] = {92, 98, 99, 100, 101, 102, 108};
+    static const int want[7] = {16370, 14439, 12146, 30891, 30403, 30146, 29979};
+    const size_t w = 200, h = 24;
+    const float a = 3277.0f / 32768.0f, b = 29491.0f / 32768.0f;
+    float (*img)[4] = malloc(w * h * sizeof *img);
+    pc_algo_shadows_highlights_params p = pc_algo_shadows_highlights_default();
+    size_t i;
+    int k;
+    for (i = 0; i < w * h; i++) {
+        float v = i % w < 100 ? a : b;
+        img[i][0] = img[i][1] = img[i][2] = v, img[i][3] = 1.0f;
+    }
+    p.shadow_amount = 100.0f, p.shadow_tone = 100.0f, p.shadow_radius = 10.0f, p.color = 0.0f;
+    p.black_clip = 0.0f, p.white_clip = 0.0f;
+    CHECK(pc_algo_shadows_highlights(img, w * h, w, h, &p, NULL) == PC_OK);
+    for (k = 0; k < 7; k++) {
+        float got = img[12 * w + (size_t)xs[k]][0] * 32768.0f;
+        CHECK(fabsf(got - (float)want[k]) / 32768.0f * 255.0f < 6.0f);
+    }
+    free(img);
+}
+
+static void test_sh_strength_and_curve_follow_photoshop(void)
+{
+    static const float vs[3] = {0.1f, 0.3f, 0.6f};
+    int k;
+    CHECK(fabsf(pc_algo_sh_strength(50.0f) - 2.0f) < 2e-3f &&
+          fabsf(pc_algo_sh_strength(100.0f) - 3.0f) < 1e-4f);
+    CHECK(fabsf(pc_algo_sh_strength(15.0f) - 1.02f) < 0.01f &&
+          fabsf(pc_algo_sh_strength(1.0f) - 0.19f) < 0.01f);
+    /* Amount 50 is the image screened with itself twice: 1 - (1 - v)^4. */
+    for (k = 0; k < 3; k++) {
+        float c = 1.0f - vs[k];
+        CHECK(fabsf(pc_algo_sh_lift(2.0f, vs[k]) - (1.0f - (c * c) * (c * c))) < 1e-6f);
+    }
+}
+
+static void test_sh_tonal_mask_spans_photoshop_tones(void)
+{
+    float m95[256], m100[256], m0[256];
+    pc_algo_sh_tonal_mask(95.0f, m95);
+    pc_algo_sh_tonal_mask(100.0f, m100);
+    pc_algo_sh_tonal_mask(0.0f, m0);
+    CHECK(fabsf(m95[128] - (1.0f - 128.0f / 255.0f)) < 1e-3f);
+    CHECK(memcmp(m95, m100, sizeof m95) == 0);
+    /* Tone 0 still reaches about 7 % into the levels (Photoshop: half at level 18). */
+    CHECK(m0[0] > 0.999f && fabsf(m0[18] - 0.5f) < 0.03f && m0[60] < 0.02f);
 }
 
 static void test_replace_color_only_touches_matching_pixels(void)
@@ -335,6 +427,32 @@ static void ramp_surface(pc_surface *s, pc_sample_type st)
     free(v);
 }
 
+/* The reference's filter lists: Nearest, Bilinear, Bicubic, Lanczos, Preserve Details. */
+static const pc_algo_resample RS5[5] = {PC_ALGO_RESAMPLE_NEAREST, PC_ALGO_RESAMPLE_BILINEAR,
+                                        PC_ALGO_RESAMPLE_BICUBIC, PC_ALGO_RESAMPLE_LANCZOS,
+                                        PC_ALGO_RESAMPLE_PRESERVE_DETAILS};
+
+/* fixed_channel_rows_match_dynamic_resampling's kernels: Nearest, Bilinear, Bicubic and Sharper
+ * designed for the scale, Lanczos. */
+static pc_algo_rs_kernel rs_kernel(size_t i, double scale)
+{
+    pc_algo_rs_kernel k = {PC_ALGO_KERNEL_NEAREST, 0.0, 1.0};
+    switch (i) {
+    case 1:
+        k.kind = PC_ALGO_KERNEL_BILINEAR;
+        return k;
+    case 2:
+        return pc_algo_resample_keys(PC_ALGO_RESAMPLE_BICUBIC, scale);
+    case 3:
+        return pc_algo_resample_keys(PC_ALGO_RESAMPLE_BICUBIC_SHARPER, scale);
+    case 4:
+        k.kind = PC_ALGO_KERNEL_LANCZOS;
+        return k;
+    default:
+        return k;
+    }
+}
+
 /* The C port has one horizontal pass (the reference keeps fixed-width and dynamic copies); it must
  * equal the direct per-tap sum the dynamic version computes. */
 static void test_horizontal_matches_direct_sum(void)
@@ -344,8 +462,9 @@ static void test_horizontal_matches_direct_sum(void)
     size_t n, si, f, e;
     for (n = 1; n <= 5; n++) {
         for (si = 0; si < 4; si++) {
-            for (f = 0; f < 4; f++) {
+            for (f = 0; f < 5; f++) {
                 for (e = 0; e < 2; e++) {
+                    pc_algo_rs_kernel kern = rs_kernel(f, scales[si]);
                     pc_algo_taps t;
                     float row[35 * 5], def[5], *got, *want;
                     size_t i, k, j, c;
@@ -355,8 +474,8 @@ static void test_horizontal_matches_direct_sum(void)
                     for (i = 0; i < n; i++) {
                         def[i] = (float)i / 7.0f;
                     }
-                    CHECK(pc_algo_taps_make(-5, 41, scales[si], (pc_algo_resample)f, e ? edge : NULL, content,
-                                            &t, NULL) == PC_OK);
+                    CHECK(pc_algo_taps_make(-5, 41, scales[si], kern, e ? edge : NULL, content, &t, NULL) ==
+                          PC_OK);
                     got = calloc(t.n * n, sizeof(float));
                     want = calloc(t.n * n, sizeof(float));
                     pc_algo_resample_horizontal(row, 35 * n, got, &t, -3, def, n);
@@ -384,13 +503,167 @@ static void test_horizontal_matches_direct_sum(void)
     }
 }
 
+static const uint16_t PS_0[112] = {
+    3777,  13165, 22219, 16176, 10460, 19488, 29643, 11249, 12634, 21696, 13330, 10319, 18965, 29120,
+    21280, 11204, 20279, 16184, 8200,  17548, 27703, 21824, 10182, 19259, 26967, 5238,  16528, 26683,
+    17366, 8895,  17922, 32768, 2402,  15190, 25345, 17493, 7834,  16903, 31316, 1748,  14172, 24326,
+    24718, 6368,  15746, 30390, 0,     13107, 23169, 31215, 4790,  14456, 27639, 5080,  11597, 21880,
+    29649, 3864,  13507, 24136, 20600, 10264, 20931, 28009, 0,     12446, 21385, 28735, 8754,  19642,
+    26154, 4049,  10895, 20832, 23523, 7620,  18485, 23204, 20126, 8787,  19818, 21447, 6173,  17467,
+    20390, 31862, 6616,  18480, 24094, 6500,  16129, 19749, 27472, 5810,  17460, 28281, 7655,  15108,
+    18394, 25515, 4427,  16043, 28749, 7026,  13691, 17871, 24992, 3904,  15520, 27200, 6075,  13168,
+};
+static const uint16_t PS_1[112] = {
+    4201,  12337, 27677, 15894, 4816,  20021, 29631, 10348, 9882,  27304, 14492, 3766,  19574, 29046,
+    18743, 5944,  25299, 16116, 4147,  17829, 27787, 19399, 4206,  21790, 23748, 7966,  15117, 26569,
+    15941, 2695,  19445, 28341, 10104, 13050, 25465, 16251, 2613,  18023, 26770, 8432,  11951, 24281,
+    22800, 7141,  15351, 24790, 5953,  11004, 23130, 28322, 10921, 12440, 24940, 9659,  9368,  22012,
+    27611, 10006, 10488, 26419, 18657, 7071,  20807, 25492, 6937,  9239,  26574, 22363, 5435,  19688,
+    24808, 9136,  8184,  25295, 19708, 3939,  18677, 25053, 18234, 7120,  24061, 17941, 2545,  17568,
+    24869, 23748, 6081,  21401, 21862, 6018,  15056, 23602, 22177, 4859,  17816, 28450, 11911, 11653,
+    22253, 20263, 3595,  15790, 29734, 12969, 9683,  21668, 19678, 3010,  15424, 28429, 11728, 9300,
+};
+static const uint16_t PS_2[120] = {
+    11517, 10000, 8617,  9364,  12272, 16362, 21396, 25508, 25506, 19474, 10887, 5289,  5842,  10286, 14986,
+    18566, 21910, 25511, 28611, 29922, 24788, 17949, 8497,  4593,  7309,  12594, 17150, 20945, 24892, 26196,
+    22979, 16123, 9691,  7483,  10061, 14653, 18841, 22420, 25514, 26824, 25702, 23396, 17586, 11378, 8127,
+    8882,  12310, 17039, 22345, 25871, 24700, 18125, 9951,  5493,  6802,  11215, 15576, 19259, 22384, 23694,
+    26692, 26985, 22732, 14270, 6889,  4950,  8348,  13583, 17529, 21570, 25966, 27275, 22817, 14643, 8068,
+    6911,  10694, 15930, 19443, 20705, 21499, 23413, 25601, 24336, 18665, 11686, 7800,  8947,  12974, 18067,
+    22707, 25285, 23077, 16645, 9789,  6586,  8147,  12329, 15935, 17465, 17962, 20462, 24615, 25377, 20036,
+    11458, 5421,  5415,  9528,  14134, 17782, 22482, 26926, 27479, 21881, 13308, 7533,  7734,  11549, 13992,
+};
+static const uint16_t PS_3[27] = {
+    11315, 18740, 17475, 15974, 16503, 16042, 18215, 14712, 16238, 18482, 14351, 14664, 18012, 20260,
+    13338, 15511, 18468, 18275, 16790, 19168, 14745, 14998, 20341, 18150, 13819, 16493, 16432,
+};
+static const uint16_t PS_4[20] = {
+    11316, 14541, 17920, 10855, 24679, 19763, 9933,  23757, 6247,  20070,
+    25601, 5325,  19149, 17306, 15463, 20992, 16384, 14541, 23143, 10854,
+};
+static const uint16_t PS_5[112] = {
+    1638,  12698, 23757, 3482,  9011,  20070, 31130, 1638,  12698, 23757, 3482,  9011,  20070, 31130,
+    31130, 10854, 21914, 1638,  7168,  18227, 29286, 29286, 9011,  20070, 31130, 5325,  16384, 27443,
+    29286, 9011,  20070, 31130, 5325,  16384, 27443, 27443, 7168,  18227, 29286, 3482,  14541, 25600,
+    25600, 5325,  16384, 27443, 1638,  12698, 23757, 25600, 5325,  16384, 27443, 1638,  12698, 23757,
+    23757, 3482,  14541, 25600, 31130, 10854, 21914, 23757, 3482,  14541, 25600, 31130, 10854, 21914,
+    21914, 1638,  12698, 23757, 29286, 9011,  20070, 20070, 31130, 10854, 21914, 27443, 7168,  18227,
+    20070, 31130, 10854, 21914, 27443, 7168,  18227, 18227, 29286, 9011,  20070, 25600, 5325,  16384,
+    16384, 27443, 7168,  18227, 23757, 3482,  14541, 16384, 27443, 7168,  18227, 23757, 3482,  14541,
+};
+static const uint16_t PS_6[120] = {
+    9960,  6313,  993,   0,     4525,  14807, 26472, 32768, 32768, 23510, 10514, 0,     0,     0,     10110,
+    22576, 31764, 32768, 32768, 32768, 26136, 18594, 6164,  0,     0,     2565,  14499, 26983, 32768, 32768,
+    26358, 14709, 3969,  0,     0,     6602,  17734, 27952, 32768, 32768, 31590, 27808, 18307, 7429,  0,
+    0,     3712,  14435, 26473, 32768, 31131, 20665, 7535,  0,     0,     2177,  13238, 25049, 32768, 32768,
+    32768, 32768, 26136, 14174, 2548,  0,     0,     6190,  18705, 30273, 32768, 32768, 25517, 13238, 2177,
+    0,     0,     7250,  19418, 26624, 32768, 32768, 32768, 28203, 18522, 7200,  0,     0,     3285,  14794,
+    26862, 32768, 29913, 19013, 6667,  0,     0,     4443,  14506, 20751, 17344, 23066, 31075, 32361, 23949,
+    10738, 0,     0,     0,     10110, 22657, 32768, 32768, 32768, 22658, 10192, 1004,  0,     0,     0,
+};
+static const uint16_t PS_7[112] = {
+    801,   3050,  32489, 16260, 0,     29819, 32767, 9161,  1781,  29578, 14350, 0,     32768, 32767,
+    21132, 0,     25409, 17862, 0,     26925, 32767, 22769, 0,     24839, 27566, 0,     9397,  32768,
+    19813, 0,     27795, 32768, 0,     0,     32768, 20744, 0,     25797, 32768, 0,     0,     32768,
+    27555, 0,     11184, 32768, 0,     0,     32768, 32768, 0,     0,     32768, 5110,  0,     30386,
+    32768, 0,     0,     32768, 20385, 0,     23267, 32768, 0,     0,     32768, 29130, 0,     19191,
+    32768, 2670,  0,     31290, 25387, 0,     21263, 32767, 20198, 0,     21586, 24510, 0,     23714,
+    32768, 32768, 0,     14165, 27804, 1007,  14254, 32768, 30149, 0,     16077, 32112, 2886,  1884,
+    21043, 29607, 0,     16384, 32768, 3566,  0,     12683, 29616, 0,     16384, 32768, 3196,  0,
+};
+static const uint16_t PS_8[120] = {
+    9273,  5043,  0,     0,     2698,  14484, 28464, 32768, 32768, 24841, 10877, 0,     0,     0,     9684,
+    22346, 31492, 32768, 32768, 32768, 25960, 18430, 4978,  0,     0,     977,   15047, 28475, 32768, 32768,
+    27939, 14157, 1813,  0,     0,     5296,  17828, 28439, 32768, 32768, 32768, 27849, 17576, 6209,  0,
+    0,     2169,  15076, 28935, 32768, 32768, 22167, 7399,  0,     0,     211,   12977, 24638, 32768, 32768,
+    32768, 32768, 25960, 14244, 824,   0,     0,     5093,  18802, 31993, 32768, 32768, 26467, 12977, 211,
+    0,     0,     6300,  19418, 26712, 32768, 32768, 32768, 27907, 17874, 5820,  0,     0,     1853,  16055,
+    29518, 32768, 32768, 20889, 5880,  0,     0,     2879,  13798, 20185, 19010, 25565, 32768, 32302, 25431,
+    11478, 0,     0,     0,     9684,  23083, 32768, 32768, 32768, 23084, 10422, 1276,  0,     0,     0,
+};
+
+/* matches_photoshop_image_size: Photoshop 25.4's Image Size of a 16-bit greyscale pattern, in
+ * levels of 32768 (filters and their 2-D rules; on black and white the overshoot is clipped between
+ * the passes, so their order shows). */
+static void test_resample_matches_photoshop_image_size(void)
+{
+    static const struct {
+        bool binary;
+        pc_algo_resample filter;
+        int32_t w, h, wo, ho;
+        const uint16_t *want;
+    } cases[9] = {
+        {false, PC_ALGO_RESAMPLE_BICUBIC_SHARPER, 12, 10, 7, 16, PS_0},
+        {false, PC_ALGO_RESAMPLE_BICUBIC_AUTOMATIC, 12, 10, 7, 16, PS_1},
+        {false, PC_ALGO_RESAMPLE_BICUBIC, 12, 10, 20, 6, PS_2},
+        {false, PC_ALGO_RESAMPLE_BICUBIC_SMOOTHER, 40, 3, 9, 3, PS_3},
+        {false, PC_ALGO_RESAMPLE_BILINEAR, 12, 10, 5, 4, PS_4},
+        {false, PC_ALGO_RESAMPLE_NEAREST, 12, 10, 7, 16, PS_5},
+        {true, PC_ALGO_RESAMPLE_BICUBIC, 12, 10, 20, 6, PS_6},
+        {true, PC_ALGO_RESAMPLE_BICUBIC_SHARPER, 12, 10, 7, 16, PS_7},
+        {true, PC_ALGO_RESAMPLE_BICUBIC_SHARPER, 12, 10, 20, 6, PS_8},
+    };
+    const pc_pixel_format gray16 = {PC_COLOR_MODE_GRAYSCALE, PC_SAMPLE_TYPE_U16, false};
+    size_t c;
+    for (c = 0; c < 9; c++) {
+        int32_t w = cases[c].w, h = cases[c].h, wo = cases[c].wo, ho = cases[c].ho, x, y;
+        pc_rect canvas = pc_rect_make(0, 0, w, h);
+        pc_surface s, o;
+        float *px = malloc((size_t)(w * h) * sizeof *px), *got = NULL, worst = 0.0f;
+        size_t glen = 0, i;
+        pc_surface_init(&s, gray16);
+        for (y = 0; y < h; y++) {
+            for (x = 0; x < w; x++) {
+                float k = (float)((x * 37 + y * 101) % 17);
+                px[y * w + x] = cases[c].binary ? (k > 8.0f ? 32767.0f / 32768.0f : 0.0f)
+                                                : roundf((k / 16.0f * 0.9f + 0.05f) * 32768.0f) / 32768.0f;
+            }
+        }
+        CHECK(pc_surface_write_region(&s, canvas, px, (size_t)(w * h), NULL) == PC_OK);
+        CHECK(pc_algo_resize_surface_in_canvas(&s, (double)wo / (double)w, (double)ho / (double)h,
+                                               cases[c].filter, canvas, &o, NULL) == PC_OK);
+        CHECK(pc_surface_read_region(&o, pc_rect_make(0, 0, wo, ho), &got, &glen, NULL) == PC_OK);
+        CHECK_EQ_UINT(glen, (size_t)(wo * ho));
+        for (i = 0; i < glen && i < (size_t)(wo * ho); i++) {
+            float d = fabsf(got[i] * 32768.0f - (float)cases[c].want[i]);
+            worst = d > worst ? d : worst;
+        }
+        CHECK(worst <= 8.0f);
+        free(px), free(got);
+        pc_surface_fini(&s), pc_surface_fini(&o);
+    }
+}
+
+/* bicubic_is_photoshops_keys_cubic: an impulse doubled spreads as -9, -27, 67, 225 /256 and back. */
+static void test_bicubic_is_photoshops_keys_cubic(void)
+{
+    static const float want[8] = {-9.0f, -27.0f, 67.0f, 225.0f, 225.0f, 67.0f, -27.0f, -9.0f};
+    const pc_pixel_format grayf = {PC_COLOR_MODE_GRAYSCALE, PC_SAMPLE_TYPE_F32, false};
+    float row[30], *got = NULL;
+    size_t glen = 0, i;
+    pc_surface s, o;
+    for (i = 0; i < 30; i++) {
+        row[i] = 0.25f;
+    }
+    row[10] = 0.75f;
+    pc_surface_init(&s, grayf);
+    CHECK(pc_surface_write_region(&s, pc_rect_make(0, 0, 30, 1), row, 30, NULL) == PC_OK);
+    CHECK(pc_algo_resize_surface(&s, 2.0, 1.0, PC_ALGO_RESAMPLE_BICUBIC, &o, NULL) == PC_OK);
+    CHECK(pc_surface_read_region(&o, pc_rect_make(17, 0, 25, 1), &got, &glen, NULL) == PC_OK);
+    for (i = 0; i < 8 && i < glen; i++) {
+        CHECK(fabsf((got[i] - 0.25f) * 512.0f - want[i]) < 1e-3f);
+    }
+    free(got);
+    pc_surface_fini(&s), pc_surface_fini(&o);
+}
+
 static void test_identity_scale_is_lossless(void)
 {
     int f;
     for (f = 0; f < 4; f++) {
         pc_surface s, o;
         ramp_surface(&s, PC_SAMPLE_TYPE_U16);
-        CHECK(pc_algo_resize_surface(&s, 1.0, 1.0, (pc_algo_resample)f, &o, NULL) == PC_OK);
+        CHECK(pc_algo_resize_surface(&s, 1.0, 1.0, RS5[f], &o, NULL) == PC_OK);
         CHECK(max_diff(&s, &o, pc_rect_make(0, 0, 64, 32)) < 1e-4f);
         pc_surface_fini(&s);
         pc_surface_fini(&o);
@@ -405,18 +678,17 @@ static void test_half_and_double_sizes(void)
         float p[4];
         int32_t x;
         ramp_surface(&s, PC_SAMPLE_TYPE_F32);
-        CHECK(pc_algo_resize_surface(&s, 0.5, 0.5, (pc_algo_resample)f, &half, NULL) == PC_OK);
+        CHECK(pc_algo_resize_surface(&s, 0.5, 0.5, RS5[f], &half, NULL) == PC_OK);
         CHECK(pc_rect_eq(pc_surface_content_bounds(&half), pc_rect_make(0, 0, 32, 16)));
         pc_surface_read_pixel(&half, 16, 8, p);
         CHECK(fabsf(p[1] - 0.5f) < 0.02f && fabsf(p[3] - 1.0f) < 1e-3f);
         pc_surface_fini(&half);
-        if (f == PC_ALGO_RESAMPLE_PRESERVE_DETAILS && !have_usm()) {
-            CHECK(pc_algo_resize_surface(&s, 2.0, 2.0, (pc_algo_resample)f, &dbl, NULL) ==
-                  PC_ERR_UNSUPPORTED);
+        if (RS5[f] == PC_ALGO_RESAMPLE_PRESERVE_DETAILS && !have_usm()) {
+            CHECK(pc_algo_resize_surface(&s, 2.0, 2.0, RS5[f], &dbl, NULL) == PC_ERR_UNSUPPORTED);
             pc_surface_fini(&s);
             continue;
         }
-        CHECK(pc_algo_resize_surface(&s, 2.0, 2.0, (pc_algo_resample)f, &dbl, NULL) == PC_OK);
+        CHECK(pc_algo_resize_surface(&s, 2.0, 2.0, RS5[f], &dbl, NULL) == PC_OK);
         CHECK(pc_rect_eq(pc_surface_content_bounds(&dbl), pc_rect_make(0, 0, 128, 64)));
         for (x = 8; x + 1 < 120; x++) {
             CHECK(px_at(&dbl, x + 1, 30, 0) >= px_at(&dbl, x, 30, 0) - 0.02f);
@@ -474,11 +746,10 @@ static void test_canvas_edges_repeat_instead_of_fading(void)
                 pc_surface o;
                 pc_rect dst = pc_algo_scaled_rect(canvas, ks[k], ks[k]);
                 int32_t pts[6][2];
-                if (f == PC_ALGO_RESAMPLE_PRESERVE_DETAILS && ks[k] > 1.0 && !have_usm()) {
+                if (RS5[f] == PC_ALGO_RESAMPLE_PRESERVE_DETAILS && ks[k] > 1.0 && !have_usm()) {
                     continue;
                 }
-                CHECK(pc_algo_resize_surface_in_canvas(&s, ks[k], ks[k], (pc_algo_resample)f, canvas, &o,
-                                                       NULL) == PC_OK);
+                CHECK(pc_algo_resize_surface_in_canvas(&s, ks[k], ks[k], RS5[f], canvas, &o, NULL) == PC_OK);
                 CHECK(pc_rect_eq(pc_surface_content_bounds(&o), dst));
                 pts[0][0] = 0, pts[0][1] = 0;
                 pts[1][0] = dst.x1 - 1, pts[1][1] = 0;
@@ -557,10 +828,8 @@ static void test_skipped_empty_rows_match_reading_them(void)
             for (k = 0; k < 3; k++) {
                 pc_surface a, b;
                 pc_rect r;
-                CHECK(pc_algo_resize_surface(&sparse, ks[k][0], ks[k][1], (pc_algo_resample)f, &a, NULL) ==
-                      PC_OK);
-                CHECK(pc_algo_resize_surface(&dense, ks[k][0], ks[k][1], (pc_algo_resample)f, &b, NULL) ==
-                      PC_OK);
+                CHECK(pc_algo_resize_surface(&sparse, ks[k][0], ks[k][1], RS5[f], &a, NULL) == PC_OK);
+                CHECK(pc_algo_resize_surface(&dense, ks[k][0], ks[k][1], RS5[f], &b, NULL) == PC_OK);
                 r = pc_rect_union(pc_surface_content_bounds(&a), pc_surface_content_bounds(&b));
                 CHECK(max_diff(&a, &b, r) <= tol);
                 pc_surface_fini(&a), pc_surface_fini(&b);
@@ -588,10 +857,9 @@ static void test_chunked_reads_match_a_single_read(void)
             for (k = 0; k < 3; k++) {
                 pc_surface a, b;
                 pc_rect r;
-                CHECK(pc_algo_resize_with_budget(srcs[i], ks[k], ks[k], (pc_algo_resample)f, NULL, SIZE_MAX,
-                                                 &a, NULL) == PC_OK);
-                CHECK(pc_algo_resize_with_budget(srcs[i], ks[k], ks[k], (pc_algo_resample)f, NULL, 1, &b,
-                                                 NULL) == PC_OK);
+                CHECK(pc_algo_resize_with_budget(srcs[i], ks[k], ks[k], RS5[f], NULL, SIZE_MAX, &a, NULL) ==
+                      PC_OK);
+                CHECK(pc_algo_resize_with_budget(srcs[i], ks[k], ks[k], RS5[f], NULL, 1, &b, NULL) == PC_OK);
                 r = pc_rect_union(pc_surface_content_bounds(&a), pc_surface_content_bounds(&b));
                 CHECK(regions_equal(&a, &b, r));
                 pc_surface_fini(&a), pc_surface_fini(&b);
@@ -1153,7 +1421,7 @@ static void test_hostile_parameters_never_crash(void)
         p.shadow_radius = NAN, p.black_clip = NAN, p.shadow_tone = NAN;
         CHECK(pc_algo_shadows_highlights(px, 4, 2, 2, &p, &err) == PC_OK);
         /* An infinite blur radius would take the reference forever. */
-        p.highlight_radius = INFINITY;
+        p.highlight_radius = INFINITY, p.highlight_amount = 50.0f;
         CHECK(pc_algo_shadows_highlights(px, 4, 2, 2, &p, &err) == PC_ERR_LIMIT);
         h.radius = NAN, h.gamma = NAN, h.exposure = INFINITY;
         CHECK(pc_algo_hdr_toning(px, 4, 2, 2, &h, &err) == PC_OK);
@@ -1219,13 +1487,18 @@ int main(int argc, char **argv)
     RUN(test_clipping_indicators_use_exact_samples);
     RUN(test_rgb_and_gray_at_all_depths);
     RUN(test_exact_clipping_endpoints);
-    RUN(test_shadows_lift_dark_pixels_more_than_bright);
-    RUN(test_highlights_darken_bright_pixels);
+    RUN(test_sh_grey_matches_photoshop);
+    RUN(test_sh_colour_matches_photoshop);
+    RUN(test_sh_edge_matches_photoshop);
+    RUN(test_sh_strength_and_curve_follow_photoshop);
+    RUN(test_sh_tonal_mask_spans_photoshop_tones);
     RUN(test_replace_color_only_touches_matching_pixels);
     RUN(test_match_color_moves_statistics_toward_source);
     RUN(test_hdr_toning_compresses_range_and_keeps_bounds);
     RUN(test_horizontal_matches_direct_sum);
     RUN(test_identity_scale_is_lossless);
+    RUN(test_resample_matches_photoshop_image_size);
+    RUN(test_bicubic_is_photoshops_keys_cubic);
     RUN(test_half_and_double_sizes);
     RUN(test_downscale_averages_checkerboard);
     RUN(test_transparent_edges_do_not_darken);

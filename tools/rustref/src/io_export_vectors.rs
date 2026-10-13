@@ -245,6 +245,7 @@ fn png_bytes(w: u32, h: u32, seed: u32) -> Vec<u8> {
 
 fn smart(source: SmartSource, transform: Affine, cache: Option<Surface>) -> SmartObject {
     SmartObject {
+        contents_id: photocraft_doc::SmartContentsId::fresh(),
         source,
         transform,
         smart_filters: vec![],

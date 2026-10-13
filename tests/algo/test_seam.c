@@ -408,6 +408,45 @@ static void test_shrinking_keeps_the_salient_bar(void)
     free(im), free(out), free(plain);
 }
 
+static void test_tall_proxy_shrink_preserves_full_resolution_salient_and_protected_pixels(void)
+{
+    size_t w = 512, h = 2048, ch = 3, new_w = 384, y, x, len = 0;
+    float *img = bar(w, h), *protect = calloc(w * h, sizeof(float)), *out = NULL;
+    pc_interrupt none = PC_INTERRUPT_NONE;
+    for (y = 0; y < h; y++) {
+        float *p = &img[(y * w + 256) * ch];
+        p[0] = 0.03f, p[1] = 0.87f, p[2] = 0.42f;
+        protect[y * w + 256] = 1.0f;
+    }
+    CHECK(pc_algo_seam_carve_width(w, h, ch, img, w * h * ch, protect, new_w, &none, &out, &len, NULL) ==
+          PC_OK);
+    CHECK_EQ_UINT(len, new_w * h * ch);
+    CHECK_EQ_UINT(red_columns(new_w, h, out), 4); /* the full-resolution bar survives */
+    for (y = 0; y < h; y++) {
+        bool found = false;
+        for (x = 0; x < new_w && !found; x++) {
+            const float *p = &out[(y * new_w + x) * ch];
+            found = p[0] == 0.03f && p[1] == 0.87f && p[2] == 0.42f;
+        }
+        CHECK(found); /* the protected mark survives every row */
+    }
+    free(img), free(protect), free(out);
+}
+
+static void test_tall_proxy_shrink_observes_cancellation_before_modifying_source(void)
+{
+    size_t w = 128, h = 2048, ch = 3, i, len = 0;
+    float *img = malloc(w * h * ch * sizeof(float)), *out = NULL;
+    pc_interrupt stop = {yes, NULL, NULL};
+    for (i = 0; i < w * h * ch; i++) {
+        img[i] = 0.5f;
+    }
+    CHECK(pc_algo_seam_carve_width(w, h, ch, img, w * h * ch, NULL, 64, &stop, &out, &len, NULL) ==
+          PC_ERR_CANCELLED);
+    CHECK(out == NULL);
+    free(img);
+}
+
 static void test_enlarging_duplicates_flat_areas(void)
 {
     size_t w = 30, h = 8, len = 0;
@@ -594,6 +633,8 @@ int main(int argc, char **argv)
     RUN(test_cancelled_carve_stops);
     RUN(test_seam_follows_low_energy);
     RUN(test_shrinking_keeps_the_salient_bar);
+    RUN(test_tall_proxy_shrink_preserves_full_resolution_salient_and_protected_pixels);
+    RUN(test_tall_proxy_shrink_observes_cancellation_before_modifying_source);
     RUN(test_enlarging_duplicates_flat_areas);
     RUN(test_height_and_protection);
     RUN(test_output_bits_are_pinned);

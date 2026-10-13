@@ -1,57 +1,57 @@
 stack Entropy/1 40 a3883661b6e3360a
 stack Kurtosis/1 40 4afa6d02866bcef6
-stack Maximum/1 40 ff72a13b57505bf4
-stack Mean/1 40 ff72a13b57505bf4
-stack Median/1 40 ff72a13b57505bf4
-stack Minimum/1 40 ff72a13b57505bf4
+stack Maximum/1 40 8fb5d8176187bae1
+stack Mean/1 40 8fb5d8176187bae1
+stack Median/1 40 8fb5d8176187bae1
+stack Minimum/1 40 8fb5d8176187bae1
 stack Range/1 40 4afa6d02866bcef6
 stack Skewness/1 40 dea2d7ddbeb6f99e
 stack StandardDeviation/1 40 4afa6d02866bcef6
-stack Summation/1 40 ff72a13b57505bf4
+stack Summation/1 40 8fb5d8176187bae1
 stack Variance/1 40 4afa6d02866bcef6
 stack Entropy/2 47 3de1535f58caef30
 stack Kurtosis/2 47 f3dd064c416e4d96
-stack Maximum/2 47 ea62693246cc9048
-stack Mean/2 47 fb8f55960df5e639
-stack Median/2 47 fb8f55960df5e639
-stack Minimum/2 47 4f5348140b6038e0
-stack Range/2 47 ddbb1b3644a5d57b
+stack Maximum/2 47 10b7afad33ad4b74
+stack Mean/2 47 09b1f796674de6c8
+stack Median/2 47 09b1f796674de6c8
+stack Minimum/2 47 8d991f1d314c02f9
+stack Range/2 47 fc663bc630d22976
 stack Skewness/2 47 c885889277cf4342
 stack StandardDeviation/2 47 e86801100a8716a8
-stack Summation/2 47 5bcb3b2cb7770a7d
+stack Summation/2 47 c435302a8c767fb8
 stack Variance/2 47 70e25f4d18b143d2
 stack Entropy/3 47 e1c68407bd1504df
 stack Kurtosis/3 47 11196293345b3b00
-stack Maximum/3 47 03a9c4b2d87d73b8
-stack Mean/3 47 67e8b4965d0f1374
-stack Median/3 47 68820dd0253636db
-stack Minimum/3 47 7896badcbe56cfb2
-stack Range/3 47 ebbaab45bda684f6
+stack Maximum/3 47 c5739e90d3601b85
+stack Mean/3 47 08cbbf0b65614ef3
+stack Median/3 47 068acf8c3c487df0
+stack Minimum/3 47 eafa882d5154c6d4
+stack Range/3 47 ad4d2d2adf1b7989
 stack Skewness/3 47 6c6af36da22a01ca
 stack StandardDeviation/3 47 0504df47b677ed7c
-stack Summation/3 47 8a4242ca1a8adb63
+stack Summation/3 47 0e8c173edd0ed6a6
 stack Variance/3 47 dfdff6660d5b65f2
 stack Entropy/5 48 8f8577d5c70fbc25
 stack Kurtosis/5 48 78f2d4c21c9fbca2
-stack Maximum/5 48 78af0d48d2ce1789
-stack Mean/5 48 4b6dcef2a93b2d5e
-stack Median/5 48 6f4eb9706743a6f3
-stack Minimum/5 48 0ffa5fbec6165d80
-stack Range/5 48 6660e7f501c2bb0f
+stack Maximum/5 48 1e13587fbe76b51c
+stack Mean/5 48 81b96b084158d4d5
+stack Median/5 48 491c6e98e1e12350
+stack Minimum/5 48 91a30fc79327c0a4
+stack Range/5 48 ac94188fa6fe045a
 stack Skewness/5 48 55a71cc860a1c5f9
 stack StandardDeviation/5 48 c3d04b842eea9421
-stack Summation/5 48 5329609bc5ce5165
+stack Summation/5 48 df2c005549d81b82
 stack Variance/5 48 48f90f220f5f8909
 stack Entropy/8 50 6d0397fc21e5d8a0
 stack Kurtosis/8 50 20d344e9b2c9caae
-stack Maximum/8 50 8ebe59d8a4bf6945
+stack Maximum/8 50 83501beccc920597
 stack Mean/8 50 0e22a99dbf424a61
 stack Median/8 50 c5ca9074189783e0
-stack Minimum/8 50 30127272a9934cef
-stack Range/8 50 c2243d41c8db521b
+stack Minimum/8 50 245e5ee091183217
+stack Range/8 50 425f0218ad953de0
 stack Skewness/8 50 8c15ecd90733681d
 stack StandardDeviation/8 50 6387d680e5f8b515
-stack Summation/8 50 5885265554d816a5
+stack Summation/8 50 c7e4669aa8687a91
 stack Variance/8 50 bc55bc75ab2b3d33
 poisson membrane/0 b71d36dcc8d5ea3e
 poisson clone/0/1 df131f240d428dc7
@@ -100,13 +100,13 @@ poisson clone/5/4 d730920f29fb4a07
 poisson fill/5/4 eb05052ea5b62325
 poisson fill/all a947e50590de8025
 poisson fill/none e2670539f5d72054
-inpaint complete/tex 295dc5283d751c30
-inpaint complete/tex/r1 e26e4cfbb6c7d62b
-inpaint complete/tex/r2 23016fbac2dbb6b8
+inpaint complete/tex e5fe826c59339482
+inpaint complete/tex/r1 ce31134e71fdb860
+inpaint complete/tex/r2 fd7a2abaf21c1c8f
 inpaint complete/stripes 8a35635e9e83c44b
-inpaint complete/edge 884118f7ef23e470
-inpaint complete/pyramid e7b41da7e5962ab4
-inpaint complete/pyramid-default 572a67992037a320
+inpaint complete/edge a8df72ff18d83161
+inpaint complete/pyramid fe4f2cd3262aebf5
+inpaint complete/pyramid-default 06bf116e4b8d9667
 inpaint complete/nohole 12c2236afdc1a9c8
 inpaint complete/allhole none
 inpaint complete/tiny none
@@ -116,35 +116,35 @@ inpaint offset/0/1 none none
 inpaint offset/0/5 none none
 inpaint offset/0/20 0,-20 8,-14
 inpaint offset/0/47 0,-25 8,-14
-inpaint offset/0/200 0,-24 8,-14
+inpaint offset/0/200 -20,0 -9,16
 inpaint offset/1/-1 none none
 inpaint offset/1/0 none none
 inpaint offset/1/1 none none
 inpaint offset/1/5 none none
 inpaint offset/1/20 0,-20 8,-14
 inpaint offset/1/47 0,-25 8,-14
-inpaint offset/1/200 0,-24 8,-14
+inpaint offset/1/200 -20,0 -9,16
 inpaint offset/3/-1 none none
 inpaint offset/3/0 none none
 inpaint offset/3/1 none none
 inpaint offset/3/5 none none
 inpaint offset/3/20 0,-20 -8,14
 inpaint offset/3/47 0,-23 -8,14
-inpaint offset/3/200 0,-16 -8,14
+inpaint offset/3/200 -20,0 -9,16
 inpaint offset/6/-1 none none
 inpaint offset/6/0 none none
 inpaint offset/6/1 none none
 inpaint offset/6/5 none none
 inpaint offset/6/20 0,-20 -9,16
 inpaint offset/6/47 0,-20 -9,16
-inpaint offset/6/200 0,-16 -9,16
+inpaint offset/6/200 -20,0 -9,16
 inpaint offset/nohole true
-inpaint synth/0/3 40c222b3b7ebe012
-inpaint synth/0/9 e8df64929b2b6462
-inpaint synth/4/3 40c222b3b7ebe012
-inpaint synth/4/9 e8df64929b2b6462
-inpaint synth/8/3 3d46eff28b145a88
-inpaint synth/8/9 8a5ec97be82ea4e8
+inpaint synth/0/3 c5e4aa457ecc33af
+inpaint synth/0/9 8a527af799a5bcf6
+inpaint synth/4/3 c5e4aa457ecc33af
+inpaint synth/4/9 8a527af799a5bcf6
+inpaint synth/8/3 60cbb433e306aa2a
+inpaint synth/8/9 e2f22ec658b2a4c7
 inpaint synth/13/3 26b2adf2b7280c06
 inpaint synth/13/9 d701d4a8491f04f6
 inpaint synth/fallback f5c2f34e6c2b18de
@@ -154,20 +154,20 @@ ca rotation/medium 38d09654f6519655
 ca rotation/high 6408741959f4bd15
 ca rotation/full 3e96384099cc5034
 ca rotation/x cbf29ce484222325
-ca color/none 00000000
-ca color/default 3eb33333
-ca color/high 3f266666
-ca color/veryHigh 3f666666
-ca color/x 3eb33333
-ca fill/stripes 147562f4b6e5c3b2
+ca color/none 3f800000 3f800000 00000000
+ca color/default 3f666666 3f8ccccd 3d23d70a
+ca color/high 3f4ccccd 3fa00000 3da3d70a
+ca color/veryHigh 3f2b851f 3fc00000 3e0f5c29
+ca color/x 3f666666 3f8ccccd 3d23d70a
+ca fill/stripes c7db5a8149f0303c
 ca fill/stripes0 17ced1290def0b77
-ca fill/right b5fc38c424fc5205
-ca fill/nosource f247f10997d887b0
-ca fill/ramp 9b131552c1ed7573
-ca fill/adapt fb7fcea02ec711ea
-ca fill/full 96eb4355e7967f81
+ca fill/right 3e2b2b79adb01430
+ca fill/nosource 514cded2a5d58bed
+ca fill/ramp dc5e122fd86768e2
+ca fill/adapt 7d61508d7bb1280d
+ca fill/full a32ab09d507359fa
 ca fill/mirror 097a054212ddc196
-ca fill/scale fb3866bf692b92a8
+ca fill/scale 6432366603cce934
 ca fill/nohole 8cea66057084a4c5
 seam carve/0 10x14x1->7x23 161 00bb1e4a6f53c277
 seam carve/1 19x6x3->3x1 9 bd67791242ba5a67
@@ -602,3 +602,80 @@ paint bucket/laba32/2 true d280d40bcb1aa3b3
 paint bucketsrc/laba32 true e844211e9a1b76a1
 paint bucket/laba32/outside false
 paint region/laba32 0957a16f920657f2
+nonlocal flat 3828acd6445c831b
+nonlocal gradient edb4c77a06d08725
+nonlocal tex 9a6a9c0f1b0c517f
+nonlocal tex/r2 06b05fb5e9af3d87
+nonlocal tex/iters ecee997b871eb769
+nonlocal tex/r1 f8050cd4eab648e9
+nonlocal pyramid 09ff413416a42dc5
+nonlocal ties 590146c5fb7c1eff
+nonlocal edge 3ffdc34e14e8e99e
+nonlocal busy 5593a8acf8250eb2
+nonlocal allhole none
+nonlocal nohole e2439578fab524b5
+remove close/ring 7ffd05b80386b56c
+remove close/square 0cfe30d7403ae3a1
+remove close/open f30478d2c8db5fd6
+remove close/speck 5cb4612a1cad71bb
+remove dilate/0 5cb4612a1cad71bb
+remove dilate/1 468b4b5d3b80c40c
+remove dilate/2 1f5045d307f8957e
+remove dilate/3 1f5045d307f8957e
+remove dilate/4 1f5045d307f8957e
+remove radius 1 6 4294967295 1 10
+remove gradient/thin 6f9a9b1046b5ff25
+remove gradient/wide 6f9a9b1046b5ff25
+remove tex 415acfe6e57117b9
+remove tiles 91ffb52d6a70bc55
+remove allhole 96554ce2cfb01525
+inpaint masked/1/0 4980204f4ee84ace
+inpaint masked/1/1 9229b13c89c9d311
+inpaint masked/1/2 c5d78a89e9865735
+inpaint owned/1 94a423a2f61164b1
+inpaint masked/3/0 f757a2fb52e736cd
+inpaint masked/3/1 746d9a4691157269
+inpaint masked/3/2 c7f9afc469bbe31a
+inpaint owned/3 218e3273ae61e065
+inpaint masked/4/0 9ff705910f1c2211
+inpaint masked/4/1 c5b62cfd46feebfc
+inpaint masked/4/2 679299615b3b2b7f
+inpaint owned/4 cf40ce39b7d6460e
+inpaint masked/known none
+inpaint owned/known back 8ac08bd5ccc19400
+inpaint busy/3 34e5e67992694f33
+inpaint busy/4 b875425dd799d5c7
+inpaint proximity/1/8 390b53a0711e3600
+inpaint proximity/1/16 390b53a0711e3600
+inpaint proximity/1/32 390b53a0711e3600
+inpaint proximity/3/8 4a20e445a266d47b
+inpaint proximity/3/16 4a20e445a266d47b
+inpaint proximity/3/32 4a20e445a266d47b
+inpaint proximity/4/8 92d225df21faa38a
+inpaint proximity/4/16 4cb5e83a0c3c66d8
+inpaint proximity/4/32 92d225df21faa38a
+inpaint proximity/5/8 aab4f11c385a0f9b
+inpaint proximity/5/16 54357c1fcbdb9f83
+inpaint proximity/5/32 aab4f11c385a0f9b
+inpaint proximity/value0 -15,-13
+inpaint proximity/value1 -15,-13
+inpaint proximity/value2 -15,-13
+inpaint proximity/value3 -15,-13
+seam proxy/plain 77453264d730c97d
+seam proxy/protect 842656f2587eaef5
+seam proxy/noise 96ea91f8fa8eca77
+seam proxy/height 122312e63ca5e261
+ca window 3fc6c70c66cc335c
+ca auto/false 62054479ab0b7721
+ca auto/true 3fa83d05f59ff57e
+ca auto/smooth1 1b43b8c6e8340f5a
+ca auto/smooth2 46240572fd5a1d30
+ca auto/smooth4 8282d2c85dd02e1a
+ca auto/big 8b837ccb279c92f5
+ca auto/tiny 421e3bd8ca682ad9
+ca auto/nohole f2689e923367be7d
+ca amount 30092d13a48cdeaa
+ca level/none eb0e886c387796a5
+ca level/c3 252236445672dbb3
+ca level/c10 11dc4700ec1e2dd9
+ca level/wide 5b68df2b1b95cccd

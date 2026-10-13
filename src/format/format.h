@@ -138,6 +138,10 @@ pc_status pc_format_load_path(const char *path, pc_document *out, pc_error *err)
 pc_status pc_format_load_path_with(const char *path, const pc_format_load_opts *opts, pc_document *out,
                                    pc_error *err);
 
+/* Load from any byte source with the same migration and limits as the path loads
+ * (lib::load_bytes_source). */
+pc_status pc_format_load_bytes_source(pc_format_byte_source_get get, void *ctx,
+                                      const pc_format_load_opts *opts, pc_document *out, pc_error *err);
 /* Read and migrate only the manifest (no tiles are decoded). Caller frees *out with
  * pc_format_manifest_free. */
 pc_status pc_format_read_manifest(const uint8_t *bytes, size_t len, pc_format_manifest **out, pc_error *err);

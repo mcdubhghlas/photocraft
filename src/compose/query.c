@@ -116,6 +116,42 @@ pc_rect pc_compose_layer_bounds(const pc_layer *layer, pc_rect canvas)
     return acc;
 }
 
+static pc_rect effect_source_bounds(const pc_layer *layer, pc_rect canvas, unsigned depth)
+{
+    const pc_group *g;
+    pc_rect acc = PC_RECT_EMPTY;
+    size_t i;
+    if (layer->content.kind != PC_LAYER_GROUP || layer->content.u.group.has_artboard ||
+        pc_compose_shapeless(layer)) {
+        return pc_compose_layer_bounds(layer, canvas);
+    }
+    if (depth > PC_COMPOSE_MAX_DEPTH) {
+        return canvas; /* the conservative answer (the reference recurses without bound) */
+    }
+    g = &layer->content.u.group;
+    for (i = 0; i < g->nchildren; i++) {
+        const pc_layer *c = &g->children[i];
+        pc_rect b;
+        if (!c->visible) {
+            continue;
+        }
+        b = effect_source_bounds(c, canvas, depth + 1);
+        if (!pc_rect_is_empty(b) && pc_compose_has_effects(c)) {
+            b = pc_rect_inflate(b, pc_compose_effects_margin(c));
+        }
+        if (pc_rect_is_empty(b)) {
+            continue;
+        }
+        acc = pc_rect_is_empty(acc) ? b : pc_rect_union(acc, b);
+    }
+    return acc;
+}
+
+pc_rect pc_compose_effect_source_bounds(const pc_layer *layer, pc_rect canvas)
+{
+    return effect_source_bounds(layer, canvas, 0);
+}
+
 bool pc_compose_transparent_outside(const pc_layer *layer)
 {
     const pc_layer **stack = NULL;
@@ -397,7 +433,7 @@ pc_status pc_compose_stroke_frame(const pc_document *doc, const pc_layer *layer,
     if (st != PC_OK) {
         return st;
     }
-    st = pc_cmp_effect_maps(layer, &s.cx, &maps, err);
+    st = pc_cmp_effect_maps(layer, pc_document_bounds(doc), &s.cx, &maps, err);
     if (st == PC_OK) {
         *found = pc_compose_fx_maps_stroke_frame(pc_cmp_fx_maps(maps), st_fx, &r);
         if (*found) {

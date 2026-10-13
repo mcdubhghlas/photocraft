@@ -30,4 +30,13 @@ typedef enum pc_io_adj_channels {
 pc_status pc_io_adjust_parse(const uint8_t key[4], const uint8_t *data, size_t len, const uint8_t *cged,
                              size_t cged_len, pc_io_adj_channels channels, pc_adjustment *out, pc_error *err);
 
+/* The menu name of the adjustment a PSD block key holds (for import warnings), e.g. "Curves";
+ * "adjustment" for an unknown key. */
+const char *pc_io_adjust_label(const uint8_t key[4]);
+
+/* When an adjustment block stays PC_ADJ_UNSUPPORTED for a reason worth reporting (so far only
+ * Color Lookup), appends that reason to *reason and returns true; otherwise returns false and
+ * leaves *reason untouched. */
+bool pc_io_adjust_unreadable_reason(const uint8_t key[4], const uint8_t *data, size_t len, pc_buf *reason);
+
 #endif

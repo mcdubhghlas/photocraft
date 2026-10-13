@@ -166,6 +166,7 @@ static void load_result(const uint8_t *b, size_t n, pc_buf *out)
         err_text(out, &e);
         return;
     }
+    t_renumber_contents(&doc); /* contents ids minted for old bundles depend on the process */
     st = pc_format_save_to_bytes(&doc, NULL, &saved, &e);
     if (st != PC_OK) {
         (void)pc_buf_append_str(out, "ok", NULL);
@@ -268,7 +269,7 @@ static void test_documents(void)
 {
     const char *xdir = getenv("PC_FORMAT2_XDIR");
     g_ndocs = pd_docs(g_docs);
-    CHECK_EQ_UINT(g_ndocs, 24);
+    CHECK_EQ_UINT(g_ndocs, 25);
     for (size_t i = 0; i < g_ndocs; i++) {
         const char *name = g_docs[i].name;
         pc_pcraft_writer *w = NULL;

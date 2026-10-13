@@ -38,7 +38,7 @@ typedef struct pc_climits {
     uint64_t max_alloc;  /* bytes of the decoded pixel buffer */
 } pc_climits;
 
-pc_climits pc_climits_default(void); /* 2^18 x 2^18, 2^30 pixels, 8 GiB (2 GiB on 32-bit) */
+pc_climits pc_climits_default(void); /* 2^18 x 2^18, 2^30 pixels, 8 GiB (1 GiB on 32-bit) */
 pc_climits pc_climits_none(void);
 /* "invalid image: zero-sized image WxH", or limit errors. */
 pc_status pc_climits_check(const pc_climits *l, uint32_t w, uint32_t h, pc_clayout layout, pc_csample s,
@@ -85,6 +85,65 @@ pc_status pc_cencode(const pc_cimage *img, pc_cformat f, const pc_cencode_opts *
 
 /* Deep OpenEXR samples of the first deep part (PC_ERR_UNSUPPORTED when there is none). */
 pc_status pc_cdecode_deep_exr(const uint8_t *b, size_t n, const pc_climits *l, pc_cdeep *out, pc_error *err);
+
+/* ---- multi-part OpenEXR ---- */
+
+/* Lists the parts of an OpenEXR file without decoding pixels (header facts per part). Every
+ * part's size, and all of them together, are checked against l->max_alloc. *parts is a new
+ * array (free with pc_exr_parts_free). pc_cdecode opens the part with the highest
+ * pc_exr_part_color_rank (earliest on a tie) and adds a MoreParts warning when there are more. */
+pc_status pc_cexr_info(const uint8_t *b, size_t n, const pc_climits *l, pc_exr_part_info **parts,
+                       size_t *nparts, pc_error *err);
+/* Decodes part `part` (an index into pc_cexr_info's list); a file with deep parts is refused. */
+pc_status pc_cdecode_exr_part(const uint8_t *b, size_t n, size_t part, const pc_cdecode_opts *o,
+                              pc_cimage *out, pc_error *err);
+/* Decodes the named channels of one part (exact names, e.g. "diffuse.R"): R/G/B (plus A when
+ * named) give RGB(A), a Y (plus A) gives Gray(A), a single other channel gives Gray. */
+pc_status pc_cdecode_exr_channels(const uint8_t *b, size_t n, size_t part, const char *const *names,
+                                  size_t nnames, const pc_cdecode_opts *o, pc_cimage *out, pc_error *err);
+
+/* ---- Cryptomatte (EXR) ---- */
+
+/* The Cryptomatte ID of a name: MurmurHash3 x86-32 (seed 0) with the exponent moved off 0/255. */
+float pc_cryptomatte_id(const char *name, size_t len);
+/* The 7-hex-digit metadata key of a layer name (NUL-terminated into out). */
+void pc_cryptomatte_key(const char *name, size_t len, char out[8]);
+/* The preview colour of an ID: {0, bits << 8, bits << 16} as floats. */
+void pc_cryptomatte_preview_color(float id, float out[3]);
+/* Every Cryptomatte layer of the file, from the headers alone, sorted by (part, name). *layers
+ * is a new array (free with pc_crypto_layers_free). */
+pc_status pc_ccryptomatte_layers(const uint8_t *b, size_t n, const pc_climits *l, pc_crypto_layer **layers,
+                                 size_t *nlayers, pc_error *err);
+/* The samples of the layer named `layer_name` (ASCII case-insensitive). *out replaced. */
+pc_status pc_cdecode_cryptomatte(const uint8_t *b, size_t n, const char *layer_name, const pc_climits *l,
+                                 pc_crypto_buffer *out, pc_error *err);
+
+/* ---- GIF animation ---- */
+
+/* Most frames one GIF may yield. */
+#define PC_MAX_GIF_FRAMES 100000
+
+/* One composited frame (a full RGBA8 picture of the logical screen) and its time on screen in
+ * milliseconds (GIF counts hundredths of a second, so a multiple of 10; 0 when none is given). */
+typedef struct pc_canim_frame {
+    pc_cimage image;
+    uint32_t delay_ms;
+} pc_canim_frame;
+
+void pc_canim_frames_free(pc_canim_frame *frames, size_t n);
+/* Every frame of a GIF (a still GIF yields one), with disposal methods applied. The first frame
+ * must decode; when a later one is damaged the frames before it are returned and the first
+ * carries a Truncated warning. Dimensions, PC_MAX_GIF_FRAMES and the bytes of all frames
+ * together are checked against o->limits. *frames is a new array (NULL when *n is 0). */
+pc_status pc_cdecode_gif_frames(const uint8_t *b, size_t n, const pc_cdecode_opts *o, pc_canim_frame **frames,
+                                size_t *nframes, pc_error *err);
+
+/* ---- BMP palette ---- */
+
+/* The colour table of an indexed BMP (1/4/8-bit, also RLE): 256 RGB entries (zero-padded past
+ * the file's own), *has false (and *palette NULL) for a BMP without one. *palette is new. */
+pc_status pc_cbmp_palette(const uint8_t *b, size_t n, bool *has, uint8_t (**palette)[3], size_t *npal,
+                          pc_error *err);
 
 /* ---- fidelity warnings ---- */
 
@@ -177,5 +236,10 @@ bool pc_ctiff_writes_little_endian(void);
 pc_status pc_cencode_png_indexed(uint32_t w, uint32_t h, const uint8_t *indices, size_t n,
                                  const uint8_t (*palette)[3], size_t npal, int transparent, pc_buf *out,
                                  pc_error *err);
+/* The same with an optional resolution in dpi (dpi NULL for none; pHYs is written when both
+ * axes are finite and positive). */
+pc_status pc_cencode_png_indexed_dpi(uint32_t w, uint32_t h, const uint8_t *indices, size_t n,
+                                     const uint8_t (*palette)[3], size_t npal, int transparent,
+                                     const float *dpi, pc_buf *out, pc_error *err);
 
 #endif

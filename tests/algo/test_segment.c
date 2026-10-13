@@ -398,127 +398,6 @@ static void test_object_select_downsampled_with_band_refinement(void)
     pc_algo_rgb_image_fini(&img);
 }
 
-/* ---- Quick selection ---- */
-
-static void two_regions(size_t w, size_t h, pc_algo_rgb_image *img)
-{
-    pc_algo_segment_rng rng = pc_algo_segment_rng_new(5);
-    size_t x, y;
-    (void)pc_algo_rgb_image_init(img, w, h, NULL);
-    for (y = 0; y < h; y++) {
-        for (x = 0; x < w; x++) {
-            float n = 0.04f * pc_algo_segment_rng_normal(&rng), *p = img->px[y * w + x];
-            float t = (sinf((float)x * 0.5f) * cosf((float)y * 0.3f)) * 0.05f;
-            int k;
-            if (x < 60) {
-                p[0] = 0.8f + t + n;
-                p[1] = 0.5f + n;
-                p[2] = 0.3f + t;
-            } else {
-                p[0] = 0.2f + n;
-                p[1] = 0.35f + t;
-                p[2] = 0.6f + n;
-            }
-            for (k = 0; k < 3; k++) {
-                p[k] = pc_clampf(p[k], 0.0f, 1.0f);
-            }
-        }
-    }
-}
-
-static void test_quick_select_with_points_far_off_canvas_selects_nothing(void)
-{
-    pc_algo_rgb_image img;
-    pc_algo_image_sampler hold = {&img, 0, 0};
-    pc_algo_sampler s = pc_algo_image_sampler_make(&hold);
-    const float pts[3][2] = {{3e9f, 0.0f}, {0.0f, 3e9f}, {3.4028235e38f, 3.4028235e38f}};
-    pc_algo_region r;
-    int k;
-    two_regions(140, 100, &img);
-    for (k = 0; k < 3; k++) {
-        CHECK(pc_algo_quick_select(&s, pc_rect_make(0, 0, 140, 100), &pts[k], 1, 8.0f, PC_ALGO_QUICK_WORK_PX,
-                                   &r, NULL) == PC_OK &&
-              pc_algo_region_is_none(&r));
-    }
-    pc_algo_rgb_image_fini(&img);
-}
-
-static void test_quick_select_grows_without_leaking(void)
-{
-    pc_algo_rgb_image img;
-    pc_algo_image_sampler hold = {&img, 0, 0};
-    pc_algo_sampler s = pc_algo_image_sampler_make(&hold);
-    const float pts[2][2] = {{20, 50}, {35, 50}};
-    pc_algo_region r;
-    int32_t x, y, inside = 0;
-    bool leak = false;
-    two_regions(140, 100, &img);
-    CHECK(pc_algo_quick_select(&s, pc_rect_make(0, 0, 140, 100), pts, 2, 8.0f, PC_ALGO_QUICK_WORK_PX, &r,
-                               NULL) == PC_OK);
-    for (y = 0; y < 100; y++) {
-        for (x = 0; x < 140; x++) {
-            float v = pc_algo_region_at(&r, x, y);
-            leak |= x >= 62 && v >= 0.5f;
-            inside += x < 58 && v >= 0.5f;
-        }
-    }
-    CHECK(!leak);
-    CHECK((float)inside > 0.97f * (58.0f * 100.0f));
-    pc_algo_region_fini(&r);
-    pc_algo_rgb_image_fini(&img);
-}
-
-static void test_quick_select_stops_at_thin_line(void)
-{
-    pc_algo_segment_rng rng = pc_algo_segment_rng_new(9);
-    pc_algo_rgb_image img;
-    pc_algo_image_sampler hold = {&img, 0, 0};
-    pc_algo_sampler s = pc_algo_image_sampler_make(&hold);
-    const float pts[1][2] = {{30, 40}};
-    pc_algo_region r;
-    size_t x, y;
-    bool crossed = false;
-    (void)pc_algo_rgb_image_init(&img, 120, 80, NULL);
-    for (y = 0; y < 80; y++) {
-        for (x = 0; x < 120; x++) {
-            float n = 0.03f * pc_algo_segment_rng_normal(&rng), *p = img.px[y * 120 + x];
-            if (x == 60 || x == 61) {
-                p[0] = p[1] = p[2] = 0.05f;
-            } else {
-                p[0] = 0.6f + n;
-                p[1] = 0.6f + n;
-                p[2] = 0.55f + n;
-            }
-        }
-    }
-    CHECK(pc_algo_quick_select(&s, pc_rect_make(0, 0, 120, 80), pts, 1, 6.0f, PC_ALGO_QUICK_WORK_PX, &r,
-                               NULL) == PC_OK);
-    CHECK(pc_algo_region_at(&r, 10, 10) >= 0.5f && pc_algo_region_at(&r, 50, 70) >= 0.5f);
-    for (y = 0; y < 80; y++) {
-        for (x = 63; x < 120; x++) {
-            crossed |= pc_algo_region_at(&r, (int32_t)x, (int32_t)y) >= 0.5f;
-        }
-    }
-    CHECK(!crossed);
-    pc_algo_region_fini(&r);
-    pc_algo_rgb_image_fini(&img);
-}
-
-static void test_quick_select_downsampled_window(void)
-{
-    pc_algo_rgb_image img;
-    bool *truth = disc_scene(600, 500, 300, 250, 180, 4, &img);
-    pc_algo_image_sampler hold = {&img, 0, 0};
-    pc_algo_sampler s = pc_algo_image_sampler_make(&hold);
-    const float pts[2][2] = {{260, 250}, {340, 250}};
-    pc_algo_region r;
-    CHECK(pc_algo_quick_select(&s, pc_rect_make(0, 0, 600, 500), pts, 2, 30.0f, 15000, &r, NULL) == PC_OK);
-    CHECK(iou(&r, truth, 600, 500) > 0.93f);
-    pc_algo_region_fini(&r);
-    free(truth);
-    pc_algo_rgb_image_fini(&img);
-}
-
 /* ---- Subject, focus ---- */
 
 static void test_select_subject_finds_centred_object(void)
@@ -642,46 +521,6 @@ static void test_clean_mask_drops_islands_and_fills_holes(void)
     CHECK(pc_algo_segment_clean_mask(m, w, h, 0.1f, 0.05f, c, NULL) == PC_OK);
     CHECK(c[15 * w + 15]);
     CHECK(!c[36 * w + 36]);
-}
-
-static void test_geodesic_distance_jumps_across_edges(void)
-{
-    pc_algo_rgb_image img;
-    bool seeds[14000];
-    const float p[1][2] = {{20, 50}};
-    float *d = NULL;
-    two_regions(140, 100, &img);
-    pc_algo_quick_stroke_mask(p, 1, 4.0f, 140, 100, seeds);
-    CHECK(pc_algo_quick_geodesic(&img, seeds, &d, NULL) == PC_OK);
-    CHECK(d[50 * 140 + 40] < 0.02f);
-    CHECK(d[50 * 140 + 100] > 0.1f);
-    free(d);
-    pc_algo_rgb_image_fini(&img);
-}
-
-static void test_geodesic_barrier_blocks_oblique_crossings(void)
-{
-    pc_algo_rgb_image img;
-    bool *truth = disc_scene(352, 372, -470.0f, 186.0f, 668.0f, 4, &img),
-         *seeds = malloc(352 * 372 * sizeof(bool));
-    const float p[2][2] = {{175, 176}, {175, 196}};
-    float *d = NULL;
-    size_t i, y;
-    bool ok = true;
-    pc_algo_quick_stroke_mask(p, 2, 5.0f, 352, 372, seeds);
-    for (i = 0; i < 352 * 372; i++) {
-        ok &= !seeds[i] || truth[i];
-    }
-    CHECK(ok);
-    (void)pc_algo_quick_geodesic(&img, seeds, &d, NULL);
-    CHECK(d[186 * 352 + 100] < 0.02f);
-    for (y = 0; y < 372; y += 31) {
-        CHECK(d[y * 352 + 291] > 0.1f);
-    }
-    free(d);
-    free(seeds);
-    free(truth);
-    pc_algo_rgb_image_fini(&img);
 }
 
 /* ---- Sky (sky.rs tests) ---- */
@@ -819,16 +658,16 @@ static void test_hostile_inputs(void)
     pc_rect cv = {0, 0, 64, 64};
     /* Sampler failures propagate as errors. */
     CHECK(pc_algo_grabcut_object_select(&bad, cv, pc_rect_make(10, 10, 50, 50), 1000, &r, NULL) == PC_ERR_IO);
-    CHECK(pc_algo_quick_select(&bad, cv, pt2, 1, 8, 1000, &r, NULL) != PC_OK);
+    CHECK(pc_algo_quick_select(&bad, cv, pt2, 1, 8, &r, NULL) != PC_OK);
     CHECK(pc_algo_sky_select(&bad, cv, pc_algo_sky_params_default(), &r, NULL) != PC_OK);
     CHECK(pc_algo_subject_select(&bad, cv, &r, NULL) != PC_OK);
     CHECK(pc_algo_focus_area(&bad, cv, 0.5f, 0.0f, &r, NULL) != PC_OK);
     /* NaN pixels and points never crash. */
     CHECK(pc_algo_grabcut_object_select(&nanp, cv, pc_rect_make(10, 10, 50, 50), 1000, &r, NULL) == PC_OK);
     pc_algo_region_fini(&r);
-    CHECK(pc_algo_quick_select(&nanp, cv, pt, 1, NAN, 1000, &r, NULL) == PC_OK);
+    CHECK(pc_algo_quick_select(&nanp, cv, pt, 1, NAN, &r, NULL) == PC_OK);
     pc_algo_region_fini(&r);
-    CHECK(pc_algo_quick_select(&nanp, cv, pt2, 1, 8, 1000, &r, NULL) == PC_OK);
+    CHECK(pc_algo_quick_select(&nanp, cv, pt2, 1, 8, &r, NULL) == PC_OK);
     pc_algo_region_fini(&r);
     CHECK(pc_algo_sky_select(&nanp, cv, pc_algo_sky_params_default(), &r, NULL) == PC_OK);
     pc_algo_region_fini(&r);
@@ -839,7 +678,7 @@ static void test_hostile_inputs(void)
     /* Degenerate canvases. */
     CHECK(pc_algo_subject_select(&nanp, pc_rect_make(0, 0, 3, 100), &r, NULL) == PC_OK &&
           pc_algo_region_is_none(&r));
-    CHECK(pc_algo_quick_select(&nanp, cv, NULL, 0, 8, 1000, &r, NULL) == PC_OK && pc_algo_region_is_none(&r));
+    CHECK(pc_algo_quick_select(&nanp, cv, NULL, 0, 8, &r, NULL) == PC_OK && pc_algo_region_is_none(&r));
     /* Graph misuse. */
     (void)pc_algo_maxflow_new(2, 0, &g, NULL);
     CHECK(pc_algo_maxflow_add_edge(g, 0, 0, 1, 1, NULL) == PC_ERR_INVALID);
@@ -868,17 +707,11 @@ int main(int argc, char **argv)
     RUN(test_grabcut_trimap_on_disc);
     RUN(test_object_select_disc_full_resolution);
     RUN(test_object_select_downsampled_with_band_refinement);
-    RUN(test_quick_select_with_points_far_off_canvas_selects_nothing);
-    RUN(test_quick_select_grows_without_leaking);
-    RUN(test_quick_select_stops_at_thin_line);
-    RUN(test_quick_select_downsampled_window);
     RUN(test_select_subject_finds_centred_object);
     RUN(test_saliency_highlights_the_object);
     RUN(test_focus_area_selects_sharp_half);
     RUN(test_sampler_downsampling_matches_image_downsample);
     RUN(test_clean_mask_drops_islands_and_fills_holes);
-    RUN(test_geodesic_distance_jumps_across_edges);
-    RUN(test_geodesic_barrier_blocks_oblique_crossings);
     RUN(test_sky_finds_sky_and_not_ground_or_tree);
     RUN(test_sky_none_in_a_ground_only_image);
     RUN(test_sky_overcast_is_found);

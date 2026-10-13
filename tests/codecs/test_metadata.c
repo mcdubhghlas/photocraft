@@ -158,6 +158,10 @@ static void test_pnm_metadata(void) { check_format(PC_CF_PNM); }
 static void test_qoi_metadata(void) { check_format(PC_CF_QOI); }
 static void test_exr_metadata(void) { check_format(PC_CF_EXR); }
 static void test_hdr_metadata(void) { check_format(PC_CF_HDR); }
+static void test_fits_metadata(void)
+{
+    check_format(PC_CF_FITS);
+}
 
 static void test_metadata_on_16bit_png_and_tiff(void)
 {
@@ -643,6 +647,7 @@ int main(int argc, char **argv)
     RUN(test_qoi_metadata);
     RUN(test_exr_metadata);
     RUN(test_hdr_metadata);
+    RUN(test_fits_metadata);
     RUN(test_metadata_on_16bit_png_and_tiff);
     RUN(test_icc_on_cmyk_tiff_and_jpeg);
     RUN(test_cmyk_icc_not_written_to_rgb_format);

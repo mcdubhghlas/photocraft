@@ -1,4 +1,6 @@
-/* Patch-based hole filling (port of crates/algo/src/inpaint.rs); see inpaint.h. */
+/* Patch-based completion: grids, sources and the coarse-to-fine driver (port of
+ * crates/algo/src/inpaint.rs); see inpaint.h. The solver is in inpaint_solver.c, the onion peel in
+ * inpaint_peel.c, proximity match and texture synthesis in inpaint_synth.c. */
 #include "algo/inpaint.h"
 
 #include <math.h>
@@ -6,106 +8,56 @@
 #include <string.h>
 
 #include "algo/fxutil.h"
+#include "algo/inpaint_int.h"
 #include "algo/poisson.h"
 #include "base/mem.h"
 #include "base/num.h"
 #include "base/rmath.h"
 
-/* Below this many grid cells a level runs single-threaded (the reference's PAR_MIN; results are
- * the same either way). */
-#define PAR_MIN ((size_t)128 * 128)
-/* PatchMatch row band height: each band propagates within itself with its own RNG stream. */
-#define BAND ((size_t)16)
+/* Largest level (in cells) whose source patches' moments the solver keeps. */
+#define SOURCE_MOMENTS_MAX ((size_t)1 << 20)
+/* Columns per block of the sources' index. */
+#define SOURCE_BLOCK ((size_t)64)
+/* Row band of valid_sources' column pass. */
+#define VS_BAND ((size_t)64)
+#define MAX_LEVELS 64
 
-/* ---- SplitMix64 ------------------------------------------------------------------------------- */
+/* ---- colour adaptation -------------------------------------------------------------------------- */
 
-typedef struct rng {
-    uint64_t s;
-} rng;
-
-static rng rng_new(uint64_t seed)
+bool pc_algo_adapt_is_none(pc_algo_adapt a)
 {
-    return (rng){seed ^ 0x9E3779B97F4A7C15ull};
+    return a.gain_lo == 1.0f && a.gain_hi == 1.0f && a.bias == 0.0f;
 }
 
-static uint64_t rng_next(rng *r)
+pc_status pc_algo_adapt_check(pc_algo_adapt a, pc_error *err)
 {
-    uint64_t z;
-    r->s += 0x9E3779B97F4A7C15ull;
-    z = r->s;
-    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
-    z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
-    return z ^ (z >> 31);
-}
-
-/* Uniform integer in lo..=hi. */
-static int32_t rng_range(rng *r, int32_t lo, int32_t hi)
-{
-    uint64_t span;
-    if (hi <= lo) {
-        return lo;
+    if (isnan(a.gain_lo) || isnan(a.gain_hi) || isnan(a.bias) || a.gain_lo > a.gain_hi || a.bias < 0.0f) {
+        return pc_fail(err, PC_ERR_INVALID, "colour adaptation limits are invalid");
     }
-    span = (uint64_t)((int64_t)hi - (int64_t)lo + 1);
-    return (int32_t)((int64_t)lo + (int64_t)(rng_next(r) % span));
-}
-
-/* ---- grids ------------------------------------------------------------------------------------- */
-
-typedef struct level {
-    size_t w, h;
-    float *img;
-    bool *hole;
-} level;
-
-typedef struct ipt {
-    int32_t x, y;
-} ipt;
-
-static pc_status downsample(const level *l, size_t ch, level *out, pc_error *err)
-{
-    size_t w = (l->w + 1) / 2, h = (l->h + 1) / 2, x, y, c;
-    float *img = pc_calloc_array(w * h * ch, sizeof *img);
-    bool *hole = pc_calloc_array(w * h, sizeof *hole);
-    static const size_t DX[4] = {0, 1, 0, 1}, DY[4] = {0, 0, 1, 1};
-    if (img == NULL || hole == NULL) {
-        free(img);
-        free(hole);
-        return pc_fail(err, PC_ERR_NOMEM, "out of memory");
-    }
-    for (y = 0; y < h; y++) {
-        for (x = 0; x < w; x++) {
-            float n = 0.0f;
-            size_t o = (y * w + x) * ch;
-            int k;
-            for (k = 0; k < 4; k++) {
-                size_t sx = x * 2 + DX[k], sy = y * 2 + DY[k], si;
-                if (sx >= l->w || sy >= l->h) {
-                    continue;
-                }
-                si = sy * l->w + sx;
-                if (l->hole[si]) {
-                    hole[y * w + x] = true;
-                } else {
-                    for (c = 0; c < ch; c++) {
-                        img[o + c] += l->img[si * ch + c];
-                    }
-                    n += 1.0f;
-                }
-            }
-            if (n > 0.0f) {
-                for (c = 0; c < ch; c++) {
-                    img[o + c] /= n;
-                }
-            }
-        }
-    }
-    *out = (level){w, h, img, hole};
     return PC_OK;
 }
 
-/* Summed-area table of a boolean grid ((w+1) x (h+1)); u32 arithmetic wraps like the reference's
- * release build, and window differences come out exact. */
-static uint32_t *integral(size_t w, size_t h, const bool *m)
+void pc_algo_adapt_fit(pc_algo_adapt a, float n, float st, float stt, float ss, float sss, float *gain,
+                       float *bias)
+{
+    float mt = st / n, ms = ss / n;
+    float vt = pc_rs_maxf_k(stt / n - mt * mt, 0.0f);
+    float vs = pc_rs_maxf_k(sss / n - ms * ms, 0.0f);
+    float g = vs > 1e-10f ? sqrtf(vt / vs) : 1.0f;
+    g = pc_clampf(g, a.gain_lo, a.gain_hi);
+    *gain = g;
+    *bias = pc_clampf(mt - g * ms, -a.bias, a.bias);
+}
+
+pc_algo_complete_params pc_algo_complete_params_default(void)
+{
+    pc_algo_complete_params p = {3, 10, 3, 2, 192, {1.0f, 1.0f, 0.0f}, 1};
+    return p;
+}
+
+/* ---- grids -------------------------------------------------------------------------------------- */
+
+uint32_t *pc_ip_integral(size_t w, size_t h, const bool *m)
 {
     size_t x, y;
     uint32_t *s = pc_calloc_array((w + 1) * (h + 1), sizeof *s);
@@ -122,46 +74,316 @@ static uint32_t *integral(size_t w, size_t h, const bool *m)
     return s;
 }
 
-/* Count of set cells in the clipped window [x0, x1) x [y0, y1). */
-static uint32_t window_count(const uint32_t *s, size_t gw, size_t gh, int64_t x0, int64_t y0, int64_t x1,
-                             int64_t y1)
+uint32_t pc_ip_window_count(const uint32_t *s, size_t gw, size_t gh, int64_t x0, int64_t y0, int64_t x1,
+                            int64_t y1)
 {
     size_t ux0 = x0 > 0 ? (size_t)x0 : 0, uy0 = y0 > 0 ? (size_t)y0 : 0;
     size_t ux1 = x1 > 0 ? (size_t)x1 : 0, uy1 = y1 > 0 ? (size_t)y1 : 0;
     size_t w1 = gw + 1;
-    if (ux1 > gw) {
-        ux1 = gw;
-    }
-    if (uy1 > gh) {
-        uy1 = gh;
-    }
+    ux1 = ux1 < gw ? ux1 : gw;
+    uy1 = uy1 < gh ? uy1 : gh;
     if (ux1 <= ux0 || uy1 <= uy0) {
         return 0;
     }
     return s[uy1 * w1 + ux1] + s[uy0 * w1 + ux0] - s[uy0 * w1 + ux1] - s[uy1 * w1 + ux0];
 }
 
-static bool hole_bbox(size_t w, size_t h, const bool *hole, size_t b[4])
+bool pc_ip_hole_bbox(size_t w, size_t h, const bool *hole, size_t b[4])
 {
     size_t x, y;
     bool any = false;
     for (y = 0; y < h; y++) {
         for (x = 0; x < w; x++) {
-            if (hole[y * w + x]) {
-                if (!any) {
-                    b[0] = x, b[1] = y, b[2] = x + 1, b[3] = y + 1;
-                    any = true;
-                } else {
-                    b[0] = x < b[0] ? x : b[0];
-                    b[1] = y < b[1] ? y : b[1];
-                    b[2] = x + 1 > b[2] ? x + 1 : b[2];
-                    b[3] = y + 1 > b[3] ? y + 1 : b[3];
-                }
+            if (!hole[y * w + x]) {
+                continue;
+            }
+            if (!any) {
+                b[0] = x, b[1] = y, b[2] = x + 1, b[3] = y + 1;
+                any = true;
+            } else {
+                b[0] = x < b[0] ? x : b[0];
+                b[1] = y < b[1] ? y : b[1];
+                b[2] = x + 1 > b[2] ? x + 1 : b[2];
+                b[3] = y + 1 > b[3] ? y + 1 : b[3];
             }
         }
     }
     return any;
 }
+
+bool pc_ip_hole_bounds(size_t w, size_t h, const uint8_t *px, pc_ip_bounds *out)
+{
+    size_t x, y;
+    bool any = false;
+    pc_ip_bounds b = {0, 0, 0, 0};
+    for (y = 0; y < h; y++) {
+        const uint8_t *row = &px[y * w];
+        size_t x0 = SIZE_MAX, x1 = 0;
+        for (x = 0; x < w; x++) {
+            if (row[x] == PC_ALGO_PX_HOLE) {
+                x0 = x0 == SIZE_MAX ? x : x0;
+                x1 = x + 1;
+            }
+        }
+        if (x0 == SIZE_MAX) {
+            continue;
+        }
+        if (!any) {
+            b = (pc_ip_bounds){x0, y, x1, y + 1};
+            any = true;
+        } else {
+            b.x0 = x0 < b.x0 ? x0 : b.x0;
+            b.x1 = x1 > b.x1 ? x1 : b.x1;
+            b.y1 = y + 1;
+        }
+    }
+    if (any) {
+        *out = b;
+    }
+    return any;
+}
+
+/* ---- valid sources ------------------------------------------------------------------------------ */
+
+typedef struct vs_job {
+    size_t w, h, r, side;
+    const uint8_t *px;
+    bool *run, *valid;
+    const pc_interrupt *ctl;
+} vs_job;
+
+/* Per row: is the run of `side` pixels centred on each one all copyable (a sliding count)? */
+static pc_status vs_rows(void *ctx, size_t chunk, size_t begin, size_t end)
+{
+    const vs_job *j = ctx;
+    size_t y, x, w = j->w, r = j->r, side = j->side;
+    (void)chunk;
+    for (y = begin; y < end; y++) {
+        const uint8_t *row = &j->px[y * w];
+        bool *out = &j->run[y * w];
+        size_t count = 0;
+        if (y % VS_BAND == 0 && pc_interrupt_cancelled(j->ctl)) {
+            continue;
+        }
+        for (x = 0; x < side; x++) {
+            count += row[x] == PC_ALGO_PX_SOURCE ? 1u : 0u;
+        }
+        out[r] = count == side;
+        for (x = r + 1; x < w - r; x++) {
+            count = count + (row[x + r] == PC_ALGO_PX_SOURCE ? 1u : 0u) -
+                    (row[x - r - 1] == PC_ALGO_PX_SOURCE ? 1u : 0u);
+            out[x] = count == side;
+        }
+    }
+    return PC_OK;
+}
+
+/* Per column, in bands of rows: how many runs end each row in a row; a centre is valid where
+ * `side` of them stack up to r rows below it. */
+static pc_status vs_bands(void *ctx, size_t chunk, size_t begin, size_t end)
+{
+    const vs_job *j = ctx;
+    size_t band, w = j->w, h = j->h, r = j->r, side = j->side;
+    size_t *stack = pc_malloc_array(w, sizeof *stack);
+    (void)chunk;
+    if (stack == NULL) {
+        return PC_ERR_NOMEM;
+    }
+    for (band = begin; band < end; band++) {
+        size_t y0 = band * VS_BAND, rows = y0 + VS_BAND < h ? VS_BAND : h - y0, yy, x;
+        size_t top = y0 > r ? y0 - r : 0, bottom = y0 + rows + r < h ? y0 + rows + r : h;
+        if (pc_interrupt_cancelled(j->ctl)) {
+            continue;
+        }
+        memset(stack, 0, w * sizeof *stack);
+        for (yy = top; yy < bottom; yy++) {
+            size_t y;
+            for (x = 0; x < w; x++) {
+                stack[x] = j->run[yy * w + x] ? stack[x] + 1 : 0;
+            }
+            if (yy < y0 + r || yy < 2 * r) {
+                continue;
+            }
+            y = yy - r;
+            for (x = r; x < w - r; x++) {
+                j->valid[y * w + x] = stack[x] >= side;
+            }
+        }
+    }
+    free(stack);
+    return PC_OK;
+}
+
+pc_status pc_ip_valid_sources(size_t w, size_t h, size_t r, const uint8_t *px, const pc_interrupt *ctl,
+                              bool **out, pc_error *err)
+{
+    size_t side = 2 * r + 1, bands;
+    bool par = w * h >= PC_IP_PAR_MIN;
+    vs_job j;
+    pc_status st;
+    bool *valid = pc_calloc_array(w * h, sizeof *valid), *run;
+    if (valid == NULL) {
+        return pc_fail(err, PC_ERR_NOMEM, "out of memory");
+    }
+    if (w < side || h < side) {
+        *out = valid;
+        return PC_OK;
+    }
+    run = pc_calloc_array(w * h, sizeof *run);
+    if (run == NULL) {
+        free(valid);
+        return pc_fail(err, PC_ERR_NOMEM, "out of memory");
+    }
+    j = (vs_job){w, h, r, side, px, run, valid, ctl};
+    st = par ? pc_algo_par_for(h, 1, vs_rows, &j) : vs_rows(&j, 0, 0, h);
+    if (st == PC_OK && !pc_interrupt_cancelled(ctl)) {
+        bands = (h + VS_BAND - 1) / VS_BAND;
+        st = par ? pc_algo_par_for(bands, 1, vs_bands, &j) : vs_bands(&j, 0, 0, bands);
+    }
+    free(run);
+    if (st != PC_OK) {
+        free(valid);
+        return pc_fail(err, st, "out of memory");
+    }
+    if (pc_interrupt_cancelled(ctl)) {
+        free(valid);
+        return pc_interrupt_check(ctl, err);
+    }
+    *out = valid;
+    return PC_OK;
+}
+
+/* ---- the sources' index ------------------------------------------------------------------------- */
+
+pc_status pc_ip_sources_new(const bool *valid, size_t w, size_t h, pc_ip_sources *out, pc_error *err)
+{
+    size_t blocks = (w + SOURCE_BLOCK - 1) / SOURCE_BLOCK, y, b, x, total = 0;
+    pc_ip_sources s = {NULL, NULL, blocks, h};
+    s.row_start = pc_malloc_array(h + 1, sizeof *s.row_start);
+    s.block_start = pc_calloc_array(h * blocks + 1, sizeof *s.block_start);
+    if (s.row_start == NULL || s.block_start == NULL) {
+        pc_ip_sources_free(&s);
+        return pc_fail(err, PC_ERR_NOMEM, "out of memory");
+    }
+    s.row_start[0] = 0;
+    for (y = 0; y < h; y++) {
+        uint32_t n = 0;
+        for (b = 0; b < blocks; b++) {
+            size_t x1 = (b + 1) * SOURCE_BLOCK < w ? (b + 1) * SOURCE_BLOCK : w;
+            s.block_start[y * blocks + b] = n;
+            for (x = b * SOURCE_BLOCK; x < x1; x++) {
+                n += valid[y * w + x] ? 1u : 0u;
+            }
+        }
+        total += n;
+        s.row_start[y + 1] = total;
+    }
+    *out = s;
+    return PC_OK;
+}
+
+void pc_ip_sources_free(pc_ip_sources *s)
+{
+    free(s->row_start);
+    free(s->block_start);
+    s->row_start = NULL;
+    s->block_start = NULL;
+}
+
+size_t pc_ip_sources_len(const pc_ip_sources *s)
+{
+    return s->row_start != NULL ? s->row_start[s->h] : 0;
+}
+
+pc_ip_pt pc_ip_sources_nth(const pc_ip_sources *s, size_t k, const bool *valid, size_t w)
+{
+    /* partition_point(|s| s <= k) - 1 over the nondecreasing row starts. */
+    size_t lo = 0, hi = s->h + 1, y, left, b, x0, x;
+    const uint32_t *rb;
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        if (s->row_start[mid] <= k) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    y = lo > 0 ? lo - 1 : 0;
+    if (y >= s->h) {
+        return (pc_ip_pt){0, 0};
+    }
+    left = k - s->row_start[y];
+    rb = &s->block_start[y * s->blocks];
+    lo = 0, hi = s->blocks;
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        if ((size_t)rb[mid] <= left) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    b = lo > 0 ? lo - 1 : 0;
+    left -= s->blocks > 0 ? rb[b] : 0;
+    x0 = b * SOURCE_BLOCK;
+    for (x = x0; x < w; x++) {
+        if (valid[y * w + x]) {
+            if (left == 0) {
+                return (pc_ip_pt){(int32_t)x, (int32_t)y};
+            }
+            left--;
+        }
+    }
+    return (pc_ip_pt){0, 0};
+}
+
+pc_status pc_ip_sources_all(const pc_ip_sources *s, const bool *valid, size_t w, pc_ip_pt **out,
+                            pc_error *err)
+{
+    size_t n = pc_ip_sources_len(s), i, k = 0;
+    pc_ip_pt *v = pc_malloc_array(n > 0 ? n : 1, sizeof *v);
+    if (v == NULL) {
+        return pc_fail(err, PC_ERR_NOMEM, "out of memory");
+    }
+    for (i = 0; i < w * s->h && k < n; i++) {
+        if (valid[i]) {
+            v[k++] = (pc_ip_pt){(int32_t)(i % w), (int32_t)(i / w)};
+        }
+    }
+    *out = v;
+    return PC_OK;
+}
+
+bool *pc_ip_targets_around(size_t w, size_t r, const uint8_t *px, pc_ip_bounds hb, pc_ip_bounds tb)
+{
+    size_t bw = pc_ip_bw(hb), bh = pc_ip_bh(hb), x, y, tw = pc_ip_bw(tb);
+    int64_t ri = (int64_t)r, ox = (int64_t)hb.x0, oy = (int64_t)hb.y0;
+    uint32_t *s = pc_calloc_array((bw + 1) * (bh + 1), sizeof *s);
+    bool *t = pc_calloc_array(pc_ip_barea(tb) > 0 ? pc_ip_barea(tb) : 1, sizeof *t);
+    if (s == NULL || t == NULL) {
+        free(s);
+        free(t);
+        return NULL;
+    }
+    for (y = 0; y < bh; y++) {
+        uint32_t row = 0;
+        for (x = 0; x < bw; x++) {
+            row += px[(hb.y0 + y) * w + hb.x0 + x] == PC_ALGO_PX_HOLE ? 1u : 0u;
+            s[(y + 1) * (bw + 1) + x + 1] = s[y * (bw + 1) + x + 1] + row;
+        }
+    }
+    for (y = tb.y0; y < tb.y1; y++) {
+        for (x = tb.x0; x < tb.x1; x++) {
+            int64_t xi = (int64_t)x, yi = (int64_t)y;
+            t[(y - tb.y0) * tw + (x - tb.x0)] =
+                pc_ip_window_count(s, bw, bh, xi - ri - ox, yi - ri - oy, xi + ri + 1 - ox, yi + ri + 1 - oy) > 0;
+        }
+    }
+    free(s);
+    return t;
+}
+
+/* ---- order statistics ---------------------------------------------------------------------------- */
 
 /* f32::total_cmp as an unsigned key. */
 static uint32_t total_key(float f)
@@ -171,534 +393,485 @@ static uint32_t total_key(float f)
     return (u & 0x80000000u) ? ~u : (u | 0x80000000u);
 }
 
-static int cmp_total(const void *a, const void *b)
+pc_status pc_ip_nth_total(const float *v, size_t n, size_t k, float *out, pc_error *err)
 {
-    uint32_t ka = total_key(*(const float *)a), kb = total_key(*(const float *)b);
-    return ka < kb ? -1 : (ka > kb ? 1 : 0);
-}
-
-/* ---- per-level PatchMatch / EM ------------------------------------------------------------------ */
-
-typedef struct solver {
-    size_t w, h, ch;
-    int32_t r;
-    float *img;
-    const bool *hole;
-    bool *valid; /* the whole patch is inside the grid and contains no hole pixel */
-    ipt *valid_list;
-    size_t valid_n;
-    bool *targets; /* the patch overlaps the hole */
-    const pc_interrupt *ctl;
-} solver;
-
-static bool is_valid(const solver *s, int32_t x, int32_t y)
-{
-    return x >= 0 && y >= 0 && (size_t)x < s->w && (size_t)y < s->h && s->valid[(size_t)y * s->w + (size_t)x];
-}
-
-/* SSD between the (clipped) target patch at t and the source patch at s, per sample. */
-static float dist(const solver *sv, ipt t, ipt s, float cutoff)
-{
-    int32_t w = (int32_t)sv->w, h = (int32_t)sv->h, r = sv->r, dx, dy;
-    size_t ch = sv->ch, n = 0, c;
-    float full = (float)((2 * r + 1) * (2 * r + 1)) * (float)ch;
-    float sum = 0.0f;
-    for (dy = -r; dy <= r; dy++) {
-        int32_t ty = t.y + dy, sy = s.y + dy;
-        if (ty < 0 || ty >= h) {
-            continue;
-        }
-        for (dx = -r; dx <= r; dx++) {
-            int32_t tx = t.x + dx;
-            size_t ti, si;
-            if (tx < 0 || tx >= w) {
-                continue;
-            }
-            ti = ((size_t)ty * sv->w + (size_t)tx) * ch;
-            si = ((size_t)sy * sv->w + (size_t)(s.x + dx)) * ch;
-            for (c = 0; c < ch; c++) {
-                float d = sv->img[ti + c] - sv->img[si + c];
-                sum += d * d;
-            }
-            n += ch;
-        }
-        /* Early out: the mean can only be >= sum / (full patch size). */
-        if (sum > cutoff * full) {
-            return INFINITY;
-        }
+    /* Radix select over the total-order keys: the value is the same as select_nth_unstable_by. */
+    uint32_t prefix = 0, mask = 0, key;
+    size_t i, shift, cnt[256];
+    if (n == 0 || k >= n) {
+        return pc_fail(err, PC_ERR_INVALID, "no such order statistic");
     }
-    return n == 0 ? INFINITY : sum / (float)n;
-}
-
-typedef struct pm_job {
-    const solver *sv;
-    ipt *nnf;
-    float *cost;
-    size_t pass;
-    uint64_t seed;
-    int32_t search_radius;
-} pm_job;
-
-static void pm_try(const solver *sv, ipt t, ipt cand, ipt *best, float *bc)
-{
-    if (is_valid(sv, cand.x, cand.y) && (cand.x != best->x || cand.y != best->y)) {
-        float d = dist(sv, t, cand, *bc);
-        if (d < *bc) {
-            *best = cand;
-            *bc = d;
+    for (shift = 32; shift > 0; shift -= 8) {
+        size_t b, s = shift - 8, acc = 0;
+        memset(cnt, 0, sizeof cnt);
+        for (i = 0; i < n; i++) {
+            key = total_key(v[i]);
+            if ((key & mask) == prefix) {
+                cnt[(key >> s) & 0xFFu]++;
+            }
         }
-    }
-}
-
-static void pm_band(const pm_job *j, size_t bi)
-{
-    const solver *sv = j->sv;
-    size_t w = sv->w, y0 = bi * BAND, rows = sv->h - y0 < BAND ? sv->h - y0 : BAND, ry, rx;
-    ipt *nn = j->nnf + y0 * w;
-    float *co = j->cost + y0 * w;
-    bool reverse = j->pass % 2 == 1;
-    int32_t step = reverse ? -1 : 1;
-    rng g;
-    if (pc_interrupt_cancelled(sv->ctl)) {
-        return;
-    }
-    g = rng_new(j->seed ^ ((uint64_t)bi * 0x2545F4914F6CDD1Dull) ^ ((uint64_t)j->pass << 40));
-    for (ry = 0; ry < rows; ry++) {
-        size_t ly = reverse ? rows - 1 - ry : ry, y = y0 + ly;
-        for (rx = 0; rx < w; rx++) {
-            size_t x = reverse ? w - 1 - rx : rx, li = ly * w + x;
-            ipt t = {(int32_t)x, (int32_t)y}, best;
-            float bc;
-            int64_t nx, nly;
-            int32_t rad;
-            if (!sv->targets[y * w + x]) {
-                continue;
+        for (b = 0; b < 256; b++) {
+            if (k < acc + cnt[b]) {
+                break;
             }
-            best = nn[li];
-            bc = co[li];
-            /* Propagation from the already-visited neighbours (within this band). */
-            nx = (int64_t)x - step;
-            if (nx >= 0 && (size_t)nx < w) {
-                ipt c = nn[ly * w + (size_t)nx];
-                pm_try(sv, t, (ipt){c.x + step, c.y}, &best, &bc);
-            }
-            nly = (int64_t)ly - step;
-            if (nly >= 0 && (size_t)nly < rows) {
-                ipt c = nn[(size_t)nly * w + x];
-                pm_try(sv, t, (ipt){c.x, c.y + step}, &best, &bc);
-            }
-            /* Random search in exponentially shrinking windows. */
-            for (rad = j->search_radius; rad >= 1; rad /= 2) {
-                int32_t cx = best.x + rng_range(&g, -rad, rad);
-                int32_t cy = best.y + rng_range(&g, -rad, rad);
-                pm_try(sv, t, (ipt){cx, cy}, &best, &bc);
-            }
-            nn[li] = best;
-            co[li] = bc;
+            acc += cnt[b];
         }
+        k -= acc;
+        prefix |= (uint32_t)b << s;
+        mask |= 0xFFu << s;
     }
-}
-
-static pc_status pm_run(void *ctx, size_t chunk, size_t begin, size_t end)
-{
-    size_t bi;
-    (void)chunk;
-    for (bi = begin; bi < end; bi++) {
-        pm_band(ctx, bi);
-    }
+    key = prefix & 0x80000000u ? prefix & 0x7FFFFFFFu : ~prefix;
+    memcpy(out, &key, 4);
     return PC_OK;
 }
 
-static void patchmatch(const solver *sv, ipt *nnf, float *cost, size_t pass, uint64_t seed,
-                       int32_t search_radius)
+pc_status pc_ip_sigma2(const float *costs, size_t n, float *out, pc_error *err)
 {
-    pm_job j = {sv, nnf, cost, pass, seed, search_radius};
-    size_t bands = (sv->h + BAND - 1) / BAND, bi;
-    if (sv->w * sv->h >= PAR_MIN) {
-        (void)pc_algo_par_for(bands, 1, pm_run, &j);
-        return;
+    size_t k;
+    float v;
+    pc_status st;
+    if (n == 0) {
+        *out = 1.0f;
+        return PC_OK;
     }
-    for (bi = 0; bi < bands; bi++) {
-        pm_band(&j, bi);
+    k = n * 3 / 4 < n - 1 ? n * 3 / 4 : n - 1;
+    if ((st = pc_ip_nth_total(costs, n, k, &v, err)) != PC_OK) {
+        return st;
     }
+    *out = pc_rs_maxf_k(v, 1e-6f);
+    return PC_OK;
 }
 
-typedef struct vote_job {
-    const solver *sv;
-    const ipt *nnf;
-    const float *cost;
-    float sigma2;
-    float *out; /* the new image (a copy of img; voted hole pixels overwritten) */
-} vote_job;
+/* ---- the driver --------------------------------------------------------------------------------- */
 
-static void vote_row(const vote_job *j, size_t y)
-{
-    const solver *sv = j->sv;
-    size_t w = sv->w, h = sv->h, ch = sv->ch, x, c;
-    int32_t r = sv->r, dx, dy;
-    if (pc_interrupt_cancelled(sv->ctl)) {
-        return;
-    }
-    for (x = 0; x < w; x++) {
-        float acc[PC_ALGO_HEAL_MAX_CH], wsum = 0.0f;
-        if (!sv->hole[y * w + x]) {
-            continue;
-        }
-        for (c = 0; c < ch; c++) {
-            acc[c] = 0.0f;
-        }
-        for (dy = -r; dy <= r; dy++) {
-            int64_t ty = (int64_t)y + dy;
-            if (ty < 0 || (size_t)ty >= h) {
-                continue;
-            }
-            for (dx = -r; dx <= r; dx++) {
-                int64_t tx = (int64_t)x + dx, sx, sy;
-                size_t ti, si;
-                float wt;
-                ipt s;
-                if (tx < 0 || (size_t)tx >= w) {
-                    continue;
-                }
-                ti = (size_t)ty * w + (size_t)tx;
-                if (!sv->targets[ti] || !isfinite(j->cost[ti])) {
-                    continue;
-                }
-                s = j->nnf[ti];
-                sx = (int64_t)s.x - dx;
-                sy = (int64_t)s.y - dy;
-                if (sx < 0 || sy < 0 || (size_t)sx >= w || (size_t)sy >= h) {
-                    continue; /* unreachable: matches are valid centres */
-                }
-                wt = pc_rs_maxf_k(expf(-j->cost[ti] / (2.0f * j->sigma2)), 1e-8f);
-                si = ((size_t)sy * w + (size_t)sx) * ch;
-                for (c = 0; c < ch; c++) {
-                    acc[c] += sv->img[si + c] * wt;
-                }
-                wsum += wt;
-            }
-        }
-        if (wsum > 0.0f) {
-            for (c = 0; c < ch; c++) {
-                j->out[(y * w + x) * ch + c] = acc[c] / wsum;
-            }
-        }
-    }
-}
+typedef struct level {
+    size_t w, h;
+    float *img;  /* owned except at level 0 */
+    uint8_t *px; /* owned except at level 0 */
+} level;
 
-static pc_status vote_run(void *ctx, size_t chunk, size_t begin, size_t end)
+typedef struct ds_job {
+    const level *l;
+    level *o;
+    size_t ch;
+} ds_job;
+
+/* Half-size level rows: a cell is a hole if any of its pixels is; else it averages its non-void
+ * pixels, and may be copied from only if all of them may. */
+static pc_status ds_rows(void *ctx, size_t chunk, size_t begin, size_t end)
 {
-    size_t y;
+    const ds_job *j = ctx;
+    const level *l = j->l;
+    size_t y, x, c, ch = j->ch, w = j->o->w;
+    static const size_t DX[4] = {0, 1, 0, 1}, DY[4] = {0, 0, 1, 1};
     (void)chunk;
     for (y = begin; y < end; y++) {
-        vote_row(ctx, y);
+        for (x = 0; x < w; x++) {
+            float n = 0.0f, *o = &j->o->img[(y * w + x) * ch];
+            bool hole = false, all_source = true, any = false;
+            int q;
+            for (q = 0; q < 4; q++) {
+                size_t sx = x * 2 + DX[q], sy = y * 2 + DY[q], si;
+                if (sx >= l->w || sy >= l->h) {
+                    continue;
+                }
+                si = sy * l->w + sx;
+                switch (l->px[si]) {
+                case PC_ALGO_PX_HOLE:
+                    hole = true;
+                    break;
+                case PC_ALGO_PX_VOID:
+                    all_source = false;
+                    break;
+                default:
+                    any = true;
+                    all_source = all_source && l->px[si] == PC_ALGO_PX_SOURCE;
+                    for (c = 0; c < ch; c++) {
+                        o[c] += l->img[si * ch + c];
+                    }
+                    n += 1.0f;
+                    break;
+                }
+            }
+            if (n > 0.0f) {
+                for (c = 0; c < ch; c++) {
+                    o[c] /= n;
+                }
+            }
+            j->o->px[y * w + x] = hole ? PC_ALGO_PX_HOLE
+                                       : (!any ? PC_ALGO_PX_VOID : (all_source ? PC_ALGO_PX_SOURCE : PC_ALGO_PX_KNOWN));
+        }
     }
     return PC_OK;
 }
 
-/* Re-estimate hole pixels by a similarity-weighted vote of all overlapping patch matches. */
-static pc_status vote(solver *sv, const ipt *nnf, const float *cost, pc_error *err)
+static pc_status downsample(const level *l, size_t ch, level *out, pc_error *err)
 {
-    size_t n = sv->w * sv->h, ncs = 0, i;
-    float *cs = pc_malloc_array(n, sizeof *cs), *nimg, sigma2;
-    vote_job j;
-    if (cs == NULL) {
+    size_t w = (l->w + 1) / 2, h = (l->h + 1) / 2;
+    ds_job j;
+    level o = {w, h, pc_calloc_array(w * h * ch, sizeof(float)), pc_calloc_array(w * h, 1)};
+    if (o.img == NULL || o.px == NULL) {
+        free(o.img);
+        free(o.px);
         return pc_fail(err, PC_ERR_NOMEM, "out of memory");
     }
-    for (i = 0; i < n; i++) {
-        if (sv->targets[i] && isfinite(cost[i])) {
-            cs[ncs++] = cost[i];
-        }
-    }
-    /* sigma^2 from the 75th percentile of match costs (a robust scale, as Wexler et al. use). */
-    if (ncs == 0) {
-        sigma2 = 1.0f;
+    j = (ds_job){l, &o, ch};
+    if (w * h >= PC_IP_PAR_MIN) {
+        (void)pc_algo_par_for(h, 1, ds_rows, &j);
     } else {
-        size_t k = ncs * 3 / 4 < ncs - 1 ? ncs * 3 / 4 : ncs - 1;
-        qsort(cs, ncs, sizeof *cs, cmp_total);
-        sigma2 = pc_rs_maxf_k(cs[k], 1e-6f);
+        (void)ds_rows(&j, 0, 0, h);
     }
-    free(cs);
-    nimg = pc_malloc_array(n * sv->ch, sizeof *nimg);
-    if (nimg == NULL) {
-        return pc_fail(err, PC_ERR_NOMEM, "out of memory");
-    }
-    memcpy(nimg, sv->img, n * sv->ch * sizeof *nimg);
-    j = (vote_job){sv, nnf, cost, sigma2, nimg};
-    if (n >= PAR_MIN) {
-        (void)pc_algo_par_for(sv->h, 1, vote_run, &j);
-    } else {
-        for (i = 0; i < sv->h; i++) {
-            vote_row(&j, i);
-        }
-    }
-    memcpy(sv->img, nimg, n * sv->ch * sizeof *nimg);
-    free(nimg);
+    *out = o;
     return PC_OK;
 }
 
-pc_algo_complete_params pc_algo_complete_params_default(void)
+/* A finished coarser level: size, pixels, match field over its target box (INT32_MIN where none;
+ * NULL when it had nothing to copy). */
+typedef struct coarser {
+    size_t w, h;
+    float *img; /* owned unless it is level 0's */
+    pc_ip_pt *field;
+    pc_ip_bounds tbox;
+} coarser;
+
+static pc_ip_pt field_at(const coarser *c, size_t x, size_t y)
 {
-    return (pc_algo_complete_params){3, 8, 2, 2, 96, 1};
+    pc_ip_bounds t = c->tbox;
+    if (c->field == NULL || x < t.x0 || x >= t.x1 || y < t.y0 || y >= t.y1) {
+        return (pc_ip_pt){INT32_MIN, INT32_MIN};
+    }
+    return c->field[(y - t.y0) * pc_ip_bw(t) + (x - t.x0)];
 }
 
-/* Everything one completion owns, freed in one place. */
-/* Each level halves the previous one and stops above 3 patches across, so a side of at most
- * 2^24 gives at most 25 levels. */
-#define MAX_LEVELS 32
+static pc_ip_bounds grow(pc_ip_bounds b, size_t r, size_t w, size_t h)
+{
+    pc_ip_bounds o;
+    o.x0 = b.x0 > r ? b.x0 - r : 0;
+    o.y0 = b.y0 > r ? b.y0 - r : 0;
+    o.x1 = b.x1 + r < w ? b.x1 + r : w;
+    o.y1 = b.y1 + r < h ? b.y1 + r : h;
+    return o;
+}
 
 typedef struct complete_state {
     level levels[MAX_LEVELS];
-    size_t nlev;
+    pc_ip_bounds boxes[MAX_LEVELS];
     size_t exts[MAX_LEVELS];
-    float *prev; /* the previous (coarser) level's result */
-    size_t pw, ph;
-    ipt *nnf;
-    bool *valid, *targets;
-    ipt *valid_list;
-    uint32_t *hs;
-    float *cost;
+    size_t nlev;
+    coarser prev;
+    bool have_prev;
+    float *level0; /* the caller's buffer */
 } complete_state;
 
-static void state_free(complete_state *s)
+static void free_coarser(complete_state *s, coarser *c)
 {
-    size_t i;
-    for (i = 0; i < s->nlev; i++) {
-        free(s->levels[i].img);
-        free(s->levels[i].hole);
+    if (c->img != s->level0) {
+        free(c->img);
     }
-    free(s->prev);
-    free(s->nnf);
-    free(s->valid);
-    free(s->targets);
-    free(s->valid_list);
-    free(s->hs);
-    free(s->cost);
+    free(c->field);
+    c->img = NULL;
+    c->field = NULL;
 }
 
-/* One pyramid level: initialise the hole, build the patch sets, run EM. On PC_OK the level's
- * image is in s->prev (ownership moved). */
-static pc_status complete_level(complete_state *s, size_t li, size_t ch, const pc_algo_complete_params *p,
-                                size_t r, const pc_interrupt *ctl, bool *none, bool *ran, pc_error *err)
+/* Fill the hole pixels of level li from the membrane of its known pixels (nothing to copy from). */
+static pc_status membrane_init(size_t lw, size_t lh, size_t ch, float *limg, const uint8_t *lpx, pc_error *err)
 {
-    level *L = &s->levels[li];
-    size_t lw = L->w, lh = L->h, n = lw * lh, psz = 2 * r + 1, x, y, i, em, pm_iters, it, pass,
-           nlev = s->nlev;
-    int32_t ri = (int32_t)r, full_search;
-    float *limg = L->img;
-    bool refine_only;
+    size_t n = lw * lh, i;
+    bool *unknown = pc_malloc_array(n, sizeof *unknown);
+    float *m = NULL;
     pc_status st;
-    solver sv;
-    rng g;
-    ipt *nnf;
-    if (s->prev == NULL) {
-        float *m = NULL;
-        st = pc_algo_poisson_membrane_fill(lw, lh, ch, limg, n * ch, L->hole, n, NULL, &m, err);
-        if (st != PC_OK) {
-            return st;
+    if (unknown == NULL) {
+        return pc_fail(err, PC_ERR_NOMEM, "out of memory");
+    }
+    for (i = 0; i < n; i++) {
+        unknown[i] = lpx[i] == PC_ALGO_PX_HOLE || lpx[i] == PC_ALGO_PX_VOID;
+    }
+    st = pc_algo_poisson_membrane_fill(lw, lh, ch, limg, n * ch, unknown, n, NULL, &m, err);
+    if (st == PC_OK) {
+        for (i = 0; i < n; i++) {
+            if (lpx[i] == PC_ALGO_PX_HOLE) {
+                memcpy(&limg[i * ch], &m[i * ch], ch * sizeof(float));
+            }
         }
-        free(limg);
-        L->img = limg = m;
-    } else {
-        for (y = 0; y < lh; y++) {
-            for (x = 0; x < lw; x++) {
-                if (L->hole[y * lw + x]) {
-                    size_t sx = x / 2 < s->pw - 1 ? x / 2 : s->pw - 1,
-                           sy = y / 2 < s->ph - 1 ? y / 2 : s->ph - 1;
-                    memcpy(&limg[(y * lw + x) * ch], &s->prev[(sy * s->pw + sx) * ch], ch * sizeof(float));
+    }
+    free(m);
+    free(unknown);
+    return st;
+}
+
+/* Solve level li (taking ownership of its buffers into s->prev). *none is set when level 0 has
+ * nothing to copy from. */
+static pc_status complete_level(complete_state *s, size_t li, size_t ch, const pc_algo_complete_params *p,
+                                size_t total_px, size_t *done_px, const pc_interrupt *ctl, bool *none,
+                                pc_error *err)
+{
+    level L = s->levels[li];
+    size_t lw = L.w, lh = L.h, r = p->patch_radius > 1 ? p->patch_radius : 1, psz = 2 * r + 1, x, y;
+    pc_ip_bounds hb = s->boxes[li], tb = grow(hb, r, lw, lh);
+    size_t tw = pc_ip_bw(tb), tarea = pc_ip_barea(tb), nsrc, n_targets = 0, k, em, pm_iters, it, pass;
+    pc_ip_sources sources = {NULL, NULL, 0, 0};
+    pc_ip_solver sv;
+    coarser c = s->prev;
+    bool have_c = s->have_prev, upsampled = false, refine_only, keep, owned = L.img != s->level0;
+    pc_ip_pt *nnf = NULL, *all = NULL;
+    float *cost = NULL;
+    pc_ip_rng rng;
+    int32_t full_search;
+    pc_status st;
+    memset(&sv, 0, sizeof sv);
+    s->have_prev = false;
+    s->levels[li].img = NULL;
+    s->levels[li].px = NULL;
+    if ((st = pc_ip_valid_sources(lw, lh, r, L.px, ctl, &sv.valid, err)) != PC_OK) {
+        goto cleanup;
+    }
+    if ((st = pc_ip_sources_new(sv.valid, lw, lh, &sources, err)) != PC_OK) {
+        goto cleanup;
+    }
+    nsrc = pc_ip_sources_len(&sources);
+    if (li == 0 && nsrc == 0) {
+        *none = true;
+        goto cleanup;
+    }
+    sv.targets = pc_ip_targets_around(lw, r, L.px, hb, tb);
+    if (sv.targets == NULL) {
+        st = pc_fail(err, PC_ERR_NOMEM, "out of memory");
+        goto cleanup;
+    }
+    if ((st = pc_interrupt_check(ctl, err)) != PC_OK) {
+        goto cleanup;
+    }
+    if (have_c) {
+        for (y = hb.y0; y < hb.y1; y++) {
+            for (x = hb.x0; x < hb.x1; x++) {
+                if (L.px[y * lw + x] == PC_ALGO_PX_HOLE) {
+                    size_t sx = x / 2 < c.w - 1 ? x / 2 : c.w - 1, sy = y / 2 < c.h - 1 ? y / 2 : c.h - 1;
+                    memcpy(&L.img[(y * lw + x) * ch], &c.img[(sy * c.w + sx) * ch], ch * sizeof(float));
                 }
             }
         }
+    } else if (nsrc > 0) {
+        if ((st = pc_ip_sources_all(&sources, sv.valid, lw, &all, err)) != PC_OK) {
+            goto cleanup;
+        }
+        st = pc_ip_onion_peel(lw, lh, ch, (int32_t)r, L.img, L.px, hb, all, nsrc, ctl, err);
+        free(all);
+        all = NULL;
+        if (st != PC_OK) {
+            goto cleanup;
+        }
+    } else if ((st = membrane_init(lw, lh, ch, L.img, L.px, err)) != PC_OK) {
+        goto cleanup;
     }
-    free(s->hs);
-    free(s->valid);
-    free(s->targets);
-    free(s->valid_list);
-    s->hs = integral(lw, lh, L->hole);
-    s->valid = pc_calloc_array(n, sizeof(bool));
-    s->targets = pc_calloc_array(n, sizeof(bool));
-    s->valid_list = pc_malloc_array(n, sizeof(ipt));
-    if (s->hs == NULL || s->valid == NULL || s->targets == NULL || s->valid_list == NULL) {
-        return pc_fail(err, PC_ERR_NOMEM, "out of memory");
+    if (nsrc == 0) {
+        if (have_c) {
+            free_coarser(s, &c);
+            have_c = false;
+        }
+        s->prev = (coarser){lw, lh, L.img, NULL, tb};
+        s->have_prev = true;
+        L.img = NULL;
+        goto cleanup;
     }
-    sv = (solver){lw, lh, ch, ri, limg, L->hole, s->valid, s->valid_list, 0, s->targets, ctl};
-    for (y = 0; y < lh; y++) {
+    refine_only = li + 1 < s->nlev && s->exts[li] > p->refine_extent;
+    for (k = 0; k < tarea; k++) {
+        n_targets += sv.targets[k] ? 1u : 0u;
+    }
+    {
+        size_t mult = refine_only ? 4 : 64;
+        size_t lim = n_targets > SIZE_MAX / mult ? SIZE_MAX : n_targets * mult;
+        keep = lw * lh <= SOURCE_MOMENTS_MAX && nsrc <= lim;
+    }
+    sv.w = lw, sv.h = lh, sv.ch = ch, sv.r = (int32_t)r, sv.img = L.img, sv.px = L.px;
+    sv.hole_box = hb, sv.tbox = tb, sv.adapt = p->adapt, sv.ctl = ctl;
+    if ((st = pc_ip_solver_prepare(&sv, keep, err)) != PC_OK) {
+        goto cleanup;
+    }
+    if ((st = pc_interrupt_check(ctl, err)) != PC_OK) {
+        goto cleanup;
+    }
+    rng = pc_ip_rng_new(p->seed ^ ((uint64_t)li << 20));
+    nnf = pc_calloc_array(tarea > 0 ? tarea : 1, sizeof *nnf);
+    cost = pc_malloc_array(tarea > 0 ? tarea : 1, sizeof *cost);
+    if (nnf == NULL || cost == NULL) {
+        st = pc_fail(err, PC_ERR_NOMEM, "out of memory");
+        goto cleanup;
+    }
+    for (y = tb.y0; y < tb.y1; y++) {
         if (y % 32 == 0 && (st = pc_interrupt_check(ctl, err)) != PC_OK) {
-            return st;
+            goto cleanup;
         }
-        for (x = 0; x < lw; x++) {
-            int64_t xi = (int64_t)x, yi = (int64_t)y;
-            uint32_t cnt = window_count(s->hs, lw, lh, xi - ri, yi - ri, xi + ri + 1, yi + ri + 1);
-            bool inside = xi >= ri && yi >= ri && xi + ri < (int64_t)lw && yi + ri < (int64_t)lh;
-            i = y * lw + x;
-            if (inside && cnt == 0) {
-                sv.valid[i] = true;
-                sv.valid_list[sv.valid_n++] = (ipt){(int32_t)x, (int32_t)y};
-            }
-            sv.targets[i] = cnt > 0;
-        }
-    }
-    if (sv.valid_n == 0) {
-        if (li == 0) {
-            *none = true;
-            return PC_OK;
-        }
-        free(s->prev);
-        s->prev = limg;
-        L->img = NULL;
-        s->pw = lw, s->ph = lh;
-        free(s->nnf);
-        s->nnf = NULL; /* the next level starts from random matches */
-        return PC_OK;
-    }
-    /* NNF init: upsampled from the coarser level where possible, random otherwise. */
-    g = rng_new(p->seed ^ ((uint64_t)li << 20));
-    nnf = pc_calloc_array(n, sizeof *nnf);
-    if (nnf == NULL) {
-        return pc_fail(err, PC_ERR_NOMEM, "out of memory");
-    }
-    for (y = 0; y < lh; y++) {
-        if (y % 32 == 0 && (st = pc_interrupt_check(ctl, err)) != PC_OK) {
-            free(nnf);
-            return st;
-        }
-        for (x = 0; x < lw; x++) {
-            bool have = false;
-            ipt cand = {0, 0};
-            if (!sv.targets[y * lw + x]) {
+        for (x = tb.x0; x < tb.x1; x++) {
+            bool got = false;
+            k = (y - tb.y0) * tw + (x - tb.x0);
+            if (!sv.targets[k]) {
                 continue;
             }
-            if (s->nnf != NULL && s->prev != NULL && s->pw > 0) {
-                size_t pi = (y / 2) * s->pw + x / 2;
-                if (pi < s->pw * s->ph) {
-                    ipt o = s->nnf[pi];
-                    ipt c = {pc_i32_wrapping_add(pc_i32_wrapping_mul(o.x, 2), (int32_t)(x % 2)),
-                             pc_i32_wrapping_add(pc_i32_wrapping_mul(o.y, 2), (int32_t)(y % 2))};
-                    if (is_valid(&sv, c.x, c.y)) {
-                        cand = c;
-                        have = true;
+            if (have_c && c.field != NULL) {
+                size_t cx = x / 2 < c.w - 1 ? x / 2 : c.w - 1, cy = y / 2 < c.h - 1 ? y / 2 : c.h - 1;
+                pc_ip_pt f = field_at(&c, cx, cy);
+                if (f.x != INT32_MIN) {
+                    /* The same displacement, twice as long. */
+                    pc_ip_pt cand = {(int32_t)x + 2 * (f.x - (int32_t)cx), (int32_t)y + 2 * (f.y - (int32_t)cy)};
+                    if (pc_ip_solver_is_valid(&sv, cand.x, cand.y)) {
+                        nnf[k] = cand;
+                        got = true;
                     }
                 }
             }
-            nnf[y * lw + x] = have ? cand : sv.valid_list[rng_next(&g) % (uint64_t)sv.valid_n];
+            upsampled = upsampled || got;
+            if (!got) {
+                nnf[k] = pc_ip_sources_nth(&sources, (size_t)(pc_ip_rng_next(&rng) % (uint64_t)nsrc), sv.valid, lw);
+            }
         }
     }
-    free(s->nnf);
-    s->nnf = nnf;
-    refine_only = li + 1 < nlev && s->exts[li] > p->refine_extent;
-    if (li + 1 == nlev) {
+    if (have_c) {
+        free_coarser(s, &c);
+        have_c = false;
+    }
+    for (k = 0; k < tarea; k++) {
+        cost[k] = INFINITY;
+    }
+    if (upsampled) {
+        if ((st = pc_ip_costs(&sv, nnf, cost, err)) != PC_OK || (st = pc_ip_vote(&sv, nnf, cost, err)) != PC_OK) {
+            goto cleanup;
+        }
+    }
+    if (li + 1 == s->nlev) {
         em = p->em_iters;
     } else if (refine_only) {
         em = 1;
     } else {
-        size_t sh = nlev - 1 - li;
-        em = sh < 64 ? p->em_iters >> sh : 0;
+        size_t sh = s->nlev - 1 - li;
+        em = sh >= 64 ? 0 : p->em_iters >> sh;
         em = em > p->min_em_iters ? em : p->min_em_iters;
     }
     pm_iters = refine_only ? 1 : p->pm_iters;
     full_search = (int32_t)(lw > lh ? lw : lh);
-    free(s->cost);
-    s->cost = pc_malloc_array(n, sizeof(float));
-    if (s->cost == NULL) {
-        return pc_fail(err, PC_ERR_NOMEM, "out of memory");
-    }
-    for (i = 0; i < n; i++) {
-        s->cost[i] = INFINITY;
-    }
     for (it = 0; it < em; it++) {
         int32_t radius;
-        /* Costs change as hole pixels are re-estimated: refresh before each PatchMatch. */
-        for (i = 0; i < n; i++) {
-            if (i % (lw * 32 > 0 ? lw * 32 : 1) == 0 && (st = pc_interrupt_check(ctl, err)) != PC_OK) {
-                return st;
-            }
-            if (sv.targets[i]) {
-                s->cost[i] = dist(&sv, (ipt){(int32_t)(i % lw), (int32_t)(i / lw)}, nnf[i], INFINITY);
-            }
+        if ((st = pc_ip_costs(&sv, nnf, cost, err)) != PC_OK) {
+            goto cleanup;
         }
-        /* Wide random search on coarse levels / the first iteration, local refinement after. */
         if (refine_only) {
             radius = 2;
-        } else if (li + 1 == nlev || it == 0) {
+        } else if (li + 1 == s->nlev || it == 0) {
             radius = full_search;
         } else {
             radius = 4 * (int32_t)psz < full_search ? 4 * (int32_t)psz : full_search;
         }
         for (pass = 0; pass < pm_iters; pass++) {
             if ((st = pc_interrupt_check(ctl, err)) != PC_OK) {
-                return st;
+                goto cleanup;
             }
-            patchmatch(&sv, nnf, s->cost, pass + it * pm_iters, p->seed + (uint64_t)(li * 1000 + it), radius);
+            pc_ip_patchmatch(&sv, nnf, cost, pass + it * pm_iters, p->seed + (uint64_t)(li * 1000 + it), radius);
         }
-        if ((st = pc_interrupt_check(ctl, err)) != PC_OK || (st = vote(&sv, nnf, s->cost, err)) != PC_OK ||
+        if ((st = pc_interrupt_check(ctl, err)) != PC_OK || (st = pc_ip_vote(&sv, nnf, cost, err)) != PC_OK ||
             (st = pc_interrupt_check(ctl, err)) != PC_OK) {
-            return st;
+            goto cleanup;
         }
     }
-    free(s->prev);
-    s->prev = limg;
-    L->img = NULL;
-    s->pw = lw, s->ph = lh;
-    *ran = true;
-    return PC_OK;
+    if ((st = pc_interrupt_check(ctl, err)) != PC_OK) {
+        goto cleanup;
+    }
+    /* Keep the match field (unmatched cells marked) for the next level (none after the last). */
+    if (li > 0) {
+        for (k = 0; k < tarea; k++) {
+            if (!sv.targets[k]) {
+                nnf[k] = (pc_ip_pt){INT32_MIN, INT32_MIN};
+            }
+        }
+    } else {
+        free(nnf);
+        nnf = NULL;
+    }
+    *done_px += lw * lh;
+    pc_interrupt_progress(ctl, (float)*done_px / (float)(total_px > 1 ? total_px : 1));
+    s->prev = (coarser){lw, lh, L.img, nnf, tb};
+    s->have_prev = true;
+    nnf = NULL;
+    L.img = NULL;
+cleanup:
+    if (have_c) {
+        free_coarser(s, &c);
+    }
+    pc_ip_sources_free(&sources);
+    pc_ip_solver_fini(&sv);
+    free(nnf);
+    free(cost);
+    if (owned) {
+        free(L.img);
+        free(L.px);
+    }
+    return st;
 }
 
-pc_status pc_algo_inpaint_complete(size_t w, size_t h, size_t ch, const float *img, size_t len,
-                                   const bool *hole, size_t hole_len, const pc_algo_complete_params *p,
-                                   const pc_interrupt *ctl, float **out, pc_error *err)
+static pc_status check_params(const pc_algo_complete_params *p, pc_error *err)
+{
+    if (p == NULL) {
+        return pc_fail(err, PC_ERR_INVALID, "missing parameters");
+    }
+    if (p->patch_radius > PC_ALGO_INPAINT_MAX_RADIUS) {
+        return pc_fail(err, PC_ERR_LIMIT, "patch radius %zu too large", p->patch_radius);
+    }
+    if (p->em_iters > PC_ALGO_INPAINT_MAX_ITERS || p->min_em_iters > PC_ALGO_INPAINT_MAX_ITERS ||
+        p->pm_iters > PC_ALGO_INPAINT_MAX_ITERS) {
+        return pc_fail(err, PC_ERR_LIMIT, "too many iterations");
+    }
+    return pc_algo_adapt_check(p->adapt, err);
+}
+
+pc_status pc_algo_inpaint_complete_masked_inplace(size_t w, size_t h, size_t ch, float *img, size_t len,
+                                                  const uint8_t *px, size_t px_len,
+                                                  const pc_algo_complete_params *p, const pc_interrupt *ctl,
+                                                  bool *filled, pc_error *err)
 {
     complete_state s;
-    size_t n, b[4], r, psz, ext, total_px = 0, done_px = 0, li;
-    pc_status st = pc_algo_heal_dims(w, h, ch, len, &n, err);
+    size_t n, r, psz, ext, i, total_px = 0, done_px = 0, li;
+    pc_ip_bounds hb0;
     bool none = false;
+    pc_status st = pc_algo_heal_dims(w, h, ch, len, &n, err);
     if (st != PC_OK) {
         return st;
     }
-    if (p == NULL || hole_len != n || (n > 0 && (img == NULL || hole == NULL))) {
-        return pc_fail(err, PC_ERR_INVALID, "hole mask holds %zu entries, expected %zu", hole_len, n);
+    if ((st = check_params(p, err)) != PC_OK) {
+        return st;
     }
-    if (p->patch_radius > PC_ALGO_INPAINT_MAX_RADIUS || p->em_iters > PC_ALGO_INPAINT_MAX_ITERS ||
-        p->min_em_iters > PC_ALGO_INPAINT_MAX_ITERS || p->pm_iters > PC_ALGO_INPAINT_MAX_ITERS) {
-        return pc_fail(err, PC_ERR_LIMIT, "completion parameters too large");
+    if (px_len != n || (n > 0 && (img == NULL || px == NULL))) {
+        return pc_fail(err, PC_ERR_INVALID, "role mask holds %zu entries, expected %zu", px_len, n);
     }
-    memset(&s, 0, sizeof s);
-    if (!hole_bbox(w, h, hole, b)) {
-        float *o = pc_malloc_array(n * ch, sizeof *o);
-        if (o == NULL) {
-            return pc_fail(err, PC_ERR_NOMEM, "out of memory");
+    for (i = 0; i < n; i++) {
+        if (px[i] > PC_ALGO_PX_HOLE) {
+            return pc_fail(err, PC_ERR_INVALID, "unknown pixel role %u", (unsigned)px[i]);
         }
-        if (n > 0) {
-            memcpy(o, img, n * ch * sizeof *o);
-        }
-        *out = o;
+    }
+    if (n == 0 || !pc_ip_hole_bounds(w, h, px, &hb0)) {
+        *filled = true;
         return PC_OK;
     }
     r = p->patch_radius > 1 ? p->patch_radius : 1;
     psz = 2 * r + 1;
-    /* Pyramid: shrink until the hole is a few patches across. */
-    s.levels[0].img = pc_malloc_array(n * ch, sizeof(float));
-    s.levels[0].hole = pc_malloc_array(n, sizeof(bool));
-    s.nlev = 1;
-    if (s.levels[0].img == NULL || s.levels[0].hole == NULL) {
-        st = pc_fail(err, PC_ERR_NOMEM, "out of memory");
-        goto cleanup;
-    }
-    s.levels[0].w = w, s.levels[0].h = h;
-    memcpy(s.levels[0].img, img, n * ch * sizeof(float));
-    memcpy(s.levels[0].hole, hole, n * sizeof(bool));
-    ext = b[2] - b[0] > b[3] - b[1] ? b[2] - b[0] : b[3] - b[1];
+    memset(&s, 0, sizeof s);
+    s.level0 = img;
+    s.levels[0] = (level){w, h, img, (uint8_t *)(uintptr_t)px};
+    s.boxes[0] = hb0;
+    ext = pc_ip_bw(hb0) > pc_ip_bh(hb0) ? pc_ip_bw(hb0) : pc_ip_bh(hb0);
     s.exts[0] = ext;
+    s.nlev = 1;
+    /* Pyramid: shrink until the hole is about four patches across. */
     for (;;) {
-        const level *l = &s.levels[s.nlev - 1];
+        level *l = &s.levels[s.nlev - 1];
+        pc_ip_bounds b = s.boxes[s.nlev - 1];
         if ((st = pc_interrupt_check(ctl, err)) != PC_OK) {
             goto cleanup;
         }
-        if (ext <= 2 * psz || l->w / 2 < 3 * psz || l->h / 2 < 3 * psz || s.nlev == MAX_LEVELS) {
+        if (ext <= 4 * psz || l->w / 2 < 3 * psz || l->h / 2 < 3 * psz || s.nlev == MAX_LEVELS) {
             break;
         }
         if ((st = downsample(l, ch, &s.levels[s.nlev], err)) != PC_OK) {
             goto cleanup;
         }
+        s.boxes[s.nlev] = (pc_ip_bounds){b.x0 / 2, b.y0 / 2, (b.x1 + 1) / 2, (b.y1 + 1) / 2};
         ext = (ext + 1) / 2;
         s.exts[s.nlev] = ext;
         s.nlev++;
@@ -707,274 +880,80 @@ pc_status pc_algo_inpaint_complete(size_t w, size_t h, size_t ch, const float *i
         total_px += s.levels[li].w * s.levels[li].h;
     }
     for (li = s.nlev; li-- > 0;) {
-        size_t lw = s.levels[li].w, lh = s.levels[li].h;
-        bool ran = false;
         if ((st = pc_interrupt_check(ctl, err)) != PC_OK) {
             goto cleanup;
         }
-        if ((st = complete_level(&s, li, ch, p, r, ctl, &none, &ran, err)) != PC_OK) {
+        if ((st = complete_level(&s, li, ch, p, total_px, &done_px, ctl, &none, err)) != PC_OK || none) {
             goto cleanup;
-        }
-        if (none) {
-            *out = NULL;
-            goto cleanup;
-        }
-        if (ran) {
-            /* Finer levels cost ~4x the previous one: weight progress by pixel count. */
-            done_px += lw * lh;
-            pc_interrupt_progress(ctl, (float)done_px / (float)(total_px > 0 ? total_px : 1));
         }
     }
-    *out = s.prev;
-    s.prev = NULL;
 cleanup:
-    state_free(&s);
+    for (li = 1; li < s.nlev; li++) {
+        free(s.levels[li].img);
+        free(s.levels[li].px);
+    }
+    if (s.have_prev) {
+        free_coarser(&s, &s.prev);
+    }
+    if (st == PC_OK) {
+        *filled = !none;
+    }
     return st;
 }
 
-/* ---- proximity match ---------------------------------------------------------------------------- */
-
-pc_status pc_algo_inpaint_best_offset(size_t w, size_t h, size_t ch, const float *img, size_t len,
-                                      const bool *hole, size_t hole_len, size_t ring, int32_t max_radius,
-                                      bool *found, int32_t *dx, int32_t *dy, pc_error *err)
+pc_status pc_algo_inpaint_complete_masked(size_t w, size_t h, size_t ch, const float *img, size_t len,
+                                          const uint8_t *px, size_t px_len, const pc_algo_complete_params *p,
+                                          const pc_interrupt *ctl, float **out, pc_error *err)
 {
-    size_t n, b[4], npts = 0, stride, k, c;
-    int64_t ringi, x0, y0, x1, y1, x, y, step, ddx, ddy, bx = 0, by = 0;
-    uint32_t *hs;
-    ipt *pts;
-    float best_e = 0.0f;
-    bool have = false;
-    pc_status st = pc_algo_heal_dims(w, h, ch, len, &n, err);
-    if (st != PC_OK) {
-        return st;
-    }
-    if (hole_len != n || (n > 0 && (img == NULL || hole == NULL))) {
-        return pc_fail(err, PC_ERR_INVALID, "hole mask holds %zu entries, expected %zu", hole_len, n);
-    }
-    if (ring > PC_ALGO_HEAL_MAX_SIDE) {
-        return pc_fail(err, PC_ERR_LIMIT, "ring %zu too wide", ring);
-    }
-    if (!hole_bbox(w, h, hole, b)) {
-        *found = false;
-        return PC_OK;
-    }
-    ringi = ring > 1 ? (int64_t)ring : 1;
-    hs = integral(w, h, hole);
-    pts = pc_malloc_array(n, sizeof *pts);
-    if (hs == NULL || pts == NULL) {
-        free(hs);
-        free(pts);
-        return pc_fail(err, PC_ERR_NOMEM, "out of memory");
-    }
-    /* Sample points: the hole's ring (dilated minus hole), subsampled for speed. */
-    x0 = (int64_t)b[0] - ringi, y0 = (int64_t)b[1] - ringi;
-    x1 = (int64_t)b[2] + ringi, y1 = (int64_t)b[3] + ringi;
-    for (y = y0 > 0 ? y0 : 0; y < (y1 < (int64_t)h ? y1 : (int64_t)h); y++) {
-        for (x = x0 > 0 ? x0 : 0; x < (x1 < (int64_t)w ? x1 : (int64_t)w); x++) {
-            if (hole[(size_t)y * w + (size_t)x]) {
-                continue;
-            }
-            if (window_count(hs, w, h, x - ringi, y - ringi, x + ringi + 1, y + ringi + 1) > 0) {
-                pts[npts++] = (ipt){(int32_t)x, (int32_t)y};
-            }
-        }
-    }
-    stride = npts / 2000 > 1 ? npts / 2000 : 1;
-    {
-        size_t m = 0;
-        for (k = 0; k < npts; k += stride) {
-            pts[m++] = pts[k];
-        }
-        npts = m;
-    }
-    step = max_radius / 24 > 1 ? max_radius / 24 : 1;
-    /* Coarse grid over the search window, then a full-resolution refinement around the winner.
-     * The loops run in i64: the reference's i32 counters overflow (and never end) for radii near
-     * i32::MAX. */
-    for (int pass = 0; pass < 2; pass++) {
-        int64_t lo_y, hi_y, lo_x, hi_x, inc;
-        if (pass == 0) {
-            lo_y = lo_x = -(int64_t)max_radius, hi_y = hi_x = max_radius, inc = step;
-        } else {
-            if (step <= 1 || !have) {
-                break;
-            }
-            lo_y = by - step, hi_y = by + step, lo_x = bx - step, hi_x = bx + step, inc = 1;
-        }
-        for (ddy = lo_y; ddy <= hi_y; ddy += inc) {
-            for (ddx = lo_x; ddx <= hi_x; ddx += inc) {
-                int64_t hx0 = x0 + ddx, hy0 = y0 + ddy, hx1 = x1 + ddx, hy1 = y1 + ddy;
-                bool inside = hx0 >= 0 && hy0 >= 0 && hx1 <= (int64_t)w && hy1 <= (int64_t)h;
-                float e = 0.0f, d2, score;
-                int32_t sdx = (int32_t)ddx, sdy = (int32_t)ddy;
-                if ((ddx == 0 && ddy == 0) || !inside || window_count(hs, w, h, hx0, hy0, hx1, hy1) != 0) {
-                    continue;
-                }
-                for (k = 0; k < npts; k++) {
-                    size_t a = ((size_t)pts[k].y * w + (size_t)pts[k].x) * ch;
-                    size_t bb = ((size_t)(pts[k].y + sdy) * w + (size_t)(pts[k].x + sdx)) * ch;
-                    for (c = 0; c < ch; c++) {
-                        float d = img[a + c] - img[bb + c];
-                        e += d * d;
-                    }
-                }
-                /* Mild preference for nearer sources on ties. */
-                d2 = (float)pc_i32_wrapping_add(pc_i32_wrapping_mul(sdx, sdx), pc_i32_wrapping_mul(sdy, sdy));
-                score = e / (float)(npts > 1 ? npts : 1) *
-                        (1.0f + 1e-3f * sqrtf(d2) / (float)(max_radius > 1 ? max_radius : 1));
-                if (!have || score < best_e) {
-                    have = true;
-                    best_e = score;
-                    bx = ddx, by = ddy;
-                }
-            }
-        }
-    }
-    free(hs);
-    free(pts);
-    *found = have;
-    if (have) {
-        *dx = (int32_t)bx;
-        *dy = (int32_t)by;
-    }
-    return PC_OK;
-}
-
-/* ---- texture synthesis -------------------------------------------------------------------------- */
-
-pc_status pc_algo_inpaint_synthesize(size_t w, size_t h, size_t ch, const float *img, size_t len,
-                                     const bool *hole, size_t hole_len, size_t block, uint64_t seed,
-                                     float **out, pc_error *err)
-{
-    size_t n, bb[4], ncand = 0, q;
-    int64_t b, ov, x, y, bx, by;
-    uint32_t *hs = NULL;
-    ipt *cands = NULL;
-    bool *filled = NULL;
+    size_t n;
     float *o;
-    rng g;
+    bool filled = false;
     pc_status st = pc_algo_heal_dims(w, h, ch, len, &n, err);
     if (st != PC_OK) {
         return st;
     }
-    if (hole_len != n || (n > 0 && (img == NULL || hole == NULL))) {
-        return pc_fail(err, PC_ERR_INVALID, "hole mask holds %zu entries, expected %zu", hole_len, n);
+    if (n > 0 && img == NULL) {
+        return pc_fail(err, PC_ERR_INVALID, "missing buffer");
     }
-    if (block > PC_ALGO_HEAL_MAX_SIDE) {
-        return pc_fail(err, PC_ERR_LIMIT, "block %zu too large", block);
-    }
-    o = pc_malloc_array(n * ch, sizeof *o);
+    o = pc_malloc_array(n * ch > 0 ? n * ch : 1, sizeof *o);
     if (o == NULL) {
         return pc_fail(err, PC_ERR_NOMEM, "out of memory");
     }
     if (n > 0) {
         memcpy(o, img, n * ch * sizeof *o);
     }
-    if (!hole_bbox(w, h, hole, bb)) {
-        *out = o;
-        return PC_OK;
-    }
-    b = block > 4 ? (int64_t)block : 4;
-    ov = b / 3 > 1 ? b / 3 : 1;
-    hs = integral(w, h, hole);
-    cands = pc_malloc_array(n, sizeof *cands);
-    if (hs == NULL || cands == NULL) {
-        st = pc_fail(err, PC_ERR_NOMEM, "out of memory");
-        goto cleanup;
-    }
-    /* Candidate block origins: the whole block (with overlap) inside the grid and outside the hole. */
-    for (y = ov; y < (int64_t)h - b - ov; y++) {
-        for (x = ov; x < (int64_t)w - b - ov; x++) {
-            if (window_count(hs, w, h, x - ov, y - ov, x + b + ov, y + b + ov) == 0) {
-                cands[ncand++] = (ipt){(int32_t)x, (int32_t)y};
-            }
-        }
-    }
-    if (ncand == 0) {
-        float *m = NULL;
-        st = pc_algo_poisson_membrane_fill(w, h, ch, img, len, hole, hole_len, NULL, &m, err);
-        if (st == PC_OK) {
-            free(o);
-            o = m;
-        }
-        goto cleanup;
-    }
-    filled = pc_malloc_array(n, sizeof *filled);
-    if (filled == NULL) {
-        st = pc_fail(err, PC_ERR_NOMEM, "out of memory");
-        goto cleanup;
-    }
-    for (q = 0; q < n; q++) {
-        filled[q] = !hole[q];
-    }
-    g = rng_new(seed);
-    for (by = (int64_t)bb[1]; by < (int64_t)bb[3]; by += b) {
-        for (bx = (int64_t)bb[0]; bx < (int64_t)bb[2]; bx += b) {
-            ipt best;
-            float best_e = INFINITY;
-            int k;
-            if (window_count(hs, w, h, bx, by, bx + b, by + b) == 0) {
-                continue;
-            }
-            /* Pick the candidate whose block best agrees with already-known pixels around/inside. */
-            best = cands[0];
-            for (k = 0; k < 48; k++) {
-                ipt c = cands[rng_next(&g) % (uint64_t)ncand];
-                float e = 0.0f;
-                uint32_t cnt = 0;
-                for (y = by - ov; y < by + b + ov; y++) {
-                    for (x = bx - ov; x < bx + b + ov; x++) {
-                        size_t a, s;
-                        if (x < 0 || y < 0 || x >= (int64_t)w || y >= (int64_t)h ||
-                            !filled[(size_t)y * w + (size_t)x]) {
-                            continue;
-                        }
-                        a = ((size_t)y * w + (size_t)x) * ch;
-                        s = ((size_t)(y - by + c.y) * w + (size_t)(x - bx + c.x)) * ch;
-                        for (q = 0; q < ch; q++) {
-                            float d = o[a + q] - img[s + q];
-                            e += d * d;
-                        }
-                        cnt++;
-                    }
-                }
-                e = cnt == 0 ? 0.0f : e / (float)cnt;
-                if (e < best_e) {
-                    best = c;
-                    best_e = e;
-                }
-            }
-            for (y = by - ov; y < by + b + ov; y++) {
-                for (x = bx - ov; x < bx + b + ov; x++) {
-                    size_t i, a, s;
-                    float kf;
-                    if (x < 0 || y < 0 || x >= (int64_t)w || y >= (int64_t)h) {
-                        continue;
-                    }
-                    i = (size_t)y * w + (size_t)x;
-                    if (!hole[i]) {
-                        continue;
-                    }
-                    a = i * ch;
-                    s = ((size_t)(y - by + best.y) * w + (size_t)(x - bx + best.x)) * ch;
-                    /* Feather into already-synthesised overlap. */
-                    kf = filled[i] ? 0.5f : 1.0f;
-                    for (q = 0; q < ch; q++) {
-                        o[a + q] += (img[s + q] - o[a + q]) * kf;
-                    }
-                    filled[i] = true;
-                }
-            }
-        }
-    }
-cleanup:
-    free(hs);
-    free(cands);
-    free(filled);
-    if (st != PC_OK) {
+    st = pc_algo_inpaint_complete_masked_inplace(w, h, ch, o, len, px, px_len, p, ctl, &filled, err);
+    if (st != PC_OK || !filled) {
         free(o);
+        o = NULL;
+    }
+    if (st == PC_OK) {
+        *out = o;
+    }
+    return st;
+}
+
+pc_status pc_algo_inpaint_complete(size_t w, size_t h, size_t ch, const float *img, size_t len,
+                                   const bool *hole, size_t hole_len, const pc_algo_complete_params *p,
+                                   const pc_interrupt *ctl, float **out, pc_error *err)
+{
+    size_t n, i;
+    uint8_t *px;
+    pc_status st = pc_algo_heal_dims(w, h, ch, len, &n, err);
+    if (st != PC_OK) {
         return st;
     }
-    *out = o;
-    return PC_OK;
+    if (hole_len != n || (n > 0 && hole == NULL)) {
+        return pc_fail(err, PC_ERR_INVALID, "hole mask holds %zu entries, expected %zu", hole_len, n);
+    }
+    px = pc_malloc_array(n > 0 ? n : 1, 1);
+    if (px == NULL) {
+        return pc_fail(err, PC_ERR_NOMEM, "out of memory");
+    }
+    for (i = 0; i < n; i++) {
+        px[i] = hole[i] ? PC_ALGO_PX_HOLE : PC_ALGO_PX_SOURCE;
+    }
+    st = pc_algo_inpaint_complete_masked(w, h, ch, img, len, px, n, p, ctl, out, err);
+    free(px);
+    return st;
 }

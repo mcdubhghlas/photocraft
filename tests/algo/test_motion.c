@@ -228,7 +228,7 @@ static void row_surface(const pc_surface *s, const pc_algo_motion_params *p, pc_
                           : pc_algo_image_read(s, grown, &src, NULL)) == PC_OK);
     d = rows_k(&src, area, f.alpha, f.mode, p->angle, p->distance);
     if (sel != NULL) {
-        pc_algo_mix_selection(d, area, sel, &src);
+        pc_algo_mix_selection(d, area, sel, &src, f.alpha);
     }
     CHECK(pc_surface_clone(s, out, NULL) == PC_OK);
     (void)pc_algo_float_count(area, src.ch, &len);
@@ -596,7 +596,7 @@ static void test_motion_fft_pipeline_supports_depths_models_edges_selections_and
                         size_t elen;
                         memcpy(data, filtered, len * sizeof(float));
                         if (s) {
-                            pc_algo_mix_selection(data, rect, &sel, &src);
+                            pc_algo_mix_selection(data, rect, &sel, &src, al != 0);
                         }
                         CHECK(pc_surface_clone(&source, &expected, NULL) == PC_OK);
                         CHECK(pc_surface_write_region(&expected, rect, data, len, NULL) == PC_OK);
@@ -731,7 +731,7 @@ static void test_motion_fft_production_crosses_real_tile_seams(void)
                 float *data = malloc(len * sizeof(float));
                 memcpy(data, filtered, len * sizeof(float));
                 if (s) {
-                    pc_algo_mix_selection(data, area, &sel, &src);
+                    pc_algo_mix_selection(data, area, &sel, &src, true);
                 }
                 CHECK(pc_surface_clone(&source, &exp_s, NULL) == PC_OK);
                 CHECK(pc_surface_write_region(&exp_s, area, data, len, NULL) == PC_OK);

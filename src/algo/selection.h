@@ -91,6 +91,22 @@ pc_status pc_algo_selection_combine_region(const pc_surface *old, const pc_algo_
                                            pc_algo_selection_mode mode, pc_surface *out, bool *some,
                                            pc_error *err);
 
+/* The Elliptical Marquee's shape (selection/marquee.rs): the ellipse inscribed in r, cut to clip,
+ * as a GRAY8 selection. Anti-aliased edge pixels hold the fraction of their 4x4 sub-samples
+ * inside; without anti-aliasing a pixel is selected when its centre is inside. Built tile by tile
+ * on the global pool; fully selected tiles share one tile. `out` initialised on success. */
+pc_status pc_algo_selection_ellipse_surface(pc_rect r, pc_rect clip, bool anti_alias, pc_surface *out,
+                                            pc_error *err);
+/* f(ctx, a, b) per pixel for two selection values. */
+typedef float (*pc_algo_combine_fn)(void *ctx, float a, float b);
+/* f per pixel over `area` for two selections, as a GRAY8 selection holding nothing outside it:
+ * the same bytes as reading both over area, mapping and writing the result. GRAY8 inputs go tile
+ * by tile through a table of all 256 x 256 byte pairs (f is called 65,536 times, on the calling
+ * thread); a tile f leaves unchanged stays shared with its input. */
+pc_status pc_algo_selection_combine_surfaces(const pc_surface *a, const pc_surface *b, pc_rect area,
+                                             pc_algo_combine_fn f, void *fctx, pc_surface *out,
+                                             pc_error *err);
+
 /* ---- Color Range ---- */
 
 /* One Sampled Colors sample: an eyedropper colour, and (has_at) where it was picked. */
@@ -140,9 +156,12 @@ void pc_algo_selection_tone_range(const float (*px)[4], size_t n, float lo, floa
 
 /* ---- Modify ---- */
 
-/* Euclidean distance to the nearest true pixel (w * h; 1e10-ish where there is none). */
+/* Euclidean distance to the nearest true pixel (w * h; 1e10 everywhere when there is none; *out
+ * NULL for an empty mask; PC_ERR_LIMIT past PC_MAX_ALLOC or a side past 2^32 - 1). Parallel for
+ * large masks, identical with any thread count. */
 pc_status pc_algo_selection_edt(const bool *inside, size_t w, size_t h, float **out, pc_error *err);
-/* Grow / shrink by r pixels; border: a band of width r across the edge. m has w * h values;
+/* Grow / shrink by r pixels; border: Photoshop's soft band 2r wide centred on the edge (a pixel D
+ * from the nearest pixel across the edge is 1 - (D - 1) / r; all zero for r <= 0). m has w * h values;
  * out is w * h (free()). */
 pc_status pc_algo_selection_expand(const float *m, size_t w, size_t h, float r, float **out, pc_error *err);
 pc_status pc_algo_selection_contract(const float *m, size_t w, size_t h, float r, float **out, pc_error *err);

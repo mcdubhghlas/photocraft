@@ -2,6 +2,7 @@
  * over the testgen cases, builder documents and the small writers. File bytes are compared
  * where no zlib stream is involved (zlib output differs from the reference's encoder, §7);
  * decoded planes, RGBA8 previews and layer trees are compared everywhere. */
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -223,6 +224,104 @@ static pc_psd_pixels make_px(uint16_t mode, uint16_t depth, size_t n, size_t see
     return p;
 }
 
+/* R2 `readback` lines: a builder document parsed again, its merged planes, the RGBA8 composite
+ * (the white matte removed) and every layer's RGBA8. */
+static uint64_t readback(const pc_psd_bytes *bytes)
+{
+    uint64_t h = FNV0;
+    pc_psd_file f;
+    pc_psd_bytes m = {NULL, 0};
+    pc_psd_image8 img;
+    pc_error e;
+    size_t nl = 0;
+    size_t i;
+    if (pc_psd_file_parse(bytes->data, bytes->len, &f, &e) != PC_OK) {
+        fnv_str(&h, e.msg);
+        return h;
+    }
+    if (pc_psd_file_decode_merged(&f, &m, &e) == PC_OK) {
+        fnv(&h, m.data, m.len);
+        pc_psd_bytes_fini(&m);
+    } else {
+        fnv_str(&h, e.msg);
+    }
+    if (pc_psd_composite_rgba8(&f, &img, &e) == PC_OK) {
+        fnv(&h, img.data.data, img.data.len);
+        pc_psd_image8_fini(&img);
+    } else {
+        fnv_str(&h, e.msg);
+    }
+    (void)pc_psd_file_layers(&f, &nl);
+    for (i = 0; i < nl; i++) {
+        if (pc_psd_layer_rgba8(&f, i, &img, &e) == PC_OK) {
+            fnv(&h, img.data.data, img.data.len);
+            pc_psd_image8_fini(&img);
+        } else {
+            fnv_str(&h, e.msg);
+        }
+    }
+    pc_psd_file_fini(&f);
+    return h;
+}
+
+/* R2 `unmatte` lines: RGB merged composites with alpha at 16 and 32 bits. */
+static void test_unmatte(void)
+{
+    static const float alpha32[12] = {0.0f, 0.25f, 0.5f,  1.0f,   NAN,    -0.5f,
+                                      1.5f, 1e-9f, 0.75f, 0.125f, 0.999f, 0.01f};
+    static const uint16_t alpha16[12] = {0,   16384, 32768, 65535, 1,     65534,
+                                         300, 40000, 49151, 8192,  65000, 655};
+    uint16_t depth;
+    for (depth = 16; depth <= 32; depth += 16) {
+        const size_t n = 12;
+        pc_psd_file f = tg_merged_only(PC_PSD_V1, PC_PSD_MODE_RGB, depth, PC_PSD_RAW, 4, 3);
+        uint8_t native[4 * 12 * 4];
+        size_t at = 0;
+        size_t c;
+        size_t i;
+        uint64_t h = FNV0;
+        pc_psd_image8 img;
+        pc_error e;
+        char name[8];
+        char got[20];
+        const char *want;
+        f.header.channels = 4;
+        for (c = 0; c < 4; c++) {
+            for (i = 0; i < n; i++) {
+                if (depth == 16) {
+                    uint16_t v = c == 3 ? alpha16[i] : (uint16_t)((i * 7919 + c * 131) % 65536);
+                    pc_store_be16(native + at, v);
+                    at += 2;
+                } else {
+                    float v = c == 3 ? alpha32[i] : (float)((i * 13 + c * 7) % 12) * 0.1f - 0.1f;
+                    uint32_t bits;
+                    memcpy(&bits, &v, 4);
+                    pc_store_be32(native + at, bits);
+                    at += 4;
+                }
+            }
+        }
+        pc_psd_bytes_fini(&f.image_data);
+        f.image_compression = PC_PSD_RAW;
+        if (pc_psd_image_encode(PC_PSD_RAW, native, at, &f.header, &f.image_data, &e) == PC_OK) {
+            if (pc_psd_composite_rgba8(&f, &img, &e) == PC_OK) {
+                fnv(&h, img.data.data, img.data.len);
+                pc_psd_image8_fini(&img);
+            } else {
+                fnv_str(&h, e.msg);
+            }
+        } else {
+            fnv_str(&h, e.msg);
+        }
+        (void)snprintf(name, sizeof name, "%u", (unsigned)depth);
+        (void)snprintf(got, sizeof got, "%016llx", (unsigned long long)h);
+        want = expect("unmatte", name);
+        pc_t_name = name;
+        CHECK(want != NULL && strncmp(want, got, 16) == 0);
+        pc_psd_file_fini(&f);
+    }
+}
+
 static void test_builder_documents(void)
 {
     static const uint16_t MODES[4][2] = {{PC_PSD_MODE_RGB, 8}, {PC_PSD_MODE_RGB, 16}, {PC_PSD_MODE_GRAYSCALE, 8},
@@ -249,6 +348,7 @@ static void test_builder_documents(void)
                 pc_psd_bytes bytes = {NULL, 0};
                 pc_error e;
                 uint64_t hb = FNV0;
+                uint64_t hr = FNV0;
                 char name[64];
                 char got[20];
                 const char *want;
@@ -288,6 +388,7 @@ static void test_builder_documents(void)
                 CHECK_EQ_INT(pc_psd_builder_composite(b, make_px(mode, depth, 35, 3, &o3), NULL), PC_OK);
                 if (pc_psd_builder_to_bytes(b, &bytes, &e) == PC_OK) {
                     fnv(&hb, bytes.data, bytes.len);
+                    hr = readback(&bytes);
                 } else {
                     fnv_str(&hb, e.msg);
                 }
@@ -296,6 +397,9 @@ static void test_builder_documents(void)
                 (void)snprintf(got, sizeof got, "%016llx", (unsigned long long)hb);
                 want = expect("builder", name);
                 pc_t_name = name;
+                CHECK(want != NULL && strncmp(want, got, 16) == 0);
+                (void)snprintf(got, sizeof got, "%016llx", (unsigned long long)hr);
+                want = expect("readback", name);
                 CHECK(want != NULL && strncmp(want, got, 16) == 0);
                 pc_psd_bytes_fini(&bytes);
                 pc_psd_builder_free(b);
@@ -437,6 +541,7 @@ int main(int argc, char **argv)
     RUN(test_testgen_cases);
     RUN(test_builder_documents);
     RUN(test_misc_writers);
+    RUN(test_unmatte);
     pc_buf_fini(&golden);
     return pc_t_finish();
 }

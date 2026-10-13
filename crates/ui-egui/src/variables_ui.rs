@@ -229,8 +229,22 @@ fn data_sets_page(ui: &mut egui::Ui, _t: &Tokens, state: &mut Value, fields: &mu
         if ui.button("◀").clicked() && cur > 0 {
             cur -= 1;
         }
-        let name = sets.get(cur).and_then(|s| s.get("name")).and_then(Value::as_str).unwrap_or("(none)").to_string();
-        ui.label(format!("Data Set: {name}  ({}/{})", if sets.is_empty() { 0 } else { cur + 1 }, sets.len()));
+        let name = sets
+            .get(cur)
+            .and_then(|s| s.get("name"))
+            .and_then(Value::as_str)
+            .unwrap_or_else(|| {
+                let empty = "(none)";
+                tl!(empty)
+            })
+            .to_string();
+        ui.label({
+            let template = "Data Set: {name}  ({index}/{total})";
+            crate::i18n::fmt(
+                tl!(template),
+                &[("name", &name), ("index", &(if sets.is_empty() { 0 } else { cur + 1 }).to_string()), ("total", &sets.len().to_string())],
+            )
+        });
         if ui.button("▶").clicked() && cur + 1 < sets.len() {
             cur += 1;
         }

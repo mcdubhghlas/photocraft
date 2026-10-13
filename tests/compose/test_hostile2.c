@@ -204,8 +204,9 @@ static void test_hostile_pattern_fills(void)
     f.u.pattern.link = true;
     f.u.pattern.phase[0] = 1e30f;
     ch_push(&d, fill_layer(f));
+    /* Too large to paint (pc_pattern_is_paintable): skipped without allocating, transparent. */
     st = pc_compose_flatten(&d, &b, &e);
-    CHECK(st == PC_ERR_LIMIT);
+    CHECK(st == PC_OK);
     if (st == PC_OK) {
         pc_compose_buffer_fini(&b);
     }

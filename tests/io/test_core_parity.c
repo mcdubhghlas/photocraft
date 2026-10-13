@@ -164,16 +164,24 @@ static void test_channel_map(void)
     for (int i = 0; i < 5; i++) {
         refs[i] = &ch[i];
     }
-    must(pc_io_display_info(refs, 5, &di, NULL));
+    pc_buf transp = PC_BUF_INIT;
+    must(pc_io_display_info(refs, 5, false, &di, NULL));
+    must(pc_io_display_info(refs, 5, true, &transp, NULL));
     for (size_t i = 0; i < g_nlines; i++) {
         const gline *l = &g_lines[i];
         if (is_kind(l, "cm-di") && l->n == 3) {
             pc_buf none = PC_BUF_INIT;
-            bool all = strcmp(l->f[1], "all") == 0;
-            if (!all) {
-                must(pc_io_display_info(NULL, 0, &none, NULL));
+            const uint8_t *src = di.data;
+            size_t slen = di.len;
+            if (strcmp(l->f[1], "none") == 0) {
+                must(pc_io_display_info(NULL, 0, false, &none, NULL));
+                src = none.data;
+                slen = none.len;
+            } else if (strcmp(l->f[1], "transp") == 0) {
+                src = transp.data;
+                slen = transp.len;
             }
-            hex_of(all ? di.data : none.data, all ? di.len : none.len, &hx);
+            hex_of(src, slen, &hx);
             CHECK_RESULT("cm-di", l->f[2], pc_buf_cstr(&hx));
             pc_buf_fini(&none);
         } else if (is_kind(l, "cm-apply") && l->n == 3) {
@@ -181,24 +189,36 @@ static void test_channel_map(void)
             uint8_t data[128];
             size_t len = 0;
             bool versioned = true;
+            size_t skip = 0;
             const char *c = l->f[1];
             if (strcmp(c, "v") == 0) {
                 memcpy(data, di.data, len = di.len);
+            } else if (strcmp(c, "transp") == 0) {
+                memcpy(data, transp.data, len = transp.len);
+                skip = 1;
             } else if (strcmp(c, "old") == 0) {
-                memcpy(data, di.data + 4, len = di.len - 4);
-                data[12 + 14] = 1;
+                /* 1007 (14-byte records): the 13-byte 1077 records re-padded to 14 bytes. */
+                len = 0;
+                for (size_t r = 0; 4 + (r + 1) * 13 <= di.len; r++) {
+                    memcpy(data + len, di.data + 4 + r * 13, 13);
+                    data[len + 13] = 0;
+                    len += 14;
+                }
+                if (len > 12 + 14) {
+                    data[12 + 14] = 1;
+                }
                 versioned = false;
             } else if (strcmp(c, "short") == 0) {
                 memcpy(data, di.data, len = 10);
             } else if (strcmp(c, "partial") == 0) {
-                memcpy(data, di.data, len = 4 + 14 * 2 + 5);
+                memcpy(data, di.data, len = 4 + 13 * 2 + 5);
             } else if (strcmp(c, "tiny") == 0) {
                 memset(data, 0, len = 2);
             } else {
-                static const uint8_t kinds[32] = {0,    0, 0,    1,    0,   8, 0x13, 0x88, 0, 0,    0,
-                                                  0,    0, 0,    0,    250, 7, 0,    0,    7, 0x27, 0x10,
-                                                  0x80, 0, 0x7f, 0xff, 0,   0, 0,    50,   2, 0};
-                memcpy(data, kinds, len = sizeof kinds);
+                static const uint8_t kinds[30] = {0, 0,    0,    1,    0, 8, 0x13, 0x88, 0,    0,
+                                                  0, 0,    0,    0,    0, 250, 7,  0,    7,    0x27,
+                                                  0x10, 0x80, 0, 0x7f, 0xff, 0, 0, 0, 50, 2};
+                memcpy(data, kinds, len = 4 + 13 * 2);
             }
             for (int k = 0; k < 5; k++) {
                 pc_surface e;
@@ -207,7 +227,7 @@ static void test_channel_map(void)
                 (void)snprintf(nm, sizeof nm, "x%d", k);
                 f[k] = t_channel(nm, e);
             }
-            pc_io_apply_display_info(data, len, versioned, f, 5);
+            pc_io_apply_display_info(data, len, versioned, skip, f, 5);
             pc_buf_truncate(&s, 0);
             for (int k = 0; k < 5; k++) {
                 if (k > 0) {
@@ -241,6 +261,7 @@ static void test_channel_map(void)
         pc_alpha_channel_fini(&ch[i]);
     }
     pc_buf_fini(&di);
+    pc_buf_fini(&transp);
     pc_buf_fini(&s);
     pc_buf_fini(&hx);
 }

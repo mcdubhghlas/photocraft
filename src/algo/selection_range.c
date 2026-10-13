@@ -307,97 +307,7 @@ void pc_algo_selection_tone_range(const float (*px)[4], size_t n, float lo, floa
     }
 }
 
-/* ---- distance transform, expand / contract / border ---- */
-
-/* 1D squared distance transform (Felzenszwalb & Huttenlocher). v holds n, z n + 1 entries. */
-static void dt1(const float *f, size_t n, float *out, size_t *v, float *z)
-{
-    size_t k = 0, q;
-    v[0] = 0;
-    z[0] = -INFINITY;
-    z[1] = INFINITY;
-    for (q = 1; q < n; q++) {
-        for (;;) {
-            size_t p = v[k];
-            float s = ((f[q] + (float)(q * q)) - (f[p] + (float)(p * p))) / (2.0f * ((float)q - (float)p));
-            if (s <= z[k] && k > 0) {
-                k--;
-                continue;
-            }
-            if (s <= z[k]) {
-                v[0] = q;
-                z[0] = -INFINITY;
-                z[1] = INFINITY;
-                break;
-            }
-            k++;
-            v[k] = q;
-            z[k] = s;
-            z[k + 1] = INFINITY;
-            break;
-        }
-    }
-    k = 0;
-    for (q = 0; q < n; q++) {
-        float d;
-        while (z[k + 1] < (float)q) {
-            k++;
-        }
-        d = (float)q - (float)v[k];
-        out[q] = d * d + f[v[k]];
-    }
-}
-
-pc_status pc_algo_selection_edt(const bool *inside, size_t w, size_t h, float **out, pc_error *err)
-{
-    size_t total, n = w > h ? w : h, x, y;
-    float *g, *f, *o, *z;
-    size_t *v;
-    if (n < 1) {
-        n = 1;
-    }
-    if (!pc_size_mul(w, h, &total) || total > PC_MAX_ALLOC / sizeof(float)) {
-        return pc_fail(err, PC_ERR_LIMIT, "distance transform too large");
-    }
-    g = pc_malloc_array(total ? total : 1, sizeof(float));
-    f = pc_malloc_array(n, sizeof(float));
-    o = pc_malloc_array(n, sizeof(float));
-    v = pc_malloc_array(n, sizeof(size_t));
-    z = pc_malloc_array(n + 1, sizeof(float));
-    if (g == NULL || f == NULL || o == NULL || v == NULL || z == NULL) {
-        free(g);
-        free(f);
-        free(o);
-        free(v);
-        free(z);
-        return pc_fail(err, PC_ERR_NOMEM, "out of memory for a distance transform");
-    }
-    for (x = 0; x < total; x++) {
-        g[x] = inside[x] ? 0.0f : 1e20f;
-    }
-    for (x = 0; x < w; x++) {
-        for (y = 0; y < h; y++) {
-            f[y] = g[y * w + x];
-        }
-        dt1(f, h, o, v, z);
-        for (y = 0; y < h; y++) {
-            g[y * w + x] = o[y];
-        }
-    }
-    for (y = 0; y < h; y++) {
-        memcpy(f, g + y * w, w * sizeof(float));
-        dt1(f, w, o, v, z);
-        for (x = 0; x < w; x++) {
-            g[y * w + x] = sqrtf(o[x]);
-        }
-    }
-    free(f);
-    free(o);
-    free(v);
-    free(z);
-    *out = g;
-    return PC_OK;
-}
+/* ---- expand / contract / border (the distance transform is in selection_distance.c) ---- */
 
 static pc_status mask_count(size_t w, size_t h, size_t *n, pc_error *err)
 {
@@ -464,25 +374,47 @@ pc_status pc_algo_selection_contract(const float *m, size_t w, size_t h, float r
     return PC_OK;
 }
 
+/* Photoshop's soft band 2r wide centred on the edge: a pixel D away (centre to centre) from the
+ * nearest pixel on the other side is selected 1 - (D - 1) / r. */
 pc_status pc_algo_selection_border(const float *m, size_t w, size_t h, float r, float **out, pc_error *err)
 {
-    float *outer, *inner;
-    size_t n = w * h, i;
-    pc_status st = pc_algo_selection_expand(m, w, h, r / 2.0f, &outer, err);
+    float *to_in = NULL, *to_out = NULL, *res;
+    bool *inside, *outside;
+    size_t n, i;
+    pc_status st = mask_count(w, h, &n, err);
     if (st != PC_OK) {
         return st;
     }
-    st = pc_algo_selection_contract(m, w, h, r / 2.0f, &inner, err);
-    if (st != PC_OK) {
-        free(outer);
-        return st;
+    inside = pc_malloc_array(n ? n : 1, sizeof(bool));
+    outside = pc_malloc_array(n ? n : 1, sizeof(bool));
+    res = pc_calloc_array(n ? n : 1, sizeof(float));
+    if (inside == NULL || outside == NULL || res == NULL) {
+        st = pc_fail(err, PC_ERR_NOMEM, "out of memory for a selection border");
+        goto done;
     }
     for (i = 0; i < n; i++) {
-        outer[i] = pc_rs_maxf_k(outer[i] - inner[i], 0.0f);
+        inside[i] = m[i] >= 0.5f;
+        outside[i] = !inside[i];
     }
-    free(inner);
-    *out = outer;
-    return PC_OK;
+    if ((st = pc_algo_selection_edt(inside, w, h, &to_in, err)) != PC_OK ||
+        (st = pc_algo_selection_edt(outside, w, h, &to_out, err)) != PC_OK) {
+        goto done;
+    }
+    if (!(r <= 0.0f) && n > 0) {
+        for (i = 0; i < n; i++) {
+            float d = inside[i] ? to_out[i] : to_in[i];
+            res[i] = pc_clampf(1.0f - (d - 1.0f) / r, 0.0f, 1.0f);
+        }
+    }
+    *out = res;
+    res = NULL;
+done:
+    free(inside);
+    free(outside);
+    free(to_in);
+    free(to_out);
+    free(res);
+    return st;
 }
 
 /* ---- polygon ---- */

@@ -71,6 +71,11 @@ const pc_psd_layer *pc_psd_file_layers(const pc_psd_file *f, size_t *n);
 /* First resource with the id / first global block with the key, borrowed, or NULL. */
 const pc_psd_resource *pc_psd_file_resource(const pc_psd_file *f, uint16_t id);
 const pc_psd_block *pc_psd_file_global_block(const pc_psd_file *f, const char key[4]);
+/* The global Lr16 / Lr32 / Layr block that should have held the layers but could not be parsed
+ * (borrowed), with the parse error in *why (may be NULL); NULL when the file has layer info or no
+ * such block parses badly. Parsing keeps such a block verbatim and leaves has_layer_info false, so
+ * the file reads as flattened; this tells a reader its layers were lost rather than absent. */
+const pc_psd_block *pc_psd_file_unreadable_layer_block(const pc_psd_file *f, pc_error *why);
 /* ICC profile bytes (1039), borrowed, or NULL. */
 const uint8_t *pc_psd_file_icc(const pc_psd_file *f, size_t *len);
 bool pc_psd_file_resolution(const pc_psd_file *f, pc_psd_resolution *out);

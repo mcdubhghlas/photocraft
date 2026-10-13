@@ -43,6 +43,7 @@ struct pc_compose_patterns {
     const pc_pattern *patterns;
     size_t n;
     size_t budget;
+    pc_color_mode mode; /* the colour mode patterns are painted into (pc_compose_pattern_rgba) */
     slots *cache;
 };
 
@@ -53,35 +54,72 @@ static pc_status nomem(pc_error *err)
 
 /* ---- tiles ---- */
 
-pc_status pc_compose_pattern_tile_new(const pc_pattern *p, pc_compose_pattern_tile **out, pc_error *err)
+pc_status pc_compose_pattern_rgba(const pc_pattern *p, pc_color_mode mode, float (**out)[4], size_t *len,
+                                  pc_error *err)
 {
-    pc_compose_pattern_tile *t;
+    float (*px)[4];
     uint64_t n64;
     size_t n;
     size_t i;
+    bool paints_in;
     pc_status st;
-    if (pc_pattern_is_empty(p)) {
+    if (!pc_pattern_is_paintable(p)) {
         *out = NULL;
+        *len = 0;
         return PC_OK;
     }
-    n64 = (uint64_t)p->width * (uint64_t)p->height;
+    n64 = pc_pattern_pixel_count(p);
     if (n64 > PC_COMPOSE_MAX_PIXELS) {
         return pc_fail(err, PC_ERR_LIMIT, "compose: a %ux%u pattern is too large", p->width, p->height);
     }
     n = (size_t)n64;
+    px = pc_calloc_array(n, sizeof *px);
+    if (px == NULL) {
+        return nomem(err);
+    }
+    st = pc_surface_read_rgba_into(&p->surface, pc_pattern_rect(p), px, n, err);
+    if (st != PC_OK) {
+        free(px);
+        return st;
+    }
+    /* A pattern keeps its own colours, but in a Grayscale or CMYK document it paints that mode's
+     * colours: what Edit > Fill writes into the document's pixels. */
+    paints_in = mode == PC_COLOR_MODE_GRAYSCALE || mode == PC_COLOR_MODE_BITMAP ||
+                mode == PC_COLOR_MODE_DUOTONE || mode == PC_COLOR_MODE_CMYK;
+    if (paints_in && pc_surface_format(&p->surface).mode != mode) {
+        pc_pixel_format fmt = {mode, PC_SAMPLE_TYPE_F32, true};
+        for (i = 0; i < n; i++) {
+            float v[PC_RASTER_MAX_CHANNELS];
+            size_t c = pc_from_rgba(fmt, px[i], v);
+            pc_to_rgba(fmt, v, c, px[i]);
+        }
+    }
+    *out = px;
+    *len = n;
+    return PC_OK;
+}
+
+pc_status pc_compose_pattern_tile_new_in(const pc_pattern *p, pc_color_mode mode,
+                                         pc_compose_pattern_tile **out, pc_error *err)
+{
+    pc_compose_pattern_tile *t;
+    size_t n;
+    size_t i;
+    pc_status st;
+    if (!pc_pattern_is_paintable(p)) {
+        *out = NULL;
+        return PC_OK;
+    }
     t = malloc(sizeof *t);
     if (t == NULL) {
         return nomem(err);
     }
-    t->px = pc_calloc_array(n, sizeof *t->px);
-    if (t->px == NULL) {
+    st = pc_compose_pattern_rgba(p, mode, &t->px, &n, err);
+    if (st != PC_OK || t->px == NULL) {
         free(t);
-        return nomem(err);
-    }
-    st = pc_surface_read_rgba_into(&p->surface, pc_pattern_rect(p), t->px, n, err);
-    if (st != PC_OK) {
-        free(t->px);
-        free(t);
+        if (st == PC_OK) {
+            *out = NULL;
+        }
         return st;
     }
     for (i = 0; i < n; i++) {
@@ -95,6 +133,11 @@ pc_status pc_compose_pattern_tile_new(const pc_pattern *p, pc_compose_pattern_ti
     atomic_init(&t->refs, 1);
     *out = t;
     return PC_OK;
+}
+
+pc_status pc_compose_pattern_tile_new(const pc_pattern *p, pc_compose_pattern_tile **out, pc_error *err)
+{
+    return pc_compose_pattern_tile_new_in(p, PC_COLOR_MODE_RGB, out, err);
 }
 
 pc_compose_pattern_tile *pc_compose_pattern_tile_retain(pc_compose_pattern_tile *t)
@@ -262,8 +305,16 @@ pc_status pc_compose_patterns_new(const pc_pattern *patterns, size_t n, size_t b
     p->patterns = patterns;
     p->n = patterns != NULL ? n : 0;
     p->budget = budget;
+    p->mode = PC_COLOR_MODE_RGB;
     *out = p;
     return PC_OK;
+}
+
+void pc_compose_patterns_set_mode(pc_compose_patterns *p, pc_color_mode mode)
+{
+    if (p != NULL) {
+        p->mode = mode;
+    }
 }
 
 void pc_compose_patterns_free(pc_compose_patterns *p)
@@ -336,18 +387,18 @@ pc_status pc_compose_patterns_get(const pc_compose_patterns *p, const char *id, 
         return PC_OK;
     }
     pat = pc_pattern_find(p->patterns, p->n, id, id_len, name, name_len);
-    if (pat == NULL || pc_pattern_is_empty(pat)) {
+    if (pat == NULL || !pc_pattern_is_paintable(pat)) {
         *out = NULL;
         return PC_OK;
     }
     s = find_slot(p, pat);
     if (s == NULL) {
-        return pc_compose_pattern_tile_new(pat, out, err);
+        return pc_compose_pattern_tile_new_in(pat, p->mode, out, err);
     }
     pthread_mutex_lock(&s->lock);
     if (!s->done) {
         pc_compose_pattern_tile *t = NULL;
-        st = pc_compose_pattern_tile_new(pat, &t, err);
+        st = pc_compose_pattern_tile_new_in(pat, p->mode, &t, err);
         if (st == PC_OK) {
             s->tile = t;
             s->done = true;

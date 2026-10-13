@@ -1,7 +1,9 @@
 #include "psd/compression.h"
 
 #include <stdlib.h>
+#include <limits.h>
 #include <string.h>
+#include <zlib.h>
 
 #include "base/bytes.h"
 #include "base/compress.h"
@@ -202,6 +204,107 @@ pc_status pc_psd_zip_decompress(const uint8_t *data, size_t n, size_t expected, 
     pc_psd_bytes_fini(out);
     out->data = b.data;
     out->len = b.len;
+    return PC_OK;
+}
+
+/* Inflates a whole zlib stream (through its Adler-32 trailer). Keeps only the first `expected`
+ * bytes (when `out` is non-NULL); a bounded surplus (1 MiB) tolerates padding without unbounded
+ * work. Mirrors the reference's flate2::Decompress loop and its messages. */
+static pc_status inflate_checked(const uint8_t *data, size_t len, uint64_t expected, pc_psd_bytes *out,
+                                 pc_error *err)
+{
+    const uint64_t allowance = (uint64_t)1 << 20;
+    uint64_t limit = expected > UINT64_MAX - allowance ? UINT64_MAX : expected + allowance;
+    uint64_t want = expected == UINT64_MAX ? expected : expected + 1;
+    size_t bufsize = want < 8192 ? 8192 : want > allowance ? (size_t)allowance : (size_t)want;
+    uint64_t in_total = 0;
+    uint64_t out_total = 0;
+    pc_buf keep = PC_BUF_INIT;
+    uint8_t *buf;
+    z_stream z;
+    pc_status st = PC_OK;
+    int ret;
+    if (out != NULL) {
+        uint64_t hint = len > UINT64_MAX / 1032 ? UINT64_MAX : (uint64_t)len * 1032u;
+        if (hint > expected) {
+            hint = expected;
+        }
+        if (hint > SIZE_MAX || pc_buf_reserve(&keep, (size_t)hint, NULL) != PC_OK) {
+            return psd_limit(err, OOM_MSG);
+        }
+    }
+    buf = malloc(bufsize);
+    if (buf == NULL) {
+        pc_buf_fini(&keep);
+        return psd_limit(err, OOM_MSG);
+    }
+    memset(&z, 0, sizeof z);
+    if (inflateInit(&z) != Z_OK) {
+        free(buf);
+        pc_buf_fini(&keep);
+        return psd_limit(err, OOM_MSG);
+    }
+    for (;;) {
+        uint64_t before_in = in_total;
+        uint64_t before_out = out_total;
+        size_t rest = len - (size_t)in_total;
+        uint64_t produced;
+        uInt avail;
+        z.next_in = (Bytef *)(uintptr_t)(data + in_total);
+        z.avail_in = rest > UINT_MAX ? UINT_MAX : (uInt)rest;
+        avail = z.avail_in;
+        z.next_out = buf;
+        z.avail_out = (uInt)bufsize;
+        ret = inflate(&z, Z_NO_FLUSH);
+        in_total += avail - z.avail_in;
+        produced = bufsize - z.avail_out;
+        out_total += produced;
+        if (ret == Z_MEM_ERROR) {
+            st = psd_limit(err, OOM_MSG);
+            break;
+        }
+        if (ret == Z_NEED_DICT) {
+            st = psd_decompress(err, "deflate decompression error: requires a dictionary");
+            break;
+        }
+        if (ret != Z_OK && ret != Z_BUF_ERROR && ret != Z_STREAM_END) {
+            st = psd_decompress(err, "deflate decompression error");
+            break;
+        }
+        if (out_total > limit) {
+            st = psd_limit(err, "zlib output exceeds the declared size and padding allowance");
+            break;
+        }
+        if (out != NULL) {
+            uint64_t room = expected - keep.len;
+            size_t n = (size_t)(produced < room ? produced : room);
+            st = pc_buf_append(&keep, buf, n, NULL);
+            if (st != PC_OK) {
+                st = psd_limit(err, OOM_MSG);
+                break;
+            }
+        }
+        if (ret == Z_STREAM_END) {
+            if (out_total < expected) {
+                st = psd_decompress(err, "zlib stream produced %llu of %llu bytes",
+                                    (unsigned long long)out_total, (unsigned long long)expected);
+            }
+            break;
+        }
+        if (before_in == in_total && before_out == out_total) {
+            st = psd_decompress(err, "incomplete zlib stream");
+            break;
+        }
+    }
+    (void)inflateEnd(&z);
+    free(buf);
+    if (st != PC_OK || out == NULL) {
+        pc_buf_fini(&keep);
+        return st;
+    }
+    pc_psd_bytes_fini(out);
+    out->data = keep.data;
+    out->len = keep.len;
     return PC_OK;
 }
 
@@ -414,7 +517,7 @@ pc_status pc_psd_decode_planes(uint16_t compression, const uint8_t *data, size_t
         break;
     case PC_PSD_ZIP:
     case PC_PSD_ZIP_PREDICT:
-        st = pc_psd_zip_decompress(data, len, total, &z, err);
+        st = inflate_checked(data, len, total, &z, err);
         if (st == PC_OK && compression == PC_PSD_ZIP_PREDICT) {
             st = pc_psd_unpredict(z.data, z.len, l, err);
         }
@@ -571,19 +674,14 @@ pc_status pc_psd_validate_planes(uint16_t compression, const uint8_t *data, size
         return PC_OK;
     }
     case PC_PSD_ZIP:
-    case PC_PSD_ZIP_PREDICT: {
-        size_t got = 0;
-        pc_error e;
-        uint64_t cap = total > UINT64_MAX - ((uint64_t)1 << 20) ? UINT64_MAX : total + ((uint64_t)1 << 20);
-        st = pc_inflate_count(PC_Z_ZLIB, data, len, cap > SIZE_MAX ? SIZE_MAX : (size_t)cap, &got, NULL, &e);
-        if (st != PC_OK) {
-            return psd_decompress(err, "%s", e.msg);
+    case PC_PSD_ZIP_PREDICT:
+        /* #2926: a stream declaring more than MAX_DECODED_BYTES is kept verbatim, not inflated:
+         * decoding refuses that layout anyway, and a layered file whose merged composite is too
+         * large still opens. */
+        if (total > PC_PSD_MAX_DECODED_BYTES) {
+            return PC_OK;
         }
-        if ((uint64_t)got < total) {
-            return psd_decompress(err, "zlib stream produced %zu of %llu bytes", got, (unsigned long long)total);
-        }
-        return PC_OK;
-    }
+        return inflate_checked(data, len, total, NULL, err);
     default:
         return PC_OK;
     }

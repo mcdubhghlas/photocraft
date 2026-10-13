@@ -18,6 +18,9 @@ extern const char *const PC_TEXT_WARP_STYLES[15][2];
 /* PSD style name ("warpArc") for a short id ("arc", ASCII case-insensitive) or a PSD name;
  * "none"/"warpNone" give "warpNone". NULL when unknown. Static strings. */
 const char *pc_text_warp_psd_style(const char *id, size_t len);
+/* Short id ("flag", "none") for a PSD style name ("warpFlag", "warpNone"; exact spelling): the
+ * reverse of pc_text_warp_psd_style. NULL for other names. Static strings. */
+const char *pc_text_warp_short_style(const char *psd, size_t len);
 
 /* Prepares w for text whose bounds are {x0, y0, x1, y1} (text space). False (out untouched) for
  * warpNone, unknown styles (the style must be a preset spelled as its PSD name), an all-zero

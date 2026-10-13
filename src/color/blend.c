@@ -16,6 +16,14 @@ const pc_blend_mode PC_BLEND_LAYER_MODES[PC_BLEND_LAYER_MODE_COUNT] = {
     PC_BLEND_EXCLUSION,    PC_BLEND_SUBTRACT,     PC_BLEND_DIVIDE,       PC_BLEND_HUE,
     PC_BLEND_SATURATION,   PC_BLEND_COLOR,        PC_BLEND_LUMINOSITY};
 
+const pc_blend_mode PC_BLEND_PAINT_NET_MODES[PC_BLEND_PAINT_NET_MODE_COUNT] = {
+    PC_BLEND_REFLECT,
+    PC_BLEND_GLOW,
+    PC_BLEND_NEGATION,
+    PC_BLEND_XOR,
+    PC_BLEND_PAINT_NET_COLOR_BURN,
+    PC_BLEND_PAINT_NET_COLOR_DODGE};
+
 typedef struct mode_info {
     const char *label;
     const char *name;
@@ -51,6 +59,12 @@ static const mode_info INFO[PC_BLEND_COUNT] = {
     {"Saturation", "Saturation", "sat "},
     {"Color", "Color", "colr"},
     {"Luminosity", "Luminosity", "lum "},
+    {"Reflect", "Reflect", "norm"},
+    {"Glow", "Glow", "norm"},
+    {"Negation", "Negation", "norm"},
+    {"XOR", "Xor", "norm"},
+    {"Color Burn (Paint.NET)", "PaintNetColorBurn", "norm"},
+    {"Color Dodge (Paint.NET)", "PaintNetColorDodge", "norm"},
 };
 
 static const mode_info *info(pc_blend_mode m)
@@ -88,13 +102,19 @@ const char *pc_blend_psd_key(pc_blend_mode m)
 bool pc_blend_from_psd_key(const char key[4], pc_blend_mode *out)
 {
     unsigned i;
-    for (i = 0; key != NULL && i < PC_BLEND_COUNT; i++) {
+    /* Pass Through and the Photoshop modes only: the Paint.NET ones share "norm". */
+    for (i = 0; key != NULL && i < PC_BLEND_PSD_COUNT; i++) {
         if (memcmp(INFO[i].key, key, 4) == 0) {
             *out = (pc_blend_mode)i;
             return true;
         }
     }
     return false;
+}
+
+bool pc_blend_has_psd_equivalent(pc_blend_mode m)
+{
+    return (unsigned)m < PC_BLEND_PSD_COUNT;
 }
 
 bool pc_blend_is_separable(pc_blend_mode m)
@@ -174,6 +194,20 @@ static float soft_light_ps(float cb, float cs)
     return 2.0f * cb * (1.0f - cs) + sqrtf(pc_rs_maxf_k(cb, 0.0f)) * (2.0f * cs - 1.0f);
 }
 
+/* Paint.NET's Reflect (Glow is Reflect with the operands swapped). */
+static float reflect(float cb, float cs)
+{
+    return cs >= 1.0f ? 1.0f : pc_rs_minf_k(cb * cb / (1.0f - cs), 1.0f);
+}
+
+/* Paint.NET's XOR is defined on 8-bit channels even in a floating-point compositor. */
+static float xor8(float cb, float cs)
+{
+    uint8_t b = pc_f32_to_u8(roundf(pc_clampf(cb, 0.0f, 1.0f) * 255.0f));
+    uint8_t s = pc_f32_to_u8(roundf(pc_clampf(cs, 0.0f, 1.0f) * 255.0f));
+    return (float)(uint8_t)(b ^ s) / 255.0f;
+}
+
 /* B(cb, cs) with Linear Dodge and Divide clipped at `hi` (1 at integer depths). */
 static float channel(pc_blend_mode m, float cb, float cs, float hi)
 {
@@ -236,6 +270,18 @@ static float channel(pc_blend_mode m, float cb, float cs, float hi)
     case PC_BLEND_COLOR:
     case PC_BLEND_LUMINOSITY:
         return cs; /* non-separable: handled by pc_blend_rgb */
+    case PC_BLEND_REFLECT:
+        return reflect(cb, cs);
+    case PC_BLEND_GLOW:
+        return reflect(cs, cb);
+    case PC_BLEND_NEGATION:
+        return 1.0f - fabsf(1.0f - cb - cs);
+    case PC_BLEND_XOR:
+        return xor8(cb, cs);
+    case PC_BLEND_PAINT_NET_COLOR_BURN:
+        return cs <= 0.0f ? 0.0f : pc_rs_maxf_k(1.0f - (1.0f - cb) / cs, 0.0f);
+    case PC_BLEND_PAINT_NET_COLOR_DODGE:
+        return cs >= 1.0f ? 1.0f : pc_rs_minf_k(cb / (1.0f - cs), 1.0f);
     }
     return cs;
 }
@@ -257,7 +303,10 @@ float pc_blend_lum(const float c[3])
     return 0.3f * c[0] + 0.59f * c[1] + 0.11f * c[2];
 }
 
-static void clip_color(const float c[3], float out[3])
+/* ClipColor: moves `c` towards its grey until every channel is within 0..top, keeping the
+ * luminosity. Outside 0..top no colour of that luminosity is in gamut (the plain ISO 32000
+ * formula turned colours inside out and divided by rounding noise), so it becomes its grey. */
+static void clip_color(const float c[3], float top, float out[3])
 {
     float l = pc_blend_lum(c);
     float n = pc_rs_minf(pc_rs_minf(c[0], c[1]), c[2]);
@@ -270,26 +319,31 @@ static void clip_color(const float c[3], float out[3])
     if (n < 0.0f) {
         float d = l - n;
         for (i = 0; i < 3; i++) {
-            o[i] = fabsf(d) < 1e-12f ? l : l + (o[i] - l) * l / d;
+            o[i] = l > 0.0f && d > 0.0f ? l + (o[i] - l) * l / d : l;
         }
     }
-    if (x > 1.0f) {
+    if (x > top) {
         float d = x - l;
         for (i = 0; i < 3; i++) {
-            o[i] = fabsf(d) < 1e-12f ? l : l + (o[i] - l) * (1.0f - l) / d;
+            o[i] = l < top && d > 0.0f ? l + (o[i] - l) * (top - l) / d : l;
         }
     }
     memcpy(out, o, sizeof o);
 }
 
-void pc_blend_set_lum(const float c[3], float l, float out[3])
+static void set_lum_within(const float c[3], float l, float top, float out[3])
 {
     float d = l - pc_blend_lum(c);
     float t[3];
     t[0] = c[0] + d;
     t[1] = c[1] + d;
     t[2] = c[2] + d;
-    clip_color(t, out);
+    clip_color(t, top, out);
+}
+
+void pc_blend_set_lum(const float c[3], float l, float out[3])
+{
+    set_lum_within(c, l, 1.0f, out);
 }
 
 static float sat(const float c[3])
@@ -328,21 +382,26 @@ static void set_sat(const float c[3], float s, float out[3])
 
 void pc_blend_rgb(pc_blend_mode m, const float cb[3], const float cs[3], float out[3])
 {
+    pc_blend_rgb_within(m, cb, cs, 1.0f, out);
+}
+
+void pc_blend_rgb_within(pc_blend_mode m, const float cb[3], const float cs[3], float top, float out[3])
+{
     float t[3];
     switch (m) {
     case PC_BLEND_HUE:
         set_sat(cs, sat(cb), t);
-        pc_blend_set_lum(t, pc_blend_lum(cb), out);
+        set_lum_within(t, pc_blend_lum(cb), top, out);
         return;
     case PC_BLEND_SATURATION:
         set_sat(cb, sat(cs), t);
-        pc_blend_set_lum(t, pc_blend_lum(cb), out);
+        set_lum_within(t, pc_blend_lum(cb), top, out);
         return;
     case PC_BLEND_COLOR:
-        pc_blend_set_lum(cs, pc_blend_lum(cb), out);
+        set_lum_within(cs, pc_blend_lum(cb), top, out);
         return;
     case PC_BLEND_LUMINOSITY:
-        pc_blend_set_lum(cb, pc_blend_lum(cs), out);
+        set_lum_within(cb, pc_blend_lum(cs), top, out);
         return;
     case PC_BLEND_DARKER_COLOR:
         memcpy(t, pc_blend_lum(cs) < pc_blend_lum(cb) ? cs : cb, sizeof t);
@@ -365,7 +424,7 @@ void pc_blend_rgb_hdr(pc_blend_mode m, const float cb[3], const float cs[3], flo
 {
     float t[3];
     if (!pc_blend_is_separable(m)) {
-        pc_blend_rgb(m, cb, cs, out);
+        pc_blend_rgb_within(m, cb, cs, FLT_MAX, out);
         return;
     }
     t[0] = pc_blend_channel_hdr(m, cb[0], cs[0]);

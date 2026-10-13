@@ -86,7 +86,9 @@ static float signum(float x)
 float pc_compose_levels_float(const pc_levels_channel *ch, float v)
 {
     float t = (v - ch->in_black) / pc_rs_maxf_k(ch->in_white - ch->in_black, 1e-6f);
-    t = signum(t) * powf(fabsf(t), 1.0f / pc_rs_maxf_k(ch->gamma, 0.01f));
+    if (ch->gamma != 1.0f) {
+        t = signum(t) * powf(fabsf(t), 1.0f / pc_rs_maxf_k(ch->gamma, 0.01f));
+    }
     return ch->out_black + t * (ch->out_white - ch->out_black);
 }
 
@@ -227,6 +229,197 @@ pc_status pc_compose_curve_lut(const pc_curve_point *points, size_t npoints, flo
     return PC_OK;
 }
 
+/* f32::total_cmp(a, b) == Less for NaN-free values (-0.0 sorts before +0.0). */
+static bool total_less(float a, float b)
+{
+    if (a < b) {
+        return true;
+    }
+    return a == 0.0f && b == 0.0f && signbit(a) && !signbit(b);
+}
+
+static bool pt_total_less(const void *a, const void *b)
+{
+    return total_less(((const pt *)a)->x, ((const pt *)b)->x);
+}
+
+pc_status pc_compose_curve_map_lut(const pc_curve_point *points, size_t npoints, float *out, pc_error *err)
+{
+    pt *pts = NULL;
+    size_t n = 0;
+    size_t i;
+    size_t k;
+    size_t seg = 0;
+    pc_status st;
+    if (npoints > 0) {
+        pts = pc_malloc_array(npoints, sizeof *pts);
+        if (pts == NULL) {
+            return nomem(err);
+        }
+        for (i = 0; i < npoints; i++) {
+            if (isfinite(points[i].input) && isfinite(points[i].output)) {
+                pts[n].x = points[i].input;
+                pts[n].y = points[i].output;
+                n++;
+            }
+        }
+    }
+    if (n > 0) {
+        size_t kept = 1;
+        st = pc_cmp_stable_sort(pts, n, sizeof *pts, pt_total_less, err);
+        if (st != PC_OK) {
+            free(pts);
+            return st;
+        }
+        for (i = 1; i < n; i++) {
+            if (!(fabsf(pts[i].x - pts[kept - 1].x) < 1e-6f)) {
+                pts[kept++] = pts[i];
+            }
+        }
+        n = kept;
+    }
+    if (n == 0) {
+        for (k = 0; k < LUT; k++) {
+            out[k] = lut_x(k);
+        }
+        free(pts);
+        return PC_OK;
+    }
+    for (k = 0; k < LUT; k++) {
+        float xv = lut_x(k);
+        float t;
+        if (xv <= pts[0].x) {
+            out[k] = pc_clampf(pts[0].y, 0.0f, 1.0f);
+            continue;
+        }
+        if (xv >= pts[n - 1].x) {
+            out[k] = pc_clampf(pts[n - 1].y, 0.0f, 1.0f);
+            continue;
+        }
+        while (seg + 1 < n && pts[seg + 1].x < xv) {
+            seg++;
+        }
+        if (seg + 1 >= n) {
+            out[k] = pc_clampf(pts[n - 1].y, 0.0f, 1.0f);
+            continue;
+        }
+        t = pts[seg + 1].x > pts[seg].x ? (xv - pts[seg].x) / (pts[seg + 1].x - pts[seg].x) : 0.0f;
+        out[k] = pc_clampf(pts[seg].y + (pts[seg + 1].y - pts[seg].y) * t, 0.0f, 1.0f);
+    }
+    free(pts);
+    return PC_OK;
+}
+
+pc_status pc_compose_curve_lut_mode(const pc_curve_point *points, size_t npoints, bool pencil, float *out,
+                                    pc_error *err)
+{
+    return pencil ? pc_compose_curve_map_lut(points, npoints, out, err)
+                  : pc_compose_curve_lut(points, npoints, out, err);
+}
+
+typedef struct cpt {
+    pc_curve_point p;
+    bool corner;
+} cpt;
+
+/* partial_cmp(..).unwrap_or(Equal) == Less on the inputs. */
+static bool cpt_less(const void *a, const void *b)
+{
+    return ((const cpt *)a)->p.input < ((const cpt *)b)->p.input;
+}
+
+pc_status pc_compose_contour_curve_lut(const pc_curve_point *points, size_t npoints, const bool *corners,
+                                       size_t ncorners, float *out, pc_error *err)
+{
+    cpt *pts;
+    pc_curve_point *seg = NULL;
+    float *lut = NULL;
+    bool any = false;
+    bool have = false;
+    size_t n;
+    size_t i;
+    size_t k;
+    size_t start = 0;
+    size_t last;
+    pc_status st = PC_OK;
+    for (i = 0; i < npoints && i < ncorners; i++) {
+        any = any || corners[i];
+    }
+    if (!any) {
+        return pc_compose_curve_lut(points, npoints, out, err);
+    }
+    pts = pc_malloc_array(npoints, sizeof *pts);
+    seg = pc_malloc_array(npoints, sizeof *seg);
+    lut = pc_malloc_array(LUT, sizeof *lut);
+    if (pts == NULL || seg == NULL || lut == NULL) {
+        free(pts);
+        free(seg);
+        free(lut);
+        return nomem(err);
+    }
+    for (i = 0; i < npoints; i++) {
+        pts[i].p = points[i];
+        pts[i].corner = i < ncorners && corners[i];
+    }
+    st = pc_cmp_stable_sort(pts, npoints, sizeof *pts, cpt_less, err);
+    n = npoints > 0 ? 1 : 0;
+    for (i = 1; st == PC_OK && i < npoints; i++) {
+        if (!(fabsf(pts[i].p.input - pts[n - 1].p.input) < 1e-6f)) {
+            pts[n++] = pts[i];
+        }
+    }
+    last = n > 0 ? n - 1 : 0;
+    for (i = 1; st == PC_OK && i <= last; i++) {
+        float from;
+        size_t j;
+        if (!(pts[i].corner || i == last)) {
+            continue;
+        }
+        for (j = start; j <= i; j++) {
+            seg[j - start] = pts[j].p;
+        }
+        from = pts[start].p.input;
+        st = pc_compose_curve_lut(seg, i - start + 1, lut, err);
+        if (st == PC_OK) {
+            if (!have) {
+                memcpy(out, lut, LUT * sizeof *out);
+                have = true;
+            } else {
+                for (k = 0; k < LUT; k++) {
+                    if ((float)k / (float)(LUT - 1) >= from) {
+                        out[k] = lut[k];
+                    }
+                }
+            }
+        }
+        start = i;
+    }
+    free(pts);
+    free(seg);
+    free(lut);
+    if (st == PC_OK && !have) {
+        st = pc_compose_curve_lut(points, npoints, out, err);
+    }
+    return st;
+}
+
+void pc_compose_float_tone_identity(const pc_adjustment *adj, bool has_depth, pc_sample_type depth,
+                                    bool out[3])
+{
+    int i;
+    for (i = 0; i < 3; i++) {
+        out[i] = false;
+    }
+    if (adj->kind == PC_ADJ_CURVES && adj->u.curves.space == PC_TONE_RGB && has_depth &&
+        depth == PC_SAMPLE_TYPE_F32) {
+        bool master = pc_curve_is_identity(adj->u.curves.master.pts, adj->u.curves.master.len);
+        for (i = 0; i < 3; i++) {
+            out[i] = master &&
+                     pc_curve_is_identity(adj->u.curves.per_channel[i].pts, adj->u.curves.per_channel[i].len);
+        }
+    }
+}
+
 static void identity_row(float *row)
 {
     size_t k;
@@ -247,8 +440,9 @@ pc_status pc_compose_tone_luts_q(const pc_adjustment *adj, bool has_q, float q, 
                 r < 3 ? &adj->u.levels.per_channel[r]
                       : (adj->u.levels.space == PC_TONE_CMYK ? &adj->u.levels.black : &ident);
             for (k = 0; k < LUT; k++) {
+                /* Each channel's record first, then the master (psd-tools levels_rgb.psd, #975). */
                 out[r * LUT + k] =
-                    pc_compose_levels_q(c, pc_compose_levels_q(m, lut_x(k), has_q, q), has_q, q);
+                    pc_compose_levels_q(m, pc_compose_levels_q(c, lut_x(k), has_q, q), has_q, q);
             }
         }
         return PC_OK;
@@ -260,18 +454,21 @@ pc_status pc_compose_tone_luts_q(const pc_adjustment *adj, bool has_q, float q, 
         if (m == NULL) {
             return nomem(err);
         }
+        bool pencil = adj->u.curves.pencil;
         if (adj->u.curves.space == PC_TONE_LAB) {
             identity_row(m);
             st = PC_OK;
         } else {
-            st = pc_compose_curve_lut(adj->u.curves.master.pts, adj->u.curves.master.len, m, err);
+            st =
+                pc_compose_curve_lut_mode(adj->u.curves.master.pts, adj->u.curves.master.len, pencil, m, err);
         }
         for (r = 0; st == PC_OK && r < 4; r++) {
             if (r < 3) {
-                st = pc_compose_curve_lut(adj->u.curves.per_channel[r].pts, adj->u.curves.per_channel[r].len,
-                                          row, err);
+                st = pc_compose_curve_lut_mode(adj->u.curves.per_channel[r].pts,
+                                               adj->u.curves.per_channel[r].len, pencil, row, err);
             } else if (adj->u.curves.space == PC_TONE_CMYK) {
-                st = pc_compose_curve_lut(adj->u.curves.black.pts, adj->u.curves.black.len, row, err);
+                st = pc_compose_curve_lut_mode(adj->u.curves.black.pts, adj->u.curves.black.len, pencil, row,
+                                               err);
             } else {
                 identity_row(row);
             }
@@ -300,14 +497,15 @@ pc_status pc_compose_tone_luts_depth(const pc_adjustment *adj, bool has_depth, p
     bool has_q;
     if (adj->kind == PC_ADJ_LEVELS && adj->u.levels.space == PC_TONE_RGB && has_depth &&
         depth == PC_SAMPLE_TYPE_F32) {
-        /* 32-bit Levels: levels_float, sampled on 0..1 and kept in 0..1. */
+        /* 32-bit Levels: levels_float, sampled on 0..1 and kept in 0..1 for LUT consumers (float
+         * RGB rendering evaluates the formula directly instead). */
         size_t r;
         size_t k;
         for (r = 0; r < 3; r++) {
             for (k = 0; k < LUT; k++) {
                 out[r * LUT + k] = pc_clampf(
-                    pc_compose_levels_float(&adj->u.levels.per_channel[r],
-                                            pc_compose_levels_float(&adj->u.levels.master, lut_x(k))),
+                    pc_compose_levels_float(&adj->u.levels.master,
+                                            pc_compose_levels_float(&adj->u.levels.per_channel[r], lut_x(k))),
                     0.0f, 1.0f);
             }
         }

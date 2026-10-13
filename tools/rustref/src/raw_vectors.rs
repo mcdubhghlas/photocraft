@@ -3,21 +3,21 @@
 use photocraft_raw::testgen::*;
 use photocraft_raw::*;
 
-const H0: u64 = 0xcbf29ce484222325;
-fn fnv(h: &mut u64, b: &[u8]) {
+pub(crate) const H0: u64 = 0xcbf29ce484222325;
+pub(crate) fn fnv(h: &mut u64, b: &[u8]) {
     for &x in b {
         *h ^= x as u64;
         *h = h.wrapping_mul(0x100000001b3);
     }
 }
-fn u64le(h: &mut u64, v: u64) { fnv(h, &v.to_le_bytes()); }
-fn f64b(h: &mut u64, v: f64) { fnv(h, &v.to_bits().to_le_bytes()); }
-fn f32b(h: &mut u64, v: f32) { fnv(h, &v.to_bits().to_le_bytes()); }
-fn s(h: &mut u64, v: &str) { fnv(h, v.as_bytes()); fnv(h, &[0]); }
-fn opt_s(h: &mut u64, v: &Option<String>) { s(h, v.as_deref().unwrap_or("-")); }
-fn mat(h: &mut u64, m: &Mat3) { for r in m { for v in r { f64b(h, *v); } } }
+pub(crate) fn u64le(h: &mut u64, v: u64) { fnv(h, &v.to_le_bytes()); }
+pub(crate) fn f64b(h: &mut u64, v: f64) { fnv(h, &v.to_bits().to_le_bytes()); }
+pub(crate) fn f32b(h: &mut u64, v: f32) { fnv(h, &v.to_bits().to_le_bytes()); }
+pub(crate) fn s(h: &mut u64, v: &str) { fnv(h, v.as_bytes()); fnv(h, &[0]); }
+pub(crate) fn opt_s(h: &mut u64, v: &Option<String>) { s(h, v.as_deref().unwrap_or("-")); }
+pub(crate) fn mat(h: &mut u64, m: &Mat3) { for r in m { for v in r { f64b(h, *v); } } }
 
-fn err_msg(e: &RawError) -> String {
+pub(crate) fn err_msg(e: &RawError) -> String {
     let mut m = e.to_string();
     // The C error text is capped at 255 bytes.
     while m.len() > 255 { m.pop(); }
@@ -100,7 +100,7 @@ pub fn developed_hash(d: &Developed) -> u64 {
 }
 
 /// Deterministic sensor-like samples below 2^bits (tests/dng.rs).
-fn noise(n: usize, bits: u16) -> Vec<u16> {
+pub(crate) fn noise(n: usize, bits: u16) -> Vec<u16> {
     let mut s = 0x9E37_79B9_7F4A_7C15u64;
     let max = (1u32 << bits) - 1;
     (0..n)
@@ -293,7 +293,7 @@ pub fn samples() -> Vec<(String, Vec<u8>)> {
     v
 }
 
-fn file_hash(b: &[u8]) -> u64 { let mut h = H0; fnv(&mut h, b); h }
+pub(crate) fn file_hash(b: &[u8]) -> u64 { let mut h = H0; fnv(&mut h, b); h }
 
 /// One decode (and, on success, a bilinear develop at 64 MiB) folded into h.
 fn exercise(h: &mut u64, b: &[u8]) {
@@ -365,4 +365,5 @@ pub fn raw_vectors() {
         }
         println!("mutate hostile{i} {:016x}", h);
     }
+    crate::raw_vectors_r3::raw_vectors_r3();
 }

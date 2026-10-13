@@ -55,8 +55,8 @@ const char *const *pc_cjk_families(pc_cjk_script s);
 /* An installed font file to try: its path and the family of the wanted face in a collection
  * ("" = face 0). */
 typedef struct pc_cjk_font_file {
-    char *path;         /* owned */
-    const char *family; /* static */
+    char *path;   /* owned */
+    char *family; /* owned */
 } pc_cjk_font_file;
 
 /* System font files for a script / the broad-coverage last resorts, most preferred first, for
@@ -64,6 +64,20 @@ typedef struct pc_cjk_font_file {
 pc_status pc_cjk_font_files(pc_cjk_script s, pc_cjk_font_file **out, size_t *n, pc_error *err);
 pc_status pc_cjk_last_resort_files(pc_cjk_font_file **out, size_t *n, pc_error *err);
 void pc_cjk_font_files_free(pc_cjk_font_file *f, size_t n);
+
+/* Starts the optional Fontconfig CJK lookup (`fc-match :lang=...` per script, Linux only) on a
+ * background thread, once per process; later calls do nothing. Its answers (files that really
+ * cover the script) are appended to pc_cjk_font_files once it finished; missing fc-match or a
+ * failed match leaves the built-in candidates unchanged. No-op elsewhere. */
+void pc_cjk_start_fontconfig_scan(void);
+/* Whether that lookup was started and hasn't finished. */
+bool pc_cjk_fontconfig_scan_pending(void);
+/* fontconfig_match: asks fc-match for the script's font now (blocking). *found false when there
+ * is no usable answer; otherwise *out holds an owned path (canonical) and family. */
+pc_status pc_cjk_fontconfig_match(pc_cjk_script s, pc_cjk_font_file *out, bool *found, pc_error *err);
+/* Whether the face `family` of a font file maps every character of the script's sample
+ * ("レイヤー図", "图层", "圖層", "카드 배경"). */
+bool pc_cjk_font_covers_sample(const uint8_t *bytes, size_t len, const char *family, pc_cjk_script s);
 
 /* macOS PingFang.ttc (pre-installed asset or the pre-Catalina location); NULL elsewhere.
  * Caller frees. */

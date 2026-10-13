@@ -440,7 +440,8 @@ static inline void s_warn(pc_buf *b, char *const *v, size_t n)
 static inline const char *kind_name(pc_io_err_kind k)
 {
     static const char *const names[] = {"psd", "codec", "unknown",   "unsupported", "pcraft",
-                                        "raw", "svg",   "cancelled", "other"};
+                                        "raw", "svg",   "cancelled", "pdn",
+                                        "ora", "kra",   "other"};
     return names[k];
 }
 
@@ -637,10 +638,10 @@ static inline pc_document t_gen_doc_all(pc_color_mode mode, pc_sample_type depth
     d.metadata.psd_resources[0].id = 4000;
     must(pc_blob_new((const uint8_t[3]){9, 9, 9}, 3, &d.metadata.psd_resources[0].data, NULL));
     d.metadata.npsd_resources = 1;
-    d.guides.horizontal = xmalloc(sizeof(float));
+    d.guides.horizontal = xmalloc(sizeof(double));
     d.guides.horizontal[0] = 5.5f;
     d.guides.nhorizontal = 1;
-    d.guides.vertical = xmalloc(sizeof(float));
+    d.guides.vertical = xmalloc(sizeof(double));
     d.guides.vertical[0] = 12.0f;
     d.guides.nvertical = 1;
     {

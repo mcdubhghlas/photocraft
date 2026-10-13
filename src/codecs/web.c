@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "codecs/internal.h"
+#include "codecs/resolution.h"
 
 pc_status cx_jpeg_encode_rgb8(uint32_t w, uint32_t h, const uint8_t *rgb, int quality, bool progressive,
                               bool optimized, const uint8_t *icc, size_t icc_len, bool has_dpi, float dpi,
@@ -263,11 +264,13 @@ pc_status pc_web_encode_gif_animated(uint32_t width, uint32_t height, const pc_g
             return cx_invalid(err, "every frame's palette must have 1..=256 entries covering its indices");
         }
         bits = table_bits(f->npal);
-        /* Graphic Control Extension: disposal 1 (leave), delay, optional transparency. */
+        /* Graphic Control Extension: delay and optional transparency. Every frame covers the whole
+         * image, so an opaque one is left in place (disposal 1), while one with a transparent index
+         * is cleared afterwards (disposal 2): otherwise the frames before it show through. */
         cx_w_byte(&w, 0x21);
         cx_w_byte(&w, 0xF9);
         cx_w_byte(&w, 0x04);
-        cx_w_byte(&w, f->transparent >= 0 ? 0x05 : 0x04);
+        cx_w_byte(&w, f->transparent >= 0 ? 0x09 : 0x04);
         cx_w_le16(&w, f->delay_cs);
         cx_w_byte(&w, f->transparent >= 0 ? (uint8_t)f->transparent : 0);
         cx_w_byte(&w, 0);
@@ -410,14 +413,28 @@ pc_status pc_web_encode_jpeg_rgb8(uint32_t w, uint32_t h, const uint8_t *rgb, si
 {
     pc_buf b = PC_BUF_INIT;
     pc_status st;
+    char *ex = NULL;
+    size_t exn = 0;
     if (w > 65535 || h > 65535) {
         return cx_encode(err, PC_CF_JPEG, "JPEG dimensions are limited to 65535");
     }
     if (n != (size_t)w * h * 3) {
         return cx_invalid(err, "RGB data does not match the size");
     }
+    if (xmp != NULL) {
+        /* Its tiff: resolution, if any, says what the JFIF density says (#1691). */
+        float d[2] = {dpi, dpi};
+        if ((st = pc_export_xmp(xmp, xmp_len, has_dpi && dpi >= 1.0f ? d : NULL, &ex, &exn, err)) != PC_OK) {
+            return st;
+        }
+        if (ex != NULL) {
+            xmp = ex;
+            xmp_len = exn;
+        }
+    }
     st = cx_jpeg_encode_rgb8(w, h, rgb, quality, progressive, optimized, icc, icc_len, has_dpi, dpi, xmp, xmp_len, &b,
                              err);
+    free(ex);
     if (st != PC_OK) {
         pc_buf_fini(&b);
         return st;

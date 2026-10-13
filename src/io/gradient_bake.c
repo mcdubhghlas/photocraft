@@ -28,6 +28,9 @@ pc_io_bake_method pc_io_bake_method_from_code(const uint8_t *code, size_t len)
     if (code != NULL && len == 4 && memcmp(code, "Lnr ", 4) == 0) {
         return PC_IO_BAKE_LINEAR;
     }
+    if (code != NULL && len == 4 && memcmp(code, "Smoo", 4) == 0) {
+        return PC_IO_BAKE_SMOOTH;
+    }
     return PC_IO_BAKE_CLASSIC;
 }
 
@@ -123,8 +126,29 @@ static void tangent(const pt *s, size_t n, size_t k, float out[3])
     }
 }
 
+/* Smooth's progress across a segment at u = 0, 1/16, ..., 1 (Photoshop 27.11, measured as the
+ * position along the Oklab line between the two stop colours). */
+static const float SMOOTH_EASE[17] = {0.0f,    0.0438f, 0.099f,  0.1644f, 0.2303f, 0.2988f,
+                                      0.3667f, 0.433f,  0.4974f, 0.5642f, 0.6302f, 0.6985f,
+                                      0.7656f, 0.8333f, 0.8945f, 0.9517f, 1.0f};
+
+static float smooth_ease(float u)
+{
+    float x = pc_clampf(u, 0.0f, 1.0f) * 16.0f;
+    size_t i = (size_t)floorf(x);
+    float a;
+    float b;
+    if (i > 15) {
+        i = 15;
+    }
+    a = SMOOTH_EASE[i];
+    b = SMOOTH_EASE[i + 1];
+    return a + (b - a) * (x - (float)i);
+}
+
 /* Colour at t for sorted stops (positions in 0..1) in the method's space. */
-static void eval(const pt *s, size_t n, const float *mids, size_t nmid, float smooth, float t, float out[3])
+static void eval(const pt *s, size_t n, const float *mids, size_t nmid, float smooth, float t,
+                 pc_io_bake_method method, float out[3])
 {
     size_t i = 0;
     float t0;
@@ -161,6 +185,15 @@ static void eval(const pt *s, size_t n, const float *mids, size_t nmid, float sm
     /* Midpoint: where the segment reaches 50 % (default 0.5 = identity). */
     mid = pc_clampf(i < nmid ? mids[i] : 0.5f, 0.05f, 0.95f);
     u = u <= mid ? 0.5f * u / mid : 0.5f + 0.5f * (u - mid) / (1.0f - mid);
+    if (method == PC_IO_BAKE_SMOOTH) {
+        float e = smooth_ease(u);
+        for (size_t c = 0; c < 3; c++) {
+            float p0 = s[i].c[c];
+            float p1 = s[i + 1].c[c];
+            out[c] = p0 + (p1 - p0) * e;
+        }
+        return;
+    }
     tangent(s, n, i, m0);
     tangent(s, n, i + 1, m1);
     u2 = u * u;
@@ -174,7 +207,12 @@ static void eval(const pt *s, size_t n, const float *mids, size_t nmid, float sm
         float p1 = s[i + 1].c[c];
         float linear = p0 + (p1 - p0) * u;
         float spline = h00 * p0 + h10 * h * m0[c] + h01 * p1 + h11 * h * m1[c];
-        out[c] = linear + (spline - linear) * smooth;
+        float value = linear + (spline - linear) * smooth;
+        /* Catmull-Rom tangents can overshoot neighbouring stops, turning even a flat segment
+         * into a dip. Smoothness should bend the ramp without inventing colours outside it. */
+        float lo = pc_rs_minf(p0, p1);
+        float hi = pc_rs_maxf(p0, p1);
+        out[c] = (isfinite(lo) && isfinite(hi)) ? pc_clampf(value, lo, hi) : value;
     }
 }
 
@@ -286,7 +324,7 @@ pc_status pc_io_gradient_bake(const pc_io_color_stop *stops, size_t n, const flo
         float t = (float)i / (float)SAMPLES;
         float c[3];
         pc_io_color_stop stop;
-        eval(pts, n, midpoints, nmid, smooth, t, c);
+        eval(pts, n, midpoints, nmid, smooth, t, method, c);
         stop.at = t;
         if (lab) {
             stop.color.mode = PC_COLOR_MODE_LAB;

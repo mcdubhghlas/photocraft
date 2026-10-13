@@ -12,7 +12,7 @@ const double RX_D50[3] = {0.9642, 1.0, 0.8249};
 const double RX_D50_XY[2] = {0.3457, 0.3585};
 const double RX_D65_XY[2] = {0.3127, 0.3290};
 
-static const double ROMM[3][2] = {{0.7347, 0.2653}, {0.1596, 0.8404}, {0.0366, 0.0001}};
+const double RX_ROMM[3][2] = {{0.7347, 0.2653}, {0.1596, 0.8404}, {0.0366, 0.0001}};
 static const double REC709[3][2] = {{0.64, 0.33}, {0.30, 0.60}, {0.15, 0.06}};
 
 pc_raw_mat3 rx_mul(const pc_raw_mat3 *a, const pc_raw_mat3 *b)
@@ -282,7 +282,7 @@ pc_raw_mat3 rx_rgb_to_xyz(const double prim[3][2], const double white[2]) { retu
 
 pc_raw_mat3 rx_xyz_d50_to_prophoto(void)
 {
-    pc_raw_mat3 m = rgb_to_xyz(ROMM, RX_D50_XY);
+    pc_raw_mat3 m = rgb_to_xyz(RX_ROMM, RX_D50_XY);
     pc_raw_mat3 o;
     return rx_invert(&m, &o) ? o : RX_IDENTITY;
 }

@@ -85,15 +85,16 @@ bool pc_psd_block_is(const pc_psd_block *b, const char key[4])
     return memcmp(b->key, key, 4) == 0;
 }
 
-static size_t default_padding(size_t len)
+/* Global blocks pad to four bytes, layer blocks to two (`alignment`). */
+static size_t default_padding(size_t len, size_t alignment)
 {
-    return len % 2;
+    return (alignment - len % alignment) % alignment;
 }
 
 size_t pc_psd_block_encoded_len(const pc_psd_block *b, pc_psd_version v)
 {
     size_t l = pc_psd_uses_long_length(v, b->key) ? 8 : 4;
-    size_t p = b->padding.has ? b->padding.v.len : default_padding(b->data.len);
+    size_t p = b->padding.has ? b->padding.v.len : default_padding(b->data.len, 2);
     return 8 + l + b->data.len + p;
 }
 
@@ -540,8 +541,8 @@ bool pc_psd_blocks_eq(const pc_psd_block *a, size_t na, const pc_psd_block *b, s
     return true;
 }
 
-pc_status psd_read_blocks(psd_rd *r, pc_psd_version v, pc_psd_block **blocks, size_t *n, pc_psd_bytes *trailing,
-                          pc_error *err)
+pc_status psd_read_blocks(psd_rd *r, pc_psd_version v, size_t alignment, pc_psd_block **blocks, size_t *n,
+                          pc_psd_bytes *trailing, pc_error *err)
 {
     pc_psd_block *list = NULL;
     size_t count = 0;
@@ -581,11 +582,20 @@ pc_status psd_read_blocks(psd_rd *r, pc_psd_version v, pc_psd_block **blocks, si
                 found = true;
             }
         }
+        if (!found) {
+            /* Opaque trailing bytes can follow canonical zero padding without another signature. */
+            size_t def = default_padding(b.data.len, alignment);
+            bool all_zero = def <= nrest;
+            for (k = 0; all_zero && k < def; k++) {
+                all_zero = rest[k] == 0;
+            }
+            pad = all_zero ? def : 0;
+        }
         CK(psd_bytes(r, pad, &pb, err));
         for (k = 0; k < pad; k++) {
             zeros = zeros && pb[k] == 0;
         }
-        if (!(pad == default_padding(b.data.len) && zeros)) {
+        if (!(pad == default_padding(b.data.len, alignment) && zeros)) {
             b.padding.has = true;
             CK(pc_psd_bytes_set(&b.padding.v, pb, pad, err));
         }
@@ -606,7 +616,7 @@ fail:
     return st;
 }
 
-void psd_write_block(psd_w *w, const pc_psd_block *b, pc_psd_version v)
+void psd_write_block(psd_w *w, const pc_psd_block *b, pc_psd_version v, size_t alignment)
 {
     psd_put(w, b->signature, 4);
     psd_put(w, b->key, 4);
@@ -615,14 +625,14 @@ void psd_write_block(psd_w *w, const pc_psd_block *b, pc_psd_version v)
     if (b->padding.has) {
         psd_put(w, b->padding.v.data, b->padding.v.len);
     } else {
-        psd_put_zeros(w, default_padding(b->data.len));
+        psd_put_zeros(w, default_padding(b->data.len, alignment));
     }
 }
 
-void psd_write_blocks(psd_w *w, const pc_psd_block *blocks, size_t n, pc_psd_version v)
+void psd_write_blocks(psd_w *w, const pc_psd_block *blocks, size_t n, pc_psd_version v, size_t alignment)
 {
     size_t i;
     for (i = 0; i < n; i++) {
-        psd_write_block(w, &blocks[i], v);
+        psd_write_block(w, &blocks[i], v, alignment);
     }
 }

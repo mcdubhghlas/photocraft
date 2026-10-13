@@ -208,6 +208,7 @@ fn rich_doc(mode: ColorMode, depth: SampleType) -> Document {
     let smart = Layer::new(
         "Smart",
         LayerContent::Smart(SmartObject {
+            contents_id: photocraft_doc::SmartContentsId::fresh(),
             source: SmartSource::Embedded { file_name: "inner.png".into(), bytes: blob(11, 2000) },
             transform: Affine::scale(0.5),
             smart_filters: vec![SmartFilter {
@@ -235,6 +236,7 @@ fn rich_doc(mode: ColorMode, depth: SampleType) -> Document {
     let linked = Layer::new(
         "Linked",
         LayerContent::Smart(SmartObject {
+            contents_id: photocraft_doc::SmartContentsId::fresh(),
             source: SmartSource::Linked { path: "/tmp/linked.psd".into() },
             transform: Affine::IDENTITY,
             smart_filters: vec![],
@@ -266,7 +268,7 @@ fn rich_doc(mode: ColorMode, depth: SampleType) -> Document {
         inks: vec![photocraft_doc::DuotoneInk::new("Black", [0.0; 3]), photocraft_doc::DuotoneInk::new("PANTONE 151 C", [1.0, 0.5, 0.0])],
         psd_raw: Some(vec![1, 2, 3]),
     });
-    d.guides = Guides { horizontal: vec![10.0, 20.5], vertical: vec![100.25] };
+    d.guides = Guides { horizontal: vec![10.0, 20.5], vertical: vec![100.25], colors: Vec::new() };
     let mut sel = Surface::new(PixelFormat::GRAY8);
     scribble(&mut sel, 14, false);
     d.selection = Some(sel);
@@ -301,6 +303,12 @@ const ADVANCED: &str = r#"{"knockout":"deep","blendInterior":true,"blendClipped"
 const LIVE_SHAPES: &str = r#"[{"kind":"ellipse","rect":[10.0,10.0,20.0,30.0]},{"kind":"polygon","rect":[0.0,0.0,8.0,8.0],"sides":5,"star_ratio":0.5},{"kind":"line","from":[0.0,0.0],"to":[-1.0,1e-7],"weight":2.0}]"#;
 const ADJUSTMENTS: &str = r#"[{"Exposure":{"exposure":0.5,"offset":0.01,"gamma":1.2}},{"Invert":null},{"Posterize":{"levels":4}},{"Threshold":{"level":128}}]"#;
 
+// R4 (Phase 5R): fields upstream added after efa62efa.
+const PENCIL_CURVES: &str = r#"{"Curves":{"master":[{"input":0.0,"output":0.25},{"input":1.0,"output":0.75}],"per_channel":[[],[{"input":0.5,"output":0.5}],[]],"space":"Rgb","black":[],"pencil":true}}"#;
+const CORNER_SHADOW: &str = r#"{"InnerShadow":{"common":{"enabled":true,"blend":"Multiply","opacity":0.5},"color":{"mode":"Rgb","c":[0.0,0.0,0.0,0.0],"alpha":1.0},"angle":90.0,"use_global_light":false,"distance":3.0,"spread":0.1,"size":4.0,"contour":{"Custom":{"name":"Notch","points":[{"input":0.0,"output":0.0},{"input":0.5,"output":1.0},{"input":1.0,"output":0.0}],"corners":[false,true,false]}},"anti_alias":true,"noise":0.0,"knocks_out":true}}"#;
+const FILE_ENCODING: &str = r#"{"jpegQuality":87,"webpLossless":false,"webpQuality":75}"#;
+const GUIDE_COLORS: &str = r#"[{"vertical":true,"position":100.25,"rgb":[51,102,255]},{"vertical":false,"position":20.5,"rgb":[1,2,3]}]"#;
+
 macro_rules! from {
     ($s:expr) => {
         serde_json::from_str($s).unwrap()
@@ -322,6 +330,34 @@ fn renumber(d: &mut Document) {
     d.id = DocId(7);
     let mut next = 100;
     walk(&mut d.layers, &mut next);
+    renumber_contents(d);
+}
+
+/// Smart-object contents ids by first appearance in pre-order (5000, 5001, ...), shared ids
+/// staying shared: freshly minted ids depend on how many ids the process has minted before, so
+/// they would differ between the reference and the C port (R4).
+fn renumber_contents(d: &mut Document) {
+    fn walk(layers: &mut [Layer], map: &mut Vec<(SmartContentsId, SmartContentsId)>) {
+        for l in layers {
+            match &mut l.content {
+                LayerContent::Group(g) => walk(&mut g.children, map),
+                LayerContent::Smart(s) => {
+                    let new = match map.iter().find(|(old, _)| *old == s.contents_id) {
+                        Some((_, n)) => *n,
+                        None => {
+                            let n = SmartContentsId(5000 + map.len() as u64);
+                            map.push((s.contents_id, n));
+                            n
+                        }
+                    };
+                    s.contents_id = new;
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut map = Vec::new();
+    walk(&mut d.layers, &mut map);
 }
 
 fn group_depth(layers: &[Layer]) -> usize {
@@ -471,6 +507,7 @@ fn docs() -> Vec<(String, Document)> {
     let mut smart = Layer::new(
         "Preset warp",
         LayerContent::Smart(SmartObject {
+            contents_id: photocraft_doc::SmartContentsId::fresh(),
             source: SmartSource::Embedded { file_name: String::new(), bytes: Arc::new(Vec::new()) },
             transform: Affine::IDENTITY,
             smart_filters: vec![],
@@ -512,10 +549,41 @@ fn docs() -> Vec<(String, Document)> {
 
     out.push(("deep40".into(), nested_doc(40, SampleType::U8)));
     out.push(("deep100".into(), nested_doc(MAX_GROUP_DEPTH, SampleType::U16)));
+    out.push(("resync".into(), resync_doc()));
     for (_, d) in &mut out {
         renumber(d);
     }
     out
+}
+
+/// R4: every field upstream added after efa62efa, on a rich document.
+fn resync_doc() -> Document {
+    let mut d = rich_doc(ColorMode::Rgb, SampleType::U8);
+    d.guides.colors = from!(GUIDE_COLORS);
+    d.metadata.text = vec![("Author".into(), "Synthetic \u{e9} \u{96ea}".into()), ("Comment".into(), "first".into()), ("Comment".into(), "second".into())];
+    d.quick_mask_unselected = true;
+    d.file_encoding = from!(FILE_ENCODING);
+    d.layers[1].effects.items.push(from!(CORNER_SHADOW));
+    d.layers.push(Layer::new("Pencil", LayerContent::Adjustment(from!(PENCIL_CURVES))));
+    let shared = SmartContentsId::fresh();
+    for (name, id) in [("L1", shared), ("L2", shared), ("L3", SmartContentsId::fresh())] {
+        let mut so = SmartObject::new(SmartSource::Linked { path: "/tmp/shared.psd".into() }, Affine::IDENTITY, None);
+        so.contents_id = id;
+        d.layers.push(Layer::new(name, LayerContent::Smart(so)));
+    }
+    let fmt = d.pixel_format();
+    let mut l = Layer::raster("Footage", fmt);
+    let fill = |v: f32| {
+        let mut s = Surface::new(fmt);
+        s.fill_rect(photocraft_geom::Rect::new(0, 0, 8, 6), &photocraft_raster::from_rgba(&fmt, [v, 0.5, 1.0 - v, 1.0]));
+        s
+    };
+    let mut vd = VideoData::new(vec![fill(0.0), fill(1.0)], 12.0);
+    vd.original_frames = Some(vec![fill(0.0), fill(0.25)]);
+    vd.source = VideoSource::File { path: "/tmp/footage".into() };
+    l.video = Some(vd);
+    d.layers.push(l);
+    d
 }
 
 /// Documents whose save is refused (non-finite values, too deep).
@@ -540,7 +608,7 @@ fn bad_docs() -> Vec<(String, Document)> {
     d.layers[0].effects.reference = Some((f64::INFINITY, 0.0));
     out.push(("inf-reference".to_string(), d));
     let mut d = base.clone();
-    d.guides.vertical.push(f32::NAN);
+    d.guides.vertical.push(f64::NAN);
     out.push(("nan-guide".to_string(), d));
     let mut d = base;
     d.channels[1].spot = Some((Color::rgb(1.0, 0.0, 0.5), f32::NAN));
@@ -590,7 +658,11 @@ fn with_manifest(bundle: &[u8], manifest: &[u8]) -> Vec<u8> {
 fn load_result(bundle: &[u8]) -> String {
     match pf::load_from_bytes(bundle) {
         Err(err) => e(err),
-        Ok(doc) => match PcraftWriter::new().save_zip(&doc, &SaveOptions::default()) {
+        Ok(mut doc) => match {
+            // Contents ids minted for bundles without them depend on the process (R4).
+            renumber_contents(&mut doc);
+            PcraftWriter::new().save_zip(&doc, &SaveOptions::default())
+        } {
             Ok((b, _)) => format!("ok:{}", b3s(&manifest_of(&b))),
             Err(err) => format!("ok{}", e(err)),
         },
@@ -640,7 +712,7 @@ fn doc_vectors() -> Vec<(String, Document, Vec<u8>)> {
         }
     }
     for (name, _, bytes) in &saved {
-        if ["small", "rich-gray-u16", "video", "shapes"].contains(&name.as_str()) {
+        if ["small", "rich-gray-u16", "video", "shapes", "resync"].contains(&name.as_str()) {
             println!("bundle\t{name}\t{}\t{}", bytes.len(), b64(bytes));
         }
     }
@@ -781,6 +853,69 @@ fn hostile(small: &[u8]) {
         top["content"]["kind"] = tag.clone();
         cases.push((format!("top-content-tag-{n}"), edit(&|v| v["document"]["layers"] = json!([top.clone()]))));
     }
+    // R4: canvas budget, pattern sizes, video originals, shared tiles, contents ids, new fields.
+    for (n, w, h) in [("canvas-wide", 300_001u64, 1u64), ("canvas-tall", 1, 300_001), ("canvas-max", 300_000, 300_000), ("canvas-zero", 0, 64), ("canvas-u32", 4294967295, 4294967295)] {
+        cases.push((n.into(), edit(&|v| v["document"]["size"] = json!({"width": w, "height": h}))));
+    }
+    let surf = base["document"]["layers"][0]["content"]["surface"].clone();
+    for (n, w, h) in [("pattern-zero", 0u64, 24u64), ("pattern-huge", 65535, 65535), ("pattern-edge", 30000, 1), ("pattern-over", 30001, 1)] {
+        let p = json!({"id": "p", "name": "Big", "width": w, "height": h, "surface": surf.clone()});
+        cases.push((n.into(), edit(&|v| v["document"]["patterns"] = json!([p.clone()]))));
+    }
+    let video = |orig: Value| json!({"frames": [surf.clone()], "original_frames": orig, "source": "Blank", "fps": 24.0, "show_altered": true});
+    for (n, orig) in [("video-orig-none", Value::Null), ("video-orig-same", json!([surf.clone()])), ("video-orig-fewer", json!([])), ("video-orig-more", json!([surf.clone(), surf.clone()])), ("video-orig-bad", json!(5))] {
+        let vd = video(orig);
+        cases.push((n.into(), edit(&|v| v["document"]["layers"][0]["video"] = vd.clone())));
+    }
+    cases.push(("tile-shared".into(), edit(&|v| {
+        let t = v["document"]["layers"][0]["content"]["surface"]["tiles"][0].clone();
+        let tiles: Vec<Value> = (0..40).map(|i| json!({"tx": i % 8, "ty": i / 8, "hash": t["hash"].clone()})).collect();
+        v["document"]["layers"][0]["content"]["surface"]["tiles"] = json!(tiles);
+    })));
+    cases.push(("tile-sizes".into(), edit(&|v| {
+        let mut l = v["document"]["layers"][0].clone();
+        l["id"] = json!(55);
+        l["content"]["surface"]["format"] = json!({"mode": "Rgb", "sample": "U8", "alpha": true});
+        l["content"]["surface"]["default"] = json!("00000000");
+        v["document"]["layers"].as_array_mut().unwrap().push(l);
+    })));
+    let smart = |id: u64, cid: Value, path: &str| {
+        let mut c = json!({"kind": "smart", "source": {"kind": "linked", "path": path}, "transform": {"m": [1.0, 0.0, 0.0, 1.0, 0.0, 0.0]}, "smart_filters": [], "cache": null, "psd_raw": null});
+        if !cid.is_null() {
+            c["contents_id"] = cid;
+        }
+        layer_with(id, c)
+    };
+    cases.push(("contents-shared".into(), edit(&|v| {
+        let a = v["document"]["layers"].as_array_mut().unwrap();
+        a.extend([smart(80, json!(77), "/a"), smart(81, json!(77), "/b"), smart(82, json!(78), "/a")]);
+    })));
+    cases.push(("contents-legacy".into(), edit(&|v| {
+        let a = v["document"]["layers"].as_array_mut().unwrap();
+        a.extend([smart(80, Value::Null, "/a"), smart(81, Value::Null, "/a"), smart(82, Value::Null, ""), smart(83, Value::Null, ""), smart(84, json!(500), "/a")]);
+    })));
+    for (n, cid) in [("contents-null", Value::Null), ("contents-neg", json!(-1)), ("contents-str", json!("1")), ("contents-float", json!(2.0))] {
+        cases.push((n.into(), edit(&|v| {
+            let mut l = smart(80, json!(1), "/a");
+            l["content"]["contents_id"] = cid.clone();
+            v["document"]["layers"].as_array_mut().unwrap().push(l);
+        })));
+    }
+    for (n, t) in [("text-ok", json!([["a", "b"], ["a", "c"], ["", ""]])), ("text-short", json!([["a"]])), ("text-null", Value::Null), ("text-number", json!([["a", 1]]))] {
+        cases.push((n.into(), edit(&|v| v["document"]["metadata"]["text"] = t.clone())));
+    }
+    for (n, q) in [("qm-unselected", json!(true)), ("qm-unselected-false", json!(false)), ("qm-unselected-int", json!(1))] {
+        cases.push((n.into(), edit(&|v| v["document"]["quick_mask_unselected"] = q.clone())));
+    }
+    for (n, fe) in [("enc-jpeg", json!({"jpegQuality": 90})), ("enc-empty", json!({})), ("enc-webp", json!({"webpLossless": true, "webpQuality": null})), ("enc-bad", json!({"jpegQuality": 300})), ("enc-null", Value::Null), ("enc-snake", json!({"jpeg_quality": 9}))] {
+        cases.push((n.into(), edit(&|v| v["document"]["file_encoding"] = fe.clone())));
+    }
+    for (n, g) in [("guides-colors", json!({"horizontal": [1.5], "vertical": [2.0], "colors": [{"vertical": true, "position": 2.0, "rgb": [9, 8, 7]}, {"vertical": false, "position": 99.0, "rgb": [0, 0, 0]}]})), ("guides-colors-bad", json!({"horizontal": [], "vertical": [], "colors": [{"vertical": true, "position": 2.0, "rgb": [9, 8]}]}))] {
+        cases.push((n.into(), edit(&|v| v["document"]["guides"] = g.clone())));
+    }
+    cases.push(("curves-pencil".into(), edit(&|v| {
+        v["document"]["layers"].as_array_mut().unwrap().push(layer_with(90, json!({"kind": "adjustment", "adjustment": serde_json::from_str::<Value>(PENCIL_CURVES).unwrap()})));
+    })));
     for (name, m) in cases {
         let b = with_manifest(small, &m);
         let r = if name == "ids-far-ahead" {

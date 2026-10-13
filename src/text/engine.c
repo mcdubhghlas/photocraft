@@ -3,6 +3,7 @@
 
 #include <math.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -300,12 +301,62 @@ static pthread_once_t shared_once = PTHREAD_ONCE_INIT;
 static pthread_mutex_t shared_mu = PTHREAD_MUTEX_INITIALIZER;
 static pc_text_engine *shared_engine;
 
+static atomic_bool shared_ready;   /* shared_init finished (engine built or failed) */
+static atomic_bool shared_started; /* the background build was started */
+
 static void shared_init(void)
 {
     const char *no = getenv("PHOTOCRAFT_NO_SYSTEM_FONTS");
     pc_text_engine *e = NULL;
     if (make(no == NULL, &e, NULL) == PC_OK) {
         shared_engine = e;
+    }
+    atomic_store(&shared_ready, true);
+}
+
+static void *shared_worker(void *arg)
+{
+    (void)arg;
+    (void)pthread_once(&shared_once, shared_init);
+    return NULL;
+}
+
+pc_status pc_text_engine_shared_try_lock(pc_text_engine **out, bool *ready, pc_error *err)
+{
+    if (out == NULL || ready == NULL) {
+        return pc_fail(err, PC_ERR_INVALID, "text engine: invalid arguments");
+    }
+    *ready = false;
+    if (!atomic_load(&shared_ready)) {
+        /* Without the system font scan the engine is cheap: build it here. */
+        bool background = getenv("PHOTOCRAFT_NO_SYSTEM_FONTS") == NULL;
+        if (background && !atomic_exchange(&shared_started, true)) {
+            pthread_t t;
+            pthread_attr_t a;
+            bool spawned = false;
+            if (pthread_attr_init(&a) == 0) {
+                spawned = pthread_attr_setdetachstate(&a, PTHREAD_CREATE_DETACHED) == 0 &&
+                          pthread_create(&t, &a, shared_worker, NULL) == 0;
+                (void)pthread_attr_destroy(&a);
+            }
+            if (!spawned) {
+                background = false; /* no thread: build it here */
+            }
+        }
+        if (background) {
+            return PC_OK; /* still building */
+        }
+    }
+    *ready = true;
+    return pc_text_engine_shared_lock(out, err);
+}
+
+void pc_text_engine_warm_shared(void)
+{
+    pc_text_engine *e;
+    bool ready = false;
+    if (pc_text_engine_shared_try_lock(&e, &ready, NULL) == PC_OK && ready) {
+        pc_text_engine_shared_unlock();
     }
 }
 

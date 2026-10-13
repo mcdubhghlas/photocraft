@@ -9,6 +9,9 @@
 #include "psd/internal.h"
 
 /* A PackBits run packet emits at most 128 bytes from a 2-byte packet. */
+/* Budget for zero-padded channel planes summed over one pattern: Photoshop writes every channel at
+ * the pattern rectangle, so a smaller channel rectangle is only padding (abr's MAX_TOTAL_BYTES). */
+#define MAX_PADDED_PATTERN_BYTES ((uint64_t)512 << 20)
 #define MAX_RLE_EXPANSION 64u
 #define SLOTS 24u
 
@@ -221,6 +224,7 @@ static pc_status read_pattern(psd_rd *r, pc_psd_pattern *out, pc_error *err)
     chan chans[66];
     size_t nch = 0;
     uint64_t decoded = 0;
+    uint64_t padded = 0;
     size_t nc;
     size_t i;
     pc_psd_bytes *planes = NULL;
@@ -375,6 +379,18 @@ static pc_status read_pattern(psd_rd *r, pc_psd_pattern *out, pc_error *err)
         if (decoded > PC_PSD_MAX_DECODED_BYTES) {
             st = psd_limit(err, "pattern data exceeds MAX_DECODED_BYTES");
             goto fail;
+        }
+        if (c.source.width != p.width || c.source.height != p.height) {
+            /* Padded channels (smaller than the pattern rectangle) have their own budget. */
+            if (padded > UINT64_MAX - plane_bytes) {
+                st = psd_limit(err, "pattern padded size overflow");
+                goto fail;
+            }
+            padded += plane_bytes;
+            if (padded > MAX_PADDED_PATTERN_BYTES) {
+                st = psd_limit(err, "padded pattern channels exceed MAX_PADDED_PATTERN_BYTES");
+                goto fail;
+            }
         }
         CK(pc_psd_layout_decoded_len(&c.dest, &ignored, err));
         c.compression = comp;

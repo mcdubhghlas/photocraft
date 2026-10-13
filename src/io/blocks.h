@@ -30,6 +30,9 @@ bool pc_io_desc_num(const pc_psd_value *v, double *out);
 const pc_psd_desc *pc_io_desc_get(const pc_psd_desc *d, const char *key);
 /* An enum value's bytes (borrowed, *len set) or NULL (blocks::enum_of). */
 const uint8_t *pc_io_desc_enum(const pc_psd_desc *d, const char *key, size_t *len);
+/* A gradient's interpolation-method enum: "gradientsInterpolationMethod" (Photoshop 27.11),
+ * falling back to the legacy "gs99" (blocks::gradient_method). Borrowed; *len set or NULL. */
+const uint8_t *pc_io_desc_gradient_method(const pc_psd_desc *d, size_t *len);
 /* A boolean value, false when absent (blocks::bool_of). */
 bool pc_io_desc_bool(const pc_psd_desc *d, const char *key);
 /* A colour descriptor (RGBC, CMYC, Grsc, LbCl, HSBC, ...); false when unreadable. */
@@ -55,6 +58,11 @@ pc_status pc_io_parse_smart_perspective(const uint8_t key[4], const uint8_t *dat
 /* The warp of a placed layer; *found false when it has none. */
 pc_status pc_io_parse_placed_warp(const uint8_t key[4], const uint8_t *data, size_t len, bool *found,
                                   pc_warp *out, pc_error *err);
+/* The source-space box Photoshop maps onto a placed layer's Trnf quad: the bounding box of a
+ * single-patch custom warp's 16 control points (which may spill past the source), else the source
+ * rect 0..w x 0..h. Mapping the source rect instead counts the overhang twice. A degenerate or
+ * non-finite box falls back to the source rect. `warp` may be NULL. out = {x0, y0, x1, y1}. */
+void pc_io_placed_frame(const pc_warp *warp, double w, double h, double out[4]);
 
 /* ---- the rest of blocks.rs (I2; also used by I3's psd_export and I2's effects_map) ---- */
 

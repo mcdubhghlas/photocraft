@@ -45,6 +45,14 @@ void pc_paint_grid_square(double x, double y, float diameter, double out[4]);
  * v = 0 to 0. */
 float pc_paint_mask_combine(pc_paint_mask_mode mode, float v, float t, float d);
 
+/* Combine brush coverage v with a Texture pattern value t at depth d (Brush Settings > Texture).
+ * Where it differs from pc_paint_mask_combine (still used for the Dual Brush) it follows
+ * Photoshop as measured with single dabs: Subtract takes d * t away; Color Dodge / Burn move the
+ * pattern toward their neutral colour as depth falls; Height treats the pattern as a height
+ * field the paint reaches 12 * depth * v into (depth stepped in 1/255ths); Linear Height fades
+ * with the pattern while the reach stays below 1. v <= 0 gives 0; a non-finite result is 0. */
+float pc_paint_texture_combine(pc_paint_mask_mode mode, float v, float t, float d);
+
 /* The pixel rectangle `reach` (+1 px anti-aliasing slack) around a dab's centre. Casts and
  * arithmetic saturate, so a far or non-finite centre or reach gives a (possibly empty) rect.
  * The retouch tools' dab_rect is pc_paint_rect_around(d, d->radius). */
@@ -76,7 +84,10 @@ float pc_paint_context_texture_at(const pc_paint_context *ctx, int32_t x, int32_
 /* Bounding rectangle of a dab (rotated sampled tips need the corner reach). */
 pc_rect pc_paint_context_dab_rect(const pc_paint_context *ctx, const pc_paint_dab *d, bool dual);
 /* Rasterise a dab over `rect` into out (w * h values, row-major): tip x noise x per-tip texture x
- * wet edges x flow. PC_ERR_LIMIT when rect exceeds PC_PAINT_MAX_DAB_PIXELS. */
+ * wet edges x flow. Computed tips under 3 px radius take each pixel's covered area (4x4
+ * samples); an aliased square brush paints the whole-pixel square. Wet Edges shapes this one
+ * dab (a stroke applies it to its accumulated coverage instead). PC_ERR_LIMIT when rect exceeds
+ * PC_PAINT_MAX_DAB_PIXELS. */
 pc_status pc_paint_context_rasterize(const pc_paint_context *ctx, const pc_paint_dab *d, bool dual,
                                      pc_rect rect, pc_paint_fbuf *out, pc_error *err);
 /* Stroke-level masks applied to accumulated coverage c at a pixel (dual: has_dual + value). */
@@ -112,6 +123,8 @@ typedef struct pc_paint_renderer pc_paint_renderer;
 pc_status pc_paint_renderer_new(const pc_paint_brush *brush, const pc_pixel_format *fmt, float zoom,
                                 pc_paint_renderer **out, pc_error *err);
 void pc_paint_renderer_free(pc_paint_renderer *r); /* NULL-safe */
+/* *out = an independent copy (coverage, dirty marks, generator state). PC_ERR_NOMEM. */
+pc_status pc_paint_renderer_clone(const pc_paint_renderer *r, pc_paint_renderer **out, pc_error *err);
 /* Keep a copy of every primary dab from now on (tests and sequential tools). */
 void pc_paint_renderer_record_dabs(pc_paint_renderer *r);
 /* Recorded dabs (borrowed until the next push/finish); NULL/0 when not recording. */
@@ -131,6 +144,13 @@ pc_status pc_paint_renderer_tail_preview(const pc_paint_renderer *r, pc_paint_re
 void pc_paint_renderer_mark_dirty(pc_paint_renderer *r, pc_rect rect);
 /* The tiles touched since the last call (or composite) as one rect clipped to the bounds; forgets them. */
 pc_rect pc_paint_renderer_take_dirty_rect(pc_paint_renderer *r);
+/* Does the stroke change with time while the pointer is held (pc_paint_dab_generator_wants_time)? */
+bool pc_paint_renderer_wants_time(const pc_paint_renderer *r);
+/* The string between the brush and the pointer while smoothing lags (pc_paint_smoother_string). */
+bool pc_paint_renderer_smoothing_string(const pc_paint_renderer *r, double brush[2], double pointer[2]);
+/* The primary dabs finishing the stroke now would add, without finishing it (appended to *out):
+ * for live previews of sequential-dab tools. */
+pc_status pc_paint_renderer_tail_dabs(const pc_paint_renderer *r, pc_paint_dab_vec *out, pc_error *err);
 /* Final stroke coverage at a pixel (stroke masks applied, before opacity/selection). */
 float pc_paint_renderer_coverage_at(const pc_paint_renderer *r, int32_t x, int32_t y);
 /* Final coverage over rect, one value per pixel in rows (free()); *out NULL when empty. */
@@ -141,7 +161,9 @@ pc_status pc_paint_renderer_dense_coverage(const pc_paint_renderer *r, pc_rect *
                                            pc_error *err);
 /* Composite the stroke buffer onto target, reading original pixels from pre (the pre-stroke
  * surface). all = false processes only tiles touched since the last composite. *damage gets the
- * damaged rect. On failure target may be partly written. selection may be NULL. */
+ * damaged rect. On failure target may be partly written. selection may be NULL. On 8-bit
+ * targets the pixels the stroke changes are dithered (deterministic per-pixel noise under half a
+ * level) before quantisation, so soft low-flow strokes don't band. */
 pc_status pc_paint_renderer_composite(pc_paint_renderer *r, const pc_surface *pre, pc_surface *target,
                                       const pc_surface *selection, bool lock_transparency, bool all,
                                       pc_rect *damage, pc_error *err);
@@ -150,6 +172,36 @@ pc_status pc_paint_renderer_composite_union(const pc_paint_renderer *r, const pc
                                             const pc_surface *pre, pc_surface *target,
                                             const pc_surface *selection, bool lock_transparency,
                                             pc_rect *damage, pc_error *err);
+/* The same with any number of other passes (symmetry), unioned before opacity and selection
+ * apply once. */
+pc_status pc_paint_renderer_composite_union_many(const pc_paint_renderer *r,
+                                                 const pc_paint_renderer *const *others, size_t n,
+                                                 const pc_surface *pre, pc_surface *target,
+                                                 const pc_surface *selection, bool lock_transparency,
+                                                 pc_rect *damage, pc_error *err);
+
+/* What pc_paint_renderer_composite_union_live drew last: the coverage tiles of the passes'
+ * smoothing tails (redrawn without them next time) and the merged bounds. Zero-initialised =
+ * nothing drawn yet; release with pc_paint_union_live_fini. */
+typedef struct pc_paint_union_live {
+    pc_tile *tail_keys;
+    size_t ntail, cap;
+    pc_rect bounds;
+} pc_paint_union_live;
+
+void pc_paint_union_live_fini(pc_paint_union_live *l); /* NULL-safe */
+/* The merged bounds of the finished passes, as last drawn. */
+pc_rect pc_paint_union_live_bounds(const pc_paint_union_live *l);
+/* Live preview of a stroke painted as several passes (the stroke, then its symmetry mirrors):
+ * leaves target as finishing every pass now and compositing them with
+ * pc_paint_renderer_composite_union_many over pre would, redrawing only the coverage tiles that
+ * changed since the previous call (new dabs, and the smoothing tails now and before). full
+ * redraws every tile (the first call, or when a pass joins). Consumes the passes' dirty marks.
+ * *damage = the damaged rect. n = 0 draws nothing (empty damage). */
+pc_status pc_paint_renderer_composite_union_live(pc_paint_renderer *const *passes, size_t n,
+                                                 pc_paint_union_live *live, bool full, const pc_surface *pre,
+                                                 pc_surface *target, const pc_surface *selection,
+                                                 bool lock_transparency, pc_rect *damage, pc_error *err);
 
 /* Render a whole stroke onto target (one-shot). *damage = the damaged rect (empty for no
  * points). */

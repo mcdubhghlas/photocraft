@@ -3,6 +3,7 @@
 #include <stdatomic.h>
 #include <string.h>
 
+#include "base/num.h"
 #include "base/rmath.h"
 #include "color/convert.h"
 #include "compose/psblend.h"
@@ -10,9 +11,11 @@
 static _Thread_local bool lab_mix_flag;
 static _Thread_local bool hdr_flag;
 
-void pc_psblend_set_lab_mix(bool on)
+bool pc_psblend_set_lab_mix(bool on)
 {
+    bool prev = lab_mix_flag;
     lab_mix_flag = on;
+    return prev;
 }
 
 bool pc_psblend_lab_mix(void)
@@ -20,9 +23,11 @@ bool pc_psblend_lab_mix(void)
     return lab_mix_flag;
 }
 
-void pc_psblend_set_hdr(bool on)
+bool pc_psblend_set_hdr(bool on)
 {
+    bool prev = hdr_flag;
     hdr_flag = on;
+    return prev;
 }
 
 bool pc_psblend_hdr(void)
@@ -190,6 +195,114 @@ void pc_psblend_composite(pc_blend_mode mode, const float backdrop[4], const flo
     }
     for (i = 0; i < 3; i++) {
         r[i] = ((1.0f - as) * ab * cb[i] + (1.0f - ab) * as * cs[i] + as * ab * b[i]) / ao;
+    }
+    out[0] = r[0];
+    out[1] = r[1];
+    out[2] = r[2];
+    out[3] = ao;
+}
+
+bool pc_psblend_fill_is_special(pc_blend_mode mode)
+{
+    switch (mode) {
+    case PC_BLEND_COLOR_BURN:
+    case PC_BLEND_LINEAR_BURN:
+    case PC_BLEND_COLOR_DODGE:
+    case PC_BLEND_LINEAR_DODGE:
+    case PC_BLEND_VIVID_LIGHT:
+    case PC_BLEND_LINEAR_LIGHT:
+    case PC_BLEND_HARD_MIX:
+    case PC_BLEND_DIFFERENCE:
+        return true;
+    default:
+        return false;
+    }
+}
+
+void pc_psblend_rgb_fill(pc_blend_mode mode, const float cb[3], const float cs[3], float fill, float out[3])
+{
+    float f = pc_clampf(fill, 0.0f, 1.0f);
+    float neutral;
+    float t[3];
+    int i;
+    if (f >= 1.0f || !pc_psblend_fill_is_special(mode)) {
+        pc_psblend_rgb(mode, cb, cs, out);
+        return;
+    }
+    switch (mode) {
+    case PC_BLEND_HARD_MIX:
+        /* (cb - f (1 - cs)) / (1 - f), clamped: the hard threshold at f = 1, the backdrop at 0. */
+        for (i = 0; i < 3; i++) {
+            t[i] = pc_clampf((cb[i] - f * (1.0f - cs[i])) / (1.0f - f), 0.0f, 1.0f);
+        }
+        memcpy(out, t, sizeof t);
+        return;
+    case PC_BLEND_COLOR_BURN:
+    case PC_BLEND_LINEAR_BURN:
+        neutral = 1.0f;
+        break;
+    case PC_BLEND_VIVID_LIGHT:
+    case PC_BLEND_LINEAR_LIGHT:
+        neutral = 0.5f;
+        break;
+    default:
+        neutral = 0.0f;
+        break;
+    }
+    for (i = 0; i < 3; i++) {
+        t[i] = neutral + (cs[i] - neutral) * f;
+    }
+    pc_psblend_rgb(mode, cb, t, out);
+}
+
+void pc_psblend_composite_fill(pc_blend_mode mode, const float backdrop[4], const float source[4],
+                               float opacity, float fill, float gamma, float out[4])
+{
+    float ab;
+    float over;
+    float alone;
+    float ao;
+    float cb[3];
+    float cs[3];
+    float b[3];
+    float wb;
+    float wbs;
+    float ws;
+    float r[3];
+    int i;
+    if (fill >= 1.0f || !pc_psblend_fill_is_special(mode)) {
+        pc_psblend_composite_gamma(mode, backdrop, source, opacity * pc_clampf(fill, 0.0f, 1.0f), gamma, out);
+        return;
+    }
+    ab = backdrop[3];
+    over = source[3] * opacity;
+    alone = over * pc_clampf(fill, 0.0f, 1.0f);
+    if (over <= 0.0f) {
+        memmove(out, backdrop, 4 * sizeof(float));
+        return;
+    }
+    ao = ab + (1.0f - ab) * alone;
+    if (ao <= 0.0f) {
+        memset(out, 0, 4 * sizeof(float));
+        return;
+    }
+    for (i = 0; i < 3; i++) {
+        cb[i] = backdrop[i];
+        cs[i] = source[i];
+    }
+    pc_psblend_rgb_fill(mode, cb, cs, fill, b);
+    wb = ab * (1.0f - over) / ao;
+    wbs = ab * over / ao;
+    ws = (1.0f - ab) * alone / ao;
+    for (i = 0; i < 3; i++) {
+        if (gamma == 1.0f) {
+            r[i] = wb * cb[i] + wbs * b[i] + ws * cs[i];
+        } else {
+            r[i] = pc_psblend_text_decode(wb * pc_psblend_text_encode(cb[i], gamma) +
+                                              wbs * pc_psblend_text_encode(b[i], gamma) +
+                                              ws * pc_psblend_text_encode(cs[i], gamma),
+                                          gamma);
+        }
     }
     out[0] = r[0];
     out[1] = r[1];

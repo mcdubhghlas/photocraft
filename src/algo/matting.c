@@ -47,10 +47,18 @@ static float feather_sigma(const pc_algo_refine_params *p)
 {
     return pc_rs_maxf_k(p->feather, 0.0f) / 2.0f;
 }
+/* Signed shift in pixels, fractional: 100% is max(radius, 4) px, clamped to +-64. */
+static float shift_amount(const pc_algo_refine_params *p)
+{
+    float px = pc_clampf(p->shift_edge, -100.0f, 100.0f) / 100.0f * pc_rs_maxf_k(p->radius, 4.0f);
+    return isfinite(px) ? pc_clampf(px, -64.0f, 64.0f) : 0.0f;
+}
+/* How many pixels the mask can move: the farther of the two whole radii a fractional shift
+ * blends (whole amounts stay exact). */
 static int32_t shift_px(const pc_algo_refine_params *p)
 {
-    float v = roundf(pc_clampf(p->shift_edge, -100.0f, 100.0f) / 100.0f * pc_rs_maxf_k(p->radius, 4.0f));
-    return pc_f32_to_i32(pc_clampf(v, -64.0f, 64.0f));
+    float px = shift_amount(p), reach = ceilf(fabsf(px)), sgn = signbit(px) ? -reach : reach;
+    return isfinite(sgn) ? pc_f32_to_i32(sgn) : 0;
 }
 static bool uses_image(const pc_algo_refine_params *p)
 {
@@ -413,64 +421,6 @@ pc_status pc_algo_matting_gaussian_blur(const float *src, size_t w, size_t h, fl
     return PC_OK;
 }
 
-pc_status pc_algo_matting_morph(const float *src, size_t w, size_t h, size_t r, bool grow, float **out_p,
-                                pc_error *err)
-{
-    size_t n, x, y, k, cap;
-    float *cur, *nxt;
-    pc_status st = count2(w, h, sizeof(float), &n, err);
-    if (st != PC_OK) {
-        return st;
-    }
-    cur = alloc_f(n);
-    nxt = alloc_f(n);
-    if (cur == NULL || nxt == NULL) {
-        free(cur);
-        free(nxt);
-        return pc_fail(err, PC_ERR_NOMEM, "out of memory for a morphology pass");
-    }
-    if (n > 0) {
-        memcpy(cur, src, n * sizeof(float));
-        memcpy(nxt, src, n * sizeof(float));
-    }
-    /* After 2(w + h) steps every pixel holds the image's extremum, so more steps change nothing
-     * (the reference would just keep looping). */
-    cap = 2 * (w + h) + 2;
-    if (r > cap) {
-        r = cap + (r - cap) % 2;
-    }
-    for (k = 0; k < r; k++) {
-        bool square = k % 2 == 0;
-        for (y = 0; y < h; y++) {
-            for (x = 0; x < w; x++) {
-                float v = cur[y * w + x];
-                int dy, dx;
-                for (dy = -1; dy <= 1; dy++) {
-                    for (dx = -1; dx <= 1; dx++) {
-                        int64_t nx = (int64_t)x + dx, ny = (int64_t)y + dy;
-                        if ((dx != 0 && dy != 0 && !square) || (dx == 0 && dy == 0)) {
-                            continue;
-                        }
-                        if (nx >= 0 && ny >= 0 && (size_t)nx < w && (size_t)ny < h) {
-                            float o = cur[(size_t)ny * w + (size_t)nx];
-                            v = grow ? pc_rs_maxf(v, o) : pc_rs_minf(v, o);
-                        }
-                    }
-                }
-                nxt[y * w + x] = v;
-            }
-        }
-        {
-            float *t = cur;
-            cur = nxt;
-            nxt = t;
-        }
-    }
-    free(nxt);
-    *out_p = cur;
-    return PC_OK;
-}
-
 /* Running max (or min) over a window of radius r, van Herk / Gil-Werman. g and hb hold m. */
 static void running_extreme(const float *src, size_t n, float *out, size_t r, bool max, float *g, float *hb,
                             size_t m)
@@ -495,19 +445,21 @@ static void running_extreme(const float *src, size_t n, float *out, size_t r, bo
 pc_status pc_algo_matting_max_square(const float *src, size_t w, size_t h, size_t r, bool max, float **out_p,
                                      pc_error *err)
 {
-    size_t n, k, mw, mh, mm, x, y;
+    size_t n, mw, mh, mm, x, y, rw, rh;
     float *tmp, *out, *g, *hb, *col, *res;
     pc_status st = count2(w, h, sizeof(float), &n, err);
     if (st != PC_OK) {
         return st;
     }
-    /* Windows wider than the line clip to the whole line. */
-    if (r > w + h) {
-        r = w + h;
+    /* Windows wider than the line clip to the whole line, per axis (as the reference: a thin
+     * axis must not be padded to the long one's radius). */
+    rw = w > 0 && r > w - 1 ? w - 1 : r;
+    rh = h > 0 && r > h - 1 ? h - 1 : r;
+    if (w == 0 || h == 0) {
+        rw = rh = 0;
     }
-    k = 2 * r + 1;
-    mw = (w + 2 * r + k - 1) / k * k;
-    mh = (h + 2 * r + k - 1) / k * k;
+    mw = (w + 2 * rw + 2 * rw) / (2 * rw + 1) * (2 * rw + 1);
+    mh = (h + 2 * rh + 2 * rh) / (2 * rh + 1) * (2 * rh + 1);
     mm = mw > mh ? mw : mh;
     tmp = alloc_f(n);
     out = alloc_f(n);
@@ -525,13 +477,13 @@ pc_status pc_algo_matting_max_square(const float *src, size_t w, size_t h, size_
         return pc_fail(err, PC_ERR_NOMEM, "out of memory for a running extremum");
     }
     for (y = 0; y < h; y++) {
-        running_extreme(src + y * w, w, tmp + y * w, r, max, g, hb, mw);
+        running_extreme(src + y * w, w, tmp + y * w, rw, max, g, hb, mw);
     }
     for (x = 0; x < w; x++) {
         for (y = 0; y < h; y++) {
             col[y] = tmp[y * w + x];
         }
-        running_extreme(col, h, res, r, max, g, hb, mh);
+        running_extreme(col, h, res, rh, max, g, hb, mh);
         for (y = 0; y < h; y++) {
             out[y * w + x] = res[y];
         }
@@ -590,12 +542,48 @@ done:
 
 /* ---- refine ---- */
 
+/* Grows or shrinks src by a fractional distance: whole pixels use one morphology, the remainder
+ * blends it with the next pixel's. */
+static pc_status shift_mask(const float *src, size_t w, size_t h, float amount, float **out, pc_error *err)
+{
+    float mag = fabsf(amount), frac, *lo = NULL, *hi = NULL;
+    size_t whole, n = w * h, i;
+    bool grow = amount > 0.0f;
+    pc_status st;
+    if (!isfinite(mag) || mag < 1.0e-4f) {
+        return pc_algo_matting_morph(src, w, h, 0, grow, out, err);
+    }
+    whole = pc_f32_to_size(floorf(mag));
+    frac = mag - (float)whole;
+    if (frac < 1.0e-4f) {
+        return pc_algo_matting_morph(src, w, h, whole, grow, out, err);
+    }
+    if ((st = pc_algo_matting_morph(src, w, h, whole, grow, &lo, err)) != PC_OK ||
+        (st = pc_algo_matting_morph(src, w, h, whole + 1, grow, &hi, err)) != PC_OK) {
+        free(lo);
+        return st;
+    }
+    for (i = 0; i < n; i++) {
+        lo[i] = lo[i] + (hi[i] - lo[i]) * frac;
+    }
+    free(hi);
+    *out = lo;
+    return PC_OK;
+}
+
 pc_status pc_algo_matting_refine_buffer(const pc_algo_rgb_image *img, const float *m, size_t w, size_t h,
                                         const pc_algo_refine_params *p, float **out_p, pc_error *err)
 {
+    return pc_algo_matting_refine_buffer_brushed(img, m, w, h, p, NULL, 0, out_p, err);
+}
+
+pc_status pc_algo_matting_refine_buffer_brushed(const pc_algo_rgb_image *img, const float *m, size_t w,
+                                                size_t h, const pc_algo_refine_params *p, const float *brush,
+                                                size_t window, float **out_p, pc_error *err)
+{
     size_t n, i, x, y;
-    float *a, *t = NULL, ss;
-    int32_t d;
+    float *a, *t = NULL, ss, amount;
+    bool adds = false;
     pc_status st = count2(w, h, sizeof(double), &n, err);
     if (st != PC_OK) {
         return st;
@@ -648,6 +636,10 @@ pc_status pc_algo_matting_refine_buffer(const pc_algo_rgb_image *img, const floa
                 float reff =
                     widths != NULL ? pc_clampf(widths[i], 1.5f, pc_rs_maxf_k(p->radius, 1.5f)) : p->radius;
                 float wgt = pc_clampf(reff + 1.0f - dist[i], 0.0f, 1.0f);
+                /* Restored by the brush: the original edge. */
+                if (brush != NULL && brush[i] < 0.0f) {
+                    wgt *= 1.0f + brush[i];
+                }
                 if (wgt > 0.0f) {
                     a[i] = m[i] + (pc_clampf(q[i], 0.0f, 1.0f) - m[i]) * wgt;
                 }
@@ -663,6 +655,24 @@ pc_status pc_algo_matting_refine_buffer(const pc_algo_rgb_image *img, const floa
             free(a);
             return st;
         }
+    }
+    /* Added by the brush: coverage estimated from the image. */
+    for (i = 0; brush != NULL && i < n && !adds; i++) {
+        adds = brush[i] > 0.0f;
+    }
+    if (adds && img != NULL) {
+        float *est = NULL;
+        st = pc_algo_matting_brush_estimate(img, m, brush, w, h, window, &est, err);
+        if (st != PC_OK) {
+            free(a);
+            return st;
+        }
+        for (i = 0; i < n; i++) {
+            if (brush[i] > 0.0f) {
+                a[i] += (est[i] - a[i]) * brush[i];
+            }
+        }
+        free(est);
     }
     ss = smooth_sigma(p);
     if (ss >= 0.3f) {
@@ -689,9 +699,9 @@ pc_status pc_algo_matting_refine_buffer(const pc_algo_rgb_image *img, const floa
             a[i] = pc_clampf((a[i] - 0.5f) * gain + 0.5f, 0.0f, 1.0f);
         }
     }
-    d = shift_px(p);
-    if (d != 0) {
-        st = pc_algo_matting_morph(a, w, h, (size_t)(d < 0 ? -d : d), d > 0, &t, err);
+    amount = shift_amount(p);
+    if (fabsf(amount) >= 1.0e-4f) {
+        st = shift_mask(a, w, h, amount, &t, err);
         free(a);
         if (st != PC_OK) {
             return st;
@@ -763,6 +773,7 @@ typedef struct refine_ctx {
     const void *mask_ctx;
     pc_rect canvas, bbox;
     const pc_algo_refine_params *p;
+    const pc_algo_edge_brush *brush;
     int32_t halo;
     const pc_rect *tiles;
     uint8_t *out;
@@ -780,8 +791,8 @@ static pc_status refine_tile(refine_ctx *c, pc_rect t)
     size_t cx = (size_t)(t.x0 - r.x0), cy = (size_t)(t.y0 - r.y0), cw = pc_rect_width(t),
            ch = pc_rect_height(t);
     size_t bw = pc_rect_width(c->bbox);
-    float *m = alloc_f(n), *res = NULL, first;
-    bool same = true;
+    float *m = alloc_f(n), *res = NULL, *painted = NULL, first;
+    bool same = true, adds = false, image;
     pc_algo_rgb_image img = {0, 0, NULL};
     pc_status st;
     if (m == NULL) {
@@ -799,24 +810,40 @@ static pc_status refine_tile(refine_ctx *c, pc_rect t)
             break;
         }
     }
-    if ((first == 0.0f || first == 1.0f) && same) {
+    if (c->brush != NULL && !pc_rect_is_empty(pc_rect_intersect(c->brush->bbox, r))) {
+        painted = alloc_f(n);
+        if (painted == NULL) {
+            free(m);
+            return PC_ERR_NOMEM;
+        }
+        pc_algo_edge_brush_read(c->brush, r, painted, n);
+        for (i = 0; i < n && !adds; i++) {
+            adds = painted[i] > 0.0f;
+        }
+    }
+    if (!adds && (first == 0.0f || first == 1.0f) && same) {
         uint8_t v = q8(first);
         for (yy = 0; yy < ch; yy++) {
             memset(c->out + ((size_t)(t.y0 - c->bbox.y0) + yy) * bw + (size_t)(t.x0 - c->bbox.x0), v, cw);
         }
         free(m);
+        free(painted);
         return PC_OK;
     }
-    if (uses_image(c->p)) {
+    image = uses_image(c->p) || adds;
+    if (image) {
         st = pc_algo_sampler_rgb(c->s, r, &img, NULL);
         if (st != PC_OK) {
             free(m);
+            free(painted);
             return st;
         }
     }
-    st = pc_algo_matting_refine_buffer(uses_image(c->p) ? &img : NULL, m, rw, rh, c->p, &res, NULL);
+    st = pc_algo_matting_refine_buffer_brushed(image ? &img : NULL, m, rw, rh, c->p, painted,
+                                               c->brush != NULL ? c->brush->window : 0, &res, NULL);
     pc_algo_rgb_image_fini(&img);
     free(m);
+    free(painted);
     if (st != PC_OK) {
         return st;
     }
@@ -848,11 +875,19 @@ pc_status pc_algo_matting_refine_mask(const pc_algo_sampler *s, pc_algo_mask_fn 
                                       pc_rect content, pc_rect canvas, const pc_algo_refine_params *p,
                                       pc_algo_region *out, pc_error *err)
 {
+    return pc_algo_matting_refine_mask_brushed(s, mask, mask_ctx, content, canvas, p, NULL, out, err);
+}
+
+pc_status pc_algo_matting_refine_mask_brushed(const pc_algo_sampler *s, pc_algo_mask_fn mask,
+                                              const void *mask_ctx, pc_rect content, pc_rect canvas,
+                                              const pc_algo_refine_params *p, const pc_algo_edge_brush *brush,
+                                              pc_algo_region *out, pc_error *err)
+{
     refine_ctx c;
     pc_rect *tiles = NULL;
     size_t nt = 0, n;
     pc_algo_region reg;
-    int64_t halo = halo64(p);
+    int64_t halo = halo64(p) + (brush != NULL ? (int64_t)brush->window * 4 : 0);
     pc_status st;
     content = pc_rect_intersect(content, canvas);
     if (pc_rect_is_empty(content)) {
@@ -864,7 +899,9 @@ pc_status pc_algo_matting_refine_mask(const pc_algo_sampler *s, pc_algo_mask_fn 
     if (halo > MAX_HALO || pc_algo_refine_spread(p) < 0) {
         return pc_fail(err, PC_ERR_LIMIT, "refine edge reach too large");
     }
-    c.bbox = pc_rect_intersect(pc_rect_inflate(content, pc_algo_refine_spread(p)), canvas);
+    c.bbox = pc_rect_intersect(pc_rect_union(pc_rect_inflate(content, pc_algo_refine_spread(p)),
+                                             brush != NULL ? brush->added : PC_RECT_EMPTY),
+                               canvas);
     st = count2(pc_rect_width(c.bbox), pc_rect_height(c.bbox), 1, &n, err);
     if (st != PC_OK) {
         return st;
@@ -883,6 +920,7 @@ pc_status pc_algo_matting_refine_mask(const pc_algo_sampler *s, pc_algo_mask_fn 
     c.mask_ctx = mask_ctx;
     c.canvas = canvas;
     c.p = p;
+    c.brush = brush;
     c.halo = (int32_t)halo;
     c.tiles = tiles;
     st = pc_algo_par_for(nt, 1, refine_tiles, &c);

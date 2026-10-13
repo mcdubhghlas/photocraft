@@ -673,6 +673,113 @@ static void test_png_invalid_optional_text_does_not_spend_an_exhausted_budget(vo
 
 static pc_status try_str(const char *s, const pc_cdecode_opts *o) { return try_dec((const uint8_t *)s, strlen(s), o); }
 
+/* 32768 x 32768 x RGBA16 is exactly the default max_alloc: it passes the dimension limits, but a
+ * ~100 byte file cannot hold it (zlib tops out near 1032:1), so it is refused before the 8 GiB
+ * output buffer is allocated. */
+static void test_png_header_at_the_default_limit_needs_a_plausible_file_size(void)
+{
+    static const uint8_t IHDR[13] = {0, 0, 0x80, 0, 0, 0, 0x80, 0, 16, 6, 0, 0, 0};
+    static const uint8_t IDAT[8] = {0x78, 0x9C, 0x03, 0x00, 0x00, 0x00, 0x00, 0x01};
+    pc_buf b = PC_BUF_INIT;
+    (void)pc_buf_append(&b, "\x89PNG\r\n\x1a\n", 8, NULL);
+    png_chunk(&b, "IHDR", IHDR, sizeof IHDR);
+    png_chunk(&b, "IDAT", IDAT, sizeof IDAT);
+    png_chunk(&b, "IEND", "", 0);
+    CHECK(is_limit(try_dec(b.data, b.len, NULL)));
+    pc_buf_fini(&b);
+}
+
+static void test_png_highly_compressible_image_still_decodes(void)
+{
+    size_t n = (size_t)3000 * 3000 * 4;
+    uint8_t *px = malloc(n);
+    pc_cimage img;
+    pc_cimage back;
+    pc_buf b;
+    if (px == NULL) {
+        CHECK(px != NULL);
+        return;
+    }
+    memset(px, 255, n);
+    CHECK_EQ_INT(pc_cimage_from_raw(3000, 3000, PC_CL_RGBA, PC_CS_U8, px, n, &img, NULL), PC_OK);
+    b = enc(&img, PC_CF_PNG, NULL);
+    CHECK(b.len < 100000);
+    CHECK_EQ_INT(pc_cdecode(b.data, b.len, &back, NULL), PC_OK);
+    CHECK_EQ_UINT(back.width, 3000);
+    pc_cimage_fini(&back);
+    pc_cimage_fini(&img);
+    pc_buf_fini(&b);
+}
+
+static void test_png_xmp_in_all_text_chunk_types_is_preserved(void)
+{
+    static const char XMP[] = "<x:xmpmeta xmlns:x='adobe:ns:meta/'/>";
+    static const char *const TY[3] = {"tEXt", "zTXt", "iTXt"};
+    int t;
+    int after;
+    for (t = 0; t < 3; t++) {
+        for (after = 0; after < 2; after++) {
+            pc_buf chunk = PC_BUF_INIT;
+            pc_buf bytes;
+            pc_cimage img;
+            png_text(&chunk, TY[t], "XML:com.adobe.xmp", 17, XMP, sizeof XMP - 1);
+            bytes = after ? png_with_text(NULL, &chunk) : png_with_text(&chunk, NULL);
+            CHECK_EQ_INT(png_text_decode(&bytes, PNG_TEXT_BUDGET, &img), PC_OK);
+            CHECK(img.meta.xmp.has && img.meta.xmp.len == sizeof XMP - 1 &&
+                  memcmp(img.meta.xmp.data, XMP, sizeof XMP - 1) == 0);
+            CHECK_EQ_UINT(img.meta.ntext, 0);
+            {
+                pc_buf saved = enc(&img, PC_CF_PNG, NULL);
+                pc_cimage back;
+                CHECK_EQ_INT(pc_cdecode(saved.data, saved.len, &back, NULL), PC_OK);
+                CHECK(pc_meta_blob_eq(&back.meta.xmp, &img.meta.xmp));
+                pc_cimage_fini(&back);
+                pc_buf_fini(&saved);
+            }
+            pc_cimage_fini(&img);
+            pc_buf_fini(&bytes);
+            pc_buf_fini(&chunk);
+        }
+    }
+}
+
+static void test_png_mixed_xmp_chunk_types_use_last_packet_and_share_budget(void)
+{
+    static const char *const TY[3] = {"tEXt", "zTXt", "iTXt"};
+    const size_t budget = 2 * 17 + 5 + 4;
+    int a;
+    int z;
+    for (a = 0; a < 3; a++) {
+        for (z = 0; z < 3; z++) {
+            pc_buf first = PC_BUF_INIT;
+            pc_buf last = PC_BUF_INIT;
+            pc_buf bytes;
+            pc_cimage img;
+            char *big = malloc(PNG_TEXT_BUDGET - budget);
+            png_text(&first, TY[a], "XML:com.adobe.xmp", 17, "first", 5);
+            png_text(&last, TY[z], "XML:com.adobe.xmp", 17, "last", 4);
+            bytes = png_with_text(&first, &last);
+            CHECK_EQ_INT(png_text_decode(&bytes, PNG_TEXT_BUDGET, &img), PC_OK);
+            CHECK(img.meta.xmp.has && img.meta.xmp.len == 4 && memcmp(img.meta.xmp.data, "last", 4) == 0);
+            CHECK_EQ_UINT(img.meta.ntext, 0);
+            pc_cimage_fini(&img);
+            pc_buf_fini(&bytes);
+            pc_buf_fini(&first);
+            if (big != NULL) {
+                memset(big, 'A', PNG_TEXT_BUDGET - budget);
+                png_text(&first, TY[a], "XML:com.adobe.xmp", 17, big, PNG_TEXT_BUDGET - budget);
+                bytes = png_with_text(&first, &last);
+                CHECK_EQ_INT(png_text_decode(&bytes, PNG_TEXT_BUDGET - 5, NULL), PC_OK);
+                CHECK(is_limit(png_text_decode(&bytes, PNG_TEXT_BUDGET - 5 - 1, NULL)));
+                pc_buf_fini(&bytes);
+                pc_buf_fini(&first);
+                free(big);
+            }
+            pc_buf_fini(&last);
+        }
+    }
+}
+
 static void test_pnm_bomb_header_rejected(void)
 {
     static const char PPM[] = "P6\n200000 200000\n255\n\0\0\0";
@@ -816,6 +923,10 @@ int main(int argc, char **argv)
     RUN(test_png_text_with_bad_crc_and_text_after_iend_are_ignored);
     RUN(test_png_malformed_chunk_tails_remain_tolerated_after_pixels);
     RUN(test_png_invalid_optional_text_does_not_spend_an_exhausted_budget);
+    RUN(test_png_header_at_the_default_limit_needs_a_plausible_file_size);
+    RUN(test_png_highly_compressible_image_still_decodes);
+    RUN(test_png_xmp_in_all_text_chunk_types_is_preserved);
+    RUN(test_png_mixed_xmp_chunk_types_use_last_packet_and_share_budget);
     RUN(test_pnm_bomb_header_rejected);
     RUN(test_pnm_header_alone_reserves_nothing_without_limits);
     RUN(test_pnm_header_sizes_that_overflow_usize_are_errors_without_limits);

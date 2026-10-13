@@ -15,6 +15,7 @@
 #include "base/pool.h"
 #include "base/utf8.h"
 #include "compose/compose.h"
+#include "compose/gradient_fill.h"
 #include "io/adjust_map.h"
 #include "io/blocks.h"
 #include "io/comps_map.h"
@@ -530,6 +531,54 @@ static pc_status record(pc_io_ex *ex, const pc_layer *l, pc_psd_block *extra, si
         st = pc_psd_block_make_flag("iOpa", pc_io_q255(l->fill_opacity), &b, err);
         st = st == PC_OK ? push_block(&rec.blocks, &rec.nblocks, &cap, &b, err) : st;
     }
+    /* A blend mode with no PSD equivalent is written as Normal; warn so it can be preserved by
+     * saving as .pcraft. Effects first (highlight then shadow for a bevel), then the layer. */
+    for (size_t i = 0; i < l->effects.nitems && st == PC_OK; i++) {
+        const pc_effect *fx = &l->effects.items[i];
+        pc_blend_mode modes[2];
+        size_t nm = 1;
+        switch (fx->kind) {
+        case PC_FX_DROP_SHADOW:
+        case PC_FX_INNER_SHADOW:
+            modes[0] = fx->u.shadow.common.blend;
+            break;
+        case PC_FX_OUTER_GLOW:
+        case PC_FX_INNER_GLOW:
+            modes[0] = fx->u.glow.common.blend;
+            break;
+        case PC_FX_STROKE:
+            modes[0] = fx->u.stroke.common.blend;
+            break;
+        case PC_FX_COLOR_OVERLAY:
+            modes[0] = fx->u.color_overlay.common.blend;
+            break;
+        case PC_FX_GRADIENT_OVERLAY:
+            modes[0] = fx->u.gradient_overlay.common.blend;
+            break;
+        case PC_FX_PATTERN_OVERLAY:
+            modes[0] = fx->u.pattern_overlay.common.blend;
+            break;
+        case PC_FX_SATIN:
+            modes[0] = fx->u.satin.common.blend;
+            break;
+        case PC_FX_BEVEL_EMBOSS:
+            modes[0] = fx->u.bevel.highlight.blend;
+            modes[1] = fx->u.bevel.shadow.blend;
+            nm = 2;
+            break;
+        default:
+            nm = 0;
+            break;
+        }
+        for (size_t m = 0; m < nm && st == PC_OK; m++) {
+            if (!pc_blend_has_psd_equivalent(modes[m])) {
+                st = pc_io_warn(&ex->warnings, err,
+                                "layer \"%s\", %s: %s has no PSD equivalent and was written as Normal; "
+                                "save as .pcraft to preserve it",
+                                pc_str_c(&l->name), pc_effect_label(fx), pc_blend_label(modes[m]));
+            }
+        }
+    }
     /* Effects: the original lfx2 while the effects are unchanged (or could not be decoded at
      * all); otherwise regenerated. */
     if (st == PC_OK) {
@@ -573,6 +622,12 @@ static pc_status record(pc_io_ex *ex, const pc_layer *l, pc_psd_block *extra, si
             x->data.data = d;
             x->data.len++;
         }
+    }
+    if (st == PC_OK && !pc_blend_has_psd_equivalent(l->blend)) {
+        st = pc_io_warn(&ex->warnings, err,
+                        "layer \"%s\": %s has no PSD equivalent and was written as Normal; save as "
+                        ".pcraft to preserve it",
+                        pc_str_c(&l->name), pc_blend_label(l->blend));
     }
     if (st == PC_OK) {
         memcpy(rec.blend, pc_blend_psd_key(l->blend), 4);
@@ -621,6 +676,20 @@ static bool adjustment_key(const uint8_t k[4])
     return false;
 }
 
+/* Blocks that define a layer's content as something other than pixels: fill (SoCo, GdFl, PtFl),
+ * placed / smart object (SoLd, PlLd, SoLE), type (TySh) and shape fill (vscg). A raster layer
+ * never writes them, nor adjustment blocks. */
+static bool raster_stale_key(const uint8_t k[4])
+{
+    static const char STALE[8][5] = {"SoCo", "GdFl", "PtFl", "SoLd", "PlLd", "SoLE", "TySh", "vscg"};
+    for (size_t i = 0; i < 8; i++) {
+        if (memcmp(k, STALE[i], 4) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /* set_principal: data under the first of keys present (priority order, not file order: Photoshop
  * writes PlLd before SoLd, #200), else appended under keys[0]. */
 static pc_status set_principal(pc_io_raw_blocks *raw, const char *const *keys, size_t nkeys,
@@ -633,7 +702,7 @@ static pc_status set_principal(pc_io_raw_blocks *raw, const char *const *keys, s
                 if (d == NULL) {
                     return pc_io_nomem(err, "writing a layer block");
                 }
-                if (len > 0) {
+                if (len > 0 && data != NULL) {
                     memcpy(d, data, len);
                 }
                 free(raw->v[i].data);
@@ -697,6 +766,20 @@ static pc_status fill_rule(pc_io_raw_blocks *raw, pc_io_raw_blocks *regen, const
     if (st == PC_OK) {
         st = pc_psd_vdesc_to_bytes(&d, &vb, err);
         pc_psd_desc_fini(&d);
+    }
+    /* Photoshop pads layer-level blocks to a multiple of 4 inside the length (every one in its
+     * own files is). A fill descriptor of 2 mod 4 bytes, as a pattern name of the wrong length
+     * gives, left the record's extra data unaligned. */
+    if (st == PC_OK && vb.len % 4 != 0) {
+        uint8_t *d2 = realloc(vb.data, vb.len + (4 - vb.len % 4));
+        if (d2 == NULL) {
+            st = pc_io_nomem(err, "writing a fill block");
+        } else {
+            size_t pad = (4 - vb.len % 4);
+            memset(d2 + vb.len, 0, pad);
+            vb.data = d2;
+            vb.len += pad;
+        }
     }
     if (st == PC_OK) {
         st = pc_io_raw_blocks_push(regen, key, vb.data, vb.len, err);
@@ -811,8 +894,49 @@ static pc_status text_blocks(pc_io_ex *ex, const pc_layer *l, const pc_text_laye
     /* Character/paragraph style sheets from the document's styles. */
     st = pc_io_export_tysh(src, slen, t, &ex->doc->text_styles, ex->dpi, &styled, &sb, err);
     if (st == PC_OK) {
-        st = styled ? set_principal(raw, TYSH, 1, sb.data, sb.len, err)
-                    : set_principal(raw, TYSH, 1, src, slen, err);
+        /* TextIndex names the layer's object in the document's Txt2 (where the auto-kern mode
+         * lives); left at 0, every type layer would claim object 0 (#1348). Keep an unchanged
+         * preserved TySh byte for byte. A duplicate or out-of-range file index is renumbered
+         * even when no style sheet needed rebuilding. */
+        bool generated = t->psd_raw == NULL;
+        uint32_t idx = 0;
+        const uint8_t *rw = NULL;
+        size_t rwl = 0;
+        pc_psd_bytes fresh = {NULL, 0};
+        bool have_fresh = false;
+        (void)pc_io_ex_idmap_get(&ex->text_index, l->id, &idx);
+        if (styled) {
+            rw = sb.data;
+            rwl = sb.len;
+        } else if (generated) {
+            rw = gen.data;
+            rwl = gen.len;
+        } else {
+            bool has = false;
+            int32_t ti = 0;
+            st = pc_tysh_text_index(src, slen, &has, &ti, err);
+            if (st == PC_OK && !(has && ti == (int32_t)idx)) {
+                rw = src;
+                rwl = slen;
+            }
+        }
+        if (st == PC_OK && rw != NULL) {
+            pc_error e2;
+            pc_status s2 = pc_tysh_set_text_index(rw, rwl, (int32_t)idx, &fresh, &e2);
+            if (s2 == PC_OK) {
+                have_fresh = true;
+            } else if (s2 == PC_ERR_NOMEM) {
+                st = pc_fail(err, PC_ERR_NOMEM, "%s", e2.msg);
+            }
+            /* PC_ERR_FORMAT: keep the styled/preserved bytes as they are (fall back). */
+        }
+        if (st == PC_OK && have_fresh) {
+            st = set_principal(raw, TYSH, 1, fresh.data, fresh.len, err);
+        } else if (st == PC_OK) {
+            st = styled ? set_principal(raw, TYSH, 1, sb.data, sb.len, err)
+                        : set_principal(raw, TYSH, 1, src, slen, err);
+        }
+        pc_psd_bytes_fini(&fresh);
     }
     pc_buf_fini(&sb);
     pc_psd_bytes_fini(&gen);
@@ -964,7 +1088,25 @@ static pc_status content_blocks(pc_io_ex *ex, const pc_layer *l, pc_psd_block **
         case PC_LAYER_SMART:
             st = smart_layer_blocks(ex, l, &c->u.smart, &raw, err);
             break;
-        case PC_LAYER_RASTER:
+        case PC_LAYER_RASTER: {
+            /* A pixel layer carries no content-defining blocks: a fill, placed (smart), type or
+             * shape-fill block left over from before Rasterize would make a reader reopen the
+             * layer as that kind and discard the pixels. A shape stroke (vstk) beside a vector
+             * mask makes a shape too; without one, Photoshop keeps it. A vector mask stays. */
+            bool masked = l->has_vector_mask;
+            for (size_t i = 0; i < raw.n;) {
+                const uint8_t *k = raw.v[i].key;
+                if (raster_stale_key(k) || adjustment_key(k) || key_is(k, "CgEd") ||
+                    (key_is(k, "vstk") && masked)) {
+                    uint8_t kc[4];
+                    memcpy(kc, k, 4);
+                    (void)pc_io_raw_blocks_remove_key(&raw, kc);
+                } else {
+                    i++;
+                }
+            }
+            break;
+        }
         case PC_LAYER_GROUP:
         default:
             break;
@@ -1068,7 +1210,24 @@ static pc_status fill_pixels(const pc_io_ex *ex, const pc_layer *l, const pc_fil
     if (l->has_fill_cache && pc_fill_eq(&l->fill_cache.fill, f)) {
         return pc_surface_clone(&l->fill_cache.surface, out, err);
     }
-    st = pc_compose_render_fill_content(l, f, ex->canvas, NULL, 0, &buf, err);
+    /* A native CMYK solid/gradient fill keeps the same samples for rendering and the PSD cache,
+     * so the fill is not separated through RGB. Patterns fall through (found false). */
+    if (ex->cmyk) {
+        bool found = false;
+        pc_surface cs;
+        st = pc_compose_render_cmyk_fill(f, ex->canvas, pc_compose_fill_frame(l, ex->canvas), ex->fmt.sample,
+                                         &found, &cs, err);
+        if (st != PC_OK) {
+            return st;
+        }
+        if (found) {
+            *out = cs;
+            return PC_OK;
+        }
+    }
+    /* Readers composite these pixels (ours keeps them as the fill's rendering), so a pattern fill
+     * must be rendered from the document's patterns, not left transparent (#1907). */
+    st = pc_compose_render_fill_content(l, f, ex->canvas, ex->doc->patterns, ex->doc->npatterns, &buf, err);
     if (st != PC_OK) {
         return st;
     }

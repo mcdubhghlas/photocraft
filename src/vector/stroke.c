@@ -11,8 +11,11 @@
 #include "base/rmath.h"
 #include "vector/internal.h"
 
-/* The reference's iteration guard for dashing (bounds the work for tiny dash lengths). */
-#define DASH_GUARD 10000000u
+/* The reference's step budget for dashing: past it (tiny dash lengths, file-provided patterns)
+ * the polyline gets no dashes at all. Commands reject patterns that exceed it beforehand. */
+#define DASH_GUARD 100000u
+/* Longest dash pattern dash_polyline accepts. */
+#define DASH_MAX_PATTERN 32u
 
 typedef struct P {
     double x, y;
@@ -479,7 +482,8 @@ static pc_status stroke_one(const pc_vec_polyline *pl, const pc_vec_stroke_style
             pc_line_join join = style->join == PC_LINE_JOIN_ROUND ? PC_LINE_JOIN_ROUND
                                 : knot[j]                         ? style->join
                                                                   : PC_LINE_JOIN_MITER;
-            st = join_piece(sk, v, d1, d2, hw, join, knot[j] ? style->miter_limit : INFINITY, tol, err);
+            st = join_piece(sk, v, d1, d2, hw, join,
+                            knot[j] ? pc_rs_min_k(style->miter_limit, 500.0) : INFINITY, tol, err);
         }
     }
     if (st == PC_OK && !closed) {
@@ -499,6 +503,17 @@ cleanup:
     return st;
 }
 
+static bool polyline_finite(const pc_vec_polyline *pl)
+{
+    size_t i;
+    for (i = 0; i < pl->len; i++) {
+        if (!isfinite(pl->pts[i][0]) || !isfinite(pl->pts[i][1])) {
+            return false;
+        }
+    }
+    return true;
+}
+
 pc_status pc_vec_stroke_polygons(const pc_vec_polyline *lines, size_t n, const pc_vec_stroke_style *style,
                                  double tol, pc_vec_polys *out, pc_error *err)
 {
@@ -506,9 +521,10 @@ pc_status pc_vec_stroke_polygons(const pc_vec_polyline *lines, size_t n, const p
     sink sk;
     size_t i;
     size_t k;
-    bool dashed = false;
+    bool dashed = style->ndashes > 0;
     pc_status st = PC_OK;
-    if (style->width <= 0.0 || !isfinite(style->width)) {
+    if (style->width <= 0.0 || !isfinite(style->width) || !isfinite(style->miter_limit) ||
+        style->miter_limit < 1.0) {
         return PC_OK;
     }
     sk.out = out;
@@ -516,12 +532,10 @@ pc_status pc_vec_stroke_polygons(const pc_vec_polyline *lines, size_t n, const p
     for (k = 0; k < start; k++) {
         sk.points += out->v[k].len;
     }
-    for (k = 0; k < style->ndashes; k++) {
-        if (style->dashes[k] > 0.0) {
-            dashed = true;
-        }
-    }
     for (i = 0; i < n && st == PC_OK; i++) {
+        if (!polyline_finite(&lines[i])) {
+            continue;
+        }
         if (dashed) {
             pc_vec_polyline *d = NULL;
             size_t nd = 0;
@@ -597,10 +611,60 @@ static pc_status dash_start(pc_vec_polyline *cur, P p, pc_error *err)
     return pc_vec_polyline_append(cur, p.x, p.y, true, err);
 }
 
+/* A dash that crosses the closing vertex of a closed polyline has a join there, not two caps:
+ * stitch the last dash (ending at the seam) onto the first (starting there), keeping the knot
+ * flags; a single dash running all the way round becomes closed. */
+static pc_status dash_stitch_seam(const pc_vec_polyline *pl, dash_list *res, pc_error *err)
+{
+    double sx = pl->pts[0][0];
+    double sy = pl->pts[0][1];
+    pc_vec_polyline *first;
+    pc_vec_polyline *tail;
+    size_t k;
+    if (res->len == 0) {
+        return PC_OK;
+    }
+    first = &res->v[0];
+    tail = &res->v[res->len - 1];
+    if (first->len == 0 || tail->len == 0 || first->pts[0][0] != sx || first->pts[0][1] != sy ||
+        tail->pts[tail->len - 1][0] != sx || tail->pts[tail->len - 1][1] != sy) {
+        return PC_OK;
+    }
+    if (res->len == 1) {
+        first->closed = true;
+        return PC_OK;
+    }
+    for (k = 1; k < first->len; k++) {
+        pc_status st = pc_vec_polyline_append(tail, first->pts[k][0], first->pts[k][1], first->knot[k], err);
+        if (st != PC_OK) {
+            return st;
+        }
+    }
+    pc_vec_polyline_fini(first);
+    *first = *tail;
+    memset(tail, 0, sizeof *tail);
+    res->len--;
+    return PC_OK;
+}
+
+static bool dash_input_ok(const pc_vec_polyline *pl, const double *pattern, size_t npattern, double offset)
+{
+    size_t i;
+    if (npattern > DASH_MAX_PATTERN || !isfinite(offset) || !polyline_finite(pl)) {
+        return false;
+    }
+    for (i = 0; i < npattern; i++) {
+        if (!isfinite(pattern[i]) || pattern[i] < 0.0) {
+            return false;
+        }
+    }
+    return true;
+}
+
 pc_status pc_vec_dash_polyline(const pc_vec_polyline *pl, const double *pattern, size_t npattern,
                                double offset, pc_vec_polyline **out, size_t *nout, pc_error *err)
 {
-    double *pat = NULL;
+    double pat[2 * DASH_MAX_PATTERN];
     size_t npat = npattern % 2 == 1 ? npattern * 2 : npattern;
     double total = -0.0;
     size_t i;
@@ -613,28 +677,12 @@ pc_status pc_vec_dash_polyline(const pc_vec_polyline *pl, const double *pattern,
     dash_list res = {NULL, 0, 0, 0};
     pc_vec_polyline cur;
     bool has_cur = false;
+    bool empty = false;
     size_t guard = 0;
     pc_status st = PC_OK;
     memset(&cur, 0, sizeof cur);
-    if (npattern > PC_VEC_MAX_POINTS) {
-        return pc_fail(err, PC_ERR_LIMIT, "vector: dash pattern too long");
-    }
-    if (npat > 0) {
-        pat = pc_malloc_array(npat, sizeof *pat);
-        if (pat == NULL) {
-            return pc_fail(err, PC_ERR_NOMEM, "vector: out of memory");
-        }
-        for (i = 0; i < npat; i++) {
-            pat[i] = pc_rs_max_k(pattern[i % npattern], 0.0);
-        }
-    }
-    for (i = 0; i < npat; i++) {
-        total += pat[i];
-    }
-    if (total <= 1e-9 || pl->len < 2) {
-        pc_vec_polyline *one;
-        free(pat);
-        one = pc_malloc(sizeof *one);
+    if (npattern == 0) {
+        pc_vec_polyline *one = pc_malloc(sizeof *one);
         if (one == NULL) {
             return pc_fail(err, PC_ERR_NOMEM, "vector: out of memory");
         }
@@ -645,6 +693,20 @@ pc_status pc_vec_dash_polyline(const pc_vec_polyline *pl, const double *pattern,
         }
         *out = one;
         *nout = 1;
+        return PC_OK;
+    }
+    if (!dash_input_ok(pl, pattern, npattern, offset)) {
+        *out = NULL;
+        *nout = 0;
+        return PC_OK;
+    }
+    for (i = 0; i < npat; i++) {
+        pat[i] = pattern[i % npattern];
+        total += pat[i];
+    }
+    if (!isfinite(total) || total <= 1e-9 || pl->len < 2) {
+        *out = NULL;
+        *nout = 0;
         return PC_OK;
     }
     npts = pl->len + (pl->closed ? 1u : 0u);
@@ -662,7 +724,7 @@ pc_status pc_vec_dash_polyline(const pc_vec_polyline *pl, const double *pattern,
         pts[pl->len] = pts[0];
         knots[pl->len] = true;
     }
-    /* Position in the pattern. */
+    /* Position in the pattern (offset.rem_euclid(total)). */
     left = pat[0];
     skip = fmod(offset, total);
     if (skip < 0.0) {
@@ -685,7 +747,7 @@ pc_status pc_vec_dash_polyline(const pc_vec_polyline *pl, const double *pattern,
             goto cleanup;
         }
     }
-    for (i = 0; i + 1 < npts && st == PC_OK; i++) {
+    for (i = 0; i + 1 < npts && st == PC_OK && !empty; i++) {
         P a = pts[i];
         P b = pts[i + 1];
         bool b_knot = knots[i + 1];
@@ -696,10 +758,13 @@ pc_status pc_vec_dash_polyline(const pc_vec_polyline *pl, const double *pattern,
             bool at_end;
             P p;
             guard++;
-            if (guard > DASH_GUARD) {
+            /* Bounded work and memory, including for file-provided patterns; a step too small
+             * to advance pos would never finish. Either way the polyline gets no dashes. */
+            step = pc_rs_min(left, seg - pos);
+            if (guard > DASH_GUARD || (step > 0.0 && pos + step == pos)) {
+                empty = true;
                 break;
             }
-            step = pc_rs_min(left, seg - pos);
             pos += step;
             left -= step;
             at_end = seg - pos <= 1e-12;
@@ -734,15 +799,22 @@ pc_status pc_vec_dash_polyline(const pc_vec_polyline *pl, const double *pattern,
             }
         }
     }
+    if (empty) {
+        pc_vec_polylines_free(res.v, res.len);
+        memset(&res, 0, sizeof res);
+        goto cleanup;
+    }
     if (st == PC_OK && has_cur && cur.len > 1) {
         has_cur = false;
         st = dash_list_push(&res, &cur, err);
+    }
+    if (st == PC_OK && pl->closed) {
+        st = dash_stitch_seam(pl, &res, err);
     }
 cleanup:
     if (has_cur) {
         pc_vec_polyline_fini(&cur);
     }
-    free(pat);
     free(pts);
     free(knots);
     if (st != PC_OK) {

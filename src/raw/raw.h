@@ -5,12 +5,17 @@
  * 16-bit RGB in ProPhoto RGB (ROMM primaries, D50 white, gamma 1.8): linearization, black and
  * white levels, white balance, highlight clipping, demosaicing, camera -> XYZ -> ProPhoto,
  * exposure, the camera profile's tone curve and orientation. pc_raw_embedded_preview finds the
- * camera's full-size JPEG preview.
+ * camera's full-size JPEG preview (pc_raw_embedded_previews lists every one). pc_raw_fit_look fits a
+ * per-file colour matrix and tone curve to the camera's own (decoded) JPEG, for files without
+ * colour calibration; pass it in pc_raw_develop_options.camera_look. pc_raw_develop_options.tone
+ * applies Camera Raw's Shadows / Highlights / Clarity / Texture / Dehaze in linear light.
  *
- * Decoded: DNG (uncompressed and lossless JPEG, strips and tiles, CFA and LinearRaw), CR2,
- * uncompressed or lossless-JPEG TIFF/EP raws (NEF, ARW, PEF...), Nikon compressed NEF, Sony
- * compressed ARW (cRAW), Panasonic RW2 (RawFormat 5) and uncompressed Olympus ORF. Everything
- * else is PC_ERR_UNSUPPORTED.
+ * Decoded: DNG (uncompressed, deflate, lossless JPEG, lossy JPEG and JPEG XL, strips and tiles,
+ * CFA and LinearRaw incl. monochrome), CR2, uncompressed or lossless-JPEG TIFF/EP raws (NEF, ARW,
+ * PEF...), Nikon compressed NEF, Sony compressed ARW (cRAW), Panasonic RW2 (RawFormat 5),
+ * uncompressed Olympus ORF and uncompressed Fujifilm RAF (Bayer and X-Trans). JPEG XL needs
+ * libjxl (WITH_JXL); without it those files are PC_ERR_UNSUPPORTED. Everything else is
+ * PC_ERR_UNSUPPORTED.
  *
  * Errors (the reference's RawError, same Display text):
  *   PC_ERR_NOT_FOUND    "not a camera raw file"
@@ -176,7 +181,7 @@ typedef struct pc_raw_sensor {
     char *model; /* NULL when absent */
     size_t width;
     size_t height;
-    size_t samples; /* 1 for CFA data, 3 for LinearRaw */
+    size_t samples; /* 1 for CFA data, 3 for LinearRaw (1 for monochrome LinearRaw) */
     uint16_t *data; /* width * height * samples, row major, interleaved */
     size_t ndata;
     bool has_cfa;
@@ -196,11 +201,18 @@ typedef struct pc_raw_sensor {
     size_t ngain_maps;
     float (*tone_curve)[2]; /* increasing [input, output] pairs in linear ProPhoto; NULL: none */
     size_t ntone_curve;
+    /* Camera Raw's adaptive black point for profiles that copy its default rendering: this factor
+     * times the 0.1th percentile of the image's linear luminance is subtracted before the tone
+     * curve. 0: none. */
+    float black_point;
     pc_raw_strings warnings;
 } pc_raw_sensor;
 
 void pc_raw_sensor_init(pc_raw_sensor *s);
 void pc_raw_sensor_fini(pc_raw_sensor *s);
+/* Monochrome data (one-sample LinearRaw: monochrome cameras, scanner DNGs): develops to neutral
+ * grey with no white balance or colour calibration. */
+bool pc_raw_sensor_is_monochrome(const pc_raw_sensor *s);
 
 /* Demosaicing algorithm. */
 typedef enum pc_raw_demosaic { PC_RAW_BILINEAR, PC_RAW_MHC, PC_RAW_AHD } pc_raw_demosaic;
@@ -221,12 +233,53 @@ typedef struct pc_raw_white_balance {
     double multipliers[3];
 } pc_raw_white_balance;
 
+/* Camera Raw's Basic-panel sliders that act on raw data before the tone curve, -100..100. */
+typedef struct pc_raw_tone {
+    float shadows;
+    float highlights;
+    float clarity;
+    float texture;
+    float dehaze;
+} pc_raw_tone;
+
+/* Every slider at 0. */
+bool pc_raw_tone_is_neutral(const pc_raw_tone *t);
+
+/* A monotone tone curve on linear values 0..1, piecewise linear between knots in the square-root
+ * domain; always through (0, 0) and (1, 1). */
+#define PC_RAW_TONE_MAX_KNOTS 256
+typedef struct pc_raw_look_curve {
+    size_t n;
+    double knots[PC_RAW_TONE_MAX_KNOTS][2]; /* (sqrt x, sqrt y), x strictly and y weakly increasing */
+} pc_raw_look_curve;
+
+/* A curve through linear-light knots (x, y): 2..PC_RAW_TONE_MAX_KNOTS finite points in 0..1, x
+ * strictly increasing, y not decreasing, from (0, 0) to (1, 1); false otherwise. */
+bool pc_raw_look_curve_new(const double (*knots)[2], size_t n, pc_raw_look_curve *out);
+/* f(x) for linear x (clamped to 0..1, NaN -> 0). */
+double pc_raw_look_curve_eval(const pc_raw_look_curve *c, double x);
+/* The knots in linear light (out has c->n entries). */
+void pc_raw_look_curve_knots(const pc_raw_look_curve *c, double (*out)[2]);
+
+/* A colour rendering fitted to the camera's JPEG (pc_raw_fit_look). */
+typedef struct pc_raw_camera_look {
+    pc_raw_mat3 to_xyz; /* white-balanced camera RGB -> XYZ (D50), white -> D50 with Y = 1 */
+    bool has_tone;
+    pc_raw_look_curve tone;  /* applied per channel to linear ProPhoto RGB after exposure */
+    double delta_e;          /* mean CIE76 dE against the camera JPEG on the fit grid */
+    double delta_e_fallback; /* the same with the neutral fallback */
+} pc_raw_camera_look;
+
 typedef struct pc_raw_develop_options {
     pc_raw_demosaic demosaic;           /* default AHD */
     pc_raw_white_balance white_balance; /* default as shot */
     double exposure;                    /* EV added to the baseline exposure */
     bool orient;                        /* apply the orientation (default true) */
+    pc_raw_tone tone;                   /* default all 0 */
     pc_raw_limits limits;
+    /* A look fitted to the camera's JPEG (borrowed, may be NULL): replaces the file's colour
+     * calibration (or the neutral fallback) and adds its tone curve. */
+    const pc_raw_camera_look *camera_look;
 } pc_raw_develop_options;
 
 pc_raw_develop_options pc_raw_develop_options_default(void);
@@ -239,7 +292,9 @@ typedef struct pc_raw_info {
     size_t sensor_width;
     size_t sensor_height;
     bool has_cfa;
-    char cfa[5]; /* e.g. "RGGB" at the crop origin */
+    /* CFA pattern at the crop origin: "RGGB" for Bayer; other patterns list their whole repeat
+     * row by row, rows separated by '/' (X-Trans: "GGRGGB/GGBGGR/..."). */
+    char cfa[PC_RAW_CFA_MAX * (PC_RAW_CFA_MAX + 1)];
     double wb_multipliers[3]; /* normalised to a minimum of 1 */
     uint16_t orientation;
     double baseline_exposure;
@@ -283,6 +338,44 @@ pc_status pc_raw_develop(const uint8_t *b, size_t n, const pc_raw_develop_option
 
 /* The largest embedded JPEG preview (TIFF-based raws and RAF). */
 bool pc_raw_embedded_preview(const uint8_t *b, size_t n, pc_raw_preview *out);
+
+/* Every embedded DCT-JPEG preview, each stream once, in file order: writes at most cap into out
+ * and returns how many there are (at most PC_RAW_MAX_PREVIEWS). */
+#define PC_RAW_MAX_PREVIEWS (3 * 64 + 1)
+size_t pc_raw_embedded_previews(const uint8_t *b, size_t n, pc_raw_preview *out, size_t cap);
+
+typedef enum pc_raw_preview_color_space {
+    PC_RAW_PREVIEW_SRGB,
+    PC_RAW_PREVIEW_ADOBE_RGB
+} pc_raw_preview_color_space;
+
+/* The colour space the raw's EXIF gives for the camera's JPEG rendering: ColorSpace 1 = sRGB, or
+ * Uncalibrated with InteropIndex "R03" = Adobe RGB. false when the file doesn't say, and for a DNG
+ * (its EXIF describes the capture, its previews are the converter's). */
+bool pc_raw_embedded_preview_color_space(const uint8_t *b, size_t n, pc_raw_preview_color_space *out);
+
+/* Long edge of the look-fit grid, in cells. */
+#define PC_RAW_PROXY_EDGE 256
+
+/* The camera's rendering of the picture: upright, interleaved 8-bit sRGB. */
+typedef struct pc_raw_reference {
+    uint32_t width;
+    uint32_t height;
+    const uint8_t *rgb; /* width * height * 3 */
+    size_t len;
+} pc_raw_reference;
+
+/* Fits a camera look so that developing s with o (white balance, baseline exposure) matches the
+ * camera's reference rendering. When no look fits, returns PC_ERR_INVALID with the reason
+ * ("colour not fitted to the camera JPEG: ..."); PC_ERR_NOMEM on out of memory. */
+pc_status pc_raw_fit_look(const pc_raw_sensor *s, const pc_raw_develop_options *o, const pc_raw_reference *r,
+                          pc_raw_camera_look *out, pc_error *err);
+
+/* The raw-stage sliders on an image pc_raw_develop already made (gamma-1.8 ProPhoto RGBA, 0..1, w*h
+ * pixels) with the profile tone curve: the curve is undone, the change applied in linear light and
+ * the curve redone. PC_ERR_NOMEM on out of memory (px unchanged). */
+pc_status pc_raw_retone(float (*px)[4], size_t w, size_t h, const float (*curve)[2], size_t ncurve,
+                        const pc_raw_tone *tone, pc_error *err);
 
 /* Decodes a lossless JPEG stream (for fuzzing and tools): at most max_samples samples are
  * allocated; *samples is freed by the caller. */

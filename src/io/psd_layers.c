@@ -439,18 +439,17 @@ static const char *first_key(const pc_psd_layer *rec, const char *const *keys, s
  * with a vector mask: when its mask parameters give the vector mask a density below 100 % or a
  * feather, or when it stores no pixels and fills with a pattern. */
 static pc_status soft_shape_fill(const pc_psd_layer *rec, bool has_vector, const char *fill_key, bool *found,
-                                 pc_fill *out, pc_error *err)
+                                 bool *soft_out, pc_fill *out, pc_error *err)
 {
     const pc_psd_block *b;
     const pc_psd_layer_mask *m;
     pc_fill f;
     bool ok = false;
     bool soft;
-    bool unrendered;
-    size_t w;
-    size_t h;
+    bool pattern;
     pc_status st;
     *found = false;
+    *soft_out = false;
     if (!has_vector || blk(rec, "vstk") != NULL || blk(rec, "vscg") != NULL || fill_key == NULL) {
         return PC_OK;
     }
@@ -463,12 +462,14 @@ static pc_status soft_shape_fill(const pc_psd_layer *rec, bool has_vector, const
     soft = m != NULL && m->has_params &&
            ((m->params.has_vector_density && m->params.vector_density < 255) ||
             (m->params.has_vector_feather && m->params.vector_feather > 0.0));
-    /* Without stored pixels a pattern-filled shape cannot be rasterized on its own (the
-     * compositor resolves the document's patterns for fill layers). */
-    unrendered = rect_unusable(rec->rect, &w, &h) && f.kind == PC_FILL_PATTERN;
-    if (soft || unrendered) {
+    /* A pattern-filled shape can't be rasterized on its own (the compositor resolves the
+     * document's patterns for fill layers), and its stored pixels may be the unclipped fill: it
+     * is a pattern fill layer seen through its vector mask (matches the reference's #1907). */
+    pattern = f.kind == PC_FILL_PATTERN;
+    if (soft || pattern) {
         *out = f;
         *found = true;
+        *soft_out = soft;
     } else {
         pc_fill_fini(&f);
     }
@@ -561,6 +562,7 @@ static pc_status smart_content(pc_io_imp *cx, const pc_psd_layer *rec, const cha
     pc_io_placed placed;
     pc_io_filter_stack stack;
     pc_surface cache;
+    pc_smart_contents_id cid;
     bool has_placed = false;
     bool found = false;
     pc_status st;
@@ -570,6 +572,13 @@ static pc_status smart_content(pc_io_imp *cx, const pc_psd_layer *rec, const cha
     src.linked = true;
     st = pc_io_parse_smart((const uint8_t *)k, b->data.data, b->data.len, &src.path, &transform, err);
     if (st != PC_OK) {
+        return st;
+    }
+    /* Placed layers that name the same source identity share one contents id (as crates/io does),
+     * so a re-export embeds the shared source once instead of once per layer. */
+    st = pc_io_imp_contents_id(cx, pc_str_c(&src.path), src.path.len, &cid, err);
+    if (st != PC_OK) {
+        pc_str_fini(&src.path);
         return st;
     }
     /* Smart filters (filterFX in the placed-layer data) and their mask (FEid). */
@@ -586,6 +595,7 @@ static pc_status smart_content(pc_io_imp *cx, const pc_psd_layer *rec, const cha
         }
     }
     pc_smart_object_init(&so, &src, transform, NULL);
+    so.contents_id = cid;
     if (has_placed && stack.nfilters > 0) {
         st = filter_mask(cx, &placed.placed, &stack, name, &so.has_filter_mask, &so.filter_mask, err);
     }
@@ -786,6 +796,7 @@ static pc_status layer_from_record(pc_io_imp *cx, const pc_psd_layer *rec, pc_la
     pc_layer l;
     bool has_fill_cache = false;
     pc_fill_cache fc;
+    bool found = false;
     bool soft = false;
     pc_fill sf;
     bool rendered;
@@ -811,15 +822,51 @@ static pc_status layer_from_record(pc_io_imp *cx, const pc_psd_layer *rec, pc_la
             (const uint8_t *)adj_key, b->data.data, b->data.len,
             cg != NULL ? (cg->data.data != NULL ? cg->data.data : (const uint8_t *)"") : NULL,
             cg != NULL ? cg->data.len : 0, adj_channels(cx->fmt.mode), &c.u.adjustment, err));
+        /* Kept verbatim for saving, but it renders as nothing: say so rather than open the layer
+         * silently without its effect (#1763). */
+        if (c.u.adjustment.kind == PC_ADJ_UNSUPPORTED) {
+            pc_buf reason = PC_BUF_INIT;
+            const char *lbl = pc_io_adjust_label((const uint8_t *)adj_key);
+            bool why = pc_io_adjust_unreadable_reason((const uint8_t *)adj_key, b->data.data,
+                                                      b->data.len, &reason);
+            st = why ? pc_io_warn(cx->warnings, err,
+                                  "layer \"%s\": its %s settings could not be read (%s); the layer "
+                                  "is kept as saved but has no effect",
+                                  name, lbl, pc_buf_cstr(&reason))
+                     : pc_io_warn(cx->warnings, err,
+                                  "layer \"%s\": its %s settings could not be read; the layer is "
+                                  "kept as saved but has no effect",
+                                  name, lbl);
+            pc_buf_fini(&reason);
+            if (st != PC_OK) {
+                goto fail;
+            }
+        }
     } else if (blk(rec, "TySh") != NULL) {
         TRY(text_content(cx, rec, name, blocks, nb, &c, err));
     } else if (smart_key != NULL) {
         TRY(smart_content(cx, rec, name, smart_key, blocks, nb, &c, err));
-    } else if ((st = soft_shape_fill(rec, vector_key != NULL, fill_key, &soft, &sf, err)) != PC_OK) {
+    } else if ((st = soft_shape_fill(rec, vector_key != NULL, fill_key, &found, &soft, &sf, err)) != PC_OK) {
         goto fail;
-    } else if (soft) {
+    } else if (found) {
         /* A shape whose vector mask has a density or feather is a fill layer seen through a soft
-         * vector mask: the fill shows beyond the path, which the stored pixels lack. */
+         * vector mask: the fill shows beyond the path, which the stored pixels (the shape alone)
+         * lack. A non-soft pattern fill keeps its stored pixels as its rendering (a soft mask's
+         * pixels lack the fill beyond the path). */
+        if (!soft && sf.kind == PC_FILL_PATTERN && !pc_psd_rect_is_empty(rec->rect)) {
+            st = pc_fill_clone(&sf, &fc.fill, err);
+            if (st == PC_OK) {
+                st = record_surface(cx, rec, name, &fc.surface, err);
+                if (st != PC_OK) {
+                    pc_fill_fini(&fc.fill);
+                }
+            }
+            if (st != PC_OK) {
+                pc_fill_fini(&sf);
+                goto fail;
+            }
+            has_fill_cache = true;
+        }
         c.kind = PC_LAYER_FILL;
         c.u.fill = sf;
     } else if ((vector_key != NULL && (fill_key != NULL || blk(rec, "vstk") != NULL)) ||

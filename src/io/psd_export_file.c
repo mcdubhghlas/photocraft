@@ -14,6 +14,8 @@
 #include "base/pool.h"
 #include "base/utf8.h"
 #include "codecs/orientation.h"
+#include "codecs/resolution.h"
+#include "color/convert.h"
 #include "compose/compose.h"
 #include "io/annotations_map.h"
 #include "io/channel_map.h"
@@ -26,6 +28,7 @@
 #include "io/vector_map.h"
 #include "psd/misc.h"
 #include "raster/pixel.h"
+#include "text/psd.h"
 
 /* ---- the merged image ---- */
 
@@ -153,13 +156,7 @@ static pc_status merged_planes(const pc_document *doc, pc_pixel_format fmt, bool
 
 /* ---- resources ---- */
 
-typedef struct res_list {
-    pc_psd_resource *v;
-    size_t n;
-    size_t cap;
-} res_list;
-
-static pc_status add_res(res_list *r, uint16_t id, const void *data, size_t len, pc_error *err)
+pc_status pc_io_res_add(pc_io_res_list *r, uint16_t id, const void *data, size_t len, pc_error *err)
 {
     pc_psd_resource *v = pc_grow_array(r->v, &r->cap, r->n + 1, sizeof *v);
     pc_status st;
@@ -174,11 +171,10 @@ static pc_status add_res(res_list *r, uint16_t id, const void *data, size_t len,
     return st;
 }
 
-/* Adds a resource with a (legacy) name. */
-static pc_status add_named(res_list *r, uint16_t id, const pc_str *name, const void *data, size_t len,
-                           pc_error *err)
+pc_status pc_io_res_add_named(pc_io_res_list *r, uint16_t id, const pc_str *name, const void *data,
+                              size_t len, pc_error *err)
 {
-    pc_status st = add_res(r, id, data, len, err);
+    pc_status st = pc_io_res_add(r, id, data, len, err);
     if (st == PC_OK) {
         pc_psd_bytes_fini(&r->v[r->n - 1].name);
         st = pc_io_legacy_name(pc_str_c(name), name->len, &r->v[r->n - 1].name, err);
@@ -186,7 +182,19 @@ static pc_status add_named(res_list *r, uint16_t id, const pc_str *name, const v
     return st;
 }
 
-static pc_status guides_resource(const pc_document *doc, pc_buf *out, pc_error *err)
+/* Short names kept for the body of document_to_psd_nested below. */
+static pc_status add_res(pc_io_res_list *r, uint16_t id, const void *data, size_t len, pc_error *err)
+{
+    return pc_io_res_add(r, id, data, len, err);
+}
+
+static pc_status add_named(pc_io_res_list *r, uint16_t id, const pc_str *name, const void *data, size_t len,
+                           pc_error *err)
+{
+    return pc_io_res_add_named(r, id, name, data, len, err);
+}
+
+pc_status pc_io_guides_resource(const pc_document *doc, pc_buf *out, pc_error *err)
 {
     uint8_t t[16];
     size_t n = doc->guides.nhorizontal + doc->guides.nvertical;
@@ -197,10 +205,10 @@ static pc_status guides_resource(const pc_document *doc, pc_buf *out, pc_error *
     pc_store_be32(t + 12, (uint32_t)n);
     st = pc_buf_append(out, t, 16, err);
     for (size_t pass = 0; pass < 2 && st == PC_OK; pass++) {
-        const float *list = pass == 0 ? doc->guides.vertical : doc->guides.horizontal;
+        const double *list = pass == 0 ? doc->guides.vertical : doc->guides.horizontal;
         size_t cnt = pass == 0 ? doc->guides.nvertical : doc->guides.nhorizontal;
         for (size_t i = 0; i < cnt && st == PC_OK; i++) {
-            pc_store_be32(t, (uint32_t)pc_f32_to_i32(roundf(list[i] * 32.0f)));
+            pc_store_be32(t, (uint32_t)pc_f64_to_i32(round(list[i] * 32.0)));
             t[4] = (uint8_t)pass;
             st = pc_buf_append(out, t, 5, err);
         }
@@ -280,7 +288,8 @@ static const pc_doc_psd_resource *find_resource(const pc_document *doc, uint16_t
 }
 
 /* Saved paths (2000+), the work path (1025) and the clipping path name (2999). */
-static pc_status path_resources(pc_io_ex *ex, const pc_document *doc, res_list *res, pc_error *err)
+pc_status pc_io_path_resources(pc_io_res_list *res, const pc_document *doc, pc_io_warnings *warnings,
+                               pc_error *err)
 {
     uint32_t w = doc->size.width;
     uint32_t h = doc->size.height;
@@ -288,7 +297,7 @@ static pc_status path_resources(pc_io_ex *ex, const pc_document *doc, res_list *
     const pc_doc_psd_resource *raw_clip = find_resource(doc, PC_IO_CLIPPING_PATH);
     pc_status st = PC_OK;
     if (doc->npaths > max) {
-        st = pc_io_warn(&ex->warnings, err, "only %zu saved paths fit in PSD; the rest were dropped", max);
+        st = pc_io_warn(warnings, err, "only %zu saved paths fit in PSD; the rest were dropped", max);
     }
     for (size_t i = 0; i < doc->npaths && i < max && st == PC_OK; i++) {
         const pc_named_path *p = &doc->paths[i];
@@ -370,26 +379,42 @@ static pc_status path_resources(pc_io_ex *ex, const pc_document *doc, res_list *
 
 /* The preserved resources, filtered: comps and slices when regenerated, measurement resources
  * that no longer describe the document, a clipping-path name that is no longer current. */
+/* Whether an imported (unmodelled) resource still describes the document and is written back.
+ * Measurement scale/count only while they describe the document; a clipping-path name only while
+ * it names the current one. */
+bool pc_io_keep_imported_resource(const pc_document *doc, uint16_t id, const uint8_t *data, size_t len)
+{
+    if (!pc_io_keep_resource(doc, id)) {
+        return false;
+    }
+    if (id == PC_IO_CLIPPING_PATH) {
+        size_t n = len > 0 ? data[0] : 0;
+        pc_buf nm = PC_BUF_INIT;
+        bool same;
+        pc_error e;
+        if (1 + n > len) {
+            return doc->has_clipping_path && pc_str_eq_mem(&doc->clipping_path.name, "", 0);
+        }
+        if (pc_utf8_lossy(data + 1, n, &nm, &e) != PC_OK) {
+            pc_buf_fini(&nm);
+            return false;
+        }
+        same = doc->has_clipping_path && pc_str_eq_mem(&doc->clipping_path.name, (const char *)nm.data, nm.len);
+        pc_buf_fini(&nm);
+        return same;
+    }
+    return true;
+}
+
 static pc_status preserved_resources(const pc_document *doc, bool comps_regen, bool slices_regen,
-                                     res_list *res, pc_error *err)
+                                     pc_io_res_list *res, pc_error *err)
 {
     pc_status st = PC_OK;
     for (size_t i = 0; i < doc->metadata.npsd_resources && st == PC_OK; i++) {
         const pc_doc_psd_resource *r = &doc->metadata.psd_resources[i];
         if ((r->id == PC_IO_LAYER_COMPS && comps_regen) || (r->id == PC_IO_SLICES && slices_regen) ||
-            !pc_io_keep_resource(doc, r->id)) {
+            !pc_io_keep_imported_resource(doc, r->id, pc_blob_data(r->data), pc_blob_len(r->data))) {
             continue;
-        }
-        if (r->id == PC_IO_CLIPPING_PATH) {
-            pc_buf nm = PC_BUF_INIT;
-            bool same;
-            st = clip_raw_name(r->data, &nm, err);
-            same = st == PC_OK && doc->has_clipping_path &&
-                   pc_str_eq_mem(&doc->clipping_path.name, (const char *)nm.data, nm.len);
-            pc_buf_fini(&nm);
-            if (st != PC_OK || !same) {
-                continue;
-            }
         }
         st = add_named(res, r->id, &r->name, pc_blob_data(r->data), pc_blob_len(r->data), err);
     }
@@ -407,6 +432,7 @@ static void ex_fini(pc_io_ex *ex)
     free(ex->link_has);
     free(ex->link_group);
     pc_io_ex_idmap_fini(&ex->layer_ids);
+    pc_io_ex_idmap_fini(&ex->text_index);
     pc_io_warnings_fini(&ex->warnings);
     pc_io_ex_smart_fini(&ex->smart);
 }
@@ -452,6 +478,55 @@ static pc_status assign_ids(pc_io_ex *ex, const pc_document *doc, pc_io_ex_idmap
     return st;
 }
 
+/* Text objects' number in the generated Txt2 (#1348): a preserved TySh keeps the number it
+ * already names (its Txt2 object must sit there for apply_txt2); new layers get the next free
+ * number. Fills ex->text_index (layer id -> index). */
+static pc_status assign_text_index(pc_io_ex *ex, const pc_document *doc, pc_error *err)
+{
+    pc_walk walk;
+    pc_io_ex_idmap used;
+    int32_t next = 0;
+    pc_status st = pc_document_walk(doc, &walk, err);
+    if (st != PC_OK) {
+        return st;
+    }
+    st = pc_io_ex_idmap_init(&ex->text_index, walk.len, err);
+    if (st == PC_OK) {
+        st = pc_io_ex_idmap_init(&used, walk.len, err);
+    }
+    for (size_t i = 0; i < walk.len && st == PC_OK; i++) {
+        const pc_layer *l = walk.items[i].layer;
+        const pc_text_layer *t;
+        bool has = false;
+        int32_t ti = 0;
+        int32_t index;
+        uint32_t dummy;
+        if (l->content.kind != PC_LAYER_TEXT) {
+            continue;
+        }
+        t = &l->content.u.text;
+        if (t->psd_raw != NULL) {
+            st = pc_tysh_text_index(pc_blob_data(t->psd_raw), pc_blob_len(t->psd_raw), &has, &ti, err);
+        }
+        if (st != PC_OK) {
+            break;
+        }
+        if (has && !pc_io_ex_idmap_get(&used, (uint64_t)(uint32_t)ti, &dummy)) {
+            index = ti;
+        } else {
+            while (pc_io_ex_idmap_get(&used, (uint64_t)(uint32_t)next, &dummy)) {
+                next++;
+            }
+            index = next;
+        }
+        (void)pc_io_ex_idmap_put(&used, (uint64_t)(uint32_t)index, 0);
+        (void)pc_io_ex_idmap_put(&ex->text_index, l->id, (uint32_t)index);
+    }
+    pc_io_ex_idmap_fini(&used);
+    pc_walk_fini(&walk);
+    return st;
+}
+
 /* The exporter's id map as the parallel arrays slices_map takes (walk order, first entries). */
 static pc_status id_arrays(const pc_io_ex *ex, const pc_document *doc, pc_layer_id **ids, uint32_t **psd,
                            size_t *n, pc_error *err)
@@ -490,8 +565,77 @@ static pc_status id_arrays(const pc_io_ex *ex, const pc_document *doc, pc_layer_
     return PC_OK;
 }
 
+pc_status pc_io_global_block(const uint8_t signature[4], const uint8_t key[4], const uint8_t *data,
+                             size_t len, pc_psd_block *out, pc_error *err)
+{
+    static const uint8_t ZERO[4] = {0, 0, 0, 0};
+    char k[4];
+    pc_status st;
+    memcpy(k, key, 4);
+    st = pc_psd_block_init(out, k, data, len, err);
+    if (st != PC_OK) {
+        return st;
+    }
+    memcpy(out->signature, signature, 4);
+    out->padding.has = true;
+    st = pc_psd_bytes_set(&out->padding.v, ZERO, (4 - len % 4) % 4, err);
+    if (st != PC_OK) {
+        pc_psd_block_fini(out);
+    }
+    return st;
+}
+
+void pc_io_block_signature(const uint8_t sig[4], pc_psd_version version, uint8_t out[4])
+{
+    /* 8B64 exists only in PSB files: a PSD holding an 8B64 block (kept from a PSB source) is
+     * refused by Photoshop as "not compatible with this version" (#; measured in 27.11). */
+    if (version == PC_PSD_V1 && memcmp(sig, "8B64", 4) == 0) {
+        memcpy(out, "8BIM", 4);
+    } else {
+        memcpy(out, sig, 4);
+    }
+}
+
+/* The document's type layers as Txt2 objects (index from ex, layer borrowed). */
+static pc_status collect_txt2_objects(pc_io_ex *ex, const pc_document *doc, pc_txt2_object **out,
+                                      size_t *nout, pc_error *err)
+{
+    pc_walk walk;
+    pc_txt2_object *v = NULL;
+    size_t n = 0;
+    pc_status st = pc_document_walk(doc, &walk, err);
+    if (st != PC_OK) {
+        return st;
+    }
+    if (walk.len > 0) {
+        v = pc_malloc_array(walk.len, sizeof *v);
+        if (v == NULL) {
+            pc_walk_fini(&walk);
+            return pc_io_nomem(err, "writing type objects");
+        }
+    }
+    for (size_t i = 0; i < walk.len; i++) {
+        const pc_layer *l = walk.items[i].layer;
+        uint32_t idx = 0;
+        if (l->content.kind != PC_LAYER_TEXT) {
+            continue;
+        }
+        (void)pc_io_ex_idmap_get(&ex->text_index, l->id, &idx);
+        v[n].index = (int32_t)idx;
+        v[n].layer = &l->content.u.text;
+        n++;
+    }
+    pc_walk_fini(&walk);
+    *out = v;
+    *nout = n;
+    return PC_OK;
+}
+
 /* The global blocks: patterns, then notes, then smart objects' files and filter caches; each
- * padded to 4 as Photoshop does (readers such as psd-tools step to the next block that way). */
+ * padded to 4 as Photoshop does (readers such as psd-tools step to the next block that way). The
+ * type layers' Txt2 is regenerated (auto-kern modes live there): one object per TextIndex, at the
+ * slot each TySh names. A kept layer block (Layr/Lr16/Lr32 the import could not read) is dropped
+ * when the document has its own layers (one file holds one layer list). */
 static pc_status global_blocks(pc_io_ex *ex, const pc_document *doc, pc_psd_block **out, size_t *nout,
                                pc_error *err)
 {
@@ -503,6 +647,13 @@ static pc_status global_blocks(pc_io_ex *ex, const pc_document *doc, pc_psd_bloc
     size_t nfin = 0;
     pc_psd_block *blocks = NULL;
     size_t n = 0;
+    pc_txt2_object *txt = NULL;
+    size_t ntxt = 0;
+    const uint8_t *previous = NULL;
+    size_t prev_len = 0;
+    bool has_prev = false;
+    bool want_txt2 = false;
+    pc_buf txt2 = PC_BUF_INIT;
     pc_status st = pc_io_export_pattern_blocks(doc, &pat, &npat, err);
     if (st != PC_OK) {
         return st;
@@ -515,25 +666,65 @@ static pc_status global_blocks(pc_io_ex *ex, const pc_document *doc, pc_psd_bloc
     if (st != PC_OK) {
         return st;
     }
-    if (nfin > 0) {
-        blocks = pc_calloc_array(nfin, sizeof *blocks);
-        if (blocks == NULL) {
-            st = pc_io_nomem(err, "writing global blocks");
+    st = collect_txt2_objects(ex, doc, &txt, &ntxt, err);
+    /* The file's own Txt2 (round-trips pen positions and other keys of kept objects). */
+    for (size_t i = 0; i < nfin && ntxt > 0; i++) {
+        if (memcmp(fin[i].key, "Txt2", 4) == 0) {
+            previous = pc_blob_data(fin[i].data);
+            prev_len = pc_blob_len(fin[i].data);
+            has_prev = true;
+            break;
+        }
+    }
+    if (st == PC_OK && ntxt > 0) {
+        /* A fresh document of ordinary (Metrics) text has nothing to put in Txt2, and Photoshop
+         * never writes its empty stub (readers reject it, #3514). Keep the block when the file had
+         * one or a layer is Optical (the one mode EngineData can't carry, #1348). */
+        bool needed = false;
+        st = pc_txt2_needed(txt, ntxt, &needed, err);
+        want_txt2 = st == PC_OK && (has_prev || needed);
+    }
+    if (st == PC_OK && want_txt2) {
+        st = pc_txt2_build(txt, ntxt, previous, prev_len, has_prev, &txt2, err);
+    }
+    {
+        size_t cap = 0;
+        if (st == PC_OK && !pc_size_add(nfin, 1, &cap)) {
+            st = pc_fail(err, PC_ERR_LIMIT, "limit exceeded: %zu global blocks", nfin);
+        }
+        if (st == PC_OK) {
+            blocks = pc_calloc_array(cap, sizeof *blocks);
+            if (blocks == NULL) {
+                st = pc_io_nomem(err, "writing global blocks");
+            }
         }
     }
     for (size_t i = 0; i < nfin && st == PC_OK; i++) {
-        static const uint8_t ZERO[4] = {0, 0, 0, 0};
-        size_t len = pc_blob_len(fin[i].data);
-        char key[4];
-        memcpy(key, fin[i].key, 4);
-        st = pc_psd_block_init(&blocks[n], key, pc_blob_data(fin[i].data), len, err);
+        uint8_t sig[4];
+        if (want_txt2 && memcmp(fin[i].key, "Txt2", 4) == 0) {
+            continue;
+        }
+        if (ex->nrecords > 0 && (memcmp(fin[i].key, "Lr16", 4) == 0 || memcmp(fin[i].key, "Lr32", 4) == 0 ||
+                                 memcmp(fin[i].key, "Layr", 4) == 0)) {
+            continue;
+        }
+        pc_io_block_signature(fin[i].signature, ex->version, sig);
+        st = pc_io_global_block(sig, fin[i].key, pc_blob_data(fin[i].data), pc_blob_len(fin[i].data),
+                                &blocks[n], err);
         if (st == PC_OK) {
-            memcpy(blocks[n].signature, fin[i].signature, 4);
-            blocks[n].padding.has = true;
             n++;
-            st = pc_psd_bytes_set(&blocks[n - 1].padding.v, ZERO, (4 - len % 4) % 4, err);
         }
     }
+    if (st == PC_OK && want_txt2) {
+        static const uint8_t EIGHT_BIM[4] = {'8', 'B', 'I', 'M'};
+        static const uint8_t TXT2[4] = {'T', 'x', 't', '2'};
+        st = pc_io_global_block(EIGHT_BIM, TXT2, txt2.data, txt2.len, &blocks[n], err);
+        if (st == PC_OK) {
+            n++;
+        }
+    }
+    pc_buf_fini(&txt2);
+    free(txt);
     for (size_t i = 0; i < nfin; i++) {
         pc_blob_release(fin[i].data);
     }
@@ -616,7 +807,7 @@ pc_status pc_io_document_to_psd_nested(const pc_document *doc, const pc_io_psd_e
     bool has_qm_id = false;
     uint16_t qm_id = 0;
     pc_psd_file f;
-    res_list res = {NULL, 0, 0};
+    pc_io_res_list res = {NULL, 0, 0};
     pc_buf tmp = PC_BUF_INIT;
     pc_psd_block *gblocks = NULL;
     size_t ngblocks = 0;
@@ -668,7 +859,16 @@ pc_status pc_io_document_to_psd_nested(const pc_document *doc, const pc_io_psd_e
     }
     pc_io_ex_idmap_fini(&used);
     if (st == PC_OK) {
+        st = assign_text_index(&ex, doc, err);
+    }
+    if (st == PC_OK) {
+        /* Layers are emitted with the document's CMYK profile active: a native CMYK fill
+         * converts through it, as the compositor does. */
+        pc_cmyk_space *space = pc_compose_cmyk_space(doc);
+        pc_cmyk_space *prev = pc_cmyk_space_enter(space);
         st = pc_io_ex_emit(&ex, doc->layers, doc->nlayers, 0, err);
+        pc_cmyk_space_leave(prev);
+        pc_cmyk_space_release(space);
     }
     /* Merged composite, rendered and encoded in bands. Matting against white only changes pixels
      * with alpha < 1; if some are slightly translucent but all round to opaque (so no alpha
@@ -758,30 +958,39 @@ pc_status pc_io_document_to_psd_nested(const pc_document *doc, const pc_io_psd_e
     }
     if (st == PC_OK && (doc->guides.nhorizontal > 0 || doc->guides.nvertical > 0)) {
         pc_buf_truncate(&tmp, 0);
-        st = guides_resource(doc, &tmp, err);
+        st = pc_io_guides_resource(doc, &tmp, err);
         st = st == PC_OK ? add_res(&res, 1032, tmp.data, tmp.len, err) : st;
     }
     if (st == PC_OK && nextra > 0) {
-        pc_str *names = pc_malloc_array(nextra, sizeof *names);
+        /* One name entry per extra channel, the merged transparency ("Transparency") first when
+         * the merged image has an alpha channel, as in every file Photoshop opens. */
+        char transp[] = "Transparency";
+        size_t nnames = nextra + (has_alpha ? 1 : 0);
+        pc_str *names = pc_malloc_array(nnames, sizeof *names);
+        size_t base = has_alpha ? 1 : 0;
         if (names == NULL) {
             st = pc_io_nomem(err, "writing channel names");
-        }
-        for (size_t i = 0; st == PC_OK && i < nextra; i++) {
-            names[i] = extra[i]->name; /* borrowed */
+        } else {
+            if (has_alpha) {
+                names[0] = pc_str_adopt(transp, sizeof transp - 1); /* borrowed; not freed */
+            }
+            for (size_t i = 0; i < nextra; i++) {
+                names[base + i] = extra[i]->name; /* borrowed */
+            }
         }
         if (st == PC_OK) {
             pc_buf_truncate(&tmp, 0);
-            st = pc_io_pascal_names_resource(names, nextra, &tmp, err);
+            st = pc_io_pascal_names_resource(names, nnames, &tmp, err);
             st = st == PC_OK ? add_res(&res, 1006, tmp.data, tmp.len, err) : st;
         }
         if (st == PC_OK) {
             pc_buf_truncate(&tmp, 0);
-            st = pc_io_unicode_names_resource(names, nextra, &tmp, err);
+            st = pc_io_unicode_names_resource(names, nnames, &tmp, err);
             st = st == PC_OK ? add_res(&res, 1045, tmp.data, tmp.len, err) : st;
         }
         if (st == PC_OK) {
             pc_buf_truncate(&tmp, 0);
-            st = pc_io_display_info(extra, nextra, &tmp, err);
+            st = pc_io_display_info(extra, nextra, has_alpha, &tmp, err);
             st = st == PC_OK ? add_res(&res, PC_IO_DISPLAY_INFO, tmp.data, tmp.len, err) : st;
         }
         free(names);
@@ -793,7 +1002,7 @@ pc_status pc_io_document_to_psd_nested(const pc_document *doc, const pc_io_psd_e
         st = add_res(&res, PC_IO_QUICK_MASK_INFO, q, 3, err);
     }
     if (st == PC_OK) {
-        st = path_resources(&ex, doc, &res, err);
+        st = pc_io_path_resources(&res, doc, &ex.warnings, err);
     }
     if (st == PC_OK) {
         bool has = false;
@@ -803,28 +1012,34 @@ pc_status pc_io_document_to_psd_nested(const pc_document *doc, const pc_io_psd_e
             st = add_res(&res, PC_PSD_RES_LAYER_GROUP_INFO, tmp.data, tmp.len, err);
         }
     }
-    if (st == PC_OK && doc->metadata.has_xmp) {
-        /* The pixels are saved as they are shown: never let a reader rotate them again. */
-        char *x = NULL;
-        size_t xl = 0;
-        st = pc_upright_xmp(pc_str_c(&doc->metadata.xmp), doc->metadata.xmp.len, &x, &xl, err);
-        if (st == PC_OK) {
-            st = x != NULL ? add_res(&res, PC_PSD_RES_XMP, x, xl, err)
-                           : add_res(&res, PC_PSD_RES_XMP, pc_str_c(&doc->metadata.xmp),
-                                     doc->metadata.xmp.len, err);
+    /* The pixels are saved as they are shown: never let a reader rotate them again. The XMP and
+     * EXIF resolution follow the ResolutionInfo resource, so no copy contradicts it (#1691). */
+    {
+        float ppi[2] = {doc->resolution_dpi, doc->resolution_dpi};
+        const float *ppi_ptr = doc->resolution_dpi > 0.0f ? ppi : NULL;
+        if (st == PC_OK && doc->metadata.has_xmp) {
+            char *x = NULL;
+            size_t xl = 0;
+            st = pc_export_xmp(pc_str_c(&doc->metadata.xmp), doc->metadata.xmp.len, ppi_ptr, &x, &xl, err);
+            if (st == PC_OK) {
+                st = x != NULL ? add_res(&res, PC_PSD_RES_XMP, x, xl, err)
+                               : add_res(&res, PC_PSD_RES_XMP, pc_str_c(&doc->metadata.xmp),
+                                         doc->metadata.xmp.len, err);
+            }
+            free(x);
         }
-        free(x);
-    }
-    if (st == PC_OK && doc->metadata.exif != NULL) {
-        uint8_t *x = NULL;
-        size_t xl = 0;
-        st = pc_upright_exif(pc_blob_data(doc->metadata.exif), pc_blob_len(doc->metadata.exif), &x, &xl, err);
-        if (st == PC_OK) {
-            st = x != NULL ? add_res(&res, PC_PSD_RES_EXIF, x, xl, err)
-                           : add_res(&res, PC_PSD_RES_EXIF, pc_blob_data(doc->metadata.exif),
-                                     pc_blob_len(doc->metadata.exif), err);
+        if (st == PC_OK && doc->metadata.exif != NULL) {
+            uint8_t *x = NULL;
+            size_t xl = 0;
+            st = pc_export_exif(pc_blob_data(doc->metadata.exif), pc_blob_len(doc->metadata.exif), ppi_ptr,
+                                &x, &xl, err);
+            if (st == PC_OK) {
+                st = x != NULL ? add_res(&res, PC_PSD_RES_EXIF, x, xl, err)
+                               : add_res(&res, PC_PSD_RES_EXIF, pc_blob_data(doc->metadata.exif),
+                                         pc_blob_len(doc->metadata.exif), err);
+            }
+            free(x);
         }
-        free(x);
     }
     if (st == PC_OK) {
         st = global_blocks(&ex, doc, &gblocks, &ngblocks, err);

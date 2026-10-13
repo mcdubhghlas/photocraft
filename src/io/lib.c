@@ -7,10 +7,15 @@
 
 #include "affinity/affinity.h"
 #include "base/blob.h"
+#include "base/bytes.h"
 #include "base/mem.h"
 #include "base/num.h"
 #include "base/utf8.h"
 #include "format/format.h"
+#include "io/kra.h"
+#include "io/ora.h"
+#include "io/pdn.h"
+#include "io/psd_thumbnail.h"
 #include "psd/pixels.h"
 
 bool pc_io_is_psd(const uint8_t *bytes, size_t len)
@@ -236,6 +241,23 @@ static pc_status import_psd(const char *name, const uint8_t *bytes, size_t len, 
     return PC_OK;
 }
 
+/* codecs::detect(bytes).is_some(). */
+static bool detected(const uint8_t *bytes, size_t len)
+{
+    pc_cformat f;
+    return pc_cformat_detect(bytes, len, &f);
+}
+
+/* Extension names can be wrong (an image downloaded as WebP and renamed .svg). Valid plain SVG is
+ * recognised by its XML content; an otherwise unknown .svg is passed to the SVG parser for a
+ * useful malformed-file error (a recognised raster signature still wins), and .svgz needs the
+ * gzip magic. */
+static bool is_svg_input(const char *name, const uint8_t *bytes, size_t len)
+{
+    return pc_io_is_svg(bytes, len) || (has_extension(name, "svg") && !detected(bytes, len)) ||
+           (has_extension(name, "svgz") && len >= 2 && bytes[0] == 0x1f && bytes[1] == 0x8b);
+}
+
 static pc_status import_stages(const char *name, const uint8_t *bytes, size_t len, const pc_interrupt *ctl,
                                pc_io_import_result *out, pc_error *err)
 {
@@ -259,10 +281,21 @@ static pc_status import_stages(const char *name, const uint8_t *bytes, size_t le
     if (pc_io_is_affinity(bytes, len) || pc_io_affinity_has_extension(name)) {
         return pc_io_affinity_import(name, bytes, len, out, err);
     }
+    if (pc_io_is_ora(bytes, len) || has_extension(name, "ora")) {
+        return pc_io_ora_import(name, bytes, len, ctl, out, err);
+    }
+    /* Krita files are ZIP containers carrying a merged PNG. A recognised raster signature still
+     * wins over a misleading .kra suffix (as with SVG imports). */
+    if (pc_io_is_kra(bytes, len) || (has_extension(name, "kra") && !detected(bytes, len))) {
+        return pc_io_kra_import(name, bytes, len, ctl, out, err);
+    }
+    if (has_extension(name, "pdn") || (len >= 4 && memcmp(bytes, "PDN3", 4) == 0)) {
+        return pc_io_pdn_import(name, bytes, len, ctl, out, err);
+    }
     if (pc_io_is_raw(bytes, len)) {
         return pc_io_import_raw(name, bytes, len, out, err);
     }
-    if (has_extension(name, "svg") || has_extension(name, "svgz") || pc_io_is_svg(bytes, len)) {
+    if (is_svg_input(name, bytes, len)) {
         return pc_io_svg_import(name, bytes, len, out, err);
     }
     return pc_io_import_flat(name, bytes, len, out, err);
@@ -348,6 +381,34 @@ static pc_status export_psd(const pc_document *doc, bool psb, const pc_io_export
         return st;
     }
     st = pc_io_strip_foreign_order_blocks(&file, &r.warnings, err);
+    /* Image preview (resource 1036), beside the other resources Photoshop writes ahead of the
+     * version info. A preview that can't be rendered is a warning, not a failure. */
+    if (st == PC_OK && opts->image_previews) {
+        pc_psd_resource thumb;
+        pc_error te;
+        if (pc_io_psd_thumbnail_resource(doc, &thumb, &te) == PC_OK) {
+            pc_psd_resource *v = realloc(file.resources, (file.nresources + 1) * sizeof *v);
+            if (v == NULL) {
+                pc_psd_resource_fini(&thumb);
+                st = pc_io_nomem(err, "writing the image preview");
+            } else {
+                size_t at = file.nresources;
+                file.resources = v;
+                for (size_t i = 0; i < file.nresources; i++) {
+                    if (v[i].id == PC_PSD_RES_VERSION_INFO) {
+                        at = i;
+                        break;
+                    }
+                }
+                memmove(&v[at + 1], &v[at], (file.nresources - at) * sizeof *v);
+                v[at] = thumb;
+                file.nresources++;
+            }
+        } else {
+            pc_error we;
+            st = pc_io_warn(&r.warnings, &we, "image preview not saved: %s", te.msg);
+        }
+    }
     /* Never write a header the reader would refuse (e.g. a zero-sized canvas). */
     if (st == PC_OK) {
         st = pc_io_err_prefix(pc_psd_header_validate(&file.header, err), err, "PSD: ");
@@ -383,12 +444,21 @@ pc_status pc_io_export(const pc_document *doc, const char *name_or_ext, const pc
     if (ext == NULL) {
         return pc_io_nomem(err, "reading an extension");
     }
+    if (strcmp(ext, "pdn") == 0) {
+        free(ext);
+        return pc_io_unsupported(
+            err, "PDN is import-only; save as .pcraft to preserve all layers and blend modes");
+    }
     for (size_t i = 0; i < PC_IO_AFFINITY_EXTENSION_COUNT; i++) {
         if (strcmp(ext, PC_IO_AFFINITY_EXTENSIONS[i]) == 0) {
             free(ext);
             return pc_io_unsupported(
                 err, "Affinity export is not implemented; save a new PSD, PNG or .pcraft copy");
         }
+    }
+    if (strcmp(ext, "ora") == 0) {
+        free(ext);
+        return pc_io_ora_export(doc, out, err);
     }
     if (strcmp(ext, PC_FORMAT_EXTENSION) == 0) {
         free(ext);
@@ -414,6 +484,90 @@ pc_status pc_io_export(const pc_document *doc, const char *name_or_ext, const pc
 
 /* ---- the merged composite ---- */
 
+/* An RGB merged image with alpha at its native sample precision, the white matte removed (the
+ * PSD module's RGBA8 preview already removes it, at 8 bits). Port of the RGB branch of the
+ * reference's merged_composite. */
+static pc_status rgb_alpha_composite(const pc_psd_file *file, float (**px)[4], size_t *n, pc_error *err)
+{
+    const pc_psd_header *h = &file->header;
+    pc_psd_bytes raw = {NULL, 0};
+    pc_psd_bytes planes8[4];
+    const uint8_t *pl[4];
+    size_t plane;
+    size_t count;
+    size_t step = h->depth == 32 ? 4 : h->depth == 16 ? 2 : 1;
+    float (*v)[4] = NULL;
+    pc_status st = pc_psd_header_validate(h, err);
+    size_t i;
+    int c;
+    memset(planes8, 0, sizeof planes8);
+    if (st != PC_OK) {
+        return st;
+    }
+    st = pc_psd_file_decode_merged(file, &raw, err);
+    if (st != PC_OK) {
+        return st;
+    }
+    plane = h->channels > 0 ? raw.len / h->channels : 0;
+    if (plane == 0) {
+        pc_psd_bytes_fini(&raw);
+        return pc_fail(err, PC_ERR_FORMAT, "invalid data: empty RGB composite");
+    }
+    if (raw.len / plane < 4) {
+        pc_psd_bytes_fini(&raw);
+        return pc_fail(err, PC_ERR_FORMAT, "invalid data: missing RGB composite channels");
+    }
+    count = plane / step;
+    for (c = 0; c < 4 && st == PC_OK; c++) {
+        pl[c] = raw.data + (size_t)c * plane;
+        if (step == 1) {
+            st = pc_psd_plane_to_u8(pl[c], plane, h->depth, h->width, h->height, &planes8[c], err);
+            if (st == PC_OK) {
+                pl[c] = planes8[c].data;
+                if (c == 0 || planes8[c].len < count) {
+                    count = planes8[c].len;
+                }
+            }
+        }
+    }
+    if (st == PC_OK) {
+        v = pc_malloc_array(count > 0 ? count : 1, sizeof *v);
+        if (v == NULL) {
+            st = pc_io_nomem(err, "un-matting the merged image");
+        }
+    }
+    for (i = 0; st == PC_OK && i < count; i++) {
+        for (c = 0; c < 4; c++) {
+            float f;
+            if (step == 4) {
+                f = pc_f32_from_bits(pc_load_be32(pl[c] + 4 * i));
+            } else if (step == 2) {
+                f = (float)pc_load_be16(pl[c] + 2 * i) / 65535.0f;
+            } else {
+                f = (float)pl[c][i] / 255.0f;
+            }
+            v[i][c] = f;
+        }
+        for (c = 0; c < 3; c++) {
+            v[i][c] = pc_io_unmatte(v[i][c], v[i][3], 1.0f);
+            if (h->depth != 32) {
+                v[i][c] = pc_clampf(v[i][c], 0.0f, 1.0f);
+            }
+        }
+    }
+    for (c = 0; c < 4; c++) {
+        pc_psd_bytes_fini(&planes8[c]);
+    }
+    pc_psd_bytes_fini(&raw);
+    if (st != PC_OK) {
+        free(v);
+        return st;
+    }
+    *px = v;
+    *n = count;
+    return PC_OK;
+}
+
 pc_status pc_io_merged_composite(const pc_psd_file *file, float (**px)[4], size_t *n, pc_error *err)
 {
     pc_psd_image8 img;
@@ -423,9 +577,13 @@ pc_status pc_io_merged_composite(const pc_psd_file *file, float (**px)[4], size_
     pc_io_warnings w = PC_IO_WARNINGS_INIT;
     pc_compose_buffer buf = {{0, 0, 0, 0}, NULL, 0};
     pc_status st;
+    if (mode == PC_PSD_MODE_RGB && pc_psd_file_merged_has_alpha(file)) {
+        return rgb_alpha_composite(file, px, n, err);
+    }
     /* CMYK and Lab go through the colour-managed model conversion (the PSD module's RGBA preview
-     * is a naive, profile-free conversion). */
-    if (mode != PC_PSD_MODE_LAB && mode != PC_PSD_MODE_CMYK &&
+     * is a naive, profile-free conversion). The RGBA8 preview also clips signed/HDR values, so
+     * 32-bit merged images are decoded at their original depth through the model path below. */
+    if (mode != PC_PSD_MODE_LAB && mode != PC_PSD_MODE_CMYK && file->header.depth != 32 &&
         pc_psd_composite_rgba8(file, &img, NULL) == PC_OK) {
         size_t count = (size_t)img.width * img.height;
         bool unmatte = pc_psd_file_merged_has_alpha(file);
@@ -451,16 +609,20 @@ pc_status pc_io_merged_composite(const pc_psd_file *file, float (**px)[4], size_
         *n = count;
         return PC_OK;
     }
-    /* Generic path (Lab, CMYK and others) via the document's model conversion. */
+    /* Generic path (Lab, CMYK and others) via the document's model conversion. Discard the
+     * layers but keep the merged-alpha marker: otherwise an extra spot/alpha channel in an
+     * opaque composite is mistaken for transparency (matches the reference's merged_composite). */
+    bool merged_alpha = pc_psd_file_merged_has_alpha(file);
     st = pc_psd_file_clone(file, &flat, err);
     if (st != PC_OK) {
         return st;
     }
     if (flat.has_layer_info) {
         pc_psd_layer_info_fini(&flat.layer_info);
-        memset(&flat.layer_info, 0, sizeof flat.layer_info);
-        flat.has_layer_info = false;
     }
+    memset(&flat.layer_info, 0, sizeof flat.layer_info);
+    flat.has_layer_info = true;
+    flat.layer_info.merged_alpha = merged_alpha;
     st = pc_io_psd_to_document(&flat, &doc, &w, err);
     pc_psd_file_fini(&flat);
     pc_io_warnings_fini(&w);

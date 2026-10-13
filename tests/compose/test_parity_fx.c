@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "base/num.h"
 #include "ch.h"
 #include "compose/effects.h"
 #include "compose/effects_util.h"
@@ -29,6 +30,11 @@ static void fnv(uint64_t *h, const void *p, size_t n)
         *h *= 0x100000001b3ull;
     }
 }
+
+/* The field kinds the reference's unit sweep walks, in its order. */
+static const pc_compose_fx_field_kind SWEEP_KINDS[6] = {
+    PC_COMPOSE_FIELD_OUTSIDE,      PC_COMPOSE_FIELD_INSIDE,        PC_COMPOSE_FIELD_STROKE_OUTSIDE,
+    PC_COMPOSE_FIELD_CHOKE_INSIDE, PC_COMPOSE_FIELD_STROKE_INSIDE, PC_COMPOSE_FIELD_STROKE_OUTSIDE_VECTOR};
 
 static void hf(uint64_t *h, float v)
 {
@@ -99,6 +105,9 @@ typedef struct out {
     size_t cap;
 } out;
 
+#if defined(__GNUC__)
+__attribute__((format(printf, 2, 3)))
+#endif
 static void put(out *o, const char *fmt, ...)
 {
     va_list ap;
@@ -959,8 +968,18 @@ static void unit_sweeps(out *o)
         for (s = 0; s < 12; s++) {
             for (j = 0; j < 12; j++) {
                 for (k = 0; k < 5; k++) {
-                    hf(&h,
-                       pc_compose_fx_bevel_chisel_h((pc_compose_bevel_paint)i, vals[s], vals[j], douts[k]));
+                    /* The reference panics on Outer Hard with dout > 0 when its clamp bound
+                     * (size + 2) / (size + 1) is NaN or negative (f32::clamp); rustref hashes
+                     * "panic" there. C returns a defined value (see chisel_h); §7. */
+                    float top = (vals[s] + 2.0f) / (vals[s] + 1.0f);
+                    if (i == PC_COMPOSE_BEVEL_PAINT_OUTER && douts[k] > 0.0f && !(top >= 0.0f)) {
+                        (void)pc_compose_fx_bevel_chisel_h((pc_compose_bevel_paint)i, vals[s], vals[j],
+                                                           douts[k], false);
+                        fnv(&h, "panic", 5);
+                    } else {
+                        hf(&h, pc_compose_fx_bevel_chisel_h((pc_compose_bevel_paint)i, vals[s], vals[j],
+                                                            douts[k], false));
+                    }
                 }
             }
         }
@@ -1004,7 +1023,7 @@ static void unit_sweeps(out *o)
                 hh = 1 + (size_t)below(&rr, 20);
             }
             a = shape(&rr, w, hh);
-            CHECK(pc_compose_fx_distance_field((pc_compose_fx_field_kind)k, a, w, hh, &d, NULL) == PC_OK);
+            CHECK(pc_compose_fx_distance_field(SWEEP_KINDS[k], a, w, hh, INFINITY, &d, NULL) == PC_OK);
             for (m = 0; d != NULL && m < w * hh; m++) {
                 hf(&h, d[m]);
             }
@@ -1657,6 +1676,8 @@ static char *read_file(const char *path, size_t *len)
     return buf;
 }
 
+#include "fx_r9.h"
+
 static void test_parity(void)
 {
     out o = {NULL, 0, 0};
@@ -1681,6 +1702,7 @@ static void test_parity(void)
     for (seed = 1001; seed <= 1080; seed++) {
         doc_line(&o, seed);
     }
+    r9_sweeps(&o);
     while (a < o.len || b < glen) {
         size_t ea = a;
         size_t eb = b;
@@ -1692,6 +1714,25 @@ static void test_parity(void)
         }
         lines++;
         pc_t_checks++;
+        /* "map SEED panic" / "doc SEED panic": the reference panicked (bevel_chisel_h's NaN clamp
+         * bound on hostile bevels); C must return a defined result for the same case (§7). */
+        if (eb - b > 6 && memcmp(golden + eb - 6, "\tpanic", 6) == 0 && ea - a > eb - b - 6 &&
+            memcmp(o.s + a, golden + b, eb - b - 5) == 0) {
+            char q[40];
+            int qn;
+            (void)fprintf(stderr, "reference panicked, C returned: %.*s\n", (int)(ea - a), o.s + a);
+            /* The reference printed nothing more for that seed: skip C's per-layer "q SEED" lines. */
+            qn = snprintf(q, sizeof q, "q%.*s\t", (int)(eb - b - 9), golden + b + 3);
+            a = ea + 1;
+            b = eb + 1;
+            while (qn > 0 && a + (size_t)qn < o.len && memcmp(o.s + a, q, (size_t)qn) == 0) {
+                while (a < o.len && o.s[a] != '\n') {
+                    a++;
+                }
+                a++;
+            }
+            continue;
+        }
         if (ea - a != eb - b || memcmp(o.s + a, golden + b, ea - a) != 0) {
             if (bad < 30) {
                 (void)fprintf(stderr, "line %d\n  got:  %.*s\n  want: %.*s\n", lines, (int)(ea - a), o.s + a,

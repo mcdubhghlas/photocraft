@@ -429,6 +429,15 @@ static pc_status frame_push(frame *f, const pc_psd_node *node, pc_error *err)
 
 pc_status pc_psd_layer_tree(const pc_psd_file *f, pc_psd_node **roots, size_t *n, pc_error *err)
 {
+    return pc_psd_layer_tree_max_depth(f, SIZE_MAX, roots, n, err);
+}
+
+pc_status pc_psd_layer_tree_max_depth(const pc_psd_file *f, size_t max_depth, pc_psd_node **roots, size_t *n,
+                                      pc_error *err)
+{
+    /* Frame k holds the nodes at depth k; frames past max_depth are tracked (to match dividers to
+     * folders) but collect nothing. */
+    size_t keep = max_depth == SIZE_MAX ? SIZE_MAX : max_depth + 1;
     size_t nl;
     const pc_psd_layer *layers = pc_psd_file_layers(f, &nl);
     frame *stack;
@@ -461,11 +470,13 @@ pc_status pc_psd_layer_tree(const pc_psd_file *f, pc_psd_node **roots, size_t *n
                 node.n = stack[depth].n;
                 memset(&stack[depth], 0, sizeof stack[depth]);
             }
-            st = frame_push(&stack[depth - 1], &node, err);
-            if (st != PC_OK) {
+            if (depth <= keep) {
+                st = frame_push(&stack[depth - 1], &node, err);
+            }
+            if (depth > keep || st != PC_OK) {
                 pc_psd_nodes_free(node.children, node.n);
             }
-        } else {
+        } else if (depth <= keep) {
             st = frame_push(&stack[depth - 1], &node, err);
         }
     }

@@ -1,10 +1,11 @@
 /* Fast mask blurs behind Select > Modify > Smooth and Feather (port of
  * crates/algo/src/selection_blur.rs). Both are separable and give the direct definitions' numbers
- * to within 1/255:
+ * to within 1/255 (Smooth: exactly, except where the average is within rounding of 1/2):
  *
  *   - Smooth: a box average of radius round(r) with edge-replicated borders (running sums, O(1)
- *     per pixel), then the contrast curve (v - 1/2) * 4 + 1/2 clamped to 0..1;
- *   - Feather: a Gaussian (sigma = radius / 2, kernel truncated at ceil(3 sigma) and normalised,
+ *     per pixel), then a hard threshold at 1/2 (as Photoshop: straight edges stay where they
+ *     were, corners round off, specks drop);
+ *   - Feather: a Gaussian (sigma = radius, as Photoshop's, kernel truncated at ceil(3 sigma) and normalised,
  *     zero outside the canvas); wide kernels run as a sliding five-term cosine series fitted per
  *     call (error checked, falling back to the direct convolution).
  *

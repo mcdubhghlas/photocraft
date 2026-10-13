@@ -43,7 +43,7 @@ int32_t pc_compose_effects_margin(const pc_layer *layer)
             r = e->u.stroke.size;
             break;
         case PC_FX_SATIN:
-            r = e->u.satin.distance + e->u.satin.size;
+            r = pc_compose_fx_satin_distance(&e->u.satin) + e->u.satin.size;
             break;
         case PC_FX_BEVEL_EMBOSS:
             r = e->u.bevel.size + e->u.bevel.soften;
@@ -58,6 +58,48 @@ int32_t pc_compose_effects_margin(const pc_layer *layer)
     }
     /* Bounded so malformed values can't request huge buffers. m is finite and >= 0 here. */
     return (int32_t)ceilf(pc_clampf(m, 0.0f, PC_COMPOSE_FX_MAX_REACH)) + 2;
+}
+
+float pc_compose_fx_satin_distance(const pc_satin *s)
+{
+    /* Photoshop draws Distance 0 as 1 px (an edge band of 2 / size, Photoshop 27.11), not as two
+     * copies cancelling out. */
+    return pc_rs_maxf_k(s->distance, 1.0f);
+}
+
+bool pc_compose_fx_maps_are_local(const pc_layer *layer)
+{
+    size_t i;
+    for (i = 0; i < layer->effects.nitems; i++) {
+        const pc_effect *e = &layer->effects.items[i];
+        bool local;
+        if (!pc_effect_enabled(e)) {
+            continue;
+        }
+        switch (e->kind) {
+        case PC_FX_STROKE:
+            local = e->u.stroke.paint.kind != PC_FX_PAINT_GRADIENT;
+            break;
+        case PC_FX_DROP_SHADOW:
+        case PC_FX_INNER_SHADOW:
+            local = e->u.shadow.noise <= 0.0f;
+            break;
+        case PC_FX_OUTER_GLOW:
+        case PC_FX_INNER_GLOW:
+            local = e->u.glow.technique != PC_GLOW_PRECISE && e->u.glow.noise <= 0.0f;
+            break;
+        case PC_FX_BEVEL_EMBOSS:
+            local = e->u.bevel.technique == PC_BEVEL_SMOOTH;
+            break;
+        default:
+            local = true;
+            break;
+        }
+        if (!local) {
+            return false;
+        }
+    }
+    return true;
 }
 
 pc_compose_transfer pc_compose_transfer_for_document(pc_color_mode mode, pc_sample_type depth)

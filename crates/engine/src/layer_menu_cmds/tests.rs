@@ -526,3 +526,134 @@ fn load_files_into_stack_as_smart_object_then_median() {
     assert!((px[0] - 0.2).abs() < 2.0 / 255.0, "{px:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn transfer_effects_moves_or_copies_between_layers() {
+    let mut s = session(8, "rgb");
+    s.execute("layer.new.layer", json!({})).unwrap();
+    let a = active(&s).id;
+    s.execute("layer.layerStyle.dropShadow", json!({})).unwrap();
+    s.execute("layer.layerStyle.colorOverlay", json!({"color": "#ff8000"})).unwrap();
+    s.execute("layer.new.layer", json!({})).unwrap();
+    let b = active(&s).id;
+    let layer = |s: &Session, id| s.active().unwrap().doc.layer(id).unwrap().clone();
+    let labels = |l: &Layer| l.effects.items.iter().map(Effect::label).collect::<Vec<_>>();
+    let both = labels(&layer(&s, a));
+    assert_eq!(both.len(), 2);
+
+    // Alt-drag of the whole fx row copies: both layers have the style.
+    s.execute("layer.layerStyle.transferEffects", json!({"from": a.0, "to": b.0, "copy": true})).unwrap();
+    assert_eq!(labels(&layer(&s, a)), both);
+    assert_eq!(labels(&layer(&s, b)), both);
+
+    // Dragging one effect row moves just that effect.
+    s.execute("layer.new.layer", json!({})).unwrap();
+    let c = active(&s).id;
+    s.execute("layer.layerStyle.transferEffects", json!({"from": a.0, "to": c.0, "effect": 1})).unwrap();
+    assert_eq!(labels(&layer(&s, a)), both[..1]);
+    assert_eq!(labels(&layer(&s, c)), both[1..]);
+
+    // Dragging the whole fx row moves everything and leaves the source without a style.
+    s.execute("layer.layerStyle.transferEffects", json!({"from": b.0, "to": a.0})).unwrap();
+    assert!(layer(&s, b).effects.items.is_empty());
+    assert_eq!(labels(&layer(&s, a)), both);
+
+    // One history step per drop.
+    let steps = s.active().unwrap().history.past_len();
+    s.execute("layer.layerStyle.transferEffects", json!({"from": a.0, "to": b.0})).unwrap();
+    assert_eq!(s.active().unwrap().history.past_len(), steps + 1);
+    s.execute("edit.undo", json!({})).unwrap();
+    assert_eq!(labels(&layer(&s, a)), both);
+    assert!(layer(&s, b).effects.items.is_empty());
+
+    // Bad input is an error and changes nothing.
+    for bad in [
+        json!({"from": a.0, "to": a.0}),
+        json!({"from": a.0}),
+        json!({"from": a.0, "to": 9999}),
+        json!({"from": a.0, "to": b.0, "effect": 7}),
+        json!({"from": a.0, "to": b.0, "effect": -1}),
+        json!({"from": b.0, "to": a.0}),
+    ] {
+        assert!(s.execute("layer.layerStyle.transferEffects", bad.clone()).is_err(), "{bad}");
+    }
+    assert_eq!(s.active().unwrap().history.past_len(), steps);
+}
+
+#[test]
+fn applying_a_feathered_mask_preserves_its_soft_composite() {
+    for depth in DEPTHS {
+        let mut s = session(depth, "rgb");
+        paint(&mut s, |_, _| [1.0, 0.0, 0.0, 1.0]);
+        s.edit("mask fixture", |doc, active| {
+            let mut mask = LayerMask::hide_all();
+            mask.surface.fill_rect(Rect::new(0, 0, 20, 30), &[1.0]);
+            mask.feather = 2.0;
+            doc.layer_mut(active.unwrap()).unwrap().mask = Some(mask);
+            Ok(())
+        })
+        .unwrap();
+        let before = photocraft_compose::flatten(doc(&s)).px;
+        assert!(before[15 * 40 + 19][3] > 0.0 && before[15 * 40 + 19][3] < 1.0, "mask must start with a soft edge");
+        s.execute("layer.layerMask.apply", json!({})).unwrap();
+        assert!(active(&s).mask.is_none(), "Apply removes the pixel mask");
+        let after = photocraft_compose::flatten(doc(&s)).px;
+        for (a, b) in before.iter().zip(&after) {
+            assert!((a[3] - b[3]).abs() <= 1.0 / 255.0 + 1e-5, "depth {depth}: alpha {a:?} became {b:?}");
+        }
+        assert!(s.undo());
+        assert!(active(&s).mask.as_ref().is_some_and(|m| m.feather == 2.0));
+    }
+}
+
+#[test]
+fn applying_a_disabled_feathered_mask_does_not_hide_pixels() {
+    let mut s = session(8, "rgb");
+    paint(&mut s, |_, _| [0.7, 0.2, 0.1, 1.0]);
+    s.edit("disabled mask", |doc, active| {
+        let mut mask = LayerMask::hide_all();
+        mask.feather = 3.0;
+        mask.enabled = false;
+        doc.layer_mut(active.unwrap()).unwrap().mask = Some(mask);
+        Ok(())
+    })
+    .unwrap();
+    s.execute("layer.layerMask.apply", json!({})).unwrap();
+    assert_eq!(active(&s).surface().unwrap().rgba(20, 15)[3], 1.0);
+}
+
+#[test]
+fn from_transparency_preserves_mask_coverage_outside_the_canvas() {
+    for depth in DEPTHS {
+        let mut s = session(depth, "rgb");
+        paint(&mut s, |_, _| [1.0, 0.0, 0.0, 0.5]);
+        let before = photocraft_compose::flatten(doc(&s)).px;
+        s.execute("layer.translate", json!({"dx": 20})).unwrap();
+        s.execute("layer.layerMask.fromTransparency", json!({})).unwrap();
+        let mask = active(&s).mask.as_ref().unwrap();
+        assert!((mask.value(50, 10) - 0.5).abs() < 1.0 / 255.0 + 1e-6, "off-canvas mask at depth {depth}");
+        s.execute("layer.translate", json!({"dx": -20})).unwrap();
+        let after = photocraft_compose::flatten(doc(&s)).px;
+        for (a, b) in before.iter().zip(&after) {
+            assert!((a[3] - b[3]).abs() <= 1.0 / 255.0 + 1e-6, "alpha changed at depth {depth}: {a:?} -> {b:?}");
+        }
+    }
+}
+
+#[test]
+fn applying_a_feathered_mask_keeps_off_canvas_pixels_it_reveals() {
+    let mut s = session(8, "rgb");
+    paint(&mut s, |_, _| [1.0, 0.0, 0.0, 1.0]);
+    s.execute("layer.translate", json!({"dx": 20})).unwrap();
+    s.edit("mask fixture", |doc, active| {
+        // Reveal the whole layer, including the 20 px now past the right edge.
+        let mut mask = LayerMask::hide_all();
+        mask.surface.fill_rect(Rect::new(0, 0, 60, 30), &[1.0]);
+        mask.feather = 2.0;
+        doc.layer_mut(active.unwrap()).unwrap().mask = Some(mask);
+        Ok(())
+    })
+    .unwrap();
+    s.execute("layer.layerMask.apply", json!({})).unwrap();
+    assert_eq!(active(&s).surface().unwrap().rgba(52, 15)[3], 1.0, "off-canvas pixel stays visible");
+}

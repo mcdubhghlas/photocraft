@@ -148,14 +148,17 @@ static pc_status interleave(uint16_t mode, pc_psd_bytes *color, const pc_psd_byt
         pc_psd_bytes_fini(out);
         return PC_OK;
     }
-    /* Every plane read below must hold n samples (the reference would panic otherwise). */
+    /* Every plane must hold exactly n samples. */
     for (i = 0; i < need; i++) {
-        if (color[i].data == NULL || color[i].len < n) {
+        if (color[i].data == NULL || color[i].len != n) {
             return psd_invalid(err, "channel size mismatch");
         }
     }
-    if (alpha != NULL && (alpha->data == NULL || alpha->len < n)) {
+    if (alpha != NULL && (alpha->data == NULL || alpha->len != n)) {
         return psd_invalid(err, "channel size mismatch");
+    }
+    if (n > PC_PSD_MAX_DECODED_BYTES / 4) {
+        return psd_limit(err, "RGBA output exceeds MAX_DECODED_BYTES");
     }
     o = pc_malloc_array(n, 4);
     if (o == NULL) {
@@ -218,7 +221,12 @@ pc_status pc_psd_layer_rgba8(const pc_psd_file *f, size_t index, pc_psd_image8 *
     }
     l = &layers[index];
     CK(pc_psd_rect_size(l->rect, &w, &h, err));
-    n = w * h;
+    if (!pc_size_mul(w, h, &n)) {
+        return psd_limit(err, "layer size overflow");
+    }
+    if (n > PC_PSD_MAX_DECODED_BYTES / 4) {
+        return psd_limit(err, "RGBA output exceeds MAX_DECODED_BYTES");
+    }
     CK(color_channel_count(mode, &cc, err));
     for (c = 0; c < cc; c++) {
         if (pc_psd_layer_channel(l, (int16_t)c) != NULL) {
@@ -246,10 +254,6 @@ pc_status pc_psd_layer_rgba8(const pc_psd_file *f, size_t index, pc_psd_image8 *
         CK(pc_psd_plane_to_u8(tmp.data, tmp.len, depth, w, h, &alpha, err));
         pc_psd_bytes_fini(&tmp);
         has_alpha = true;
-        if (alpha.len < n) { /* the reference would panic indexing it */
-            st = psd_invalid(err, "channel size mismatch");
-            goto fail;
-        }
     }
     CK(interleave(mode, color, has_alpha ? &alpha : NULL, &tmp, n, &img.data, err));
     img.left = l->rect.left;
@@ -320,38 +324,122 @@ fail:
     return st;
 }
 
+/* RGB samples at 16/32 bits with the white matte removed, reduced to 8 bits. */
+static pc_status unmatte_to_u8(const uint8_t *color, const uint8_t *alpha, size_t len, uint16_t depth,
+                               pc_psd_bytes *out, pc_error *err)
+{
+    size_t step = depth == 16 ? 2 : 4;
+    size_t n = len / step;
+    size_t i;
+    uint8_t *o;
+    if (depth != 16 && depth != 32) {
+        return psd_unsupported(err, "RGB composite depth %u", (unsigned)depth);
+    }
+    pc_psd_bytes_fini(out);
+    if (n == 0) {
+        return PC_OK;
+    }
+    o = malloc(n);
+    if (o == NULL) {
+        return psd_nomem(err);
+    }
+    for (i = 0; i < n; i++) {
+        float c;
+        float a;
+        float straight;
+        if (depth == 16) {
+            c = (float)pc_load_be16(color + 2 * i) / 65535.0f;
+            a = (float)pc_load_be16(alpha + 2 * i) / 65535.0f;
+        } else {
+            c = pc_f32_from_bits(pc_load_be32(color + 4 * i));
+            a = pc_f32_from_bits(pc_load_be32(alpha + 4 * i));
+        }
+        straight = a > 0.0f ? (c + a - 1.0f) / a : c;
+        o[i] = isnan(straight) ? 0 : pc_f32_to_u8(roundf(pc_clampf(straight, 0.0f, 1.0f) * 255.0f));
+    }
+    out->data = o;
+    out->len = n;
+    return PC_OK;
+}
+
 pc_status pc_psd_composite_rgba8(const pc_psd_file *f, pc_psd_image8 *out, pc_error *err)
 {
     const pc_psd_header *h = &f->header;
     size_t w = h->width;
     size_t hh = h->height;
-    size_t n = w * hh;
+    size_t n;
     size_t cc;
     size_t c;
     size_t plane;
+    size_t end;
     pc_psd_bytes all = {NULL, 0};
     pc_psd_bytes color[4];
     pc_psd_bytes alpha = {NULL, 0};
+    const uint8_t *alpha_bytes = NULL;
+    const uint8_t *base;
     bool has_alpha;
+    bool rgb_alpha;
     pc_psd_image8 img;
     pc_status st;
     memset(color, 0, sizeof color);
     memset(&img, 0, sizeof img);
+    CK(pc_psd_header_validate(h, err));
+    if (!pc_size_mul(w, hh, &n)) {
+        return psd_limit(err, "composite size overflow");
+    }
+    /* Same budget as pc_psd_layer_rgba8: refuse before decoding or converting any plane. */
+    if (n > PC_PSD_MAX_DECODED_BYTES / 4) {
+        return psd_limit(err, "RGBA output exceeds MAX_DECODED_BYTES");
+    }
     CK(color_channel_count(h->color_mode, &cc, err));
     if (h->channels < cc) {
         st = psd_invalid(err, "fewer channels than the color mode requires");
         goto fail;
     }
     CK(pc_psd_file_decode_merged(f, &all, err));
-    plane = pc_psd_header_row_bytes(h) * hh;
-    for (c = 0; c < cc; c++) {
-        CK(pc_psd_plane_to_u8(all.data + c * plane, plane, h->depth, w, hh, &color[c], err));
+    if (!pc_size_mul(pc_psd_header_row_bytes(h), hh, &plane)) {
+        st = psd_limit(err, "plane size overflow");
+        goto fail;
     }
+    /* all.data is NULL only when it holds nothing (then every plane is empty). */
+    base = all.data != NULL ? all.data : (const uint8_t *)"";
     has_alpha = pc_psd_file_merged_has_alpha(f);
     if (has_alpha) {
-        CK(pc_psd_plane_to_u8(all.data + cc * plane, plane, h->depth, w, hh, &alpha, err));
+        if (!pc_size_mul(cc + 1, plane, &end) || end > all.len) {
+            st = psd_invalid(err, "alpha channel size mismatch");
+            goto fail;
+        }
+        alpha_bytes = base + cc * plane;
+    }
+    rgb_alpha = h->color_mode == PC_PSD_MODE_RGB && alpha_bytes != NULL;
+    for (c = 0; c < cc; c++) {
+        if (!pc_size_mul(c + 1, plane, &end) || end > all.len) {
+            st = psd_invalid(err, "channel size mismatch");
+            goto fail;
+        }
+        if (rgb_alpha && h->depth != 8) {
+            CK(unmatte_to_u8(base + c * plane, alpha_bytes, plane, h->depth, &color[c], err));
+        } else {
+            CK(pc_psd_plane_to_u8(base + c * plane, plane, h->depth, w, hh, &color[c], err));
+        }
+    }
+    if (has_alpha) {
+        CK(pc_psd_plane_to_u8(alpha_bytes, plane, h->depth, w, hh, &alpha, err));
     }
     CK(interleave(h->color_mode, color, has_alpha ? &alpha : NULL, &f->color_mode_data, n, &img.data, err));
+    if (rgb_alpha && h->depth == 8) {
+        /* Remove the white matte at 8 bits. */
+        size_t i;
+        for (i = 0; i < n; i++) {
+            uint8_t *px = img.data.data + 4 * i;
+            uint32_t a = px[3];
+            for (c = 0; a != 0 && c < 3; c++) {
+                uint32_t sum = (uint32_t)px[c] + a;
+                uint32_t v = ((sum > 255u ? sum - 255u : 0u) * 255u + a / 2u) / a;
+                px[c] = (uint8_t)(v > 255u ? 255u : v);
+            }
+        }
+    }
     img.width = h->width;
     img.height = h->height;
     *out = img;

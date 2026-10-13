@@ -60,7 +60,6 @@ bool pc_algo_liquify_tool_is_stationary(pc_algo_liquify_tool t)
 /* Rust's `{}` for an f64 (copied from src/doc/analysis.c, which algo may not include). */
 enum { NUM_TEXT_MAX = PC_RUST_F64_TEXT_MAX };
 
-
 pc_algo_liquify_stroke pc_algo_liquify_stroke_make(pc_algo_liquify_tool tool, double size)
 {
     pc_algo_liquify_stroke s;
@@ -210,6 +209,10 @@ pc_status pc_algo_liquify_field_init(pc_algo_liquify_field *f, pc_rect bounds, d
         free(g.freeze);
         return pc_fail(err, PC_ERR_NOMEM, "liquify: out of memory");
     }
+    g.has_cursor = false;
+    g.cursor_end[0] = g.cursor_end[1] = 0.0;
+    g.cursor_last_dab[0] = g.cursor_last_dab[1] = 0.0;
+    g.cursor_carry = 0.0;
     *f = g;
     return PC_OK;
 }
@@ -449,9 +452,38 @@ done:
     return PC_OK;
 }
 
-/* One dab at c with brush motion delta; *dirty receives the document rect it affected. */
+double pc_algo_liquify_falloff(double t2, double density)
+{
+    double feathered, dense;
+    t2 = pc_clampd(t2, 0.0, 1.0);
+    density = isnan(density) ? 0.5 : pc_clampd(density, 0.0, 1.0);
+    /* Feathered: (1 - t^2)^3. Dense: (1 - t^4)^2, flat in the middle. Both are 0 with zero slope
+     * at t = 1 (a brush that stopped short of 0 at its rim tore the image along every dab, #2606). */
+    feathered = 1.0 - t2;
+    feathered = feathered * feathered * feathered;
+    dense = 1.0 - t2 * t2;
+    dense = dense * dense;
+    return feathered + (dense - feathered) * density;
+}
+
+/* Distance between dabs along a stroke for brush radius r: a twentieth of the radius. */
+static double dab_spacing(double r)
+{
+    return pc_rs_max_k(r * 0.05, 0.5);
+}
+
+/* Per-dab strength of a stationary tool while it moves: scaled to the spacing so its effect per
+ * distance travelled stays what it was with dabs a fifth of the radius apart. */
+static double moving_weight(double r)
+{
+    return dab_spacing(r) / pc_rs_max_k(r * 0.2, 0.5);
+}
+
+/* One dab at c with brush motion delta, its strength scaled by weight; *dirty receives the
+ * document rect it affected. */
 static pc_status dab(pc_algo_liquify_field *f, const pc_algo_liquify_stroke *s, const double c[2],
-                     const double delta[2], double point_pressure, pc_rect *dirty, pc_error *err)
+                     const double delta[2], double point_pressure, double weight, pc_rect *dirty,
+                     pc_error *err)
 {
     pc_algo_liquify_tool tool = s->tool;
     double r, strength, rate, density, inv_cell;
@@ -469,7 +501,7 @@ static pc_status dab(pc_algo_liquify_field *f, const pc_algo_liquify_stroke *s, 
         return PC_OK; /* the lasso is polygon-only; never a brush dab */
     }
     r = pc_rs_max_k(s->size / 2.0, 0.5);
-    strength = pc_clampd(s->pressure / 100.0, 0.0, 1.0) * point_pressure;
+    strength = pc_clampd(s->pressure / 100.0, 0.0, 1.0) * point_pressure * weight;
     rate = pc_clampd(s->rate / 100.0, 0.0, 1.0);
     density = pc_clampd(s->density / 100.0, 0.0, 1.0);
     if (strength <= 0.0) {
@@ -509,7 +541,7 @@ static pc_status dab(pc_algo_liquify_field *f, const pc_algo_liquify_stroke *s, 
     inv_cell = 1.0 / f->cell;
     for (j = j0; j <= j1; j++) {
         for (i = i0; i <= i1; i++) {
-            double p[2], dx, dy, t2, soft, fall, k_raw, k;
+            double p[2], dx, dy, t2, fall, k_raw, k;
             size_t idx = j * f->w + i;
             float cur[2], nw_d[2];
             pc_algo_liquify_node_pos(f, i, j, p);
@@ -519,8 +551,7 @@ static pc_status dab(pc_algo_liquify_field *f, const pc_algo_liquify_stroke *s, 
             if (t2 >= 1.0) {
                 continue;
             }
-            soft = (1.0 - t2) * (1.0 - t2);
-            fall = (1.0 - density) + density * soft;
+            fall = pc_algo_liquify_falloff(t2, density);
             k_raw = strength * fall;
             if (tool == PC_ALGO_LIQUIFY_FREEZE || tool == PC_ALGO_LIQUIFY_THAW) {
                 double fz = (double)f->freeze[idx];
@@ -627,9 +658,13 @@ pc_status pc_algo_liquify_stroke_begin(pc_algo_liquify_field *f, const pc_algo_l
 {
     pc_rect d = PC_RECT_EMPTY;
     pc_status st = PC_OK;
+    f->has_cursor = true;
+    f->cursor_end[0] = f->cursor_last_dab[0] = p[0];
+    f->cursor_end[1] = f->cursor_last_dab[1] = p[1];
+    f->cursor_carry = 0.0;
     if (pc_algo_liquify_tool_is_stationary(s->tool) && !pc_algo_liquify_tool_is_global(s->tool)) {
         double c[2] = {p[0], p[1]}, zero[2] = {0.0, 0.0};
-        st = dab(f, s, c, zero, pc_clampd(p[2], 0.0, 1.0), &d, err);
+        st = dab(f, s, c, zero, pc_clampd(p[2], 0.0, 1.0), 1.0, &d, err);
     }
     if (st == PC_OK && dirty != NULL) {
         *dirty = d;
@@ -637,13 +672,13 @@ pc_status pc_algo_liquify_stroke_begin(pc_algo_liquify_field *f, const pc_algo_l
     return st;
 }
 
-/* The steps k0..=k1 of a segment walked in `steps` whose dab can touch a field node; false when
- * none can. Step k centres its dab at a + (b - a)(k - o)/steps (o = 1 for the dragging tools, 0
- * for the stationary ones); the window pads the reach by a node and a step. */
-static bool reachable_steps(const pc_algo_liquify_field *f, const double a[3], const double b[3],
-                            size_t steps, double r, bool stationary, size_t *k0_out, size_t *k1_out)
+/* The distances along a segment from a (direction dir, length len) whose points lie within a dab
+ * radius r plus two nodes of the node grid; false when none do. Only dabs near that span can touch
+ * a node; a segment to a far-off point has trillions of others (#937). */
+static bool reachable_span(const pc_algo_liquify_field *f, const double a[3], const double dir[2], double len,
+                           double r, double *d0, double *d1)
 {
-    double pad, lo[2], hi[2], n, o, k0 = 1.0, k1;
+    double pad, lo[2], hi[2], u0 = 0.0, u1 = 1.0;
     int ax;
     if (f->w == 0 || f->h == 0) {
         return false;
@@ -653,47 +688,65 @@ static bool reachable_steps(const pc_algo_liquify_field *f, const double a[3], c
     lo[1] = (double)f->bounds.y0 + 0.5 - pad;
     hi[0] = lo[0] + (double)(f->w - 1) * f->cell + 2.0 * pad;
     hi[1] = lo[1] + (double)(f->h - 1) * f->cell + 2.0 * pad;
-    n = (double)steps;
-    o = stationary ? 0.0 : 1.0;
-    k1 = n;
     for (ax = 0; ax < 2; ax++) {
-        double d = b[ax] - a[ax], u0, u1;
+        double d = dir[ax], v0, v1;
         if (d == 0.0) {
             if (isnan(a[ax]) || a[ax] < lo[ax] || a[ax] > hi[ax]) {
                 return false;
             }
             continue;
         }
-        u0 = (lo[ax] - a[ax]) / d;
-        u1 = (hi[ax] - a[ax]) / d;
-        k0 = pc_rs_max(k0, floor(pc_rs_min(u0, u1) * n + o) - 1.0);
-        k1 = pc_rs_min(k1, ceil(pc_rs_max(u0, u1) * n + o) + 1.0);
+        v0 = (lo[ax] - a[ax]) / d;
+        v1 = (hi[ax] - a[ax]) / d;
+        u0 = pc_rs_max(u0, pc_rs_min(v0, v1));
+        u1 = pc_rs_min(u1, pc_rs_max(v0, v1));
     }
-    /* NaN: a segment whose length overflowed. */
-    if (isnan(k0) || isnan(k1) || k0 > k1) {
+    if (isnan(u0) || isnan(u1) || u0 > u1) {
         return false;
     }
-    *k0_out = pc_f64_to_size(k0);
-    *k1_out = pc_f64_to_size(k1);
+    *d0 = u0 * len;
+    *d1 = u1 * len;
     return true;
 }
 
-pc_status pc_algo_liquify_stroke_segment(pc_algo_liquify_field *f, const pc_algo_liquify_stroke *s,
-                                         const double a[3], const double b[3], pc_rect *dirty, pc_error *err)
+static void seg_at(const double a[3], double dx, double dy, double len, double dist, double out[2])
+{
+    out[0] = a[0] + dx * dist / len;
+    out[1] = a[1] + dy * dist / len;
+}
+
+/* stroke_segment; `skip` leaves out the dabs that cannot reach a field node (they would change
+ * nothing), which tests compare with the full walk. */
+pc_status pc_algo_liquify_walk_segment(pc_algo_liquify_field *f, const pc_algo_liquify_stroke *s,
+                                       const double a[3], const double b[3], bool skip, pc_rect *dirty,
+                                       pc_error *err)
 {
     pc_rect acc = PC_RECT_EMPTY, d;
     double pa = pc_clampd(a[2], 0.0, 1.0), pb = pc_clampd(b[2], 0.0, 1.0);
-    double len = hypot(b[0] - a[0], b[1] - a[1]), r, spacing;
+    double dx = b[0] - a[0], dy = b[1] - a[1], len = hypot(dx, dy), r, spacing, weight, first, slack, last_k,
+           k0, k1, last, cend[2], clast[2], ccarry, prev[2];
     bool stationary = pc_algo_liquify_tool_is_stationary(s->tool);
-    size_t steps, k0, k1, k;
     pc_status st;
     if (dirty != NULL) {
         *dirty = PC_RECT_EMPTY;
     }
+    if (f->has_cursor && f->cursor_end[0] == a[0] && f->cursor_end[1] == a[1]) {
+        cend[0] = f->cursor_end[0], cend[1] = f->cursor_end[1];
+        clast[0] = f->cursor_last_dab[0], clast[1] = f->cursor_last_dab[1];
+        ccarry = f->cursor_carry;
+    } else {
+        cend[0] = clast[0] = a[0];
+        cend[1] = clast[1] = a[1];
+        ccarry = 0.0;
+    }
     if (len == 0.0) {
+        f->has_cursor = true;
+        f->cursor_end[0] = cend[0], f->cursor_end[1] = cend[1];
+        f->cursor_last_dab[0] = clast[0], f->cursor_last_dab[1] = clast[1];
+        f->cursor_carry = ccarry;
         if (stationary) {
             double c[2] = {b[0], b[1]}, zero[2] = {0.0, 0.0};
-            st = dab(f, s, c, zero, pb, &d, err);
+            st = dab(f, s, c, zero, pb, 1.0, &d, err);
             if (st == PC_OK && dirty != NULL) {
                 *dirty = d;
             }
@@ -701,46 +754,82 @@ pc_status pc_algo_liquify_stroke_segment(pc_algo_liquify_field *f, const pc_algo
         }
         return PC_OK;
     }
-    /* An infinite end point: every dab centre on the segment is then infinite or NaN and changes
-     * nothing, but the reference's step window becomes NaN and it walks 2^64 dabs (or panics on
-     * a dab centred at +inf). Nothing to do. */
-    if (isinf(a[0]) || isinf(a[1]) || isinf(b[0]) || isinf(b[1])) {
+    /* NaN or a length that overflowed: nothing sensible to walk; the next segment restarts. */
+    if (!isfinite(len)) {
+        f->has_cursor = false;
         return PC_OK;
     }
     r = pc_rs_max_k(s->size / 2.0, 0.5);
-    spacing = pc_rs_max_k(r * 0.2, 0.5);
-    steps = pc_f64_to_size(pc_rs_max_k(ceil(len / spacing), 1.0));
-    /* Walk only the steps whose dab can reach a field node: a segment to a far-off point has
-     * trillions of them (#937). */
-    if (!reachable_steps(f, a, b, steps, r, stationary, &k0, &k1)) {
+    spacing = dab_spacing(r);
+    weight = stationary ? moving_weight(r) : 1.0;
+    /* Distance along this segment of its first dab, then one every `spacing`. Distances are
+     * compared with a little slack, so cutting one segment in two never adds or drops a dab. */
+    first = pc_clampd(spacing - ccarry, 0.0, spacing);
+    slack = spacing * 1e-6;
+    if (first > len + slack) {
+        f->has_cursor = true;
+        f->cursor_end[0] = b[0], f->cursor_end[1] = b[1];
+        f->cursor_last_dab[0] = clast[0], f->cursor_last_dab[1] = clast[1];
+        f->cursor_carry = ccarry + len;
         return PC_OK;
     }
-    for (k = k0; k <= k1; k++) {
-        double t0 = (double)(k - 1) / (double)steps, t1 = (double)k / (double)steps;
-        double c[2] = {a[0] + (b[0] - a[0]) * t1, a[1] + (b[1] - a[1]) * t1};
-        double delta[2] = {(b[0] - a[0]) * (t1 - t0), (b[1] - a[1]) * (t1 - t0)};
-        double pr = pa + (pb - pa) * t1, centre[2];
-        /* Forward Warp centres the dab where the brush was (it drags what is under it). */
-        if (stationary) {
-            centre[0] = c[0];
-            centre[1] = c[1];
+    last_k = pc_rs_max_k(floor((len - first + slack) / spacing), 0.0);
+    k0 = 0.0;
+    k1 = last_k;
+    if (skip) {
+        double dir[2] = {dx, dy}, d0, d1;
+        if (reachable_span(f, a, dir, len, r, &d0, &d1)) {
+            /* A dragging dab is centred one spacing behind its position: pad by that and a step. */
+            k0 = pc_rs_max(k0, floor((d0 - spacing - first) / spacing) - 1.0);
+            k1 = pc_rs_min(k1, ceil((d1 + spacing - first) / spacing) + 1.0);
         } else {
-            centre[0] = c[0] - delta[0];
-            centre[1] = c[1] - delta[1];
-        }
-        st = dab(f, s, centre, delta, pr, &d, err);
-        if (st != PC_OK) {
-            return st;
-        }
-        acc = pc_rect_union(acc, d);
-        if (k == SIZE_MAX) {
-            break;
+            k1 = -1.0;
         }
     }
+    if (k0 <= k1) {
+        uint64_t k, kb = pc_f64_to_u64(k0), ke = pc_f64_to_u64(k1);
+        if (k0 > 0.0) {
+            seg_at(a, dx, dy, len, first + (k0 - 1.0) * spacing, prev);
+        } else {
+            prev[0] = clast[0], prev[1] = clast[1];
+        }
+        for (k = kb;; k++) {
+            double dist = pc_rs_min(first + (double)k * spacing, len), c[2], delta[2], centre[2];
+            seg_at(a, dx, dy, len, dist, c);
+            delta[0] = c[0] - prev[0];
+            delta[1] = c[1] - prev[1];
+            /* Forward Warp centres the dab where the brush was (it drags what is under it). */
+            if (stationary) {
+                centre[0] = c[0], centre[1] = c[1];
+            } else {
+                centre[0] = prev[0], centre[1] = prev[1];
+            }
+            st = dab(f, s, centre, delta, pa + (pb - pa) * dist / len, weight, &d, err);
+            if (st != PC_OK) {
+                return st;
+            }
+            acc = pc_rect_union(acc, d);
+            prev[0] = c[0], prev[1] = c[1];
+            if (k >= ke) {
+                break;
+            }
+        }
+    }
+    last = pc_rs_min(first + last_k * spacing, len);
+    f->has_cursor = true;
+    f->cursor_end[0] = b[0], f->cursor_end[1] = b[1];
+    seg_at(a, dx, dy, len, last, f->cursor_last_dab);
+    f->cursor_carry = pc_clampd(len - last, 0.0, spacing);
     if (dirty != NULL) {
         *dirty = acc;
     }
     return PC_OK;
+}
+
+pc_status pc_algo_liquify_stroke_segment(pc_algo_liquify_field *f, const pc_algo_liquify_stroke *s,
+                                         const double a[3], const double b[3], pc_rect *dirty, pc_error *err)
+{
+    return pc_algo_liquify_walk_segment(f, s, a, b, true, dirty, err);
 }
 
 pc_status pc_algo_liquify_apply_stroke(pc_algo_liquify_field *f, const pc_algo_liquify_stroke *s,
@@ -753,6 +842,7 @@ pc_status pc_algo_liquify_apply_stroke(pc_algo_liquify_field *f, const pc_algo_l
     if (dirty != NULL) {
         *dirty = PC_RECT_EMPTY;
     }
+    f->has_cursor = false;
     switch (s->tool) {
     case PC_ALGO_LIQUIFY_LASSO_MASK:
         st = apply_lasso(f, s, &d, err);

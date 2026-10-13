@@ -744,6 +744,203 @@ struct pc_recovery_store {
     size_t nadopted;
 };
 
+/* ---- orphan sweep (autosave.rs sweep_orphans) ---- */
+
+/* Grows *v (an array of char *) to hold need entries; false (unchanged) when out of memory. */
+static bool grow_names(char ***v, size_t *cap, size_t need)
+{
+    char **g = pc_grow_array(*v, cap, need, sizeof **v);
+    if (g == NULL) {
+        return false;
+    }
+    *v = g;
+    return true;
+}
+
+/* Whether path was last modified at least min_age_s ago. Unreadable or future times count as
+ * recent; a missing path counts as untouched only when missing_ok. */
+static bool untouched_for(const char *path, int64_t min_age_s, bool missing_ok)
+{
+    struct stat st;
+    struct timespec now;
+    int64_t mt_s;
+    long mt_ns;
+    int64_t age_s;
+    if (lstat(path, &st) != 0) {
+        return missing_ok && errno == ENOENT;
+    }
+    if (clock_gettime(CLOCK_REALTIME, &now) != 0) {
+        return false;
+    }
+    mt_s = (int64_t)st.st_mtime;
+#if defined(__APPLE__)
+    mt_ns = st.st_mtimespec.tv_nsec;
+#else
+    mt_ns = st.st_mtim.tv_nsec;
+#endif
+    if ((int64_t)now.tv_sec < mt_s || ((int64_t)now.tv_sec == mt_s && now.tv_nsec < mt_ns)) {
+        return false; /* modified in the future: duration_since fails */
+    }
+    age_s = (int64_t)now.tv_sec - mt_s - (now.tv_nsec < mt_ns ? 1 : 0);
+    return age_s >= min_age_s;
+}
+
+/* str::parse::<u32> (an optional '+', then decimal digits). */
+static bool parse_u32(const char *p, size_t n, uint32_t *out)
+{
+    uint64_t v = 0;
+    size_t i = 0;
+    if (n > 0 && p[0] == '+') {
+        i = 1;
+    }
+    if (i == n) {
+        return false;
+    }
+    for (; i < n; i++) {
+        if (p[i] < '0' || p[i] > '9') {
+            return false;
+        }
+        v = v * 10 + (uint64_t)(p[i] - '0');
+        if (v > UINT32_MAX) {
+            return false;
+        }
+    }
+    *out = (uint32_t)v;
+    return true;
+}
+
+static bool valid_utf8(const char *s, size_t n)
+{
+    size_t i = 0;
+    while (i < n) {
+        uint32_t cp;
+        if (!pc_utf8_next((const uint8_t *)s, n, &i, &cp)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/* Remove path if it is an atomic-write temp file of another process (".{stem}.{pid}-{n}.pcsave.tmp")
+ * untouched for min_age_s. */
+static void sweep_temp_file(const char *path, const char *name, int64_t min_age_s)
+{
+    static const char SUFFIX[] = ".pcsave.tmp";
+    size_t n = strlen(name);
+    const char *rest;
+    size_t rn;
+    const char *dot = NULL;
+    const char *dash;
+    uint32_t pid;
+    if (!valid_utf8(name, n) || n < 1 + sizeof SUFFIX - 1 || name[0] != '.' ||
+        memcmp(name + n - (sizeof SUFFIX - 1), SUFFIX, sizeof SUFFIX - 1) != 0) {
+        return;
+    }
+    rest = name + 1;
+    rn = n - 1 - (sizeof SUFFIX - 1);
+    for (size_t i = rn; i-- > 0;) {
+        if (rest[i] == '.') {
+            dot = rest + i;
+            break;
+        }
+    }
+    if (dot == NULL) {
+        return;
+    }
+    dash = memchr(dot + 1, '-', (size_t)(rest + rn - (dot + 1)));
+    if (dash == NULL || !parse_u32(dot + 1, (size_t)(dash - (dot + 1)), &pid)) {
+        return;
+    }
+    if ((long)pid != (long)getpid() && untouched_for(path, min_age_s, false)) {
+        (void)unlink(path);
+    }
+}
+
+/* The regular files directly in dir that are temp files of another process. */
+static void sweep_temp_files_in(const char *dir, int64_t min_age_s)
+{
+    DIR *d = opendir(dir);
+    struct dirent *e;
+    if (d == NULL) {
+        return;
+    }
+    while ((e = readdir(d)) != NULL) {
+        struct stat st;
+        char *path = join(dir, e->d_name, strlen(e->d_name), "");
+        if (path != NULL && lstat(path, &st) == 0 && S_ISREG(st.st_mode)) {
+            sweep_temp_file(path, e->d_name, min_age_s);
+        }
+        free(path);
+    }
+    (void)closedir(d);
+}
+
+void pc_recovery_sweep_orphans(const char *dir, int64_t min_age_s)
+{
+    static const char BUNDLE[] = ".pcraft";
+    char **kept = NULL;
+    size_t nkept = 0;
+    size_t cap = 0;
+    DIR *d = opendir(dir);
+    struct dirent *e;
+    if (d == NULL) {
+        return;
+    }
+    while ((e = readdir(d)) != NULL) {
+        struct stat st;
+        size_t nl = strlen(e->d_name);
+        size_t kl;
+        char *path = join(dir, e->d_name, nl, "");
+        if (path == NULL || lstat(path, &st) != 0) {
+            free(path);
+            continue;
+        }
+        if (S_ISREG(st.st_mode)) {
+            sweep_temp_file(path, e->d_name, min_age_s);
+            free(path);
+            continue;
+        }
+        kl = nl - (sizeof BUNDLE - 1);
+        if (!S_ISDIR(st.st_mode) || nl <= sizeof BUNDLE - 1 || !valid_utf8(e->d_name, nl) ||
+            memcmp(e->d_name + kl, BUNDLE, sizeof BUNDLE - 1) != 0) {
+            free(path);
+            continue;
+        }
+        {
+            pc_str clean = {NULL, 0};
+            bool sane = pc_autosave_sanitize_key(e->d_name, kl, &clean, NULL) == PC_OK && clean.len == kl &&
+                        memcmp(pc_str_c(&clean), e->d_name, kl) == 0;
+            char *sidecar = sane ? join(dir, e->d_name, kl, ".json") : NULL;
+            char *tiles = sane ? join(path, "tiles", 5, "") : NULL;
+            char *blobs = sane ? join(path, "blobs", 5, "") : NULL;
+            pc_str_fini(&clean);
+            if (sane && sidecar != NULL && tiles != NULL && blobs != NULL) {
+                /* Anything at the sidecar's path (even a broken link) keeps the bundle. */
+                bool has_sidecar = lstat(sidecar, &st) == 0;
+                if (!has_sidecar && untouched_for(path, min_age_s, true) &&
+                    untouched_for(tiles, min_age_s, true) && untouched_for(blobs, min_age_s, true)) {
+                    (void)remove_tree(path, NULL);
+                } else if (grow_names(&kept, &cap, nkept + 3) && kept != NULL) {
+                    kept[nkept++] = path;
+                    kept[nkept++] = tiles;
+                    kept[nkept++] = blobs;
+                    path = tiles = blobs = NULL;
+                }
+            }
+            free(sidecar);
+            free(tiles);
+            free(blobs);
+        }
+        free(path);
+    }
+    (void)closedir(d);
+    for (size_t i = 0; i < nkept; i++) {
+        sweep_temp_files_in(kept[i], min_age_s);
+        free(kept[i]);
+    }
+    free(kept);
+}
+
 pc_status pc_recovery_store_new(const char *recovery_dir, pc_recovery_store **out, pc_error *err)
 {
     static atomic_ulong stores;
@@ -761,6 +958,7 @@ pc_status pc_recovery_store_new(const char *recovery_dir, pc_recovery_store **ou
      * entry an earlier launch (or another store) left. */
     (void)snprintf(s->session, sizeof s->session, "%llx_%lx_%lx", t, (unsigned long)getpid(),
                    atomic_fetch_add(&stores, 1ul));
+    pc_recovery_sweep_orphans(recovery_dir, PC_RECOVERY_ORPHAN_AGE_S);
     *out = s;
     return PC_OK;
 }

@@ -1,7 +1,9 @@
+#define _XOPEN_SOURCE 700 /* realpath (D21) */
 /* CJK font fallback (port of crates/text/src/cjk.rs; see cjk.h). */
 #include "text/cjk.h"
 
 #include <dirent.h>
+#include <stdatomic.h>
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,6 +13,7 @@
 #include "base/mem.h"
 #include "base/num.h"
 #include "base/utf8.h"
+#include "text/fonts.h"
 #include "text/sfnt.h"
 
 pc_cjk_char pc_cjk_classify(uint32_t u)
@@ -409,6 +412,7 @@ void pc_cjk_font_files_free(pc_cjk_font_file *f, size_t n)
     }
     for (i = 0; i < n; i++) {
         free(f[i].path);
+        free(f[i].family);
     }
     free(f);
 }
@@ -421,7 +425,7 @@ typedef struct filelist {
 
 static void add_file(filelist *l, const char *path, const char *family)
 {
-    char *p;
+    char *p, *fam;
     if (l->nomem || path == NULL) {
         return;
     }
@@ -434,12 +438,15 @@ static void add_file(filelist *l, const char *path, const char *family)
         l->v = g;
     }
     p = pc_strndup(path, strlen(path));
-    if (p == NULL) {
+    fam = pc_strndup(family, strlen(family));
+    if (p == NULL || fam == NULL) {
+        free(p);
+        free(fam);
         l->nomem = true;
         return;
     }
     l->v[l->n].path = p;
-    l->v[l->n].family = family;
+    l->v[l->n].family = fam;
     l->n++;
 }
 
@@ -481,6 +488,233 @@ static pc_status finish(filelist *l, pc_cjk_font_file **out, size_t *n, pc_error
     *out = l->v;
     *n = l->n;
     return PC_OK;
+}
+
+static bool is_file(const char *p);
+
+/* ---- Fontconfig (Linux) ---- */
+
+static const char *const SAMPLES[4] = {"\xE3\x83\xAC\xE3\x82\xA4\xE3\x83\xA4\xE3\x83\xBC\xE5\x9B\xB3",
+                                       "\xE5\x9B\xBE\xE5\xB1\x82", "\xE5\x9C\x96\xE5\xB1\xA4",
+                                       "\xEC\xB9\xB4\xEB\x93\x9C \xEB\xB0\xB0\xEA\xB2\xBD"};
+
+bool pc_cjk_font_covers_sample(const uint8_t *bytes, size_t len, const char *family, pc_cjk_script s)
+{
+    pc_sfnt f;
+    pc_sfnt_cmap cm;
+    const char *sample = SAMPLES[(int)s & 3];
+    size_t at = 0, n = strlen(sample);
+    if (bytes == NULL || !pc_sfnt_open(bytes, len, pc_cjk_face_index_for_family(bytes, len, family), &f)) {
+        return false;
+    }
+    pc_sfnt_cmap_skrifa(&f, &cm);
+    if (cm.sub == NULL) {
+        return false;
+    }
+    while (at < n) {
+        uint32_t cp;
+        if (!pc_utf8_next((const uint8_t *)sample, n, &at, &cp) || pc_sfnt_cmap_map(&cm, cp) == 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+pc_status pc_cjk_fontconfig_match(pc_cjk_script s, pc_cjk_font_file *out, bool *found, pc_error *err)
+{
+#if defined(__linux__)
+    static const char *const LANG[4] = {":lang=ja", ":lang=zh-cn", ":lang=zh-tw", ":lang=ko"};
+    const char *argv[4] = {"fc-match", "--format=%{file}\\t%{family[0]}\\n", NULL, NULL};
+    const size_t MAX_FONT_BYTES = (size_t)128 << 20;
+    pc_buf b = PC_BUF_INIT, file = PC_BUF_INIT, fam = PC_BUF_INIT;
+    size_t at = 0, end, tab, fa, fb;
+    bool ok = false;
+    char *path = NULL, *canon;
+    pc_status st;
+    *found = false;
+    argv[2] = LANG[(int)s & 3];
+    st = pc_text_run_capture(argv, (size_t)1 << 20, &b, &ok, err);
+    if (st != PC_OK || !ok) {
+        pc_buf_fini(&b);
+        return st;
+    }
+    while (at < b.len && b.data[at] == '\n') {
+        at++;
+    }
+    for (end = at; end < b.len && b.data[end] != '\n'; end++) {
+    }
+    for (tab = at; tab < end && b.data[tab] != '\t'; tab++) {
+    }
+    if (at == end || tab == end || b.data[at] != '/' || memchr(b.data + at, 0, tab - at) != NULL ||
+        !pc_text_font_path_ext((const char *)b.data + at, tab - at)) {
+        pc_buf_fini(&b);
+        return PC_OK;
+    }
+    /* String::from_utf8_lossy(family).trim() */
+    fa = tab + 1;
+    fb = end;
+    st = pc_buf_append(&fam, b.data + fa, fb - fa, err);
+    path = st == PC_OK ? pc_strndup((const char *)b.data + at, tab - at) : NULL;
+    pc_buf_fini(&b);
+    if (st == PC_OK && path == NULL) {
+        st = pc_fail(err, PC_ERR_NOMEM, "out of memory");
+    }
+    if (st == PC_OK) {
+        pc_buf lossy = PC_BUF_INIT;
+        size_t i = 0, a2, z2;
+        while (i < fam.len && st == PC_OK) {
+            uint32_t cp;
+            if (!pc_utf8_next(fam.data, fam.len, &i, &cp)) {
+                cp = 0xFFFD;
+                i++;
+            }
+            st = pc_utf8_put(&lossy, cp, err);
+        }
+        pc_buf_fini(&fam);
+        fam = lossy;
+        a2 = 0;
+        z2 = fam.len;
+        while (a2 < z2) {
+            size_t q = a2;
+            uint32_t cp;
+            if (!pc_utf8_next(fam.data, z2, &q, &cp) || !pc_unicode_is_space(cp)) {
+                break;
+            }
+            a2 = q;
+        }
+        while (z2 > a2) {
+            size_t q = z2 - 1, r;
+            uint32_t cp;
+            while (q > a2 && (fam.data[q] & 0xC0) == 0x80) {
+                q--;
+            }
+            r = q;
+            if (!pc_utf8_next(fam.data, z2, &r, &cp) || !pc_unicode_is_space(cp)) {
+                break;
+            }
+            z2 = q;
+        }
+        if (st == PC_OK && z2 > a2) {
+            st = pc_buf_append(&file, fam.data + a2, z2 - a2, err);
+        }
+    }
+    pc_buf_fini(&fam);
+    if (st == PC_OK && file.len > 0 && is_file(path)) {
+        pc_buf bytes = PC_BUF_INIT;
+        pc_error e;
+        if (pc_file_read(path, MAX_FONT_BYTES, &bytes, &e) == PC_OK && bytes.len > 0 &&
+            pc_cjk_font_covers_sample(bytes.data, bytes.len, pc_buf_cstr(&file), s)) {
+            canon = realpath(path, NULL);
+            out->path = canon != NULL ? canon : pc_strndup(path, strlen(path));
+            out->family = pc_strndup(pc_buf_cstr(&file), file.len);
+            if (out->path == NULL || out->family == NULL) {
+                free(out->path);
+                free(out->family);
+                st = pc_fail(err, PC_ERR_NOMEM, "out of memory");
+            } else {
+                *found = true;
+            }
+        }
+        pc_buf_fini(&bytes);
+    }
+    pc_buf_fini(&file);
+    free(path);
+    return st;
+#else
+    (void)s;
+    (void)out;
+    (void)err;
+    *found = false;
+    return PC_OK;
+#endif
+}
+
+#if defined(__linux__)
+static atomic_bool fc_started;
+static pthread_mutex_t fc_lock = PTHREAD_MUTEX_INITIALIZER;
+static bool fc_done;
+static bool fc_have[4];
+static pc_cjk_font_file fc_result[4];
+
+static void *fc_scan(void *arg)
+{
+    pc_cjk_font_file r[4];
+    bool have[4];
+    int s;
+    (void)arg;
+    memset(r, 0, sizeof r);
+    for (s = 0; s < 4; s++) {
+        have[s] = false;
+        (void)pc_cjk_fontconfig_match((pc_cjk_script)s, &r[s], &have[s], NULL);
+    }
+    (void)pthread_mutex_lock(&fc_lock);
+    memcpy(fc_result, r, sizeof r);
+    memcpy(fc_have, have, sizeof have);
+    fc_done = true;
+    (void)pthread_mutex_unlock(&fc_lock);
+    return NULL;
+}
+
+/* The finished background answer for script s (copies), when there is one. */
+static bool fontconfig_cjk_font(pc_cjk_script s, pc_cjk_font_file *out, bool *nomem)
+{
+    bool ok = false;
+    if (!atomic_load(&fc_started)) {
+        return false;
+    }
+    (void)pthread_mutex_lock(&fc_lock);
+    if (fc_done && fc_have[(int)s & 3]) {
+        const pc_cjk_font_file *f = &fc_result[(int)s & 3];
+        out->path = pc_strndup(f->path, strlen(f->path));
+        out->family = pc_strndup(f->family, strlen(f->family));
+        ok = out->path != NULL && out->family != NULL;
+        if (!ok) {
+            free(out->path);
+            free(out->family);
+            *nomem = true;
+        }
+    }
+    (void)pthread_mutex_unlock(&fc_lock);
+    return ok;
+}
+#endif
+
+void pc_cjk_start_fontconfig_scan(void)
+{
+#if defined(__linux__)
+    pthread_t t;
+    pthread_attr_t a;
+    bool spawned = false;
+    if (atomic_exchange(&fc_started, true)) {
+        return;
+    }
+    if (pthread_attr_init(&a) == 0) {
+        spawned = pthread_attr_setdetachstate(&a, PTHREAD_CREATE_DETACHED) == 0 &&
+                  pthread_create(&t, &a, fc_scan, NULL) == 0;
+        (void)pthread_attr_destroy(&a);
+    }
+    if (!spawned) {
+        (void)pthread_mutex_lock(&fc_lock);
+        fc_done = true; /* no thread: no answers */
+        (void)pthread_mutex_unlock(&fc_lock);
+    }
+#endif
+}
+
+bool pc_cjk_fontconfig_scan_pending(void)
+{
+#if defined(__linux__)
+    bool pending;
+    if (!atomic_load(&fc_started)) {
+        return false;
+    }
+    (void)pthread_mutex_lock(&fc_lock);
+    pending = !fc_done;
+    (void)pthread_mutex_unlock(&fc_lock);
+    return pending;
+#else
+    return false;
+#endif
 }
 
 pc_status pc_cjk_font_files(pc_cjk_script s, pc_cjk_font_file **out, size_t *n, pc_error *err)
@@ -543,6 +777,23 @@ pc_status pc_cjk_font_files(pc_cjk_script s, pc_cjk_font_file **out, size_t *n, 
     for (i = 0; extra[i] != NULL; i++) {
         add_with_host(&l, extra[i], "");
     }
+#if defined(__linux__)
+    {
+        /* The background Fontconfig answer, once it is in and not listed already. */
+        pc_cjk_font_file ff;
+        if (fontconfig_cjk_font(s, &ff, &l.nomem)) {
+            bool dup = false;
+            for (i = 0; i < l.n && !dup; i++) {
+                dup = strcmp(l.v[i].path, ff.path) == 0;
+            }
+            if (!dup) {
+                add_file(&l, ff.path, ff.family);
+            }
+            free(ff.path);
+            free(ff.family);
+        }
+    }
+#endif
 #endif
     return finish(&l, out, n, err);
 }

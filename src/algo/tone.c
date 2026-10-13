@@ -1,4 +1,5 @@
-/* Shadows/Highlights, Replace Color, Match Color and HDR Toning (port of crates/algo/src/tone.rs). */
+/* Shadows/Highlights defaults (the adjustment is in tone_sh.c), Replace Color, Match Color and HDR Toning
+ * (port of crates/algo/src/tone.rs). */
 #include "algo/tone.h"
 
 #include <math.h>
@@ -17,41 +18,12 @@ static float luma3(const float c[3])
     return 0.299f * c[0] + 0.587f * c[1] + 0.114f * c[2];
 }
 
-/* tone.rs's own smoothstep: no guard for e1 <= e0 (callers never pass one). */
-static float smooth(float e0, float e1, float x)
-{
-    float t = pc_clampf((x - e0) / (e1 - e0), 0.0f, 1.0f);
-    return t * t * (3.0f - 2.0f * t);
-}
-
 static pc_status check_dims(size_t n, size_t w, size_t h, pc_error *err)
 {
     size_t wh;
     if (!pc_size_mul(w, h, &wh) || wh != n) {
         return pc_fail(err, PC_ERR_INVALID, "%zu pixels given for a %zux%zu image", n, w, h);
     }
-    return PC_OK;
-}
-
-/* Blurred luminance (Gaussian, radius px ~ 2 sigma like Photoshop's radius fields). */
-static pc_status blurred_luma(const float (*px)[4], size_t n, size_t w, size_t h, float radius, float **out,
-                              pc_error *err)
-{
-    float *l = pc_malloc_array(n, sizeof(float));
-    size_t i;
-    pc_status st;
-    if (l == NULL) {
-        return pc_fail(err, PC_ERR_NOMEM, "out of memory for a luminance plane");
-    }
-    for (i = 0; i < n; i++) {
-        l[i] = luma3(px[i]);
-    }
-    st = pc_algo_gauss_blur_n(l, w, h, 1, pc_rs_maxf_k(radius, 0.0f) / 2.0f, err);
-    if (st != PC_OK) {
-        free(l);
-        return st;
-    }
-    *out = l;
     return PC_OK;
 }
 
@@ -71,171 +43,10 @@ pc_algo_shadows_highlights_params pc_algo_shadows_highlights_default(void)
     return p;
 }
 
-typedef struct sh_ctx {
-    float (*px)[4];
-    const float *ls, *lh;
-    size_t w;
-    float sa, ha, st, ht, color, mid;
-} sh_ctx;
-
-static pc_status sh_rows(void *vctx, size_t chunk, size_t begin, size_t end)
-{
-    const sh_ctx *k = vctx;
-    size_t i;
-    (void)chunk;
-    for (i = begin * k->w; i < end * k->w; i++) {
-        float *q = k->px[i];
-        float out[3], ms, mh, changed;
-        int c;
-        if (q[3] <= 0.0f) {
-            continue;
-        }
-        out[0] = q[0], out[1] = q[1], out[2] = q[2];
-        /* Mask weights: 1 in deep shadows (resp. bright highlights), fading out at the tonal width. */
-        ms = 1.0f - smooth(0.0f, k->st, k->ls[i]);
-        mh = smooth(1.0f - k->ht, 1.0f, k->lh[i]);
-        if (k->sa > 0.0f && ms > 0.0f) {
-            float g = 1.0f / (1.0f + 2.0f * k->sa * ms);
-            for (c = 0; c < 3; c++) {
-                out[c] = powf(pc_rs_maxf_k(out[c], 0.0f), g);
-            }
-        }
-        if (k->ha > 0.0f && mh > 0.0f) {
-            float g = 1.0f / (1.0f + 2.0f * k->ha * mh);
-            for (c = 0; c < 3; c++) {
-                out[c] = 1.0f - powf(1.0f - pc_rs_minf_k(out[c], 1.0f), g);
-            }
-        }
-        if (k->mid != 0.0f) {
-            float kk = 1.0f + k->mid * pc_clampf(1.0f - ms - mh, 0.0f, 1.0f);
-            for (c = 0; c < 3; c++) {
-                out[c] = (out[c] - 0.5f) * kk + 0.5f;
-            }
-        }
-        changed = pc_rs_minf_k(ms * k->sa + mh * k->ha, 1.0f);
-        if (k->color != 0.0f && changed > 0.0f) {
-            float l1 = luma3(out);
-            float s = 1.0f + k->color * changed;
-            for (c = 0; c < 3; c++) {
-                out[c] = l1 + (out[c] - l1) * s;
-            }
-        }
-        for (c = 0; c < 3; c++) {
-            q[c] = pc_clampf(out[c], 0.0f, 1.0f);
-        }
-    }
-    return PC_OK;
-}
-
 static size_t row_grain(size_t w)
 {
     size_t g = w > 0 ? 8192 / w : 1;
     return g > 0 ? g : 1;
-}
-
-/* Stretches levels so `black`% of pixels clip to 0 and `white`% to 1 (luminance histogram). */
-static void clip_stretch(float (*px)[4], size_t n, float black, float white)
-{
-    uint32_t hist[1024], cnt = 0, targets[2];
-    float pcts[2], found[2];
-    float lo, hi;
-    size_t i;
-    int which;
-    if (black <= 0.0f && white <= 0.0f) {
-        return;
-    }
-    memset(hist, 0, sizeof hist);
-    for (i = 0; i < n; i++) {
-        if (px[i][3] > 0.0f) {
-            size_t b = pc_f32_to_size(roundf(pc_clampf(luma3(px[i]), 0.0f, 1.0f) * 1023.0f));
-            if (b < 1024) {
-                hist[b]++;
-            }
-            cnt++;
-        }
-    }
-    if (cnt == 0) {
-        return;
-    }
-    pcts[0] = black;
-    pcts[1] = white;
-    for (which = 0; which < 2; which++) {
-        uint32_t acc = 0;
-        size_t k;
-        bool rev = which == 1;
-        targets[which] = pc_f32_to_u32(pc_clampf(pcts[which], 0.0f, 50.0f) / 100.0f * (float)cnt);
-        found[which] = rev ? 0.0f : 1.0f;
-        for (k = 0; k < 1024; k++) {
-            size_t idx = rev ? 1023 - k : k;
-            acc += hist[idx];
-            if (acc > targets[which]) {
-                found[which] = (float)idx / 1023.0f;
-                break;
-            }
-        }
-    }
-    lo = found[0];
-    hi = found[1];
-    if (hi - lo < 1e-3f) {
-        return;
-    }
-    for (i = 0; i < n; i++) {
-        int c;
-        if (!(px[i][3] > 0.0f)) {
-            continue;
-        }
-        for (c = 0; c < 3; c++) {
-            px[i][c] = pc_clampf((px[i][c] - lo) / (hi - lo), 0.0f, 1.0f);
-        }
-    }
-}
-
-pc_status pc_algo_shadows_highlights(float (*px)[4], size_t n, size_t w, size_t h,
-                                     const pc_algo_shadows_highlights_params *p, pc_error *err)
-{
-    float *ls = NULL, *lh = NULL;
-    sh_ctx k;
-    pc_status st;
-    if (n == 0) {
-        return PC_OK;
-    }
-    st = check_dims(n, w, h, err);
-    if (st != PC_OK) {
-        return st;
-    }
-    st = blurred_luma((const float (*)[4])px, n, w, h, p->shadow_radius, &ls, err);
-    if (st != PC_OK) {
-        return st;
-    }
-    if (fabsf(p->highlight_radius - p->shadow_radius) < 1e-3f) {
-        lh = ls;
-    } else {
-        st = blurred_luma((const float (*)[4])px, n, w, h, p->highlight_radius, &lh, err);
-        if (st != PC_OK) {
-            free(ls);
-            return st;
-        }
-    }
-    k.px = px;
-    k.ls = ls;
-    k.lh = lh;
-    k.w = w;
-    k.sa = p->shadow_amount / 100.0f;
-    k.ha = p->highlight_amount / 100.0f;
-    k.st = pc_rs_maxf_k(p->shadow_tone / 100.0f, 0.01f);
-    k.ht = pc_rs_maxf_k(p->highlight_tone / 100.0f, 0.01f);
-    k.color = p->color / 100.0f;
-    k.mid = p->midtone / 100.0f;
-    st = pc_algo_par_for(h, row_grain(w), sh_rows, &k);
-    if (lh != ls) {
-        free(lh);
-    }
-    free(ls);
-    if (st != PC_OK) {
-        return pc_fail(err, st, "shadows/highlights failed");
-    }
-    clip_stretch(px, n, p->black_clip, p->white_clip);
-    return PC_OK;
 }
 
 void pc_algo_replace_color(float (*px)[4], size_t n, const float color[3], float fuzziness, float hue,

@@ -1,6 +1,7 @@
 /* Vector data (port of crates/doc/src/vector.rs). */
 #include "doc/vector.h"
 
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -551,4 +552,35 @@ bool pc_shape_layer_eq(const pc_shape_layer *a, const pc_shape_layer *b)
         return false;
     }
     return pc_blob_eq(a->psd_raw, b->psd_raw);
+}
+
+pc_status pc_shape_stroke_validate(const pc_shape_stroke *s, pc_error *err)
+{
+    float sum = -0.0f;
+    if (!isfinite(s->width) || !(s->width >= 0.0f && s->width <= 1000000.0f)) {
+        return pc_fail(err, PC_ERR_INVALID, "stroke width must be finite and between 0 and 1000000 px");
+    }
+    if (!isfinite(s->opacity) || !(s->opacity >= 0.0f && s->opacity <= 1.0f)) {
+        return pc_fail(err, PC_ERR_INVALID, "stroke opacity must be between 0 and 100%%");
+    }
+    if (!isfinite(s->miter_limit) || !(s->miter_limit >= 1.0f && s->miter_limit <= 500.0f)) {
+        return pc_fail(err, PC_ERR_INVALID, "miter limit must be between 1 and 500");
+    }
+    if (!isfinite(s->dash_offset) || fabsf(s->dash_offset) > 1000000.0f) {
+        return pc_fail(err, PC_ERR_INVALID,
+                       "dash offset must be finite and within \xc2\xb1"
+                       "1000000 widths");
+    }
+    for (size_t i = 0; i < s->ndashes; i++) {
+        float d = s->dashes[i];
+        if (s->ndashes > 32 || !isfinite(d) || !(d >= 0.0f && d <= 10000.0f)) {
+            return pc_fail(err, PC_ERR_INVALID,
+                           "dash pattern must contain at most 32 finite lengths between 0 and 10000 widths");
+        }
+        sum += d;
+    }
+    if (s->ndashes > 0 && sum < 0.01f) {
+        return pc_fail(err, PC_ERR_INVALID, "dash pattern total must be at least 0.01 widths");
+    }
+    return PC_OK;
 }

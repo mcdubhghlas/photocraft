@@ -108,6 +108,10 @@ pc_status pc_ed_parse(const uint8_t *data, size_t len, pc_ed_value *out, pc_erro
 /* Appends Photoshop's layout ("\n\n" + value + "\n", tab-indented, one key per line) to out.
  * On failure out is unchanged. */
 pc_status pc_ed_write(const pc_ed_value *v, pc_buf *out, pc_error *err);
+/* write_bare: the entries of `dict` as `/key value` pairs without an enclosing dictionary (the
+ * layout of the document's Txt2 block, which pc_txt2_parse wraps in << >>). A non-dictionary
+ * writes only the leading "\n\n". On failure out is unchanged. */
+pc_status pc_ed_write_bare(const pc_ed_value *dict, pc_buf *out, pc_error *err);
 /* A real the way Photoshop writes it: `1.0`, `.5`, `-.25`; non-finite values as `0.0`. Returns
  * the length written to out (NUL-terminated). */
 size_t pc_ed_format_real(double r, char out[PC_ED_REAL_MAX]);

@@ -38,6 +38,11 @@ pc_doc_id pc_doc_id_fresh(void)
     return fresh_id();
 }
 
+pc_smart_contents_id pc_smart_contents_id_fresh(void)
+{
+    return fresh_id();
+}
+
 void pc_ensure_ids_above(uint64_t max)
 {
     /* AtomicU64::fetch_max(max.saturating_add(1)) as a CAS loop. */
@@ -358,6 +363,7 @@ void pc_smart_object_init(pc_smart_object *out, pc_smart_source *source, pc_affi
         memset(cache, 0, sizeof *cache);
     }
     out->filters_enabled = true;
+    out->contents_id = pc_smart_contents_id_fresh();
 }
 
 void pc_smart_object_fini(pc_smart_object *s)
@@ -385,6 +391,7 @@ pc_status pc_smart_object_clone(const pc_smart_object *s, pc_smart_object *out, 
     pc_smart_object c;
     pc_status st;
     memset(&c, 0, sizeof c);
+    c.contents_id = s->contents_id;
     c.transform = s->transform;
     c.filters_enabled = s->filters_enabled;
     c.has_stack_mode = s->has_stack_mode;
@@ -434,10 +441,10 @@ bool pc_smart_object_eq(const pc_smart_object *a, const pc_smart_object *b)
 {
     bool same;
     size_t i;
-    if (!smart_source_eq(&a->source, &b->source) || !pc_doc_affine_eq(&a->transform, &b->transform) ||
-        a->has_cache != b->has_cache || (a->has_cache && !pc_surface_eq(&a->cache, &b->cache)) ||
-        !pc_blob_eq(a->psd_raw, b->psd_raw) || a->filters_enabled != b->filters_enabled ||
-        a->has_filter_mask != b->has_filter_mask ||
+    if (a->contents_id != b->contents_id || !smart_source_eq(&a->source, &b->source) ||
+        !pc_doc_affine_eq(&a->transform, &b->transform) || a->has_cache != b->has_cache ||
+        (a->has_cache && !pc_surface_eq(&a->cache, &b->cache)) || !pc_blob_eq(a->psd_raw, b->psd_raw) ||
+        a->filters_enabled != b->filters_enabled || a->has_filter_mask != b->has_filter_mask ||
         (a->has_filter_mask && !pc_layer_mask_eq(&a->filter_mask, &b->filter_mask)) ||
         a->has_warp != b->has_warp || (a->has_warp && !pc_warp_eq(&a->warp, &b->warp)) ||
         a->has_stack_mode != b->has_stack_mode || (a->has_stack_mode && a->stack_mode != b->stack_mode) ||

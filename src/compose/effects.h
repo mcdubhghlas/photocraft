@@ -30,6 +30,14 @@ bool pc_compose_has_effects(const pc_layer *layer);
  * MAX_REACH)) + 2. */
 int32_t pc_compose_effects_margin(const pc_layer *layer);
 
+/* Whether every enabled effect's maps are local: each map pixel depends only on the shape within
+ * the margin of it (shifts, chamfer distances, tent blurs), so maps built over part of the
+ * layer's region padded by twice the margin equal the whole-region maps over that part (#1909).
+ * Not local: gradient strokes, Precise glows, chiselled bevels and noise. */
+bool pc_compose_fx_maps_are_local(const pc_layer *layer);
+/* The distance the two satin copies are offset by: Distance 0 draws as 1 px. */
+float pc_compose_fx_satin_distance(const pc_satin *s);
+
 /* The effect maps of one layer over a region (C3 defines the struct). */
 typedef struct pc_compose_fx_maps pc_compose_fx_maps;
 

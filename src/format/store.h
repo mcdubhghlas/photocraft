@@ -50,9 +50,30 @@ typedef struct pc_format_load_opts {
     size_t max_blob_bytes;     /* one decompressed blob (1 GiB) */
     uint64_t max_total_bytes;  /* all decompressed tile + blob bytes (16 GiB) */
     bool preserve_ids;         /* keep document and layer ids (the id counter is advanced past them) */
+    /* Longest canvas side the manifest may declare (PC_FORMAT_MAX_CANVAS_SIDE, the PSB limit). */
+    uint32_t max_canvas_side;
+    /* Most canvas pixels it may declare (default: the full 300000 x 300000 PSB canvas). Callers
+     * handling untrusted files (previewers, batch jobs) may lower it: the compositor, thumbnails
+     * and display work in proportion to the area. Loading itself allocates only stored tiles. */
+    uint64_t max_canvas_pixels;
 } pc_format_load_opts;
 
+#define PC_FORMAT_MAX_CANVAS_SIDE 300000u
+#define PC_FORMAT_MAX_CANVAS_PIXELS ((uint64_t)PC_FORMAT_MAX_CANVAS_SIDE * PC_FORMAT_MAX_CANVAS_SIDE)
+
 pc_format_load_opts pc_format_load_opts_default(void);
+
+/* A bundle's files from anywhere (a directory behind a capability handle, an archive, a test
+ * fixture): fill *out (replacing it) with the file at bundle path `path`, at most max bytes, or
+ * fail with the FormatError conventions (missing: corrupt "missing `path`"; too big: limit). */
+typedef pc_status (*pc_format_byte_source_get)(void *ctx, const char *path, size_t max, pc_buf *out,
+                                               pc_error *err);
+
+/* Read one opened bundle entry from fd under its max budget (store::read_entry). len_hint (the
+ * stat length) is a hint only: the bound is enforced on the read, so a stream that yields more
+ * than max is "limit exceeded: `path` exceeds max bytes". *out replaced on success. */
+pc_status pc_format_read_entry(int fd, uint64_t len_hint, size_t max, const char *path, pc_buf *out,
+                               pc_error *err);
 
 /* What a save did. */
 typedef struct pc_format_save_stats {

@@ -46,7 +46,8 @@ enum kind {
     K_PATTERN,
     K_TILE,
     K_STRUCT,
-    K_POINTS
+    K_POINTS,
+    K_STRS /* pc_paint_str_list */
 };
 enum def { D_REQ, D_FIELD, D_CONT };
 
@@ -60,7 +61,7 @@ typedef struct field {
     const char *alias;
     unsigned char kind;
     unsigned char def;
-    unsigned char skip_empty; /* skip_serializing_if = "String::is_empty" */
+    unsigned char skip_empty; /* skip_serializing_if: String/Vec::is_empty, or Not::not for a bool */
     size_t off;
     const void *aux; /* uenum (K_ENUM) or sdesc (K_STRUCT) */
 } field;
@@ -196,8 +197,8 @@ static const char *const CONTROL_NAMES[] = {"off",         "fade",     "penPress
 static const char *const MASK_NAMES[] = {"multiply",  "subtract",   "darken",  "overlay",      "colorDodge",
                                          "colorBurn", "linearBurn", "hardMix", "linearHeight", "height"};
 static const char *const STYLE_NAMES[] = {"noise", "canvas", "paper", "dots"};
-static const char *const TIP_NAMES[] = {"round", "sampled"};
-static const char *const PATTERN_NAMES[] = {"procedural", "tile"};
+static const char *const TIP_NAMES[] = {"round", "sampled", "stored"};
+static const char *const PATTERN_NAMES[] = {"procedural", "tile", "stored"};
 
 static const char *control_name(unsigned i)
 {
@@ -227,8 +228,8 @@ static const char *blend_name(unsigned i)
 static const uenum E_CONTROL = {control_name, 8};
 static const uenum E_MASK = {mask_name, 10};
 static const uenum E_STYLE = {style_name, 4};
-static const uenum E_TIP = {tip_name, 2};
-static const uenum E_PATTERN = {pattern_name, 2};
+static const uenum E_TIP = {tip_name, 3};
+static const uenum E_PATTERN = {pattern_name, 3};
 static const uenum E_BLEND = {blend_name, PC_BLEND_COUNT};
 /* replace.h's names (chunk L3: Color Replacement and Background Eraser options). */
 static const char *replace_mode_name(unsigned i)
@@ -498,6 +499,65 @@ static const sdesc POINT_S;
 static yyjson_mut_val *write_struct(const sdesc *s, yyjson_mut_doc *d, const void *base, unsigned flags);
 static void fini_struct(const sdesc *s, void *base);
 
+/* StoredTile { key, width, height, preview } (`full` is never serialised). */
+typedef struct stored_c {
+    pc_str key;
+    uint32_t width;
+    uint32_t height;
+    pc_paint_gray_tile preview;
+} stored_c;
+
+static const field STORED_F[] = {
+    {"key", NULL, K_STR, D_REQ, 0, offsetof(stored_c, key), NULL},
+    {"width", NULL, K_U32, D_REQ, 0, offsetof(stored_c, width), NULL},
+    {"height", NULL, K_U32, D_REQ, 0, offsetof(stored_c, height), NULL},
+    {"preview", NULL, K_TILE, D_REQ, 0, offsetof(stored_c, preview), NULL},
+};
+static const sdesc STORED_S = {"struct StoredTile", "StoredTile", STORED_F, 4, sizeof(stored_c), NULL};
+
+/* The payload of a `stored` variant into *out (unloaded). */
+static pc_status read_stored(yyjson_val *payload, pc_paint_stored_tile *out, pc_error *err)
+{
+    stored_c c;
+    pc_status st;
+    if (payload == NULL) {
+        return pc_fail(err, PC_ERR_INVALID, "invalid type: unit variant, expected newtype variant");
+    }
+    st = read_struct(&STORED_S, payload, &c, err);
+    if (st != PC_OK) {
+        return st;
+    }
+    st =
+        pc_paint_stored_tile_init(pc_str_c(&c.key), c.key.len, c.width, c.height, &c.preview, NULL, out, err);
+    if (st != PC_OK) {
+        st = fail_nomem(err);
+    }
+    fini_struct(&STORED_S, &c);
+    return st;
+}
+
+/* {"tag": tile} for a loaded stored tile (its full bitmap), else {"stored": {...}}. */
+static yyjson_mut_val *write_stored(yyjson_mut_doc *d, const pc_paint_stored_tile *t, const char *tag,
+                                    unsigned flags)
+{
+    yyjson_mut_val *o = yyjson_mut_obj(d), *inner;
+    if (o == NULL) {
+        return NULL;
+    }
+    if (t->loaded) {
+        inner = write_tile(d, &t->full);
+        return inner != NULL && yyjson_mut_obj_add_val(d, o, tag, inner) ? o : NULL;
+    } else {
+        size_t len;
+        const char *key = pc_paint_stored_tile_key(t, &len);
+        stored_c c = {PC_STR_INIT, t->width, t->height, t->preview};
+        c.key.ptr = (char *)(uintptr_t)key; /* borrowed for writing only */
+        c.key.len = len;
+        inner = write_struct(&STORED_S, d, &c, flags);
+        return inner != NULL && yyjson_mut_obj_add_val(d, o, "stored", inner) ? o : NULL;
+    }
+}
+
 static pc_status read_tip(yyjson_val *v, pc_paint_tip *out, pc_error *err)
 {
     unsigned idx = 0;
@@ -514,6 +574,16 @@ static pc_status read_tip(yyjson_val *v, pc_paint_tip *out, pc_error *err)
         pc_paint_tip_default(out);
         return PC_OK;
     }
+    if (idx == PC_PAINT_TIP_STORED) {
+        pc_paint_stored_tile r;
+        st = read_stored(payload, &r, err);
+        if (st == PC_OK) {
+            pc_paint_tip_default(out);
+            out->kind = PC_PAINT_TIP_STORED;
+            out->stored = r;
+        }
+        return st;
+    }
     if (payload == NULL) {
         return pc_fail(err, PC_ERR_INVALID, "invalid type: unit variant, expected newtype variant");
     }
@@ -521,16 +591,20 @@ static pc_status read_tip(yyjson_val *v, pc_paint_tip *out, pc_error *err)
     if (st != PC_OK) {
         return st;
     }
+    pc_paint_tip_default(out);
     out->kind = PC_PAINT_TIP_SAMPLED;
     out->tile = t;
     return PC_OK;
 }
 
-static yyjson_mut_val *write_tip(yyjson_mut_doc *d, const pc_paint_tip *t)
+static yyjson_mut_val *write_tip(yyjson_mut_doc *d, const pc_paint_tip *t, unsigned flags)
 {
     yyjson_mut_val *o, *tile;
     if (t->kind == PC_PAINT_TIP_ROUND) {
         return yyjson_mut_str(d, "round");
+    }
+    if (t->kind == PC_PAINT_TIP_STORED) {
+        return write_stored(d, &t->stored, "sampled", flags);
     }
     o = yyjson_mut_obj(d);
     tile = write_tile(d, &t->tile);
@@ -578,6 +652,16 @@ static pc_status read_pattern(yyjson_val *v, pc_paint_pattern *out, pc_error *er
         out->seed = p.seed;
         return PC_OK;
     }
+    if (idx == PC_PAINT_PATTERN_STORED) {
+        pc_paint_stored_tile r;
+        st = read_stored(payload, &r, err);
+        if (st == PC_OK) {
+            memset(out, 0, sizeof *out);
+            out->kind = PC_PAINT_PATTERN_STORED;
+            out->stored = r;
+        }
+        return st;
+    }
     if (payload == NULL) {
         return pc_fail(err, PC_ERR_INVALID, "invalid type: unit variant, expected newtype variant");
     }
@@ -592,7 +676,11 @@ static pc_status read_pattern(yyjson_val *v, pc_paint_pattern *out, pc_error *er
 
 static yyjson_mut_val *write_pattern(yyjson_mut_doc *d, const pc_paint_pattern *p, unsigned flags)
 {
-    yyjson_mut_val *o = yyjson_mut_obj(d), *inner;
+    yyjson_mut_val *o, *inner;
+    if (p->kind == PC_PAINT_PATTERN_STORED) {
+        return write_stored(d, &p->stored, "tile", flags);
+    }
+    o = yyjson_mut_obj(d);
     if (o == NULL) {
         return NULL;
     }
@@ -625,6 +713,9 @@ static void fini_field(const field *f, void *slot)
         break;
     case K_STRUCT:
         fini_struct(f->aux, slot);
+        break;
+    case K_STRS:
+        pc_paint_str_list_fini(slot);
         break;
     case K_POINTS: {
         pc_paint_point **pp = slot;
@@ -667,6 +758,41 @@ static pc_status read_points(yyjson_val *v, void *slot, pc_error *err)
         *pp = pts;
         *cnt = n;
     }
+    return PC_OK;
+}
+
+/* Vec<String>: a sequence of strings. */
+static pc_status read_strs(yyjson_val *v, pc_paint_str_list *slot, pc_error *err)
+{
+    pc_paint_str_list l = {NULL, 0};
+    size_t n;
+    if (!yyjson_is_arr(v)) {
+        return fail_type(v, "a sequence", err);
+    }
+    n = yyjson_arr_size(v);
+    if (n > 0) {
+        l.v = pc_calloc_array(n, sizeof *l.v);
+        if (l.v == NULL) {
+            return fail_nomem(err);
+        }
+    }
+    for (; l.len < n; l.len++) {
+        yyjson_val *e = yyjson_arr_get(v, l.len);
+        pc_status st;
+        if (!yyjson_is_str(e)) {
+            st = fail_type(e, "a string", err);
+        } else {
+            st = pc_str_set(&l.v[l.len], yyjson_get_str(e), yyjson_get_len(e), NULL) == PC_OK
+                     ? PC_OK
+                     : fail_nomem(err);
+        }
+        if (st != PC_OK) {
+            pc_paint_str_list_fini(&l);
+            return st;
+        }
+    }
+    pc_paint_str_list_fini(slot);
+    *slot = l;
     return PC_OK;
 }
 
@@ -796,6 +922,8 @@ static pc_status read_field(const field *f, yyjson_val *v, void *slot, pc_error 
     }
     case K_POINTS:
         return read_points(v, slot, err);
+    case K_STRS:
+        return read_strs(v, slot, err);
     default:
         return pc_fail(err, PC_ERR_INVALID, "unknown field kind");
     }
@@ -851,7 +979,7 @@ static yyjson_mut_val *write_field(const field *f, yyjson_mut_doc *d, const void
         return x >= 0 && (unsigned)x < e->n ? yyjson_mut_str(d, e->name((unsigned)x)) : NULL;
     }
     case K_TIP:
-        return write_tip(d, slot);
+        return write_tip(d, slot, flags);
     case K_PATTERN:
         return write_pattern(d, slot, flags);
     case K_TILE:
@@ -871,8 +999,35 @@ static yyjson_mut_val *write_field(const field *f, yyjson_mut_doc *d, const void
         }
         return a;
     }
+    case K_STRS: {
+        const pc_paint_str_list *l = slot;
+        yyjson_mut_val *a = yyjson_mut_arr(d);
+        for (size_t i = 0; a != NULL && i < l->len; i++) {
+            yyjson_mut_val *x = yyjson_mut_strncpy(d, pc_str_c(&l->v[i]), l->v[i].len);
+            if (x == NULL || !yyjson_mut_arr_append(a, x)) {
+                return NULL;
+            }
+        }
+        return a;
+    }
     default:
         return NULL;
+    }
+}
+
+/* skip_serializing_if: an empty string or list, or a false bool. */
+static bool skipped(const field *f, const void *slot)
+{
+    if (!f->skip_empty) {
+        return false;
+    }
+    switch (f->kind) {
+    case K_BOOL:
+        return !*(const bool *)slot;
+    case K_STRS:
+        return ((const pc_paint_str_list *)slot)->len == 0;
+    default:
+        return ((const pc_str *)slot)->len == 0;
     }
 }
 
@@ -967,7 +1122,7 @@ static yyjson_mut_val *write_struct(const sdesc *s, yyjson_mut_doc *d, const voi
         const field *f = &s->f[i];
         const void *slot = (const char *)base + f->off;
         yyjson_mut_val *x;
-        if (f->skip_empty && ((const pc_str *)slot)->len == 0) {
+        if (skipped(f, slot)) {
             continue;
         }
         x = write_field(f, d, slot, flags);
@@ -1224,6 +1379,7 @@ static const field BRUSH_F[] = {
     F("flipX", BR, flip_x, K_BOOL, NULL),
     F("flipY", BR, flip_y, K_BOOL, NULL),
     F("aliased", BR, aliased, K_BOOL, NULL),
+    {"square", NULL, K_BOOL, D_CONT, 1, offsetof(BR, square), NULL},
     F("shapeDynamics", BR, shape_dynamics, K_STRUCT, &SHAPE_S),
     F("scattering", BR, scattering, K_STRUCT, &SCATTER_S),
     F("texture", BR, texture, K_STRUCT, &TEXTURE_S),
@@ -1241,7 +1397,7 @@ static const field BRUSH_F[] = {
     F("mixer", BR, mixer, K_STRUCT, &MIXER_S),
     F("seed", BR, seed, K_U64, NULL),
 };
-static const sdesc BRUSH_S = {"struct BrushSettings", "BrushSettings", BRUSH_F, 34, sizeof(BR), def_brush};
+static const sdesc BRUSH_S = {"struct BrushSettings", "BrushSettings", BRUSH_F, 35, sizeof(BR), def_brush};
 
 typedef pc_paint_stroke ST;
 static const field STROKE_F[] = {
@@ -1256,8 +1412,9 @@ static const field PRESET_F[] = {
     {"brush", NULL, K_STRUCT, D_REQ, 0, offsetof(PR, brush), &BRUSH_S},
     {"builtin", NULL, K_BOOL, D_FIELD, 0, offsetof(PR, builtin), NULL},
     {"group", NULL, K_STR, D_FIELD, 1, offsetof(PR, group), NULL},
+    {"folder", NULL, K_STRS, D_FIELD, 1, offsetof(PR, folder), NULL},
 };
-static const sdesc PRESET_S = {"struct BrushPreset", "BrushPreset", PRESET_F, 4, sizeof(PR), NULL};
+static const sdesc PRESET_S = {"struct BrushPreset", "BrushPreset", PRESET_F, 5, sizeof(PR), NULL};
 
 /* ---- public entry points ---- */
 

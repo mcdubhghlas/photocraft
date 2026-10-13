@@ -148,15 +148,45 @@ static pc_status pixel_count(pc_rect rect, size_t *n, pc_error *err)
     return PC_OK;
 }
 
-pc_status pc_vec_compiled_mask_render(const pc_vec_compiled_mask *m, pc_rect rect, float **out, size_t *len,
-                                      pc_error *err)
+/* Rasteriser coverage over rect on the calling thread only. */
+static pc_status render_sequential(const pc_vec_rasterizer *r, pc_rect rect, float **out, size_t *len,
+                                   pc_error *err)
+{
+    size_t n;
+    float *buf;
+    pc_status st = pixel_count(rect, &n, err);
+    if (st != PC_OK) {
+        return st;
+    }
+    if (n == 0) {
+        *out = NULL;
+        *len = 0;
+        return PC_OK;
+    }
+    buf = pc_calloc_array(n, sizeof *buf);
+    if (buf == NULL) {
+        return pc_fail(err, PC_ERR_NOMEM, "vector: out of memory");
+    }
+    st = pc_vec_rasterizer_render_into(r, rect, buf, n, err);
+    if (st != PC_OK) {
+        free(buf);
+        return st;
+    }
+    *out = buf;
+    *len = n;
+    return PC_OK;
+}
+
+static pc_status compiled_mask_render(const pc_vec_compiled_mask *m, pc_rect rect, bool sequential,
+                                      float **out, size_t *len, pc_error *err)
 {
     float *v = NULL;
     size_t n = 0;
     size_t i;
     pc_status st;
     if (m->is_path) {
-        st = pc_vec_rasterizer_render(&m->raster, rect, &v, &n, err);
+        st = sequential ? render_sequential(&m->raster, rect, &v, &n, err)
+                        : pc_vec_rasterizer_render(&m->raster, rect, &v, &n, err);
         if (st != PC_OK) {
             return st;
         }
@@ -183,6 +213,18 @@ pc_status pc_vec_compiled_mask_render(const pc_vec_compiled_mask *m, pc_rect rec
     *out = v;
     *len = n;
     return PC_OK;
+}
+
+pc_status pc_vec_compiled_mask_render(const pc_vec_compiled_mask *m, pc_rect rect, float **out, size_t *len,
+                                      pc_error *err)
+{
+    return compiled_mask_render(m, rect, false, out, len, err);
+}
+
+pc_status pc_vec_compiled_mask_render_sequential(const pc_vec_compiled_mask *m, pc_rect rect, float **out,
+                                                 size_t *len, pc_error *err)
+{
+    return compiled_mask_render(m, rect, true, out, len, err);
 }
 
 pc_status pc_vec_mask_values(const pc_vector_mask *m, pc_rect rect, float **out, size_t *len, pc_error *err)

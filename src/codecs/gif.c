@@ -157,66 +157,99 @@ static bool lzw_decode(const uint8_t *in, size_t n, unsigned min, uint8_t *out, 
     return true;
 }
 
-pc_status cx_gif_decode(const uint8_t *b, size_t n, const pc_climits *l, pc_cimage *out, pc_error *err)
+pc_status cx_gif_open(const uint8_t *b, size_t n, cx_gif *g, pc_error *err)
 {
-    uint32_t sw;
-    uint32_t sh;
-    size_t i;
-    const uint8_t *gct = NULL;
-    size_t ngct = 0;
-    int transparent = -1;
-    pc_cimage img;
-    pc_status st;
+    memset(g, 0, sizeof *g);
     if (n < 13 || (memcmp(b, "GIF87a", 6) != 0 && memcmp(b, "GIF89a", 6) != 0)) {
         return cx_malformed(err, F, "not a GIF file");
     }
-    sw = cx_le16(b + 6);
-    sh = cx_le16(b + 8);
-    i = 13;
+    g->b = b;
+    g->n = n;
+    g->sw = cx_le16(b + 6);
+    g->sh = cx_le16(b + 8);
+    g->pos = 13;
     if (b[10] & 0x80) {
-        ngct = (size_t)1 << ((b[10] & 7) + 1);
-        if (n - i < 3 * ngct) {
+        g->ngct = (size_t)1 << ((b[10] & 7) + 1);
+        if (n - g->pos < 3 * g->ngct) {
             return cx_malformed(err, F, "file ends inside the global colour table");
         }
-        gct = b + i;
-        i += 3 * ngct;
+        g->gct = b + g->pos;
+        g->pos += 3 * g->ngct;
     }
-    if ((st = pc_climits_check(l, sw, sh, PC_CL_RGBA, PC_CS_U8, err)) != PC_OK) {
-        return st;
+    return PC_OK;
+}
+
+/* Skips data sub-blocks from *i (ended by a zero length); copies up to cap bytes of their
+ * contents into out (when not NULL) and counts them all in *total. */
+static bool sub_blocks(const uint8_t *b, size_t n, size_t *i, uint8_t *out, size_t cap, size_t *total)
+{
+    *total = 0;
+    for (;;) {
+        size_t len;
+        if (*i >= n) {
+            return false;
+        }
+        len = b[*i];
+        if (n - *i - 1 < len) {
+            return false;
+        }
+        if (out != NULL && *total < cap) {
+            size_t k = cap - *total < len ? cap - *total : len;
+            memcpy(out + *total, b + *i + 1, k);
+        }
+        *total += len;
+        *i += 1 + len;
+        if (len == 0) {
+            return true;
+        }
     }
+}
+
+pc_status cx_gif_next(cx_gif *g, uint64_t budget, bool band_free, cx_gif_frame *f, bool *done, pc_error *err)
+{
+    const uint8_t *b = g->b;
+    size_t n = g->n;
+    size_t i = g->pos;
+    int transparent = -1;
+    int disposal = 0;
+    uint16_t delay = 0;
+    bool any = false;
+    memset(f, 0, sizeof *f);
+    *done = false;
     for (;;) {
         uint8_t kind;
         if (i >= n) {
-            return cx_malformed(err, F, "file ends before the first image");
+            return cx_malformed(err, F,
+                                any ? "file ends before the next image" : "file ends before the first image");
         }
         kind = b[i];
         if (kind == 0x3B) {
-            return cx_malformed(err, F, "the file has no image");
+            *done = true;
+            g->pos = i;
+            return PC_OK;
         }
         if (kind == 0x21) {
             uint8_t label;
+            uint8_t ctl[4];
+            size_t total;
             if (n - i < 2) {
                 return cx_malformed(err, F, "file ends inside an extension");
             }
             label = b[i + 1];
             i += 2;
-            if (label == 0xF9 && i < n && b[i] >= 4 && n - i > 4) {
-                transparent = (b[i + 1] & 1) ? b[i + 4] : -1;
+            if (!sub_blocks(b, n, &i, ctl, sizeof ctl, &total)) {
+                return cx_malformed(err, F, "file ends inside an extension");
             }
-            for (;;) {
-                size_t len;
-                if (i >= n) {
-                    return cx_malformed(err, F, "file ends inside an extension");
+            if (label == 0xF9) {
+                if (total != 4) {
+                    return cx_malformed(err, F, "control extension has wrong length");
                 }
-                len = b[i];
-                if (n - i - 1 < len) {
-                    return cx_malformed(err, F, "file ends inside an extension");
-                }
-                i += 1 + len;
-                if (len == 0) {
-                    break;
-                }
+                disposal = (ctl[0] >> 2) & 7;
+                disposal = disposal > 3 ? 0 : disposal;
+                delay = (uint16_t)(ctl[1] | (ctl[2] << 8));
+                transparent = (ctl[0] & 1) ? ctl[3] : -1;
             }
+            any = true;
             continue;
         }
         if (kind != 0x2C) {
@@ -225,25 +258,25 @@ pc_status cx_gif_decode(const uint8_t *b, size_t n, const pc_climits *l, pc_cima
         break;
     }
     {
-        size_t left;
-        size_t top;
-        size_t fw;
-        size_t fh;
         uint8_t flags;
-        const uint8_t *pal = gct;
-        size_t npal = ngct;
+        const uint8_t *pal = g->gct;
+        size_t npal = g->ngct;
         unsigned min;
         pc_buf data = PC_BUF_INIT;
         uint8_t *idx;
+        size_t fw;
+        size_t fh;
+        size_t px;
         size_t x;
         size_t y;
+        pc_status st;
         if (n - i < 10) {
             return cx_malformed(err, F, "file ends inside an image descriptor");
         }
-        left = cx_le16(b + i + 1);
-        top = cx_le16(b + i + 3);
-        fw = cx_le16(b + i + 5);
-        fh = cx_le16(b + i + 7);
+        f->left = cx_le16(b + i + 1);
+        f->top = cx_le16(b + i + 3);
+        f->w = cx_le16(b + i + 5);
+        f->h = cx_le16(b + i + 7);
         flags = b[i + 9];
         i += 10;
         if (flags & 0x80) {
@@ -257,8 +290,12 @@ pc_status cx_gif_decode(const uint8_t *b, size_t n, const pc_climits *l, pc_cima
         if (pal == NULL) {
             return cx_malformed(err, F, "no color table available for current frame");
         }
-        if (left + fw > sw || top + fh > sh) {
-            return cx_malformed(err, F, "the frame does not fit the logical screen");
+        fw = f->w;
+        fh = f->h;
+        px = fw * fh;
+        if ((uint64_t)px * 4 > budget &&
+            !(band_free && f->left == 0 && f->w == g->sw && (uint64_t)f->top + f->h <= g->sh)) {
+            return cx_limit(err, "Memory limit exceeded");
         }
         if (i >= n) {
             return cx_malformed(err, F, "file ends before the image data");
@@ -278,30 +315,32 @@ pc_status cx_gif_decode(const uint8_t *b, size_t n, const pc_climits *l, pc_cima
                 pc_buf_fini(&data);
                 return cx_malformed(err, F, "image truncated");
             }
+            i += 1 + len;
             if (len == 0) {
                 break;
             }
-            if ((st = pc_buf_append(&data, b + i + 1, len, err)) != PC_OK) {
+            if ((st = pc_buf_append(&data, b + i - len, len, err)) != PC_OK) {
                 pc_buf_fini(&data);
                 return st;
             }
-            i += 1 + len;
         }
-        idx = calloc(fw * fh > 0 ? fw * fh : 1, 1);
-        if (idx == NULL) {
+        idx = calloc(px > 0 ? px : 1, 1);
+        f->rgba = calloc(px > 0 ? px * 4 : 1, 1);
+        if (idx == NULL || f->rgba == NULL) {
+            free(idx);
+            free(f->rgba);
+            f->rgba = NULL;
             pc_buf_fini(&data);
             return cx_nomem(err);
         }
-        if (fw * fh > 0 && !lzw_decode(data.data, data.len, min, idx, fw * fh)) {
+        if (px > 0 && !lzw_decode(data.data, data.len, min, idx, px)) {
             free(idx);
+            free(f->rgba);
+            f->rgba = NULL;
             pc_buf_fini(&data);
             return cx_malformed(err, F, "image truncated");
         }
         pc_buf_fini(&data);
-        if ((st = pc_cimage_new(sw, sh, PC_CL_RGBA, PC_CS_U8, &img, err)) != PC_OK) {
-            free(idx);
-            return st;
-        }
         for (y = 0; y < fh; y++) {
             size_t sy = y;
             if (flags & 0x40) {
@@ -321,17 +360,58 @@ pc_status cx_gif_decode(const uint8_t *b, size_t n, const pc_climits *l, pc_cima
             }
             for (x = 0; x < fw; x++) {
                 uint8_t k = idx[sy * fw + x];
-                uint8_t *px = img.data + ((top + y) * sw + left + x) * 4;
+                uint8_t *o = f->rgba + (y * fw + x) * 4;
                 if ((size_t)k < npal) {
-                    px[0] = pal[3 * k];
-                    px[1] = pal[3 * k + 1];
-                    px[2] = pal[3 * k + 2];
-                    px[3] = transparent == k ? 0 : 0xFF;
+                    o[0] = pal[3 * k];
+                    o[1] = pal[3 * k + 1];
+                    o[2] = pal[3 * k + 2];
+                    o[3] = transparent == k ? 0 : 0xFF;
                 }
             }
         }
         free(idx);
+        f->disposal = disposal;
+        f->delay_cs = delay;
+        g->pos = i;
+        return PC_OK;
     }
+}
+
+pc_status cx_gif_decode(const uint8_t *b, size_t n, const pc_climits *l, pc_cimage *out, pc_error *err)
+{
+    cx_gif g;
+    cx_gif_frame f;
+    bool done;
+    pc_cimage img;
+    pc_status st;
+    size_t x;
+    size_t y;
+    uint64_t screen;
+    if ((st = cx_gif_open(b, n, &g, err)) != PC_OK) {
+        return st;
+    }
+    if ((st = pc_climits_check(l, g.sw, g.sh, PC_CL_RGBA, PC_CS_U8, err)) != PC_OK) {
+        return st;
+    }
+    screen = (uint64_t)g.sw * g.sh * 4;
+    /* The output is budgeted; a frame that is not a full-width band of it needs its own buffer. */
+    if ((st = cx_gif_next(&g, l->max_alloc - screen, true, &f, &done, err)) != PC_OK) {
+        return st;
+    }
+    if (done) {
+        return cx_malformed(err, F, "the file has no image");
+    }
+    if ((st = pc_cimage_new(g.sw, g.sh, PC_CL_RGBA, PC_CS_U8, &img, err)) != PC_OK) {
+        free(f.rgba);
+        return st;
+    }
+    /* The frame drawn onto the transparent logical screen, cropped to it. */
+    for (y = 0; y < f.h && f.top + y < g.sh; y++) {
+        for (x = 0; x < f.w && f.left + x < g.sw; x++) {
+            memcpy(img.data + (((size_t)f.top + y) * g.sw + f.left + x) * 4, f.rgba + (y * f.w + x) * 4, 4);
+        }
+    }
+    free(f.rgba);
     {
         pc_cwarning w;
         if (more_frames(b, n, &w) && (st = pc_cimage_add_warning(&img, w, err)) != PC_OK) {

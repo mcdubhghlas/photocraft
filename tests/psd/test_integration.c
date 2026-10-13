@@ -800,18 +800,26 @@ static void test_builder_misc(void)
     pc_psd_image8_fini(&img);
     pc_psd_file_fini(&f);
     pc_psd_builder_free(b);
-    /* composite with alpha */
-    rgba_pattern(3, 2, 0, px);
-    b = pc_psd_builder_new(3, 2);
-    s = pc_psd_layer_spec_make("x", 0, 0, 3, 2, px8(PC_PSD_PX_RGBA8, px, 24));
-    pc_psd_builder_push_layer(b, &s, NULL);
-    pc_psd_builder_composite(b, px8(PC_PSD_PX_RGBA8, px, 24), NULL);
-    f = built(b);
-    CHECK(f.header.channels == 4 && f.layer_info.merged_alpha && pc_psd_file_merged_has_alpha(&f));
-    CHECK(pc_psd_file_has_real_merged_data(&f, &real) && real);
-    CHECK_EQ_INT(pc_psd_composite_rgba8(&f, &img, NULL), PC_OK);
-    CHECK(img.data.len == 24 && memcmp(img.data.data, px, 24) == 0);
-    pc_psd_image8_fini(&img);
+    /* composite with alpha: stored against white, read back straight */
+    {
+        static const uint8_t cpx[8] = {255, 0, 0, 128, 17, 89, 203, 0};
+        static const uint8_t stored[8] = {255, 17, 127, 89, 127, 203, 128, 0};
+        pc_psd_bytes merged = {NULL, 0};
+        memcpy(px, cpx, 8);
+        b = pc_psd_builder_new(2, 1);
+        s = pc_psd_layer_spec_make("x", 0, 0, 2, 1, px8(PC_PSD_PX_RGBA8, px, 8));
+        pc_psd_builder_push_layer(b, &s, NULL);
+        pc_psd_builder_composite(b, px8(PC_PSD_PX_RGBA8, px, 8), NULL);
+        f = built(b);
+        CHECK(f.header.channels == 4 && f.layer_info.merged_alpha && pc_psd_file_merged_has_alpha(&f));
+        CHECK(pc_psd_file_has_real_merged_data(&f, &real) && real);
+        CHECK_EQ_INT(pc_psd_file_decode_merged(&f, &merged, NULL), PC_OK);
+        CHECK(merged.len == 8 && memcmp(merged.data, stored, 8) == 0);
+        pc_psd_bytes_fini(&merged);
+        CHECK_EQ_INT(pc_psd_composite_rgba8(&f, &img, NULL), PC_OK);
+        CHECK(img.data.len == 8 && memcmp(img.data.data, cpx, 8) == 0);
+        pc_psd_image8_fini(&img);
+    }
     pc_psd_file_fini(&f);
     pc_psd_builder_free(b);
     /* opaque composite drops alpha */
@@ -1362,10 +1370,18 @@ static void test_bombs_and_lazy_errors(void)
     b = bytes_of(&f);
     CHECK(pc_psd_file_parse(b.data, b.len, &p, NULL) != PC_OK);
     pc_psd_bytes_fini(&b);
+    /* ZIP over MAX_DECODED_BYTES is not inflated at parse time (#2926); decoding refuses it. */
     f.image_compression = PC_PSD_ZIP;
     pc_psd_zip_compress(zero100, 100, &f.image_data, NULL);
     b = bytes_of(&f);
-    CHECK(pc_psd_file_parse(b.data, b.len, &p, NULL) != PC_OK);
+    {
+        pc_status zst = pc_psd_file_parse(b.data, b.len, &p, NULL);
+        if (zst == PC_OK) {
+            zst = pc_psd_file_decode_merged(&p, &d, NULL);
+            pc_psd_file_fini(&p);
+        }
+        CHECK_EQ_INT(zst, PC_ERR_LIMIT);
+    }
     pc_psd_bytes_fini(&b);
     pc_psd_file_fini(&f);
     /* corrupt zip merged */
@@ -1688,7 +1704,7 @@ static void test_random_files_roundtrip(void)
                 memcpy(bl->signature, "8B64", 4);
             }
             /* Only padding the detector can recover: zeros up to 3 bytes. */
-            if (pad > 0 && pad - 1 != dl % 2) {
+            if (pad > 0 && pad - 1 != (4 - dl % 4) % 4) {
                 bl->padding.has = true;
                 if (pad > 1) {
                     bl->padding.v.data = calloc(pad - 1, 1);

@@ -113,7 +113,7 @@ static char *dup_text(const char *s, size_t len)
 
 /* ---------------------------------------------------------------- model basics */
 
-static void lut_free(pc_lut *l)
+void pc_lut_free(pc_lut *l)
 {
     if (l != NULL) {
         pc_cms_stages_fini(&l->stages);
@@ -150,8 +150,8 @@ void pc_profile_fini(pc_profile *p)
     free(p->copyright);
     for (i = 0; i < 3; i++) {
         pc_cms_curve_fini(&p->trc[i]);
-        lut_free(p->a2b[i]);
-        lut_free(p->b2a[i]);
+        pc_lut_free(p->a2b[i]);
+        pc_lut_free(p->b2a[i]);
     }
     pc_cms_curve_fini(&p->gray_trc);
     free(p->bytes);
@@ -913,6 +913,7 @@ static pc_status parse_profile(const uint8_t *bytes, size_t nbytes, pc_profile *
     tags t;
     uint32_t declared = 0;
     uint32_t v = 0;
+    uint32_t pcs_sig = 0;
     uint32_t count = 0;
     const uint8_t *sp;
     size_t i;
@@ -941,8 +942,8 @@ static pc_status parse_profile(const uint8_t *bytes, size_t nbytes, pc_profile *
     p->version_minor = bytes[9];
     (void)rd_u32(&r, 12, &p->class_sig);
     (void)rd_u32(&r, 16, &p->space);
-    (void)rd_u32(&r, 20, &v);
-    p->pcs = v == PC_SIG('L', 'a', 'b', ' ') ? PC_PCS_LAB : PC_PCS_XYZ;
+    (void)rd_u32(&r, 20, &pcs_sig);
+    p->pcs = pcs_sig == PC_SIG('L', 'a', 'b', ' ') ? PC_PCS_LAB : PC_PCS_XYZ;
     (void)rd_u32(&r, 64, &v);
     if (!pc_intent_from_u32(v & 0xFFFFu, &p->rendering_intent)) {
         p->rendering_intent = PC_INTENT_PERCEPTUAL;
@@ -1070,20 +1071,23 @@ static pc_status parse_profile(const uint8_t *bytes, size_t nbytes, pc_profile *
     if (s != PC_OK) {
         return s;
     }
-    /* Validate LUT channel counts against the header. */
+    /* Validate LUT channel counts against the header. A DeviceLink connects two device spaces:
+     * its header PCS field holds the output colour space (ICC.1:2010 7.2.7), so a CMYK->CMYK link
+     * has a 4->4 AToB0. */
     {
         size_t dev = pc_cs_channels(p->space);
+        size_t conn = p->class_sig == PC_CLASS_DEVICE_LINK ? pc_cs_channels(pcs_sig) : 3;
         pc_cs_debug_name(p->space, csn);
         for (k = 0; k < 3; k++) {
             const pc_lut *l = p->a2b[k];
-            if (l != NULL && ((dev != 0 && l->inputs != dev) || l->outputs != 3)) {
+            if (l != NULL && ((dev != 0 && l->inputs != dev) || (conn != 0 && l->outputs != conn))) {
                 return cms_invalid(err, "AToB tag has %zu\xe2\x86\x92%zu channels for a %s profile", l->inputs,
                                    l->outputs, csn);
             }
         }
         for (k = 0; k < 3; k++) {
             const pc_lut *l = p->b2a[k];
-            if (l != NULL && (l->inputs != 3 || (dev != 0 && l->outputs != dev))) {
+            if (l != NULL && ((conn != 0 && l->inputs != conn) || (dev != 0 && l->outputs != dev))) {
                 return cms_invalid(err, "BToA tag has %zu\xe2\x86\x92%zu channels for a %s profile", l->inputs,
                                    l->outputs, csn);
             }
@@ -1223,8 +1227,8 @@ pc_status pc_profile_gray_as_rgb(const pc_profile *p, pc_profile *out, bool *ok,
     c.has_gray_trc = false;
     /* The gray LUTs take one input channel; this profile is the matrix/TRC model above. */
     for (k = 0; k < 3; k++) {
-        lut_free(c.a2b[k]);
-        lut_free(c.b2a[k]);
+        pc_lut_free(c.a2b[k]);
+        pc_lut_free(c.b2a[k]);
         c.a2b[k] = NULL;
         c.b2a[k] = NULL;
     }
@@ -1415,4 +1419,19 @@ pc_status pc_profile_pcs_to_device(const pc_profile *p, pc_intent intent, pc_cms
     *out = st;
     *pcs = result;
     return PC_OK;
+}
+
+bool pc_profile_can_be_destination(const pc_profile *p)
+{
+    static const pc_intent intents[3] = {PC_INTENT_PERCEPTUAL, PC_INTENT_RELATIVE, PC_INTENT_SATURATION};
+    size_t i;
+    for (i = 0; i < 3; i++) {
+        pc_cms_stages st = PC_CMS_STAGES_INIT;
+        pc_pcs pcs;
+        if (pc_profile_pcs_to_device(p, intents[i], &st, &pcs, NULL) != PC_OK) {
+            return false;
+        }
+        pc_cms_stages_fini(&st);
+    }
+    return true;
 }

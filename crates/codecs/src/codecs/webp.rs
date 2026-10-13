@@ -9,7 +9,7 @@ use crate::Format;
 use crate::error::CodecError;
 use crate::fidelity::Plan;
 use crate::image::{ChannelLayout, DecodeWarning, Image, Metadata, SampleType};
-use crate::options::{EncodeOptions, Limits};
+use crate::options::{EncodeOptions, Limits, alloc_zeroed};
 
 const F: Format = Format::WebP;
 
@@ -23,8 +23,11 @@ pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Image, CodecError>
     let (w, h) = dec.dimensions();
     let layout = if dec.has_alpha() { ChannelLayout::Rgba } else { ChannelLayout::Rgb };
     limits.check(w, h, layout, SampleType::U8)?;
+    // VP8L back-references and VP8 skipped macroblocks compress flat areas extremely well, so the
+    // ratio is generous; it still stops a header-only file from asking for a gigabyte.
+    Limits::check_plausible(u64::from(w) * u64::from(h) * layout.channels() as u64, bytes.len(), 1 << 16)?;
     let size = dec.output_buffer_size().ok_or_else(|| err("image too large"))?;
-    let mut buf = vec![0u8; size];
+    let mut buf = alloc_zeroed::<u8>(size)?;
     dec.read_image(&mut buf).map_err(err)?;
     let icc = dec.icc_profile().ok().flatten();
     let exif = dec.exif_metadata().ok().flatten();
@@ -60,10 +63,10 @@ pub(crate) fn encode(src: &Image, plan: Plan, opts: &EncodeOptions) -> Result<Ve
     if opts.embed_metadata {
         if let Some(exif) = &img.meta.exif {
             // The pixels are written as they are shown: never let a viewer rotate them again.
-            enc.set_exif_metadata(crate::orientation::upright_exif(exif).into_owned());
+            enc.set_exif_metadata(crate::resolution::export_exif(exif, img.meta.dpi).into_owned());
         }
         if let Some(xmp) = &img.meta.xmp {
-            enc.set_xmp_metadata(crate::orientation::upright_xmp(xmp).as_bytes().to_vec());
+            enc.set_xmp_metadata(crate::resolution::export_xmp(xmp, img.meta.dpi).as_bytes().to_vec());
         }
     }
     enc.encode(img.data(), img.width(), img.height(), ct).map_err(|e| CodecError::encode(F, e))?;
@@ -92,8 +95,8 @@ fn encode_lossy(img: &Image, opts: &EncodeOptions) -> Result<Vec<u8>, CodecError
         None
     };
     let icc = if opts.embed_icc { img.icc.as_deref() } else { None };
-    let exif = if opts.embed_metadata { img.meta.exif.as_deref().map(crate::orientation::upright_exif) } else { None };
-    let xmp = if opts.embed_metadata { img.meta.xmp.as_deref().map(crate::orientation::upright_xmp) } else { None };
+    let exif = if opts.embed_metadata { img.meta.exif.as_deref().map(|e| crate::resolution::export_exif(e, img.meta.dpi)) } else { None };
+    let xmp = if opts.embed_metadata { img.meta.xmp.as_deref().map(|x| crate::resolution::export_xmp(x, img.meta.dpi)) } else { None };
     Ok(riff(w, h, &frame, alpha.as_deref(), icc, exif.as_deref(), xmp.as_deref().map(str::as_bytes)))
 }
 

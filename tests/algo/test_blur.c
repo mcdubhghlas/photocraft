@@ -1054,11 +1054,16 @@ static void test_layer_box_blurs_mix_by_the_selection_and_stop_when_cancelled(vo
     pc_surface_init_default(&sel, g, &half, 1);
     CHECK(pc_algo_apply_in(&s, &f, canvas, canvas, NULL, canvas, &full, NULL) == PC_OK);
     CHECK(pc_algo_apply_in(&s, &f, canvas, canvas, &sel, canvas, &mixed, NULL) == PC_OK);
+    /* Changing alpha mixes premultiplied: alpha halfway, colour halfway in premultiplied terms. */
     for (k = 0; k < 3; k++) {
-        for (c = 0; c < 4; c++) {
+        float oa = px_at(&s, pts[k][0], pts[k][1], 3), fa = px_at(&full, pts[k][0], pts[k][1], 3),
+              ma = px_at(&mixed, pts[k][0], pts[k][1], 3);
+        CHECK(fabsf(ma - (oa + fa) / 2.0f) < 1e-5f);
+        for (c = 0; c < 3; c++) {
             float ov = px_at(&s, pts[k][0], pts[k][1], (size_t)c),
                   fv = px_at(&full, pts[k][0], pts[k][1], (size_t)c);
-            CHECK(fabsf(px_at(&mixed, pts[k][0], pts[k][1], (size_t)c) - (ov + fv) / 2.0f) < 1e-5f);
+            CHECK(fabsf(px_at(&mixed, pts[k][0], pts[k][1], (size_t)c) * ma - (ov * oa + fv * fa) / 2.0f) <
+                  1e-5f);
         }
     }
     CHECK(pc_algo_apply_in_with(&s, &f, canvas, canvas, NULL, canvas, &yes, &o, NULL) == PC_ERR_CANCELLED);

@@ -49,14 +49,74 @@ static bool rd_cstr(rd *r, size_t max, const char **s, size_t *len)
     return true;
 }
 
-static void hdr_fini(exr_hdr *h)
+static void free_channels(exr_hdr *h)
 {
     size_t i;
     for (i = 0; i < h->nch; i++) {
         free(h->ch[i].name);
     }
     free(h->ch);
+    h->ch = NULL;
+    h->nch = 0;
+}
+
+static void hdr_fini(exr_hdr *h)
+{
+    size_t i;
+    free_channels(h);
+    free(h->name);
+    free(h->view);
+    for (i = 0; i < h->nattrs; i++) {
+        free(h->attrs[i].name);
+        free(h->attrs[i].val);
+    }
+    free(h->attrs);
     memset(h, 0, sizeof *h);
+}
+
+static uint8_t *dup_bytes(const void *p, size_t n)
+{
+    uint8_t *d = malloc(n + 1);
+    if (d != NULL) {
+        memcpy(d, p, n);
+        d[n] = 0;
+    }
+    return d;
+}
+
+/* Keeps a string attribute (replacing an earlier one of the same name). false when out of memory. */
+static bool keep_attr(exr_hdr *h, const char *name, size_t nl, const uint8_t *v, size_t vl)
+{
+    size_t i;
+    uint8_t *val = dup_bytes(v, vl);
+    exr_sattr *g;
+    if (val == NULL) {
+        return false;
+    }
+    for (i = 0; i < h->nattrs; i++) {
+        if (h->attrs[i].name_len == nl && memcmp(h->attrs[i].name, name, nl) == 0) {
+            free(h->attrs[i].val);
+            h->attrs[i].val = val;
+            h->attrs[i].len = vl;
+            return true;
+        }
+    }
+    g = realloc(h->attrs, (h->nattrs + 1) * sizeof *g);
+    if (g == NULL) {
+        free(val);
+        return false;
+    }
+    h->attrs = g;
+    g[h->nattrs].name = (char *)dup_bytes(name, nl);
+    if (g[h->nattrs].name == NULL) {
+        free(val);
+        return false;
+    }
+    g[h->nattrs].name_len = nl;
+    g[h->nattrs].val = val;
+    g[h->nattrs].len = vl;
+    h->nattrs++;
+    return true;
 }
 
 void cx_exr_meta_fini(exr_meta *m)
@@ -178,12 +238,31 @@ static pc_status read_header(rd *r, bool long_names, bool single_tiled, exr_hdr 
             exr_hdr t;
             memset(&t, 0, sizeof t);
             if (parse_chlist(v, (size_t)size, max, &t)) {
-                hdr_fini(h); /* only the channel list so far: keep the newest */
+                free_channels(h); /* keep the newest */
                 h->ch = t.ch;
                 h->nch = t.nch;
                 has_ch = true;
             } else {
                 hdr_fini(&t);
+            }
+        } else if ((IS(name, nl, "name") || IS(name, nl, "view")) && IS(type, tl, "string")) {
+            uint8_t **dst = IS(name, nl, "name") ? &h->name : &h->view;
+            uint8_t *d = dup_bytes(v, (size_t)size);
+            if (d == NULL) {
+                hdr_fini(h);
+                return cx_nomem(err);
+            }
+            free(*dst);
+            *dst = d;
+            if (dst == &h->name) {
+                h->name_len = (size_t)size;
+            } else {
+                h->view_len = (size_t)size;
+            }
+        } else if (nl > 12 && memcmp(name, "cryptomatte/", 12) == 0 && IS(type, tl, "string")) {
+            if (!keep_attr(h, name, nl, v, (size_t)size)) {
+                hdr_fini(h);
+                return cx_nomem(err);
             }
         } else if (IS(name, nl, "compression") && IS(type, tl, "compression") && size == 1 && v[0] <= 11) {
             h->compression = v[0];

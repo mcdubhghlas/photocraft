@@ -212,40 +212,56 @@ static uint8_t coverage8(float v)
     return pc_f32_to_u8(pc_clampf(v, 0.0f, 1.0f) * 255.0f + 0.5f);
 }
 
-/* A GRAY8 surface from 8-bit coverage over `area`, allocating only tiles that hold something. */
+/* A GRAY8 surface from 8-bit coverage over `area`, allocating only tiles that hold something;
+ * fully selected tiles share one tile (copy-on-write), so the inside of a large selection costs
+ * no memory per tile (#211). */
 static pc_status surface_from_coverage8(const uint8_t *bytes, pc_rect area, pc_surface *out, pc_error *err)
 {
     pc_surface s;
     pc_tile first, last, tc;
+    pc_raster_tile *full = NULL;
     size_t w = pc_rect_width(area);
+    pc_status st = PC_OK;
     pc_surface_init(&s, PC_PIXEL_FORMAT_GRAY8);
     if (pc_rect_tile_range(area, &first, &last)) {
         for (tc.ty = first.ty; tc.ty <= last.ty; tc.ty++) {
             for (tc.tx = first.tx; tc.tx <= last.tx; tc.tx++) {
-                pc_rect tr = pc_rect_intersect(pc_tile_rect(tc), area);
                 pc_rect trect = pc_tile_rect(tc);
+                pc_rect tr = pc_rect_intersect(trect, area);
                 size_t lx = (size_t)(tr.x0 - area.x0), span = pc_rect_width(tr), i;
                 int32_t y;
-                bool any = false;
+                bool any = false, all = pc_rect_eq(tr, trect);
                 uint8_t *data = NULL;
-                for (y = tr.y0; y < tr.y1 && !any; y++) {
+                for (y = tr.y0; y < tr.y1 && (!any || all); y++) {
                     const uint8_t *row = bytes + (size_t)(y - area.y0) * w + lx;
                     for (i = 0; i < span; i++) {
-                        if (row[i] != 0) {
-                            any = true;
-                            break;
-                        }
+                        any |= row[i] != 0;
+                        all &= row[i] == 255;
                     }
                 }
                 if (!any) {
                     continue;
                 }
-                {
-                    pc_status st = pc_surface_tile_mut(&s, tc, &data, err);
-                    if (st != PC_OK) {
-                        pc_surface_fini(&s);
-                        return st;
+                if (all) {
+                    pc_tile_entry e;
+                    if (full == NULL) {
+                        float one = 1.0f;
+                        st = pc_surface_solid_tile(&s, &one, 1, &full, err);
+                        if (st != PC_OK) {
+                            goto fail;
+                        }
                     }
+                    e.coord = tc;
+                    e.tile = pc_raster_tile_retain(full);
+                    st = pc_surface_put_tiles(&s, &e, 1, err);
+                    if (st != PC_OK) {
+                        goto fail;
+                    }
+                    continue;
+                }
+                st = pc_surface_tile_mut(&s, tc, &data, err);
+                if (st != PC_OK) {
+                    goto fail;
                 }
                 for (y = tr.y0; y < tr.y1; y++) {
                     size_t o = (size_t)(y - trect.y0) * PC_TILE_SIZE + (size_t)(tr.x0 - trect.x0);
@@ -254,8 +270,13 @@ static pc_status surface_from_coverage8(const uint8_t *bytes, pc_rect area, pc_s
             }
         }
     }
+    pc_raster_tile_release(full);
     *out = s;
     return PC_OK;
+fail:
+    pc_raster_tile_release(full);
+    pc_surface_fini(&s);
+    return st;
 }
 
 typedef struct cov8_ctx {
@@ -402,6 +423,10 @@ pc_status pc_algo_selection_combine(const pc_surface *old, const float *m, size_
 static bool close4(const float a[4], const float b[4], float tol)
 {
     int c;
+    /* Fully transparent pixels match whatever RGB they hide. */
+    if (a[3] == 0.0f && b[3] == 0.0f) {
+        return true;
+    }
     for (c = 0; c < 4; c++) {
         if (!(fabsf(a[c] - b[c]) * 255.0f <= tol + 1e-3f)) {
             return false;
@@ -611,6 +636,11 @@ typedef struct wand8 {
 static bool similar8(const wand8 *c, const uint8_t p[4])
 {
     int k;
+    /* Copying a selection can leave RGB under zero alpha: those invisible colours must not split
+     * a transparent region into pieces. */
+    if (c->target[3] == 0 && p[3] == 0) {
+        return true;
+    }
     for (k = 0; k < 4; k++) {
         int d = (int)p[k] - (int)c->target[k];
         if (d < 0) {

@@ -4,6 +4,8 @@
 #include <string.h>
 
 #include "algo/quantize.h"
+#include "algo/quantize_nearest.h"
+#include "base/num.h"
 #include "harness.h"
 
 static float (*gradient(size_t w, size_t h))[4]
@@ -207,9 +209,139 @@ static void test_never_crash(void)
     free(u);
     CHECK(!pc_algo_palette_kind_from_id("bogus", &k) && !pc_algo_palette_kind_from_id(NULL, &k));
     CHECK(pc_algo_palette_kind_from_id("localSelective", &k) && k == PC_ALGO_PALETTE_SELECTIVE);
-    CHECK(pc_algo_halftone_shape_from_id("diamond") == PC_ALGO_HALFTONE_DIAMOND);
-    CHECK(pc_algo_halftone_shape_from_id("x") == PC_ALGO_HALFTONE_ROUND);
+    {
+        pc_algo_halftone_shape hs = PC_ALGO_HALFTONE_LINE;
+        CHECK(pc_algo_halftone_shape_from_id("diamond", &hs) && hs == PC_ALGO_HALFTONE_DIAMOND);
+        CHECK(pc_algo_halftone_shape_from_id("round", &hs) && hs == PC_ALGO_HALFTONE_ROUND);
+        CHECK(!pc_algo_halftone_shape_from_id("x", &hs) && !pc_algo_halftone_shape_from_id(NULL, &hs));
+    }
     free(nanpx);
+}
+
+static size_t linear_nearest(const float (*pts)[3], size_t n, const float q[3])
+{
+    float best = 3.40282347e+38f;
+    size_t bi = 0, i;
+    for (i = 0; i < n; i++) {
+        float d0 = pts[i][0] - q[0], d1 = pts[i][1] - q[1], d2 = pts[i][2] - q[2];
+        float d = d0 * d0 + d1 * d1 + d2 * d2;
+        if (d < best) {
+            best = d, bi = i;
+        }
+    }
+    return bi;
+}
+
+static uint32_t lcg_seed;
+
+static float lcg01(void)
+{
+    lcg_seed = lcg_seed * 1664525u + 1013904223u;
+    return (float)(lcg_seed >> 8) / 16777215.0f;
+}
+
+/* nearest.rs: search_matches_linear_oracle_in_rgb_and_lab_with_ties_and_nonfinite_input. */
+static void test_nearest_matches_linear_oracle(void)
+{
+    static const size_t counts[10] = {0, 2, 8, 16, 17, 32, 64, 65, 128, 256};
+    static const float offs[2][2] = {{0.0f, 255.0f}, {-128.0f, 256.0f}};
+    static float pts[256][3];
+    pc_algo_nearest lk;
+    size_t c, o, k, mism = 0;
+    int a;
+    lcg_seed = 123456789u;
+    for (c = 0; c < 10; c++) {
+        for (o = 0; o < 2; o++) {
+            const float sp[4][3] = {{NAN, NAN, NAN},
+                                    {INFINITY, INFINITY, INFINITY},
+                                    {3.40282347e+38f, 3.40282347e+38f, 3.40282347e+38f},
+                                    {0, 0, 0}};
+            for (k = 0; k < counts[c]; k++) {
+                for (a = 0; a < 3; a++) {
+                    pts[k][a] = lcg01() * offs[o][1] + offs[o][0];
+                }
+            }
+            CHECK(pc_algo_nearest_init(&lk, (const float (*)[3])pts, counts[c]) == PC_OK);
+            for (k = 0; k < 3000; k++) {
+                float q[3];
+                for (a = 0; a < 3; a++) {
+                    q[a] = lcg01() * offs[o][1] + offs[o][0];
+                }
+                mism += pc_algo_nearest_find(&lk, q) != linear_nearest((const float (*)[3])pts, counts[c], q);
+            }
+            for (k = 0; k < 4; k++) {
+                CHECK_EQ_UINT(pc_algo_nearest_find(&lk, sp[k]),
+                              linear_nearest((const float (*)[3])pts, counts[c], sp[k]));
+            }
+            pc_algo_nearest_fini(&lk);
+        }
+    }
+    CHECK_EQ_UINT(mism, 0);
+    for (k = 0; k < 256; k++) {
+        pts[k][0] = pts[k][1] = pts[k][2] = 1.0f;
+    }
+    pts[250][0] = pts[250][1] = pts[250][2] = -1.0f;
+    {
+        const float zero[3] = {0, 0, 0};
+        CHECK(pc_algo_nearest_init(&lk, (const float (*)[3])pts, 256) == PC_OK);
+        CHECK_EQ_UINT(pc_algo_nearest_find(&lk, zero), 0); /* equidistant: original order */
+        pc_algo_nearest_fini(&lk);
+        pts[0][0] = pts[0][1] = pts[0][2] = NAN;
+        CHECK(pc_algo_nearest_init(&lk, (const float (*)[3])pts, 256) == PC_OK);
+        CHECK_EQ_UINT(pc_algo_nearest_find(&lk, zero), 1);
+        pc_algo_nearest_fini(&lk);
+    }
+}
+
+/* quantize.rs: all_dithers_match_the_original_linear_palette_search_exactly. The C API has no
+ * quantize_with hook, so the Dither::None indices are checked against the linear scan directly
+ * and every dither must map pixels onto the entries it reports. */
+static void test_all_dithers_match_the_linear_palette_search(void)
+{
+    static const size_t counts[6] = {8, 16, 32, 64, 128, 256};
+    static const pc_algo_dither dithers[4] = {PC_ALGO_DITHER_NONE, PC_ALGO_DITHER_DIFFUSION,
+                                              PC_ALGO_DITHER_PATTERN, PC_ALGO_DITHER_NOISE};
+    static const float alphas[4] = {0.0f, 0.2f, 0.7f, 1.0f};
+    const size_t n = 93 * 61;
+    float (*src)[4] = gradient(93, 61), (*px)[4] = malloc(n * sizeof *px), (*pf)[3] = NULL;
+    uint8_t *idx = malloc(n);
+    size_t i, c, d, t, bad = 0;
+    for (i = 0; i < n; i++) {
+        src[i][2] = (float)(i % 71) / 70.0f;
+        src[i][3] = alphas[i % 4];
+    }
+    pf = malloc(256 * sizeof *pf);
+    for (c = 0; c < 6; c++) {
+        pc_algo_palette pal;
+        CHECK(pc_algo_quantize_build_palette((const float (*)[4])src, n, PC_ALGO_PALETTE_SELECTIVE, counts[c],
+                                             PC_ALGO_FORCED_BLACK_WHITE, &pal, NULL) == PC_OK);
+        for (i = 0; i < pal.n; i++) {
+            pf[i][0] = (float)pal.c[i][0], pf[i][1] = (float)pal.c[i][1], pf[i][2] = (float)pal.c[i][2];
+        }
+        for (d = 0; d < 4; d++) {
+            for (t = 0; t < 2; t++) {
+                memcpy(px, src, n * sizeof *px);
+                CHECK(pc_algo_quantize(px, n, 93, &pal.c[0][0], pal.n, dithers[d], 0.75f, t == 1, 1, idx,
+                                       NULL) == PC_OK);
+                for (i = 0; i < n; i++) {
+                    float q[3];
+                    int a;
+                    if (src[i][3] < 0.5f && (t == 1 || src[i][3] <= 0.0f)) {
+                        continue;
+                    }
+                    for (a = 0; a < 3; a++) {
+                        bad += px[i][a] != (float)pal.c[idx[i]][a] / 255.0f;
+                        q[a] = pc_clampf(src[i][a], 0.0f, 1.0f) * 255.0f;
+                    }
+                    if (dithers[d] == PC_ALGO_DITHER_NONE) {
+                        bad += idx[i] != linear_nearest((const float (*)[3])pf, pal.n, q);
+                    }
+                }
+            }
+        }
+    }
+    CHECK_EQ_UINT(bad, 0);
+    free(src), free(px), free(pf), free(idx);
 }
 
 int main(int argc, char **argv)
@@ -221,5 +353,7 @@ int main(int argc, char **argv)
     RUN(test_quantize_maps_to_palette_with_each_dither);
     RUN(test_bitmap_methods_are_binary_and_track_tone);
     RUN(test_never_crash);
+    RUN(test_nearest_matches_linear_oracle);
+    RUN(test_all_dithers_match_the_linear_palette_search);
     return pc_t_finish();
 }

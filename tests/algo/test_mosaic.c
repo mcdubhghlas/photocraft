@@ -127,7 +127,7 @@ static void test_mosaic_preserves_depth_color_alpha_and_tile_independence(void)
     const pc_sample_type st[3] = {PC_SAMPLE_TYPE_U8, PC_SAMPLE_TYPE_U16, PC_SAMPLE_TYPE_F32};
     const pc_color_mode md[4] = {PC_COLOR_MODE_GRAYSCALE, PC_COLOR_MODE_RGB, PC_COLOR_MODE_CMYK,
                                  PC_COLOR_MODE_LAB};
-    const float cells[3] = {6.0f, 50.0f, 180.0f};
+    const float cells[4] = {6.0f, 13.0f, 50.0f, 180.0f};
     size_t si, mi, ci;
     int al;
     for (si = 0; si < 3; si++) {
@@ -142,7 +142,7 @@ static void test_mosaic_preserves_depth_color_alpha_and_tile_independence(void)
                 pc_surface_init(&input, fmt);
                 CHECK(pc_surface_write_region(&input, b, pat.data, pat.len, NULL) == PC_OK);
                 CHECK(pc_algo_image_read(&input, b, &src, NULL) == PC_OK);
-                for (ci = 0; ci < 3; ci++) {
+                for (ci = 0; ci < 4; ci++) {
                     pc_algo_mosaic_params mp = {cells[ci]};
                     pc_algo_filter f;
                     pc_surface expected;
@@ -179,6 +179,45 @@ static void test_mosaic_preserves_depth_color_alpha_and_tile_independence(void)
     }
 }
 
+/* The four-channel row reads keep HDR values, negative zeros, subnormals and zero alpha bit-exact,
+ * with the source covering all or part of the bounds. */
+static void test_mosaic_row_reads_preserve_hdr_alpha_and_partial_source_bits(void)
+{
+    const pc_rect bounds = {-7, 3, 30, 26};
+    const pc_rect rects[2] = {{-7, 3, 30, 26}, {-3, 7, 23, 21}};
+    const float cells[5] = {2.0f, 4.0f, 10.0f, 50.0f, 180.0f};
+    size_t ri, i, ci;
+    int al;
+    for (ri = 0; ri < 2; ri++) {
+        pc_algo_image src;
+        image_pattern(&src, rects[ri], 4);
+        for (i = 0; i < src.len / 4; i++) {
+            float *p = src.data + i * 4;
+            p[0] = p[0] * 8.0f - 4.0f;
+            p[1] = i % 3 == 0 ? -0.0f : p[1] * 16.0f;
+            p[2] = i % 7 == 0 ? FLT_MIN : -p[2];
+            p[3] = i % 5 == 0 ? 0.0f : p[3];
+        }
+        for (al = 0; al < 2; al++) {
+            pc_algo_ctx ctx = {bounds, PC_COLOR_MODE_RGB, al != 0};
+            for (ci = 0; ci < 5; ci++) {
+                pc_algo_mosaic_params mp = {cells[ci]};
+                pc_algo_filter f;
+                size_t len = 0, wn = (size_t)pc_rect_width(bounds) * pc_rect_height(bounds) * 4;
+                float *got = NULL, *want = malloc(wn * sizeof(float));
+                CHECK(pc_algo_filter_make(&pc_algo_def_mosaic, &mp, &f, NULL) == PC_OK);
+                CHECK(pc_algo_kernel(&f, &src, bounds, &ctx, &got, &len, NULL) == PC_OK);
+                legacy_mosaic(&src, bounds, &ctx, cells[ci], want);
+                CHECK_EQ_UINT(len, wn);
+                CHECK(len == wn && memcmp(got, want, wn * sizeof(float)) == 0);
+                free(got), free(want);
+                pc_algo_filter_fini(&f);
+            }
+        }
+        pc_algo_image_fini(&src);
+    }
+}
+
 static void test_mosaic_handles_zero_channels(void)
 {
     pc_algo_image src = {{0, 0, 3, 3}, 0, NULL, 0};
@@ -201,6 +240,7 @@ int main(int argc, char **argv)
 {
     RUN(test_mosaic_matches_legacy_for_partial_cells_and_offset_bounds);
     RUN(test_mosaic_preserves_depth_color_alpha_and_tile_independence);
+    RUN(test_mosaic_row_reads_preserve_hdr_alpha_and_partial_source_bits);
     RUN(test_mosaic_handles_zero_channels);
     return pc_t_finish();
 }

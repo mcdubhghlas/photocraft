@@ -238,7 +238,7 @@ pc_status pc_tysh_parse(const uint8_t *data, size_t len, pc_tysh *out, pc_error 
     }
     for (k = 0; k < 4; k++) {
         if (wused + k * 4 + 4 <= rlen) {
-            t.bounds[k] = (int32_t)pc_load_be32(rest + wused + k * 4);
+            t.bounds[k] = pc_f32_from_bits(pc_load_be32(rest + wused + k * 4));
         }
     }
     *out = t;
@@ -333,7 +333,7 @@ pc_status pc_tysh_write(const pc_tysh *t, pc_psd_bytes *out, pc_error *err)
         st = pc_buf_append(&b, warp.data, warp.len, err);
     }
     for (k = 0; k < 4 && st == PC_OK; k++) {
-        pc_store_be32(tmp, (uint32_t)t->bounds[k]);
+        pc_store_be32(tmp, pc_f32_to_bits(t->bounds[k]));
         st = pc_buf_append(&b, tmp, 4, err);
     }
     pc_psd_bytes_fini(&text);
@@ -387,7 +387,7 @@ static bool enum_is(const pc_psd_desc *d, const char *key, const char *want)
     return n == strlen(want) && (n == 0 || memcmp(b, want, n) == 0);
 }
 
-static bool dnum(const pc_psd_value *v, double *out)
+bool psd_dnum(const pc_psd_value *v, double *out)
 {
     if (v == NULL) {
         return false;
@@ -454,255 +454,7 @@ pc_status pc_tysh_engine_text_is_blank(const uint8_t *tysh, size_t len, bool *ou
     return PC_OK;
 }
 
-pc_status pc_txt2_parse(const uint8_t *data, size_t len, pc_ed_value *out, pc_error *err)
-{
-    pc_buf w = PC_BUF_INIT;
-    pc_ed_value v;
-    pc_error tmp;
-    pc_status st = pc_buf_append(&w, "<<", 2, err);
-    if (st == PC_OK && len > 0) {
-        st = pc_buf_append(&w, data, len, err);
-    }
-    if (st == PC_OK) {
-        st = pc_buf_append(&w, ">>", 2, err);
-    }
-    if (st != PC_OK) {
-        pc_buf_fini(&w);
-        return st;
-    }
-    st = pc_ed_parse(w.data, w.len, &v, &tmp);
-    pc_buf_fini(&w);
-    if (st != PC_OK) {
-        if (st == PC_ERR_NOMEM) {
-            return forward(err, &tmp, st);
-        }
-        if (err != NULL) {
-            *err = tmp;
-        }
-        return PC_ERR_FORMAT;
-    }
-    if (v.kind != PC_ED_DICT) {
-        pc_ed_fini(&v);
-        return pc_fail(err, PC_ERR_FORMAT, "Txt2 is not a dictionary");
-    }
-    *out = v;
-    return PC_OK;
-}
-
 /* ---- run lists ---- */
-
-typedef struct run_list {
-    pc_text_run *v;
-    size_t n;
-    size_t cap;
-} run_list;
-
-static void run_list_fini(run_list *l)
-{
-    pc_text_runs_free(l->v, l->n);
-    memset(l, 0, sizeof *l);
-}
-
-/* Appends {len, style}, taking over *style (on success). */
-static pc_status run_list_push(run_list *l, size_t len, pc_char_style *style, pc_error *err)
-{
-    if (l->n == l->cap) {
-        size_t cap = l->cap;
-        pc_text_run *g = pc_grow_array(l->v, &cap, l->n + 1, sizeof *g);
-        if (g == NULL) {
-            return pc_fail(err, PC_ERR_NOMEM, "out of memory reading PSD text");
-        }
-        l->v = g;
-        l->cap = cap;
-    }
-    l->v[l->n].len = len;
-    l->v[l->n].style = *style;
-    memset(style, 0, sizeof *style);
-    l->n++;
-    return PC_OK;
-}
-
-/* Replaces the layer's runs with *l (taken over) and syncs the summary; on failure nothing
- * changes and *l is still the caller's. */
-static pc_status set_runs(pc_text_layer *layer, run_list *l, pc_error *err)
-{
-    pc_str family = PC_STR_INIT;
-    if (l->n > 0) {
-        pc_status st = pc_str_clone(&l->v[0].style.font_family, &family, err);
-        if (st != PC_OK) {
-            return st;
-        }
-    }
-    pc_text_runs_free(layer->runs, layer->nruns);
-    layer->runs = l->v;
-    layer->nruns = l->n;
-    memset(l, 0, sizeof *l);
-    if (layer->nruns > 0) {
-        pc_str_fini(&layer->font_family);
-        layer->font_family = family;
-        layer->size_pt = layer->runs[0].style.size_pt;
-        layer->color = layer->runs[0].style.color;
-    }
-    return PC_OK;
-}
-
-/* ---- Txt2 ---- */
-
-static bool text_index(const uint8_t *tysh, size_t len, size_t *out, pc_status *st, pc_error *err)
-{
-    pc_tysh t;
-    pc_error tmp;
-    const pc_psd_value *v;
-    bool ok = false;
-    *st = pc_tysh_parse(tysh, len, &t, &tmp);
-    if (*st != PC_OK) {
-        if (*st == PC_ERR_NOMEM) {
-            (void)forward(err, &tmp, *st);
-        } else {
-            *st = PC_OK;
-        }
-        return false;
-    }
-    v = pc_psd_desc_get(&t.text, "TextIndex");
-    if (v != NULL && v->kind == PC_PSD_V_INTEGER && v->i >= 0) {
-        *out = (size_t)v->i;
-        ok = true;
-    }
-    pc_tysh_fini(&t);
-    return ok;
-}
-
-/* text.strip_suffix('\r').unwrap_or(text).replace('\r', "\n") == layer */
-static bool same_text_cr(const pc_str *text, const pc_str *layer)
-{
-    const char *s = pc_str_c(text);
-    const char *l = pc_str_c(layer);
-    size_t n = text->len, k;
-    if (n > 0 && s[n - 1] == '\r') {
-        n--;
-    }
-    if (n != layer->len) {
-        return false;
-    }
-    for (k = 0; k < n; k++) {
-        char c = s[k] == '\r' ? '\n' : s[k];
-        if (c != l[k]) {
-            return false;
-        }
-    }
-    return true;
-}
-
-typedef struct seg {
-    size_t len;
-    bool has_mode;
-    int64_t mode;
-} seg;
-
-pc_status pc_txt2_apply(pc_text_layer *layer, const uint8_t *tysh, size_t len, const pc_ed_value *txt2,
-                        pc_error *err)
-{
-    size_t index = 0, nobj = 0, nstyle = 0, k, nseg = 0, nruns = 0, si = 0, seg_end, at = 0, ri;
-    const pc_ed_value *objs, *model, *styles;
-    const pc_str *text;
-    double *lens = NULL;
-    size_t *bytes = NULL;
-    seg *segs = NULL;
-    pc_text_run *runs = NULL;
-    run_list out = {NULL, 0, 0};
-    pc_status st = PC_OK;
-    if (!text_index(tysh, len, &index, &st, err)) {
-        return st;
-    }
-    objs = pc_ed_as_array(pc_ed_path(txt2, "1", "1", (const char *)NULL), &nobj);
-    if (objs == NULL || index >= nobj) {
-        return PC_OK;
-    }
-    model = pc_ed_get(&objs[index], "0");
-    text = pc_ed_as_str(pc_ed_get(model, "0"));
-    if (model == NULL || text == NULL || !same_text_cr(text, &layer->text)) {
-        return PC_OK;
-    }
-    styles = pc_ed_as_array(pc_ed_path(model, "6", "0", (const char *)NULL), &nstyle);
-    if (styles == NULL) {
-        return PC_OK;
-    }
-    if (nstyle > 0) {
-        lens = pc_malloc_array(nstyle, sizeof *lens);
-        bytes = pc_malloc_array(nstyle, sizeof *bytes);
-        segs = pc_malloc_array(nstyle, sizeof *segs);
-        if (lens == NULL || bytes == NULL || segs == NULL) {
-            st = pc_fail(err, PC_ERR_NOMEM, "out of memory reading Txt2");
-            goto cleanup;
-        }
-    }
-    for (k = 0; k < nstyle; k++) {
-        if (!pc_ed_as_f64(pc_ed_get(&styles[k], "1"), &lens[k])) {
-            lens[k] = 0.0;
-        }
-    }
-    pc_text_utf16_to_byte_lengths(pc_str_c(text), text->len, lens, nstyle, bytes);
-    for (k = 0; k < nstyle; k++) {
-        if (bytes[k] > 0) {
-            segs[nseg].len = bytes[k];
-            segs[nseg].has_mode = pc_ed_as_i64(
-                pc_ed_path(&styles[k], "0", "0", "6", "11", (const char *)NULL), &segs[nseg].mode);
-            nseg++;
-        }
-    }
-    st = pc_text_layer_char_runs(layer, &runs, &nruns, err);
-    if (st != PC_OK) {
-        goto cleanup;
-    }
-    seg_end = nseg > 0 ? segs[0].len : SIZE_MAX;
-    for (ri = 0; ri < nruns && st == PC_OK; ri++) {
-        size_t end = at + runs[ri].len;
-        while (at < end && st == PC_OK) {
-            size_t piece_end;
-            pc_char_style style;
-            while (at >= seg_end && si + 1 < nseg) {
-                si++;
-                seg_end = seg_end > SIZE_MAX - segs[si].len ? SIZE_MAX : seg_end + segs[si].len;
-            }
-            piece_end = at < seg_end ? (end < seg_end ? end : seg_end) : end;
-            st = pc_char_style_clone(&runs[ri].style, &style, err);
-            if (st != PC_OK) {
-                break;
-            }
-            /* Txt2 has the exact mode (EngineData's reading also marks neighbours of manual
-             * kerns manual, like Photoshop's legacy reader). */
-            if (si < nseg && segs[si].has_mode && at < seg_end) {
-                if (segs[si].mode == 0) {
-                    style.kerning = PC_KERNING_OFF;
-                } else if (segs[si].mode == 1) {
-                    style.kerning = PC_KERNING_METRICS;
-                } else if (segs[si].mode == 2) {
-                    style.kerning = PC_KERNING_OPTICAL;
-                }
-            }
-            if (out.n > 0 && pc_char_style_eq(&out.v[out.n - 1].style, &style)) {
-                out.v[out.n - 1].len += piece_end - at;
-                pc_char_style_fini(&style);
-            } else {
-                st = run_list_push(&out, piece_end - at, &style, err);
-                if (st != PC_OK) {
-                    pc_char_style_fini(&style);
-                }
-            }
-            at = piece_end;
-        }
-    }
-    if (st == PC_OK) {
-        st = set_runs(layer, &out, err);
-    }
-cleanup:
-    run_list_fini(&out);
-    pc_text_runs_free(runs, nruns);
-    free(lens);
-    free(bytes);
-    free(segs);
-    return st;
-}
 
 /* ---- EngineData -> model ---- */
 
@@ -886,13 +638,13 @@ typedef struct incoming {
 /* kerning_from_pairs: reads EngineData's pair fields back into per-character kerning (see the
  * notes in psd_write.c). Takes over *runs (freed); the result goes to *out. */
 static pc_status kerning_from_pairs(const pc_str *text, pc_text_run *runs, size_t nruns, const incoming *inc,
-                                    size_t ninc, run_list *out, pc_error *err)
+                                    size_t ninc, psd_run_list *out, pc_error *err)
 {
     const uint8_t *s = (const uint8_t *)pc_str_c(text);
     size_t *starts = NULL, nstarts = 0, n, j, si = 0, seg_end, ri = 0, run_end, c;
     float *kern = NULL;
     bool *off = NULL;
-    run_list r = {NULL, 0, 0};
+    psd_run_list r = {NULL, 0, 0};
     pc_status st = PC_OK;
     if (text->len == 0 || nruns == 0) {
         out->v = runs;
@@ -952,7 +704,7 @@ static pc_status kerning_from_pairs(const pc_str *text, pc_text_run *runs, size_
             if (st == PC_OK) {
                 style.kerning = kerning;
                 style.kern = k;
-                st = run_list_push(&r, len, &style, err);
+                st = psd_run_list_push(&r, len, &style, err);
                 if (st != PC_OK) {
                     pc_char_style_fini(&style);
                 }
@@ -965,7 +717,7 @@ cleanup:
     free(off);
     pc_text_runs_free(runs, nruns);
     if (st != PC_OK) {
-        run_list_fini(&r);
+        psd_run_list_fini(&r);
         return st;
     }
     *out = r;
@@ -1001,26 +753,55 @@ static pc_status read_shape(const pc_ed_value *e, pc_text_layer *layer, pc_error
     return PC_OK;
 }
 
-/* The sheet set entry `index` (or the first) of res[set_key], then its `data_key`. */
-static const pc_ed_value *base_sheet(const pc_ed_value *res, const char *set_key, const char *normal_key,
-                                     const char *data_key)
+/* The dictionaries in `levels` (NULL entries skipped, non-dictionaries ignored) as one: a key comes
+ * from the first level that has it. */
+static pc_status merged(const pc_ed_value *const *levels, size_t n, pc_ed_value *out, pc_error *err)
 {
-    int64_t i;
-    size_t n = 0, idx;
-    const pc_ed_value *a = pc_ed_as_array(pc_ed_get(res, set_key), &n);
-    if (a == NULL) {
-        return NULL;
+    pc_ed_value d = pc_ed_dict();
+    size_t l, k, q;
+    for (l = 0; l < n; l++) {
+        const pc_ed_value *lv = levels[l];
+        if (lv == NULL || lv->kind != PC_ED_DICT) {
+            continue;
+        }
+        for (k = 0; k < lv->n; k++) {
+            const pc_ed_entry *e = &lv->entries[k];
+            bool have = false;
+            pc_ed_entry *g;
+            for (q = 0; q < d.n && !have; q++) {
+                have = d.entries[q].key.len == e->key.len &&
+                       memcmp(pc_str_c(&d.entries[q].key), pc_str_c(&e->key), e->key.len) == 0;
+            }
+            if (have) {
+                continue;
+            }
+            g = d.n >= d.cap || d.entries == NULL ? pc_grow_array(d.entries, &d.cap, d.n + 1, sizeof *g)
+                                                  : d.entries;
+            if (g == NULL) {
+                pc_ed_fini(&d);
+                return pc_fail(err, PC_ERR_NOMEM, "out of memory reading PSD text");
+            }
+            d.entries = g;
+            memset(&d.entries[d.n], 0, sizeof d.entries[d.n]);
+            if (pc_str_clone(&e->key, &d.entries[d.n].key, err) != PC_OK) {
+                pc_ed_fini(&d);
+                return PC_ERR_NOMEM;
+            }
+            if (pc_ed_clone(&e->value, &d.entries[d.n].value, err) != PC_OK) {
+                pc_str_fini(&d.entries[d.n].key);
+                pc_ed_fini(&d);
+                return PC_ERR_NOMEM;
+            }
+            d.n++;
+        }
     }
-    idx = pc_ed_as_i64(pc_ed_get(res, normal_key), &i) ? (size_t)i : 0;
-    if (idx < n) {
-        return pc_ed_get(&a[idx], data_key);
-    }
-    return n > 0 ? pc_ed_get(&a[0], data_key) : NULL;
+    *out = d;
+    return PC_OK;
 }
 
-/* The `sub` dictionaries (path a/b) of every element of RunArray that has one. */
-static pc_status run_data(const pc_ed_value *run, const char *a, const char *b, const pc_ed_value ***out,
-                          size_t *n, pc_error *err)
+/* The `sub` value of every element of run["RunArray"] that has one (filter_map). */
+static pc_status run_items(const pc_ed_value *run, const char *sub, const pc_ed_value ***out, size_t *n,
+                           pc_error *err)
 {
     size_t len = 0, k, m = 0;
     const pc_ed_value *arr = pc_ed_as_array(pc_ed_get(run, "RunArray"), &len);
@@ -1031,7 +812,7 @@ static pc_status run_data(const pc_ed_value *run, const char *a, const char *b, 
             return pc_fail(err, PC_ERR_NOMEM, "out of memory reading PSD text");
         }
         for (k = 0; k < len; k++) {
-            const pc_ed_value *x = pc_ed_path(&arr[k], a, b, (const char *)NULL);
+            const pc_ed_value *x = pc_ed_get(&arr[k], sub);
             if (x != NULL) {
                 r[m++] = x;
             }
@@ -1042,18 +823,79 @@ static pc_status run_data(const pc_ed_value *run, const char *a, const char *b, 
     return PC_OK;
 }
 
+/* A dictionary key holding a usize (an Int, or a Real cast like Rust `as`, within range). */
+static bool ed_index(const pc_ed_value *d, const char *key, size_t *out)
+{
+    int64_t i;
+    if (!pc_ed_as_i64(pc_ed_get(d, key), &i) || i < 0) {
+        return false;
+    }
+    *out = (size_t)i;
+    return true;
+}
+
+/* The sheet of `set` a run's sheet names: by its `Parent` index (when in range), else by `Name`. */
+static const pc_ed_value *named_sheet(const pc_ed_value *set, size_t nset, const pc_ed_value *sheet)
+{
+    size_t i;
+    const pc_str *name;
+    if (ed_index(sheet, "Parent", &i) && i < nset) {
+        return &set[i];
+    }
+    name = pc_ed_as_str(pc_ed_get(sheet, "Name"));
+    if (name == NULL) {
+        return NULL;
+    }
+    for (i = 0; i < nset; i++) {
+        const pc_str *n = pc_ed_as_str(pc_ed_get(&set[i], "Name"));
+        if (n != NULL && n->len == name->len && memcmp(pc_str_c(n), pc_str_c(name), n->len) == 0) {
+            return &set[i];
+        }
+    }
+    return NULL;
+}
+
+/* The normal sheet: set[res[key]] when in range, else the first. */
+static const pc_ed_value *normal_sheet(const pc_ed_value *res, const char *key, const pc_ed_value *set,
+                                       size_t nset)
+{
+    size_t i;
+    if (ed_index(res, key, &i) && i < nset) {
+        return &set[i];
+    }
+    return nset > 0 ? &set[0] : NULL;
+}
+
+typedef struct para_base {
+    pc_ed_value base;            /* merged paragraph properties */
+    const pc_ed_value *char_def; /* the paragraph's default character style, or NULL */
+} para_base;
+
+/* Style resolution (#3795). A run's own `StyleSheetData` / `Properties` hold only what it
+ * overrides; the rest comes from its sheets, as in Photoshop:
+ * - a paragraph run: its `Properties` -> the `ParagraphSheetSet` entry its `Name` names (or its
+ *   `Parent` index) -> `TheNormalParagraphSheet`;
+ * - a character run: its `StyleSheetData` -> the `StyleSheetSet` entry its `Parent` or `Name`
+ *   names -> the default character style of its paragraph (the paragraph run's
+ *   `DefaultStyleSheet`, else its paragraph style's) -> `TheNormalStyleSheet`.
+ * Missing or out-of-range indices fall through to the next level, then to the defaults. */
 static pc_status apply_engine_data(pc_text_layer *layer, const pc_ed_value *e, const pc_str *txt, float k,
                                    pc_error *err)
 {
     static const pc_str empty_str = PC_STR_INIT;
+    static const pc_ed_value empty_dict = {PC_ED_DICT, PC_STR_INIT, 0, 0.0, false, NULL, NULL, 0, 0};
     const pc_str *ed_text = pc_ed_as_str(pc_ed_path(e, "EngineDict", "Editor", "Text", (const char *)NULL));
-    const pc_ed_value *res, *base_style, *base_para, *srun, *prun;
-    const pc_ed_value **sdata = NULL, **pdata = NULL;
-    size_t nsdata = 0, npdata = 0, nslens = 0, nplens = 0, k2, nz, nnorm = 0;
+    const pc_ed_value *res, *srun, *prun, *style_set, *para_set, *normal_style, *normal_para;
+    const pc_ed_value **ssheets = NULL, **psheets = NULL;
+    size_t nss = 0, nps = 0, nslens = 0, nplens = 0, k2, nz, nnorm = 0, nstyle_set = 0, npara_set = 0;
+    size_t nslens16 = 0, nplens16 = 0;
+    double *slens16 = NULL, *plens16 = NULL, at16 = 0.0;
     size_t *slens = NULL, *plens = NULL;
+    para_base *pbases = NULL;
+    pc_ed_value *bases = NULL;
     incoming *inc = NULL;
     psd_names fonts = {NULL, 0, 0};
-    run_list runs = {NULL, 0, 0};
+    psd_run_list runs = {NULL, 0, 0};
     pc_text_run *norm = NULL;
     pc_paragraph_run *paras = NULL;
     pc_str text = PC_STR_INIT;
@@ -1084,16 +926,98 @@ static pc_status apply_engine_data(pc_text_layer *layer, const pc_ed_value *e, c
     if (st != PC_OK) {
         return st;
     }
-    base_style = base_sheet(res, "StyleSheetSet", "TheNormalStyleSheet", "StyleSheetData");
-    base_para = base_sheet(res, "ParagraphSheetSet", "TheNormalParagraphSheet", "Properties");
+    style_set = pc_ed_as_array(pc_ed_get(res, "StyleSheetSet"), &nstyle_set);
+    para_set = pc_ed_as_array(pc_ed_get(res, "ParagraphSheetSet"), &npara_set);
+    normal_style = normal_sheet(res, "TheNormalStyleSheet", style_set, nstyle_set);
+    normal_para = normal_sheet(res, "TheNormalParagraphSheet", para_set, npara_set);
+
+    /* Paragraph runs first: a character run's defaults depend on its paragraph. */
+    prun = pc_ed_path(e, "EngineDict", "ParagraphRun", (const char *)NULL);
+    st = run_items(prun, "ParagraphSheet", &psheets, &nps, err);
+    if (st == PC_OK) {
+        st = psd_arr_f(pc_ed_get(prun, "RunLengthArray"), &plens16, &nplens16, err);
+    }
+    if (st == PC_OK) {
+        st = psd_byte_lengths(ed_text, pc_ed_get(prun, "RunLengthArray"), &plens, &nplens, err);
+    }
+    if (st == PC_OK && nps > 0 && (pbases = calloc(nps, sizeof *pbases)) == NULL) {
+        st = pc_fail(err, PC_ERR_NOMEM, "out of memory reading PSD text");
+    }
+    for (k2 = 0; k2 < nps && st == PC_OK; k2++) {
+        const pc_ed_value *style = named_sheet(para_set, npara_set, psheets[k2]);
+        const pc_ed_value *levels[2];
+        const pc_ed_value *cand[2];
+        size_t c, i;
+        levels[0] = style != NULL ? pc_ed_get(style, "Properties") : NULL;
+        levels[1] = normal_para != NULL ? pc_ed_get(normal_para, "Properties") : NULL;
+        st = merged(levels, 2, &pbases[k2].base, err);
+        cand[0] = psheets[k2];
+        cand[1] = style;
+        for (c = 0; c < 2 && pbases[k2].char_def == NULL; c++) {
+            if (cand[c] != NULL && ed_index(cand[c], "DefaultStyleSheet", &i) && i < nstyle_set) {
+                pbases[k2].char_def = &style_set[i];
+            }
+        }
+    }
+    nz = nps < nplens ? nps : nplens;
+    if (st == PC_OK && nz > 0) {
+        paras = pc_malloc_array(nz, sizeof *paras);
+        if (paras == NULL) {
+            st = pc_fail(err, PC_ERR_NOMEM, "out of memory reading PSD text");
+        }
+    }
+    if (st == PC_OK) {
+        for (k2 = 0; k2 < nz; k2++) {
+            const pc_ed_value *props = pc_ed_get(psheets[k2], "Properties");
+            paras[k2].len = plens[k2];
+            paras[k2].style = psd_para_style(&pbases[k2].base, props != NULL ? props : &empty_dict, k);
+        }
+        free(layer->paragraphs);
+        layer->paragraphs = paras;
+        layer->nparagraphs = nz;
+        paras = NULL;
+    }
 
     /* Character runs. */
     srun = pc_ed_path(e, "EngineDict", "StyleRun", (const char *)NULL);
-    st = run_data(srun, "StyleSheet", "StyleSheetData", &sdata, &nsdata, err);
+    if (st == PC_OK) {
+        st = run_items(srun, "StyleSheet", &ssheets, &nss, err);
+    }
+    if (st == PC_OK) {
+        st = psd_arr_f(pc_ed_get(srun, "RunLengthArray"), &slens16, &nslens16, err);
+    }
     if (st == PC_OK) {
         st = psd_byte_lengths(ed_text, pc_ed_get(srun, "RunLengthArray"), &slens, &nslens, err);
     }
-    nz = nsdata < nslens ? nsdata : nslens;
+    if (st == PC_OK && nss > 0 && (bases = calloc(nss, sizeof *bases)) == NULL) {
+        st = pc_fail(err, PC_ERR_NOMEM, "out of memory reading PSD text");
+    }
+    for (k2 = 0; k2 < nss && st == PC_OK; k2++) {
+        const pc_ed_value *own = named_sheet(style_set, nstyle_set, ssheets[k2]);
+        const pc_ed_value *para_default = NULL, *levels[3];
+        /* The paragraph run this character run starts in (UTF-16 offsets). */
+        double end = 0.0;
+        size_t p, pi = SIZE_MAX;
+        for (p = 0; p < nplens16; p++) {
+            end += plens16[p];
+            if (at16 < end) {
+                pi = p;
+                break;
+            }
+        }
+        if (pi == SIZE_MAX && nplens16 > 0) {
+            pi = nplens16 - 1;
+        }
+        if (pi != SIZE_MAX && pi < nps) {
+            para_default = pbases[pi].char_def;
+        }
+        at16 += k2 < nslens16 ? slens16[k2] : 0.0;
+        levels[0] = own != NULL ? pc_ed_get(own, "StyleSheetData") : NULL;
+        levels[1] = para_default != NULL ? pc_ed_get(para_default, "StyleSheetData") : NULL;
+        levels[2] = normal_style != NULL ? pc_ed_get(normal_style, "StyleSheetData") : NULL;
+        st = merged(levels, 3, &bases[k2], err);
+    }
+    nz = nss < nslens ? nss : nslens;
     if (st == PC_OK && nz > 0) {
         inc = pc_malloc_array(nz, sizeof *inc);
         if (inc == NULL) {
@@ -1103,12 +1027,16 @@ static pc_status apply_engine_data(pc_text_layer *layer, const pc_ed_value *e, c
     for (k2 = 0; k2 < nz && st == PC_OK; k2++) {
         double v;
         pc_char_style cs;
+        const pc_ed_value *d = pc_ed_get(ssheets[k2], "StyleSheetData");
+        if (d == NULL) {
+            d = &empty_dict;
+        }
         inc[k2].len = slens[k2];
-        inc[k2].autok = flag(sdata[k2], base_style, "AutoKerning") != 0;
-        inc[k2].kern = num(sdata[k2], base_style, "Kerning", &v) && isfinite(v) ? f32_of(v) : 0.0f;
-        st = psd_char_style(base_style, sdata[k2], &fonts, k, &cs, err);
+        inc[k2].autok = flag(d, &bases[k2], "AutoKerning") != 0;
+        inc[k2].kern = num(d, &bases[k2], "Kerning", &v) && isfinite(v) ? f32_of(v) : 0.0f;
+        st = psd_char_style(&bases[k2], d, &fonts, k, &cs, err);
         if (st == PC_OK) {
-            st = run_list_push(&runs, slens[k2], &cs, err);
+            st = psd_run_list_push(&runs, slens[k2], &cs, err);
             if (st != PC_OK) {
                 pc_char_style_fini(&cs);
             }
@@ -1130,47 +1058,35 @@ static pc_status apply_engine_data(pc_text_layer *layer, const pc_ed_value *e, c
         layer->runs = runs.v;
         layer->nruns = runs.n;
         memset(&runs, 0, sizeof runs);
-    }
-
-    /* Paragraph runs. */
-    prun = pc_ed_path(e, "EngineDict", "ParagraphRun", (const char *)NULL);
-    if (st == PC_OK) {
-        st = run_data(prun, "ParagraphSheet", "Properties", &pdata, &npdata, err);
-    }
-    if (st == PC_OK) {
-        st = psd_byte_lengths(ed_text, pc_ed_get(prun, "RunLengthArray"), &plens, &nplens, err);
-    }
-    nz = npdata < nplens ? npdata : nplens;
-    if (st == PC_OK && nz > 0) {
-        paras = pc_malloc_array(nz, sizeof *paras);
-        if (paras == NULL) {
-            st = pc_fail(err, PC_ERR_NOMEM, "out of memory reading PSD text");
-        }
-    }
-    if (st == PC_OK) {
-        for (k2 = 0; k2 < nz; k2++) {
-            paras[k2].len = plens[k2];
-            paras[k2].style = psd_para_style(base_para, pdata[k2], k);
-        }
-        free(layer->paragraphs);
-        layer->paragraphs = paras;
-        layer->nparagraphs = nz;
-        paras = NULL;
         st = read_shape(e, layer, err);
     }
+    if (pbases != NULL) {
+        for (k2 = 0; k2 < nps; k2++) {
+            pc_ed_fini(&pbases[k2].base);
+        }
+    }
+    if (bases != NULL) {
+        for (k2 = 0; k2 < nss; k2++) {
+            pc_ed_fini(&bases[k2]);
+        }
+    }
+    free(pbases);
+    free(bases);
     free(paras);
-    free(sdata);
-    free(pdata);
+    free(ssheets);
+    free(psheets);
     free(slens);
     free(plens);
+    free(slens16);
+    free(plens16);
     free(inc);
     pc_text_runs_free(norm, nnorm);
-    run_list_fini(&runs);
+    psd_run_list_fini(&runs);
     psd_names_fini(&fonts);
     return st;
 }
 
-static bool descriptor_rect(const pc_psd_desc *text, const char *key, double out[4])
+bool psd_descriptor_rect(const pc_psd_desc *text, const char *key, double out[4])
 {
     const pc_psd_value *v = pc_psd_desc_get(text, key);
     double b[4];
@@ -1178,8 +1094,10 @@ static bool descriptor_rect(const pc_psd_desc *text, const char *key, double out
     if (v == NULL || v->kind != PC_PSD_V_DESCRIPTOR || v->desc == NULL) {
         return false;
     }
-    if (!dnum(pc_psd_desc_get(v->desc, "Left"), &b[0]) || !dnum(pc_psd_desc_get(v->desc, "Top "), &b[1]) ||
-        !dnum(pc_psd_desc_get(v->desc, "Rght"), &b[2]) || !dnum(pc_psd_desc_get(v->desc, "Btom"), &b[3])) {
+    if (!psd_dnum(pc_psd_desc_get(v->desc, "Left"), &b[0]) ||
+        !psd_dnum(pc_psd_desc_get(v->desc, "Top "), &b[1]) ||
+        !psd_dnum(pc_psd_desc_get(v->desc, "Rght"), &b[2]) ||
+        !psd_dnum(pc_psd_desc_get(v->desc, "Btom"), &b[3])) {
         return false;
     }
     for (k = 0; k < 4; k++) {
@@ -1217,7 +1135,7 @@ static bool legacy_point_origin(const pc_tysh *t, const pc_ed_value *e, double o
     if (!pc_ed_as_f64(&pb[0], &px) || px != 0.0 || !pc_ed_as_f64(&pb[1], &py) || py != 0.0) {
         return false;
     }
-    if (!descriptor_rect(&t->text, "boundingBox", b)) {
+    if (!psd_descriptor_rect(&t->text, "boundingBox", b)) {
         return false;
     }
     memcpy(vals, m, 6 * sizeof *m);
@@ -1302,6 +1220,37 @@ static pc_antialias antialias_of(const pc_psd_desc *text)
     return PC_AA_SMOOTH;
 }
 
+/* Whether the text descriptor has an `AntA` enumeration (enum_value is Some). */
+static bool has_anta(const pc_psd_desc *text)
+{
+    const pc_psd_value *v = pc_psd_desc_get(text, "AntA");
+    return v != NULL && v->kind == PC_PSD_V_ENUMERATED;
+}
+
+/* The anti-aliasing mode for EngineData's `AntiAlias` number, as Photoshop writes it: 0 None,
+ * 1 Crisp, 2 Strong, 3 Smooth, 4 Sharp. Other numbers (platform modes) give Smooth. */
+static pc_antialias engine_antialias(const pc_ed_value *e)
+{
+    double n;
+    if (e == NULL || !pc_ed_as_f64(pc_ed_path(e, "EngineDict", "AntiAlias", (const char *)NULL), &n)) {
+        return PC_AA_SMOOTH;
+    }
+    switch (pc_f64_to_i64(n)) {
+    case 0:
+        return PC_AA_NONE;
+    case 1:
+        return PC_AA_CRISP;
+    case 2:
+        return PC_AA_STRONG;
+    case 3:
+        return PC_AA_SMOOTH;
+    case 4:
+        return PC_AA_SHARP;
+    default:
+        return PC_AA_SMOOTH;
+    }
+}
+
 static pc_status read_warp(const pc_psd_desc *w, pc_text_layer *layer, pc_error *err)
 {
     pc_str style = PC_STR_INIT;
@@ -1323,9 +1272,11 @@ static pc_status read_warp(const pc_psd_desc *w, pc_text_layer *layer, pc_error 
     }
     layer->has_warp = true;
     layer->warp.style = style;
-    layer->warp.value = dnum(pc_psd_desc_get(w, "warpValue"), &v) ? f32_of(v) : 0.0f;
-    layer->warp.horizontal_distortion = dnum(pc_psd_desc_get(w, "warpPerspective"), &v) ? f32_of(v) : 0.0f;
-    layer->warp.vertical_distortion = dnum(pc_psd_desc_get(w, "warpPerspectiveOther"), &v) ? f32_of(v) : 0.0f;
+    layer->warp.value = psd_dnum(pc_psd_desc_get(w, "warpValue"), &v) ? f32_of(v) : 0.0f;
+    layer->warp.horizontal_distortion =
+        psd_dnum(pc_psd_desc_get(w, "warpPerspective"), &v) ? f32_of(v) : 0.0f;
+    layer->warp.vertical_distortion =
+        psd_dnum(pc_psd_desc_get(w, "warpPerspectiveOther"), &v) ? f32_of(v) : 0.0f;
     layer->warp.horizontal = !enum_is(w, "warpRotate", "Vrtc");
     return PC_OK;
 }
@@ -1369,6 +1320,10 @@ pc_status pc_text_layer_from_tysh(const uint8_t *data, size_t len, float dpi, pc
         } else {
             st = PC_OK;
         }
+    }
+    if (st == PC_OK && !has_anta(&t.text)) {
+        /* No `AntA`: the engine data's mode says it. */
+        layer.antialias = engine_antialias(has_e ? &e : NULL);
     }
     if (st == PC_OK && has_e) {
         double wd;

@@ -23,6 +23,16 @@ pc_status pc_pattern_clone(const pc_pattern *p, pc_pattern *out, pc_error *err);
 bool pc_pattern_eq(const pc_pattern *a, const pc_pattern *b);
 pc_rect pc_pattern_rect(const pc_pattern *p);
 bool pc_pattern_is_empty(const pc_pattern *p);
+
+/* Largest pattern edge a file may declare (the PSD reader's limit; Define Pattern stops at 4000). */
+#define PC_PATTERN_MAX_EDGE 30000u
+/* Most pixels a pattern may have to be painted: renderers expand a pattern into a 16-byte-per-pixel
+ * working copy, so this keeps that copy at 1 GiB; larger patterns paint nothing. */
+#define PC_PATTERN_MAX_PAINT_PIXELS ((uint64_t)1 << 26)
+/* width x height, never overflowing. */
+uint64_t pc_pattern_pixel_count(const pc_pattern *p);
+/* Has pixels and is small enough to paint (PC_PATTERN_MAX_PAINT_PIXELS). */
+bool pc_pattern_is_paintable(const pc_pattern *p);
 /* The displayed name: trailing NULs dropped, "$$$/...=Shown" shows the text after '='.
  * Returns a pointer into name (borrowed) and its length. */
 const char *pc_pattern_display_name(const char *name, size_t len, size_t *out_len);

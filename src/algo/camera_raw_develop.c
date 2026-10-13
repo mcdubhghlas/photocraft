@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "algo/camera_raw.h"
+#include "algo/camera_raw_int.h"
 #include "algo/fxutil.h"
 #include "algo/l9util.h"
 #include "algo/photo_util.h"
@@ -108,7 +109,7 @@ static pc_status box_cols(void *vc, size_t chunk, size_t b0, size_t b1)
 }
 
 /* Box mean of a single-channel buffer (radius r, edge clamped). *out is newly allocated. */
-static pc_status box_mean(const float *v, size_t w, size_t h, size_t r, float **out, pc_error *err)
+pc_status pc_algo_cr_box_mean(const float *v, size_t w, size_t h, size_t r, float **out, pc_error *err)
 {
     box_ctx c;
     pc_status st;
@@ -186,7 +187,7 @@ static pc_status gauss(const float *v, size_t w, size_t h, float sigma, float **
     }
     for (i = 0; i < 3; i++) {
         float *next = NULL;
-        st = box_mean(cur, w, h, radii[i], &next, err);
+        st = pc_algo_cr_box_mean(cur, w, h, radii[i], &next, err);
         free(cur);
         if (st != PC_OK) {
             return st;
@@ -204,7 +205,8 @@ static pc_status guided_coeffs(const float *i, const float *p, size_t w, size_t 
     size_t n = w * h, k;
     float *mi = NULL, *mp = NULL, *ip = NULL, *ii = NULL, *mip = NULL, *mii = NULL, *a = NULL, *b = NULL;
     pc_status st;
-    if ((st = box_mean(i, w, h, r, &mi, err)) != PC_OK || (st = box_mean(p, w, h, r, &mp, err)) != PC_OK ||
+    if ((st = pc_algo_cr_box_mean(i, w, h, r, &mi, err)) != PC_OK ||
+        (st = pc_algo_cr_box_mean(p, w, h, r, &mp, err)) != PC_OK ||
         (st = pc_algo_l9u_alloc_f(n, false, &ip, err)) != PC_OK ||
         (st = pc_algo_l9u_alloc_f(n, false, &ii, err)) != PC_OK) {
         goto done;
@@ -213,8 +215,8 @@ static pc_status guided_coeffs(const float *i, const float *p, size_t w, size_t 
         ip[k] = i[k] * p[k];
         ii[k] = i[k] * i[k];
     }
-    if ((st = box_mean(ip, w, h, r, &mip, err)) != PC_OK ||
-        (st = box_mean(ii, w, h, r, &mii, err)) != PC_OK ||
+    if ((st = pc_algo_cr_box_mean(ip, w, h, r, &mip, err)) != PC_OK ||
+        (st = pc_algo_cr_box_mean(ii, w, h, r, &mii, err)) != PC_OK ||
         (st = pc_algo_l9u_alloc_f(n, false, &a, err)) != PC_OK ||
         (st = pc_algo_l9u_alloc_f(n, false, &b, err)) != PC_OK) {
         goto done;
@@ -223,10 +225,10 @@ static pc_status guided_coeffs(const float *i, const float *p, size_t w, size_t 
         a[k] = (mip[k] - mi[k] * mp[k]) / (mii[k] - mi[k] * mi[k] + eps);
         b[k] = mp[k] - a[k] * mi[k];
     }
-    if ((st = box_mean(a, w, h, r, ma, err)) != PC_OK) {
+    if ((st = pc_algo_cr_box_mean(a, w, h, r, ma, err)) != PC_OK) {
         goto done;
     }
-    if ((st = box_mean(b, w, h, r, mb, err)) != PC_OK) {
+    if ((st = pc_algo_cr_box_mean(b, w, h, r, mb, err)) != PC_OK) {
         free(*ma);
         *ma = NULL;
     }
@@ -468,10 +470,15 @@ static bool wb_neutral(const pc_algo_camera_raw *p)
 {
     return p->temperature == 0.0f && p->tint == 0.0f && p->exposure == 0.0f;
 }
+/* Contrast, Highlights, Shadows, Texture and Clarity (the luminance stage). */
+static bool local_tone_neutral(const pc_algo_camera_raw *p)
+{
+    return p->contrast == 0.0f && p->highlights == 0.0f && p->shadows == 0.0f && p->texture == 0.0f &&
+           p->clarity == 0.0f;
+}
 static bool tone_neutral(const pc_algo_camera_raw *p)
 {
-    return p->contrast == 0.0f && p->highlights == 0.0f && p->shadows == 0.0f && p->whites == 0.0f &&
-           p->blacks == 0.0f && p->texture == 0.0f && p->clarity == 0.0f;
+    return local_tone_neutral(p) && p->whites == 0.0f && p->blacks == 0.0f;
 }
 static bool hsl_neutral(const pc_algo_camera_raw *p)
 {
@@ -522,7 +529,7 @@ typedef struct dev_ctx {
     /* white balance */
     float g[3];
     /* tone */
-    const float *l, *lc, *base, *clar, *tex;
+    const float *l, *lc, *clar, *tex;
     float k_con;
     /* colour */
     const float *par, *master, *cur[3];
@@ -556,12 +563,6 @@ static pc_status tone_rows(void *vc, size_t chunk, size_t y0, size_t y1)
     for (i = y0 * c->w; i < y1 * c->w; i++) {
         float *q = c->px[i];
         float l0 = c->l[i], lv = c->lc[i], ratio;
-        if (c->base != NULL) {
-            float bv = pc_clampf(c->base[i], 0.0f, 1.0f);
-            float hm = smooth(0.45f, 0.95f, bv);
-            float sm = 1.0f - smooth(0.05f, 0.5f, bv);
-            lv *= exp2f(p->highlights / 100.0f * 1.2f * hm + p->shadows / 100.0f * 1.4f * sm);
-        }
         if (c->clar != NULL) {
             float t = 2.0f * pc_clampf(lv, 0.0f, 1.0f) - 1.0f;
             float mw = 1.0f - t * t;
@@ -569,12 +570,6 @@ static pc_status tone_rows(void *vc, size_t chunk, size_t y0, size_t y1)
         }
         if (c->tex != NULL) {
             lv += p->texture / 100.0f * 0.9f * pc_clampf(c->lc[i] - c->tex[i], -0.1f, 0.1f);
-        }
-        if (p->whites != 0.0f) {
-            lv += p->whites / 100.0f * 0.25f * smooth(0.4f, 1.0f, lv);
-        }
-        if (p->blacks != 0.0f) {
-            lv += p->blacks / 100.0f * 0.15f * (1.0f - smooth(0.0f, 0.45f, lv));
         }
         if (c->k_con != 0.0f) {
             float xx = pc_clampf(lv, 0.0f, 1.0f);
@@ -1120,7 +1115,7 @@ static pc_status tone_stage(dev_ctx *c, float ps, pc_error *err)
     const pc_algo_camera_raw *p = c->p;
     size_t n = c->w * c->h, i, w = c->w, h = c->h;
     float long_side = (float)(w > h ? w : h);
-    float *l = NULL, *lc = NULL, *base = NULL, *clar = NULL, *tex = NULL;
+    float *l = NULL, *lc = NULL, *clar = NULL, *tex = NULL;
     pc_status st;
     if ((st = pc_algo_l9u_alloc_f(n, false, &l, err)) != PC_OK ||
         (st = pc_algo_l9u_alloc_f(n, false, &lc, err)) != PC_OK) {
@@ -1129,12 +1124,6 @@ static pc_status tone_stage(dev_ctx *c, float ps, pc_error *err)
     for (i = 0; i < n; i++) {
         l[i] = pc_rs_maxf_k(luma3(c->px[i][0], c->px[i][1], c->px[i][2]), 0.0f);
         lc[i] = pc_rs_minf_k(l[i], 1.0f);
-    }
-    if (p->highlights != 0.0f || p->shadows != 0.0f) {
-        size_t r = pc_f32_to_size(long_side * 0.015f);
-        if ((st = guided_fast(lc, lc, w, h, r < 2 ? 2 : r, 0.02f, &base, err)) != PC_OK) {
-            goto done;
-        }
     }
     if (p->clarity != 0.0f) {
         size_t r = pc_f32_to_size(long_side * 0.02f);
@@ -1148,13 +1137,12 @@ static pc_status tone_stage(dev_ctx *c, float ps, pc_error *err)
     }
     c->l = l;
     c->lc = lc;
-    c->base = base;
     c->clar = clar;
     c->tex = tex;
     c->k_con = p->contrast / 100.0f * 0.6f;
     st = run_rows(h, tone_rows, c, err);
 done:
-    free(l), free(lc), free(base), free(clar), free(tex);
+    free(l), free(lc), free(clar), free(tex);
     return st;
 }
 
@@ -1252,8 +1240,20 @@ pc_status pc_algo_camera_raw_develop(float (*px)[4], size_t n, size_t w, size_t 
     if (p->dehaze != 0.0f && (st = dehaze(px, w, h, p->dehaze / 100.0f, err)) != PC_OK) {
         return st;
     }
-    /* 3. Tone on luminance. */
-    if (!tone_neutral(p) && (st = tone_stage(&c, ps, err)) != PC_OK) {
+    /* 3. Tone. Highlights and Shadows: a local Laplacian filter (camera_raw_tone.c). */
+    if ((p->highlights != 0.0f || p->shadows != 0.0f) &&
+        (st = pc_algo_cr_local_tone(px, w, h, p->shadows, p->highlights,
+                                    pc_algo_cr_encoding_of(p->encoding_gamma), err)) != PC_OK) {
+        return st;
+    }
+    if (!local_tone_neutral(p) && (p->contrast != 0.0f || p->texture != 0.0f || p->clarity != 0.0f) &&
+        (st = tone_stage(&c, ps, err)) != PC_OK) {
+        return st;
+    }
+    /* 3b. Whites and Blacks: global curves adapted to the image's black and white points. */
+    if ((p->whites != 0.0f || p->blacks != 0.0f) &&
+        (st = pc_algo_cr_whites_blacks(px, w, h, p->whites, p->blacks,
+                                       pc_algo_cr_encoding_of(p->encoding_gamma), err)) != PC_OK) {
         return st;
     }
     /* 4-7. Per-pixel colour stages. */

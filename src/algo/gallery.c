@@ -44,15 +44,25 @@ static float level_weight(const float *lv, size_t nlv, size_t k, float s)
     return 0.0f;
 }
 
-/* Blurs src over out with a per-pixel sigma (<= smax). */
+static int64_t min_i64(int64_t a, int64_t b)
+{
+    return a < b ? a : b;
+}
+
+/* Blurs src over out with a per-pixel sigma (<= smax). With trim_levels (Iris and Tilt-Shift),
+ * each blurred level covers only the window rows/columns up to out plus that level's own
+ * box-cascade reach (the top/left stay, so the running sums start where they did). */
 static pc_status variable_blur(const pc_algo_image *src, pc_rect out, const pc_algo_ctx *ctx, float smax,
-                               sigma_fn sigma, const void *sc, float *dst, pc_error *err)
+                               bool trim_levels, sigma_fn sigma, const void *sc, float *dst, pc_error *err)
 {
     size_t n = src->ch, ww = pc_rect_width(src->rect), wh = pc_rect_height(src->rect), npx = pc_fx_npx(out);
     size_t nlv = LEVELS + 1, k, i, c, plen = 0;
     pc_rect win = src->rect;
     float lv[LEVELS + 1], *sig = NULL, *p = NULL, *buf = NULL;
     pc_status st = PC_OK;
+    if (n == 0 || npx == 0) {
+        return PC_OK;
+    }
     if (smax < 0.3f) {
         pc_algo_image_crop_into(src, out, dst);
         return PC_OK;
@@ -87,6 +97,7 @@ static pc_status variable_blur(const pc_algo_image *src, pc_rect out, const pc_a
     }
     for (k = 0; k < nlv; k++) {
         const float *level = p;
+        size_t lw = ww;
         bool any = false;
         for (i = 0; i < npx && !any; i++) {
             any = level_weight(lv, nlv, k, sig[i]) > 0.0f;
@@ -102,8 +113,25 @@ static pc_status variable_blur(const pc_algo_image *src, pc_rect out, const pc_a
                     goto cleanup;
                 }
             }
-            memcpy(buf, p, plen * sizeof *buf);
-            st = pc_algo_gauss_blur_n(buf, ww, wh, n, lv[k], err);
+            if (trim_levels) {
+                /* Each level needs its own box-cascade reach, not the maximum blur's halo. */
+                size_t radii[3] = {0, 0, 0}, lh, r;
+                int64_t reach = 0;
+                if (lv[k] >= 0.3f) {
+                    pc_algo_gauss_box_radii(lv[k], radii);
+                    reach = (int64_t)(radii[0] + radii[1] + radii[2]);
+                    reach = reach < INT32_MAX ? reach : INT32_MAX;
+                }
+                lw = (size_t)(min_i64((int64_t)out.x1 + reach, win.x1) - win.x0);
+                lh = (size_t)(min_i64((int64_t)out.y1 + reach, win.y1) - win.y0);
+                for (r = 0; r < lh; r++) {
+                    memcpy(buf + r * lw * n, p + r * ww * n, lw * n * sizeof *buf);
+                }
+                st = pc_algo_gauss_blur_n(buf, lw, lh, n, lv[k], err);
+            } else {
+                memcpy(buf, p, plen * sizeof *buf);
+                st = pc_algo_gauss_blur_n(buf, ww, wh, n, lv[k], err);
+            }
             if (st != PC_OK) {
                 goto cleanup;
             }
@@ -117,7 +145,7 @@ static pc_status variable_blur(const pc_algo_image *src, pc_rect out, const pc_a
                 continue;
             }
             pc_algo_xy(out, i, &x, &y);
-            o = ((size_t)(y - win.y0) * ww + (size_t)(x - win.x0)) * n;
+            o = ((size_t)(y - win.y0) * lw + (size_t)(x - win.x0)) * n;
             for (c = 0; c < n; c++) {
                 dst[i * n + c] += level[o + c] * wk;
             }
@@ -168,10 +196,11 @@ static pc_status tilt_k(const void *p, const void *prep, const pc_algo_image *sr
     /* Band normal (the band runs along `angle`). */
     t.nx = sinf(a);
     t.ny = cosf(a);
-    t.smax = sigma_of(tp->blur);
+    /* A NaN amount must not become the upper bound of the clamp in variable_blur. */
+    t.smax = pc_rs_maxf_k(sigma_of(tp->blur), 0.0f);
     t.f0 = pc_rs_maxf_k(tp->focus, 0.0f);
     t.f1 = pc_rs_maxf_k(tp->focus, 0.0f) + pc_rs_maxf_k(tp->transition, 1e-3f);
-    return variable_blur(src, out, ctx, t.smax, tilt_sigma, &t, dst, err);
+    return variable_blur(src, out, ctx, t.smax, true, tilt_sigma, &t, dst, err);
 }
 
 /* ---- Iris / Spin geometry ---- */
@@ -206,22 +235,58 @@ static pin_d pin_distance(float x, float y, pc_rect b, float px, float py, float
 
 /* ---- Iris ---- */
 
+/* A pin's geometry prepared once per tile (PreparedIris): the same arithmetic as pin_distance. */
+typedef struct prepared_iris {
+    float cx, cy, rx, ry, sin, cos, exponent, feather, blur;
+} prepared_iris;
+
 typedef struct iris_c {
-    const pc_algo_iris_pins *pins;
-    pc_rect b;
+    const prepared_iris *pins;
+    size_t n;
 } iris_c;
+
+static prepared_iris prepare_iris(const pc_algo_iris_pin *p, pc_rect b)
+{
+    prepared_iris q;
+    float ss = short_side(b), a = pc_fx_rad(isfinite(p->angle) ? p->angle : 0.0f);
+    q.cx = (float)b.x0 + p->x * (float)pc_rect_width(b);
+    q.cy = (float)b.y0 + p->y * (float)pc_rect_height(b);
+    q.rx = pc_rs_maxf_k(p->radius_x, 1e-3f) * ss;
+    q.ry = pc_rs_maxf_k(p->radius_y, 1e-3f) * ss;
+    q.sin = sinf(a);
+    q.cos = cosf(a);
+    q.exponent = 2.0f + pc_clampf(p->roundness, 0.0f, 100.0f) / 100.0f * 6.0f;
+    q.feather = pc_clampf(p->feather, 0.0f, 0.999f);
+    q.blur = sigma_of(p->blur);
+    return q;
+}
+
+static float prepared_iris_sigma(const prepared_iris *q, float x, float y)
+{
+    float dx = x - q->cx, dy = y - q->cy;
+    float u = (dx * q->cos + dy * q->sin) / q->rx, v = (-dx * q->sin + dy * q->cos) / q->ry, e;
+    /* Outside the normalized bounding square the superellipse distance is at least one: the
+     * falloff is saturated, no sqrt/powf needed. */
+    if (fabsf(u) >= 1.0f || fabsf(v) >= 1.0f) {
+        e = INFINITY;
+    } else if (fabsf(q->exponent - 2.0f) < 1e-3f) {
+        e = sqrtf(u * u + v * v);
+    } else {
+        e = powf(powf(fabsf(u), q->exponent) + powf(fabsf(v), q->exponent), 1.0f / q->exponent);
+    }
+    if (!isfinite(e)) {
+        e = INFINITY;
+    }
+    return q->blur * pc_algo_smoothstep(q->feather, 1.0f, e);
+}
 
 static float iris_sigma(const void *vc, float x, float y)
 {
     const iris_c *ic = vc;
     float best = FLT_MAX;
     size_t i;
-    for (i = 0; i < ic->pins->n; i++) {
-        const pc_algo_iris_pin *p = &ic->pins->v[i];
-        float m = 2.0f + pc_clampf(p->roundness, 0.0f, 100.0f) / 100.0f * 6.0f;
-        pin_d d = pin_distance(x, y, ic->b, p->x, p->y, p->radius_x, p->radius_y, p->angle, m);
-        best = pc_rs_minf(best, sigma_of(p->blur) *
-                                    pc_algo_smoothstep(pc_clampf(p->feather, 0.0f, 0.999f), 1.0f, d.e));
+    for (i = 0; i < ic->n; i++) {
+        best = pc_rs_minf(best, prepared_iris_sigma(&ic->pins[i], x, y));
     }
     return best;
 }
@@ -232,18 +297,31 @@ static pc_status iris_k(const void *p, const void *prep, const pc_algo_image *sr
                         const pc_algo_ctx *ctx, float *dst, pc_error *err)
 {
     const pc_algo_iris_params *ip = p;
-    iris_c ic = {&ip->pins, ctx->bounds};
+    prepared_iris *pins;
+    iris_c ic;
     float smax = 0.0f;
     size_t i;
+    pc_status st;
     (void)prep;
     for (i = 0; i < ip->pins.n; i++) {
         smax = pc_rs_maxf(smax, sigma_of(ip->pins.v[i].blur));
     }
-    if (ip->pins.n == 0) {
+    if (ip->pins.n == 0 || smax < 0.3f) {
         pc_algo_image_crop_into(src, out, dst);
         return PC_OK;
     }
-    return variable_blur(src, out, ctx, smax, iris_sigma, &ic, dst, err);
+    pins = pc_malloc_array(ip->pins.n, sizeof *pins);
+    if (pins == NULL) {
+        return pc_fail(err, PC_ERR_NOMEM, "out of memory for Iris Blur");
+    }
+    for (i = 0; i < ip->pins.n; i++) {
+        pins[i] = prepare_iris(&ip->pins.v[i], ctx->bounds);
+    }
+    ic.pins = pins;
+    ic.n = ip->pins.n;
+    st = variable_blur(src, out, ctx, smax, true, iris_sigma, &ic, dst, err);
+    free(pins);
+    return st;
 }
 
 /* ---- Field ---- */
@@ -296,12 +374,43 @@ static pc_status field_k(const void *p, const void *prep, const pc_algo_image *s
     }
     fc.pts = (const float (*)[3])pts;
     fc.n = fp->pins.n;
-    st = variable_blur(src, out, ctx, smax, field_sigma, &fc, dst, err);
+    st = variable_blur(src, out, ctx, smax, false, field_sigma, &fc, dst, err);
     free(pts);
     return st;
 }
 
 /* ---- Spin ---- */
+
+/* gallery::spin_plan: every sample count 2..=64 shares one rotation table per pin (2079
+ * (sin, cos) pairs, computed exactly as the direct loop does), for up to 120 pins (under 2 MiB);
+ * larger lists, or a failed allocation, sample directly. */
+#define SPIN_TABLE 2079
+#define SPIN_MAX_PINS 120
+
+static float (*spin_prepare(const pc_algo_spin_pins *pins))[2]
+{
+    float (*t)[2];
+    size_t pi, count, j, o = 0;
+    if (pins->n == 0 || pins->n > SPIN_MAX_PINS) {
+        return NULL;
+    }
+    t = pc_malloc_array(pins->n * SPIN_TABLE, sizeof *t);
+    if (t == NULL) {
+        return NULL;
+    }
+    for (pi = 0; pi < pins->n; pi++) {
+        float theta = pc_fx_rad(pc_clampf(pins->v[pi].blur_angle, 0.0f, 360.0f));
+        for (count = 2; count <= 64; count++) {
+            for (j = 0; j < count; j++) {
+                float phi = theta * ((float)j / (float)(count - 1) - 0.5f);
+                t[o][0] = sinf(phi);
+                t[o][1] = cosf(phi);
+                o++;
+            }
+        }
+    }
+    return t;
+}
 
 /* Content inside each ellipse is blurred along arcs about its centre (`blur_angle` degrees of
  * rotation), feathered at the rim. */
@@ -311,12 +420,13 @@ static pc_status spin_k(const void *p, const void *prep, const pc_algo_image *sr
     const pc_algo_spin_params *sp = p;
     size_t n = src->ch, i, c, pi;
     pc_rect b = ctx->bounds, clip = pc_rect_intersect(b, src->rect);
-    float ss = short_side(b);
+    float ss = short_side(b), (*plans)[2];
     (void)prep, (void)err;
     pc_algo_image_crop_into(src, out, dst);
     if (pc_rect_is_empty(clip) || n == 0 || n > PC_ALGO_MAXC) {
         return PC_OK;
     }
+    plans = spin_prepare(&sp->pins);
     for (i = 0; i < pc_fx_npx(out); i++) {
         float *px = dst + i * n, fx, fy;
         int32_t x, y;
@@ -346,7 +456,16 @@ static pc_status spin_k(const void *p, const void *prep, const pc_algo_image *sr
             sa = sinf(a);
             ca = cosf(a);
             for (j = 0; j < m; j++) {
-                float phi = theta * ((float)j / (float)(m - 1) - 0.5f), s2 = sinf(phi), c2 = cosf(phi);
+                float s2, c2;
+                if (plans != NULL) {
+                    const float *rot = plans[pi * SPIN_TABLE + m * (m - 1) / 2 - 1 + j];
+                    s2 = rot[0];
+                    c2 = rot[1];
+                } else {
+                    float phi = theta * ((float)j / (float)(m - 1) - 0.5f);
+                    s2 = sinf(phi);
+                    c2 = cosf(phi);
+                }
                 /* Rotate in the ellipse's normalized space, then map back. */
                 float ru = d.u * c2 - d.v * s2, rv = d.u * s2 + d.v * c2;
                 float lu = ru * pin->radius_x * ss, lv = rv * pin->radius_y * ss;
@@ -364,6 +483,7 @@ static pc_status spin_k(const void *p, const void *prep, const pc_algo_image *sr
             break;
         }
     }
+    free(plans);
     return PC_OK;
 }
 

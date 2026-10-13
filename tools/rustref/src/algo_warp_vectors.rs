@@ -251,6 +251,35 @@ fn apply_cases() {
     }
 }
 
+/// R6 (resync): ProxyImage::render_full_resolution, a full render then a partial update.
+fn fullres_cases() {
+    let js = r#"[{"tool":"bloat","size":40,"points":[[48,32],[48,32],[48,32],[48,32]]},{"tool":"forwardWarp","size":30,"points":[[20,20],[30,25],[60,40]]}]"#;
+    let canvas = Rect::new(0, 0, 96, 64);
+    for name in ["rgba8", "rgb8", "graya16", "cmyka8", "rgba32"] {
+        let fmt = format_named(name);
+        let src = surf(fmt, Rect::new(-10, -10, 140, 90), 5, false);
+        let f = LiquifyField::from_strokes(canvas, 2.0, &strokes_of(js));
+        for (bounds, region) in [
+            (canvas, canvas),
+            (canvas, Rect::new(10, 12, 50, 40)),
+            (Rect::new(-5, 3, 131, 80), Rect::new(0, 0, 200, 200)),
+            (canvas, Rect::new(90, 60, 200, 200)),
+            (canvas, Rect::new(200, 200, 300, 300)),
+        ] {
+            let b = bounds.intersect(&f.bounds);
+            let mut out = vec![[0u8; 4]; (b.width() * b.height()) as usize];
+            let mut scratch = Vec::new();
+            let ok = ProxyImage::render_full_resolution(&src, &f, bounds, region, &mut out, &mut scratch);
+            let mut h = H0;
+            hu(&mut h, &[ok as u64]);
+            for o in &out {
+                fnv(&mut h, o);
+            }
+            println!("fullres\t{}\t{}\t{}\t{:016x}", name, rect_s(bounds), rect_s(region), h);
+        }
+    }
+}
+
 fn proxy_cases() {
     let js = r#"[{"tool":"bloat","size":40,"points":[[48,32],[48,32],[48,32],[48,32]]},{"tool":"forwardWarp","size":30,"points":[[20,20],[30,25]]}]"#;
     for name in ["rgba8", "rgb8", "graya16", "cmyka8"] {
@@ -622,6 +651,7 @@ pub fn run() {
     segment_cases();
     apply_cases();
     proxy_cases();
+    fullres_cases();
     mesh_cases();
     solve_cases();
     custom_cases();

@@ -97,6 +97,7 @@ static const jfield adj_curves_f[] = {
     JFV("per_channel", A, u.curves.per_channel, curve_x3),
     JFVD("space", A, u.curves.space, jt_tone_space, JD_ZERO),
     JFVECD("black", A, u.curves.black.pts, u.curves.black.len, pc_jt_curve_point, JD_ZERO),
+    JFVD("pencil", A, u.curves.pencil, pc_jt_bool, JD_ZERO),
 };
 static const jfield adj_exposure_f[] = {
     JFV("exposure", A, u.exposure.exposure, pc_jt_f32),
@@ -271,6 +272,7 @@ const jtype pc_jt_gradient = JT_STRUCT(pc_gradient, gradient_s);
 static const jfield contour_custom_f[] = {
     JFV("name", pc_contour, name, pc_jt_str),
     JFVEC("points", pc_contour, points.pts, points.len, pc_jt_curve_point),
+    JFVECSKIP("corners", pc_contour, corners, ncorners, pc_jt_bool, JD_ZERO),
 };
 static const jstruct contour_custom_s = {"struct variant Contour::Custom", contour_custom_f,
                                          JCOUNT(contour_custom_f), NULL, sizeof(pc_contour)};

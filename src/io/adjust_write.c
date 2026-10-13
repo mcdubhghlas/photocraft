@@ -215,10 +215,21 @@ static pc_status put_f32(pc_buf *v, float x, pc_error *err)
     return put32(v, u, err);
 }
 
-static pc_status write_curve(pc_buf *v, const pc_curve *c, pc_error *err)
+static pc_status write_curve(pc_buf *v, const pc_curve *c, bool pencil, pc_error *err)
 {
-    size_t n = c->len < 19 ? c->len : 19;
-    pc_status st = put16(v, (uint16_t)n, err);
+    size_t n;
+    pc_status st;
+    if (pencil) {
+        /* A map (pencil) stores 256 output bytes, one per 8-bit input level. */
+        float outs[PC_CURVE_MAP_LEN];
+        st = pc_curve_map_outputs(c->pts, c->len, outs, err);
+        for (size_t k = 0; k < PC_CURVE_MAP_LEN && st == PC_OK; k++) {
+            st = put_byte(v, (uint8_t)q255(outs[k]), err);
+        }
+        return st;
+    }
+    n = c->len < 19 ? c->len : 19;
+    st = put16(v, (uint16_t)n, err);
     for (size_t i = 0; i < n && st == PC_OK; i++) {
         st = put16(v, q255(c->pts[i].output), err);
         st = st != PC_OK ? st : put16(v, q255(c->pts[i].input), err);
@@ -389,16 +400,17 @@ static pc_status write_main(const pc_adjustment *adj, char key[5], pc_buf *v, pc
     }
     case PC_ADJ_CURVES: {
         bool ink = adj->u.curves.space == PC_TONE_CMYK && adj->u.curves.black.len >= 2;
+        bool pencil = adj->u.curves.pencil;
         memcpy(key, "curv", 5);
-        st = put_byte(v, 0, err);
+        st = put_byte(v, pencil ? 1 : 0, err);
         st = st != PC_OK ? st : put16(v, 1, err);
         st = st != PC_OK ? st : put32(v, ink ? 0x1f : 0xf, err);
-        st = st != PC_OK ? st : write_curve(v, &adj->u.curves.master, err);
+        st = st != PC_OK ? st : write_curve(v, &adj->u.curves.master, pencil, err);
         for (size_t i = 0; i < 3 && st == PC_OK; i++) {
-            st = write_curve(v, &adj->u.curves.per_channel[i], err);
+            st = write_curve(v, &adj->u.curves.per_channel[i], pencil, err);
         }
         if (st == PC_OK && ink) {
-            st = write_curve(v, &adj->u.curves.black, err);
+            st = write_curve(v, &adj->u.curves.black, pencil, err);
         }
         return st;
     }

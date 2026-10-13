@@ -18,7 +18,7 @@ use photocraft_psd::tiff::{ByteOrder, ImageSourceData, resources_from_bytes, res
 use photocraft_psd::{ColorMode as PsdMode, Compression, Header, ImageData, ImageResource, ResolutionInfo};
 
 use crate::flat::{csample, encode_image, image_to_document, layout_for, single_layer, try_buffer};
-use crate::psd_export::{PsdExportOptions, document_to_psd_with};
+use crate::psd_export::PsdExportOptions;
 use crate::psd_import::psd_to_document;
 use crate::{ExportOptions, ExportResult, ImportResult, IoError};
 
@@ -53,7 +53,7 @@ pub(crate) fn import_layered(name: &str, img: &Image, layers: &[u8]) -> Result<I
         Ok(v) => v,
         Err(e) => {
             let mut r = image_to_document(name, img)?;
-            r.warnings.push(format!("the Photoshop layer data could not be read ({e}); opened flattened"));
+            r.warnings.push(format!("the PSD layer data could not be read ({e}); opened flattened"));
             return Ok(r);
         }
     };
@@ -61,7 +61,7 @@ pub(crate) fn import_layered(name: &str, img: &Image, layers: &[u8]) -> Result<I
     let (mut resources, w) = match img.meta.photoshop_resources.as_deref().filter(|r| !r.is_empty()).map(resources_from_bytes) {
         Some(Ok(v)) => v,
         Some(Err(e)) => {
-            warnings.push(format!("the Photoshop image resources could not be read: {e}"));
+            warnings.push(format!("the PSD image resources could not be read: {e}"));
             (Vec::new(), Vec::new())
         }
         None => (Vec::new(), Vec::new()),
@@ -105,15 +105,15 @@ pub(crate) fn import_layered(name: &str, img: &Image, layers: &[u8]) -> Result<I
     let data = planar_big_endian(&img, color_channels, mode == PsdMode::Cmyk)?;
     let image_data = ImageData { compression: Compression::Raw, data };
     let file = isd.into_psd(header, resources, image_data);
+    // The same nesting limit as opening a PSD (#2940).
+    crate::psd_import::check_group_depth(&file)?;
     let (mut doc, w) = psd_to_document(&file);
     warnings.extend(w);
     doc.name = name.to_string();
     if doc.icc_profile.is_none() {
         doc.icc_profile = img.icc.clone().map(Arc::new);
     }
-    if !img.meta.text.is_empty() {
-        warnings.push(format!("{} text metadata entries are not kept in the document", img.meta.text.len()));
-    }
+    doc.metadata.text = img.meta.text.clone();
     Ok(ImportResult { document: doc, warnings, source_read_only: false, preview_only: false })
 }
 
@@ -179,11 +179,19 @@ fn interleave(planes: &[u8], w: u32, h: u32, channels: usize, color_channels: us
     Ok(out)
 }
 
+/// A layered TIFF export's progress once the layers and composite are converted, the layer
+/// block is assembled and the composite interleaved; the TIFF encoder does the rest (#3389).
+/// Measured on a 24 MP, 5-layer RGB/8 document: about 40 %, 70 % and 72 % of the time.
+const TIFF_MODEL_DONE: f32 = 0.4;
+const TIFF_LAYERS_DONE: f32 = 0.68;
+const TIFF_COMPOSITE_DONE: f32 = 0.72;
+
 /// Saves `doc` as a layered TIFF. Documents whose colour mode a TIFF cannot hold in our
-/// codec (Lab) are saved flat, with a warning.
-pub(crate) fn export_layered(doc: &Document, opts: &ExportOptions) -> Result<ExportResult, IoError> {
+/// codec (Lab) are saved flat, with a warning. Reports progress through `ctl` (see
+/// [`crate::export_with`]).
+pub(crate) fn export_layered(doc: &Document, opts: &ExportOptions, ctl: &photocraft_raster::Interrupt) -> Result<ExportResult, IoError> {
     if !layered_mode(doc) {
-        let mut r = crate::flat::export_flat(doc, Format::Tiff, opts)?;
+        let mut r = crate::flat::export_flat_with(doc, Format::Tiff, opts, ctl)?;
         if !doc.layers.is_empty() {
             r.warnings.push(format!("{:?} documents are saved as a flat TIFF: their layers are not kept", doc.pixel_format().mode));
         }
@@ -194,10 +202,14 @@ pub(crate) fn export_layered(doc: &Document, opts: &ExportOptions) -> Result<Exp
     // The PSD exporter renders the composite we need for the TIFF itself: unmatted (the TIFF
     // keeps straight alpha) and uncompressed (its planes are interleaved below).
     let psd_opts = PsdExportOptions { force_psb: opts.force_psb || big, merged_matte: false, merged_compression: Compression::Raw };
-    let (file, w) = document_to_psd_with(doc, &psd_opts);
+    let (file, w) = crate::with_span(ctl, 0.0, TIFF_MODEL_DONE, |ctl| crate::psd_export::document_to_psd_interruptible(doc, &psd_opts, ctl));
+    // A cancelled conversion stops early with an incomplete model: never encode it.
+    ctl.check().map_err(|_| IoError::Cancelled)?;
     warnings.extend(w);
     let order = if codecs::tiff_writes_little_endian() { ByteOrder::Little } else { ByteOrder::Big };
     let (layers, w) = ImageSourceData::from_psd(&file).to_bytes(order)?;
+    ctl.check().map_err(|_| IoError::Cancelled)?;
+    ctl.progress(TIFF_LAYERS_DONE);
     warnings.extend(w.into_iter().map(|w| format!("layer data: {w}")));
     // The profile and XMP are written as TIFF tags, not as resources. EXIF stays a resource
     // (1058): the TIFF codec has no EXIF directory, and the PSD importer reads it back from there.
@@ -216,6 +228,8 @@ pub(crate) fn export_layered(doc: &Document, opts: &ExportOptions) -> Result<Exp
     let (w, h) = (doc.size.width, doc.size.height);
     let cmyk = fmt.mode == ColorMode::Cmyk;
     let data = interleave(&file.image_data.data, w, h, channels, cc, sample, cmyk)?;
+    ctl.check().map_err(|_| IoError::Cancelled)?;
+    ctl.progress(TIFF_COMPOSITE_DONE);
     let layout = layout_for(fmt.mode, has_alpha);
     let mut img = Image::from_raw(w, h, layout, sample, data)?;
     img.icc = doc.icc_profile.as_ref().map(|i| i.to_vec());
@@ -225,6 +239,7 @@ pub(crate) fn export_layered(doc: &Document, opts: &ExportOptions) -> Result<Exp
         // codec a second copy in `meta.exif` bought nothing and made the export claim it would
         // drop metadata it had in fact kept (#1545).
         xmp: doc.metadata.xmp.clone().filter(|_| opts.xmp == crate::XmpEmbed::All),
+        text: if opts.xmp == crate::XmpEmbed::All { doc.metadata.text.clone() } else { Vec::new() },
         dpi: Some((doc.resolution_dpi, doc.resolution_dpi)),
         photoshop_resources: Some(resources),
         photoshop_layers: Some(layers),

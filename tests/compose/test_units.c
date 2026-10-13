@@ -332,7 +332,7 @@ static void test_matches_the_cpu_mask_and_is_cached(void)
     CHECK(pc_vec_mask_values(&l.vector_mask, canvas, &want, &n, NULL) == PC_OK && n == 40 * 32);
     CHECK(pc_surface_read_region_into(&s, canvas, got, 40 * 32, NULL) == PC_OK);
     for (i = 0; want != NULL && i < n; i++) {
-        ok = ok && fabsf(got[i] - want[i]) < 1e-6f;
+        ok = ok && fabsf(got[i] - want[i]) <= 1.0f / 65535.0f; /* the cache stores U16 */
     }
     CHECK(ok);
     free(want);

@@ -16,6 +16,9 @@
 #define CELL 4.0
 /* Most cells along one axis (bounds memory and time on huge layers). */
 #define MAX_CELLS 512
+/* Most subsamples per axis when a warp shrinks the source; also the longest source step per
+ * destination pixel the filter follows (bounds the footprint each tile reads). */
+#define MAX_SS 8.0
 
 static void catmull_rom(double t, double w[4])
 {
@@ -50,36 +53,160 @@ typedef struct tri_job {
     float **results; /* per tile, NULL when nothing was drawn */
 } tri_job;
 
+/* Subsamples along one destination axis for the source step `jv` it makes: one where the warp keeps
+ * or enlarges the source, else about one per source pixel the output pixel spans (an area
+ * average; the subsamples are bilinear, the box does the filtering). */
+static size_t ss_count(pc_algo_interp interp, const double jv[2])
+{
+    if (interp == PC_ALGO_INTERP_NEAREST) {
+        return 1;
+    }
+    return (size_t)pc_clampd(round(hypot(jv[0], jv[1])), 1.0, MAX_SS);
+}
+
+/* Caps a source step at MAX_SS, so a sliver triangle can't ask for an unbounded footprint. */
+static void ss_cap(double jv[2])
+{
+    double l = hypot(jv[0], jv[1]);
+    if (l > MAX_SS) {
+        jv[0] = jv[0] * MAX_SS / l;
+        jv[1] = jv[1] * MAX_SS / l;
+    }
+}
+
+/* Per triangle: its source step per destination pixel along x and y ({dx_u, dx_v, dy_u, dy_v},
+ * the inverse map's Jacobian, zero when point-sampled) and the subsamples along each. */
+typedef struct tri_jac {
+    double j[4];
+    size_t nx, ny;
+} tri_jac;
+
+typedef struct foot_src {
+    const float *px;
+    pc_rect foot;
+    size_t fw, n;
+} foot_src;
+
+static double foot_at(const foot_src *f, int32_t xx, int32_t yy, size_t cc)
+{
+    if (xx < f->foot.x0 || yy < f->foot.y0 || xx >= f->foot.x1 || yy >= f->foot.y1) {
+        return 0.0;
+    }
+    return (double)f->px[((size_t)(yy - f->foot.y0) * f->fw + (size_t)(xx - f->foot.x0)) * f->n + cc];
+}
+
+/* One premultiplied sample at source position (u, v) (pixel centres at integers). */
+static void point_sample(const foot_src *f, pc_algo_interp interp, double u, double v, double acc[8])
+{
+    size_t c, n = f->n;
+    for (c = 0; c < n; c++) {
+        acc[c] = 0.0;
+    }
+    if (interp == PC_ALGO_INTERP_NEAREST) {
+        int32_t ix = f2i(floor(u + 0.5)), iy = f2i(floor(v + 0.5));
+        for (c = 0; c < n; c++) {
+            acc[c] = foot_at(f, ix, iy, c);
+        }
+    } else if (interp == PC_ALGO_INTERP_BILINEAR) {
+        int32_t ix = f2i(floor(u)), iy = f2i(floor(v)), dx, dy;
+        double fx = u - (double)ix, fy = v - (double)iy;
+        for (dy = 0; dy < 2; dy++) {
+            double wy = dy == 0 ? 1.0 - fy : fy;
+            for (dx = 0; dx < 2; dx++) {
+                double wx = dx == 0 ? 1.0 - fx : fx;
+                int32_t sx = pc_i32_wrapping_add(ix, dx), sy = pc_i32_wrapping_add(iy, dy);
+                for (c = 0; c < n; c++) {
+                    acc[c] += foot_at(f, sx, sy, c) * wx * wy;
+                }
+            }
+        }
+    } else {
+        /* Snap to the pixel grid when within float noise, so identity is exact. */
+        double wx[4], wy[4];
+        int32_t ix, iy, ii, jj;
+        if (fabs(u - round(u)) < 1e-7) {
+            u = round(u);
+        }
+        if (fabs(v - round(v)) < 1e-7) {
+            v = round(v);
+        }
+        ix = f2i(floor(u));
+        iy = f2i(floor(v));
+        catmull_rom(u - (double)ix, wx);
+        catmull_rom(v - (double)iy, wy);
+        for (jj = 0; jj < 4; jj++) {
+            for (ii = 0; ii < 4; ii++) {
+                double kk = wx[ii] * wy[jj];
+                int32_t sx = pc_i32_wrapping_add(pc_i32_wrapping_sub(ix, 1), ii);
+                int32_t sy = pc_i32_wrapping_add(pc_i32_wrapping_sub(iy, 1), jj);
+                if (kk == 0.0) {
+                    continue;
+                }
+                for (c = 0; c < n; c++) {
+                    acc[c] += foot_at(f, sx, sy, c) * kk;
+                }
+            }
+        }
+    }
+}
+
 /* Rasterizes one destination tile. */
 static pc_status tri_tile(const tri_job *j, size_t k, pc_error *err)
 {
     pc_rect t = j->tiles[k];
-    size_t w = pc_rect_width(t), h = pc_rect_height(t), n = j->n, a = n - 1, o, b, c, fw;
+    size_t w = pc_rect_width(t), h = pc_rect_height(t), n = j->n, a = n - 1, o, b, c, nb = j->nbin[k];
     double (*uv)[2], fx0 = DBL_MAX, fy0 = DBL_MAX, fx1 = -DBL_MAX, fy1 = -DBL_MAX;
     float *px = NULL, *outp = NULL;
     size_t pxlen = 0, ti;
+    uint32_t *owner;
+    tri_jac *jac;
     bool any = false;
-    pc_rect foot;
+    foot_src fs;
     pc_status st;
-    if (j->nbin[k] == 0) {
+    if (nb == 0) {
         return PC_OK;
     }
     uv = pc_malloc_array(w * h, sizeof *uv);
-    if (uv == NULL) {
+    owner = pc_calloc_array(w * h, sizeof *owner);
+    jac = pc_malloc_array(nb, sizeof *jac);
+    if (uv == NULL || owner == NULL || jac == NULL) {
+        free(uv);
+        free(owner);
+        free(jac);
         return pc_fail(err, PC_ERR_NOMEM, "out of memory for a mesh warp");
     }
     for (o = 0; o < w * h; o++) {
         uv[o][0] = NAN, uv[o][1] = NAN;
     }
-    /* Source position per destination pixel (NaN = not covered). */
-    for (ti = 0; ti < j->nbin[k]; ti++) {
+    /* Source position per destination pixel (NaN = not covered) and the triangle it came from. */
+    for (ti = 0; ti < nb; ti++) {
         const size_t *tri = j->tris[j->bins[k][ti]];
         const double *p0 = j->verts[tri[0]].dst, *p1 = j->verts[tri[1]].dst, *p2 = j->verts[tri[2]].dst;
         const double *s0 = j->verts[tri[0]].src, *s1 = j->verts[tri[1]].src, *s2 = j->verts[tri[2]].src;
         double det = (p1[0] - p0[0]) * (p2[1] - p0[1]) - (p2[0] - p0[0]) * (p1[1] - p0[1]);
+        double d1[2], d2[2], l1x, l1y, l2x, l2y, jx[2], jy[2];
+        size_t nx, ny;
         int32_t bx0, by0, bx1, by1, x, y;
+        memset(&jac[ti], 0, sizeof jac[ti]);
+        jac[ti].nx = 1, jac[ti].ny = 1;
         if (fabs(det) < 1e-12) {
             continue;
+        }
+        d1[0] = s1[0] - s0[0], d1[1] = s1[1] - s0[1];
+        d2[0] = s2[0] - s0[0], d2[1] = s2[1] - s0[1];
+        l1x = (p2[1] - p0[1]) / det;
+        l1y = (p0[0] - p2[0]) / det;
+        l2x = (p0[1] - p1[1]) / det;
+        l2y = (p1[0] - p0[0]) / det;
+        jx[0] = l1x * d1[0] + l2x * d2[0], jx[1] = l1x * d1[1] + l2x * d2[1];
+        jy[0] = l1y * d1[0] + l2y * d2[0], jy[1] = l1y * d1[1] + l2y * d2[1];
+        ss_cap(jx);
+        ss_cap(jy);
+        nx = ss_count(j->interp, jx);
+        ny = ss_count(j->interp, jy);
+        if (nx * ny != 1) {
+            jac[ti].j[0] = jx[0], jac[ti].j[1] = jx[1], jac[ti].j[2] = jy[0], jac[ti].j[3] = jy[1];
+            jac[ti].nx = nx, jac[ti].ny = ny;
         }
         bx0 = f2i(pc_rs_max(floor(pc_rs_min(pc_rs_min(p0[0], p1[0]), p2[0]) - 0.5), (double)t.x0));
         by0 = f2i(pc_rs_max(floor(pc_rs_min(pc_rs_min(p0[1], p1[1]), p2[1]) - 0.5), (double)t.y0));
@@ -99,34 +226,40 @@ static pc_status tri_tile(const tri_job *j, size_t k, pc_error *err)
                 o = (size_t)(y - t.y0) * w + (size_t)(x - t.x0);
                 uv[o][0] = l0 * s0[0] + l1 * s1[0] + l2 * s2[0];
                 uv[o][1] = l0 * s0[1] + l1 * s1[1] + l2 * s2[1];
+                owner[o] = (uint32_t)ti;
             }
         }
     }
-    /* Source footprint of the covered pixels. */
+    /* Source footprint of the covered pixels, including the spread of their subsamples. */
     for (o = 0; o < w * h; o++) {
+        const double *jj;
+        double ex, ey;
         if (isnan(uv[o][0])) {
             continue;
         }
-        fx0 = pc_rs_min(fx0, uv[o][0]);
-        fy0 = pc_rs_min(fy0, uv[o][1]);
-        fx1 = pc_rs_max(fx1, uv[o][0]);
-        fy1 = pc_rs_max(fy1, uv[o][1]);
+        jj = jac[owner[o]].j;
+        ex = 0.5 * (fabs(jj[0]) + fabs(jj[2]));
+        ey = 0.5 * (fabs(jj[1]) + fabs(jj[3]));
+        fx0 = pc_rs_min(fx0, uv[o][0] - ex);
+        fy0 = pc_rs_min(fy0, uv[o][1] - ey);
+        fx1 = pc_rs_max(fx1, uv[o][0] + ex);
+        fy1 = pc_rs_max(fy1, uv[o][1] + ey);
     }
     if (fx0 > fx1) {
-        free(uv);
-        return PC_OK;
+        goto done;
     }
-    foot = pc_rect_intersect(
+    fs.foot = pc_rect_intersect(
         pc_rect_make(pc_i32_wrapping_sub(f2i(floor(fx0)), 3), pc_i32_wrapping_sub(f2i(floor(fy0)), 3),
                      pc_i32_wrapping_add(f2i(ceil(fx1)), 3), pc_i32_wrapping_add(f2i(ceil(fy1)), 3)),
         j->src_rect);
-    if (pc_rect_is_empty(foot) || !pc_surface_has_tiles_in(j->src, foot)) {
-        free(uv);
-        return PC_OK;
+    if (pc_rect_is_empty(fs.foot) || !pc_surface_has_tiles_in(j->src, fs.foot)) {
+        goto done;
     }
-    st = pc_surface_read_region(j->src, foot, &px, &pxlen, err);
+    st = pc_surface_read_region(j->src, fs.foot, &px, &pxlen, err);
     if (st != PC_OK) {
         free(uv);
+        free(owner);
+        free(jac);
         return st;
     }
     for (o = 0; o + n <= pxlen; o += n) {
@@ -134,71 +267,45 @@ static pc_status tri_tile(const tri_job *j, size_t k, pc_error *err)
             px[o + c] *= px[o + a];
         }
     }
-    fw = pc_rect_width(foot);
+    fs.px = px;
+    fs.fw = pc_rect_width(fs.foot);
+    fs.n = n;
     outp = pc_calloc_array(w * h * n, sizeof *outp);
     if (outp == NULL) {
         free(uv);
+        free(owner);
+        free(jac);
         free(px);
         return pc_fail(err, PC_ERR_NOMEM, "out of memory for a mesh warp");
     }
-#define AT(xx, yy, cc)                                                                                       \
-    (((xx) < foot.x0 || (yy) < foot.y0 || (xx) >= foot.x1 || (yy) >= foot.y1)                                \
-         ? 0.0                                                                                               \
-         : (double)px[((size_t)((yy) - foot.y0) * fw + (size_t)((xx) - foot.x0)) * n + (cc)])
     for (o = 0; o < w * h; o++) {
-        double u, v, acc[8] = {0}, al;
+        double acc[8] = {0}, one[8] = {0}, al;
+        const tri_jac *tj;
         if (isnan(uv[o][0])) {
             continue;
         }
-        u = uv[o][0] - 0.5;
-        v = uv[o][1] - 0.5;
-        if (j->interp == PC_ALGO_INTERP_NEAREST) {
-            int32_t ix = f2i(floor(u + 0.5)), iy = f2i(floor(v + 0.5));
-            for (c = 0; c < n; c++) {
-                acc[c] = AT(ix, iy, c);
-            }
-        } else if (j->interp == PC_ALGO_INTERP_BILINEAR) {
-            int32_t ix = f2i(floor(u)), iy = f2i(floor(v)), dx, dy;
-            double fx = u - (double)ix, fy = v - (double)iy;
-            for (dy = 0; dy < 2; dy++) {
-                double wy = dy == 0 ? 1.0 - fy : fy;
-                for (dx = 0; dx < 2; dx++) {
-                    double wx = dx == 0 ? 1.0 - fx : fx;
-                    int32_t sx = pc_i32_wrapping_add(ix, dx), sy = pc_i32_wrapping_add(iy, dy);
-                    for (c = 0; c < n; c++) {
-                        acc[c] += AT(sx, sy, c) * wx * wy;
-                    }
-                }
-            }
+        tj = &jac[owner[o]];
+        if (tj->nx * tj->ny == 1) {
+            point_sample(&fs, j->interp, uv[o][0] - 0.5, uv[o][1] - 0.5, acc);
         } else {
-            /* Snap to the pixel grid when within float noise, so identity is exact. */
-            double wx[4], wy[4];
-            int32_t ix, iy, ii, jj;
-            if (fabs(u - round(u)) < 1e-7) {
-                u = round(u);
-            }
-            if (fabs(v - round(v)) < 1e-7) {
-                v = round(v);
-            }
-            ix = f2i(floor(u));
-            iy = f2i(floor(v));
-            catmull_rom(u - (double)ix, wx);
-            catmull_rom(v - (double)iy, wy);
-            for (jj = 0; jj < 4; jj++) {
-                for (ii = 0; ii < 4; ii++) {
-                    double kk = wx[ii] * wy[jj];
-                    int32_t sx = pc_i32_wrapping_add(pc_i32_wrapping_sub(ix, 1), ii);
-                    int32_t sy = pc_i32_wrapping_add(pc_i32_wrapping_sub(iy, 1), jj);
-                    if (kk == 0.0) {
-                        continue;
-                    }
+            size_t sx, sy;
+            double kk;
+            for (sy = 0; sy < tj->ny; sy++) {
+                double tt = ((double)sy + 0.5) / (double)tj->ny - 0.5;
+                for (sx = 0; sx < tj->nx; sx++) {
+                    double ss = ((double)sx + 0.5) / (double)tj->nx - 0.5;
+                    point_sample(&fs, PC_ALGO_INTERP_BILINEAR, uv[o][0] + ss * tj->j[0] + tt * tj->j[2] - 0.5,
+                                 uv[o][1] + ss * tj->j[1] + tt * tj->j[3] - 0.5, one);
                     for (c = 0; c < n; c++) {
-                        acc[c] += AT(sx, sy, c) * kk;
+                        acc[c] += one[c];
                     }
                 }
+            }
+            kk = 1.0 / (double)(tj->nx * tj->ny);
+            for (c = 0; c < n; c++) {
+                acc[c] *= kk;
             }
         }
-#undef AT
         al = pc_clampd(acc[a], 0.0, 1.0);
         /* Float noise (a vertex a hair off the pixel grid) must not leave invisible colour behind
          * in transparent pixels. */
@@ -212,7 +319,10 @@ static pc_status tri_tile(const tri_job *j, size_t k, pc_error *err)
         }
         outp[b + a] = (float)al;
     }
+done:
     free(uv);
+    free(owner);
+    free(jac);
     free(px);
     if (any) {
         j->results[k] = outp;

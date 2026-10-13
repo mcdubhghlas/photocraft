@@ -39,24 +39,50 @@ pc_compose_bevel_geom pc_compose_fx_bevel_geom(const pc_bevel *b)
     /* Emboss styles straddle the edge with half the size, rounded up to whole pixels: a 41 px
      * emboss blurs over 21 (psd-tools layer_effects). */
     g.width = emboss ? ceilf(size / 2.0f) : size;
-    g.depth = b->depth * (smooth ? g.width : size) * sign;
+    /* A bevel rises depth x width / 2 px: Smooth with a slope falling from depth at the edge (the
+     * tent), a chisel with the constant slope of its ramp (see chisel_h). */
+    g.depth = b->depth * (smooth ? g.width : size / 2.0f) * sign;
     g.pillow = b->style == PC_BEVEL_PILLOW_EMBOSS;
     g.chisel_soft = b->technique == PC_BEVEL_CHISEL_SOFT ? pc_rs_maxf_k(size / 4.0f, 1.0f) : 0.0f;
     return g;
 }
 
-float pc_compose_fx_bevel_chisel_h(pc_compose_bevel_paint paint, float size, float din, float dout)
+/* f32::clamp(0, hi) where the reference panics on an invalid hi (NaN, or below 0: a NaN or
+ * negative size): such a bound counts as 0 here. */
+static float clamp_to(float x, float hi)
 {
+    if (!(hi >= 0.0f)) {
+        hi = 0.0f;
+    }
+    return pc_clampf(x, 0.0f, hi);
+}
+
+float pc_compose_fx_bevel_chisel_h(pc_compose_bevel_paint paint, float size, float din, float dout, bool soft)
+{
+    /* Photoshop 27.11, across straight edges (sizes 10 and 20, depth 100 and 300 %): a facet has
+     * the constant slope depth x size / (2 (size + 1)), one height step of 1 / (size + 1) per
+     * pixel at the depth x size / 2 scale of bevel_geom. */
+    float ramp = size + 1.0f;
+    float half;
     switch (paint) {
     case PC_COMPOSE_BEVEL_PAINT_OUTER:
-        return 1.0f - pc_clampf(dout / size, 0.0f, 1.0f);
-    case PC_COMPOSE_BEVEL_PAINT_BOTH:
-        if (din > 0.0f) {
-            return 0.5f + 0.5f * pc_clampf(din / (size / 2.0f), 0.0f, 1.0f);
+        if (!soft) {
+            float top = (size + 2.0f) / ramp;
+            return dout > 0.0f ? clamp_to((size + 1.5f - dout) / ramp, top) : top;
         }
-        return 0.5f - 0.5f * pc_clampf(dout / (size / 2.0f), 0.0f, 1.0f);
+        /* Outer Soft: Outer Hard's ramp a pixel shorter, with a steeper edge pixel. */
+        return dout > 0.0f ? 1.0f - pc_clampf((dout + 0.5f) / ramp, 0.0f, 1.0f) : (size + 2.0f) / ramp;
+    case PC_COMPOSE_BEVEL_PAINT_BOTH:
+        half = size / 2.0f + 0.5f;
+        if (din > 0.0f) {
+            return 0.5f + 0.5f * pc_clampf(din / half, 0.0f, 1.0f);
+        }
+        return 0.5f - 0.5f * pc_clampf(dout / half, 0.0f, 1.0f);
     default:
-        return pc_clampf(din / size, 0.0f, 1.0f);
+        if (soft) {
+            return din > 0.0f ? clamp_to((din + 1.5f) / ramp, (size + 2.0f) / ramp) : 0.0f;
+        }
+        return din > 0.0f ? pc_clampf((din + 0.5f) / ramp, 0.0f, 1.0f) : 0.0f;
     }
 }
 
@@ -76,42 +102,40 @@ static pc_status bevel_height(const pc_fxm *shape, const pc_bevel *b, const pc_c
             st = pc_fxm_tent(&h, g->width, err);
         }
     } else {
+        /* Linear ramps of the distance to the edge, placed by the anti-aliased coverage of its
+         * pixels so a facet is planar at any angle (#1926). */
         float *din = NULL;
         float *dout = NULL;
-        st = pc_fx_dist_inside(shape, PC_FX_EUCLIDEAN, &din, err);
+        bool soft = g->chisel_soft > 0.0f;
+        pc_fx_sharp_edges sharp;
+        st = pc_fx_sharp_edges_find(shape, &sharp, err);
         if (st == PC_OK) {
-            st = pc_fx_dist_outside(shape, PC_FX_EUCLIDEAN, &dout, err);
+            st = pc_fx_bevel_dist_inside(shape, &sharp, size, &din, err);
+            if (st == PC_OK) {
+                st = pc_fx_bevel_dist_outside(shape, &sharp, size, &dout, err);
+            }
+            pc_fx_sharp_edges_fini(&sharp);
         }
         if (st == PC_OK) {
             st = pc_fxm_new(shape->w, shape->h, 0.0f, &h, err);
         }
         if (st == PC_OK) {
             for (i = 0; i < n; i++) {
-                h.v[i] = pc_compose_fx_bevel_chisel_h(g->paint, size, din[i], dout[i]);
+                h.v[i] = pc_compose_fx_bevel_chisel_h(g->paint, size, din[i], dout[i], soft);
             }
-            if (g->chisel_soft > 0.0f) {
+            /* Inner and outer Chisel Soft are not blurred (their facets equal Chisel Hard's across a
+             * straight edge); emboss styles keep the blur. */
+            if (soft && g->paint == PC_COMPOSE_BEVEL_PAINT_BOTH) {
                 st = pc_fxm_tent(&h, g->chisel_soft, err);
             }
         }
         free(din);
         free(dout);
     }
-    /* Contour element: the height profile through the contour over its range (identity table
-     * when the contour is Linear at full range: still interpolated, as in the reference). */
+    /* Contour element: the height profile through the contour. */
     if (st == PC_OK && b->has_contour) {
         float *l = NULL;
-        st = pc_compose_fx_ranged_lut(&b->contour.contour, b->contour.range, &l, err);
-        if (st == PC_OK && l == NULL) {
-            size_t k;
-            l = malloc(PC_COMPOSE_FX_LUT_SIZE * sizeof *l);
-            if (l == NULL) {
-                st = pc_fail(err, PC_ERR_NOMEM, "compose: out of memory");
-            } else {
-                for (k = 0; k < PC_COMPOSE_FX_LUT_SIZE; k++) {
-                    l[k] = (float)k / 4095.0f;
-                }
-            }
-        }
+        st = pc_compose_fx_bevel_contour_lut(&b->contour, &l, err);
         if (st == PC_OK) {
             pc_fxm_apply_lut(&h, l, PC_COMPOSE_FX_LUT_SIZE);
         }
@@ -271,7 +295,10 @@ pc_status pc_fx_bevel_maps(const pc_fxm *shape, const pc_bevel *b, const pc_glob
     c.light[1] = -sa * ce;
     c.light[2] = se;
     c.se = se;
-    c.reach_past = g.paint == PC_COMPOSE_BEVEL_PAINT_BOTH;
+    /* Outer chisel bevels also shade the pixel where their ramp reaches zero (Photoshop 27.11, half
+     * strength at size + 1.5 px out). */
+    c.reach_past = g.paint == PC_COMPOSE_BEVEL_PAINT_BOTH ||
+                   (g.paint == PC_COMPOSE_BEVEL_PAINT_OUTER && b->technique != PC_BEVEL_SMOOTH);
     if (g.paint != PC_COMPOSE_BEVEL_PAINT_BOTH) {
         st = shade_into(&c, g.depth, g.paint == PC_COMPOSE_BEVEL_PAINT_OUTER ? 1 : 0, gloss, &hi, &sh, err);
     } else {

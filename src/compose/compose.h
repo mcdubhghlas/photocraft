@@ -8,7 +8,7 @@
  * (applied to the composite below), fill layers, layer effects and advanced blending.
  * Compositing happens in display RGB; CMYK layers are read through the document's CMYK profile
  * (color/convert.h scope), Lab documents mix Normal blending in CIELAB and 32-bit documents
- * don't clip Add / Divide (compose/psblend.h flags).
+ * don't clip Add / Divide or the non-separable modes (compose/psblend.h flags).
  *
  * Files (C1 = this chunk; C2 and C3 complete the module):
  *   compose.h       buffers, rendering, layer queries (C1: buffer.c render.c composite.c query.c
@@ -22,13 +22,16 @@
  *                   has_effects, margin, gradient_units, gradient_t); C3 implements the effect
  *                   maps (build, bytes, free, stroke_frame, composite) in effects*.c and deletes
  *                   stub_c3.c.
- *   adjust.h        adjustment layers (C2: adjust.c adjust_tone.c)
+ *   adjust.h        adjustment layers (C2: adjust.c adjust_tone.c; R9: adjust_lab.c, Lab-document
+ *                   evaluation, Color Balance curves)
  *   pattern.h       prepared patterns, tiles, placements and pattern fills (C2: pattern.c)
  *   gradient_fill.h gradient fill layers (C2: gradient_fill.c)
  *   shape_split.h   stroked shape layers split into fill and stroke (C2: shape_split.c)
  *   advanced.h      Advanced Blending (knockout, Blend Clipped Layers as Group off, Transparency
  *                   Shapes Layer off, masks hiding effects) (C2: advanced.c; the C2 files share
  *                   adjust_internal.h and stable_sort.h)
+ *   native.c        CMYK flattening in ink values (R9, pc_compose_flatten_cmyk)
+ *   fx_sharp.c      chisel-bevel distances with edges placed by coverage (R9, fx_internal.h)
  *   internal.h      the render context, the scope and the compositor internals that advanced.c
  *                   and effects.c call back into (pc_cmp_*), plus the advanced-blending hooks
  *                   the core calls (also C2).
@@ -116,12 +119,28 @@ pc_status pc_compose_render_bands(const pc_document *doc, pc_rect rect, int32_t 
 /* Band height: requested rounded up to whole tiles, or about PC_COMPOSE_BAND_PIXELS / width. */
 int32_t pc_compose_band_rows_for(uint32_t width, int32_t requested);
 /* The composite as a surface in fmt (optionally over an opaque background), written in bands;
- * tiles equal to the default pixel are pruned. */
+ * tiles equal to the default pixel are pruned. Fully transparent pixels are written as the default
+ * pixel (converted transparent black leaves colour in CMYK and Lab, which would count as content).
+ * A CMYK document of plain Normal layers is composited in its ink values instead
+ * (pc_compose_flatten_cmyk), so flattening doesn't round-trip its pixels through RGB (#3778). */
 pc_status pc_compose_flatten_to_surface(const pc_document *doc, pc_pixel_format fmt, const float *background,
                                         pc_surface *out, pc_error *err);
+/* pc_compose_flatten_to_surface over rect only (the rest of the surface stays empty). */
+pc_status pc_compose_composite_to_surface(const pc_document *doc, pc_rect rect, pc_pixel_format fmt,
+                                          const float *background, pc_surface *out, pc_error *err);
+/* native::flatten_cmyk (native.c): the composite of a CMYK document over rect in fmt (CMYK),
+ * worked out in ink values: Normal mixes ink linearly, as Photoshop does in CMYK, and an opaque
+ * layer keeps its values exactly. *done false (out untouched) when the document or fmt isn't CMYK
+ * or a visible layer needs the full compositor (anything but a plain raster layer in Normal mode:
+ * masks, effects, clipping, Blend If, channel restrictions, advanced blending, video). paper
+ * flattens onto white paper (no ink) and makes the result opaque. */
+pc_status pc_compose_flatten_cmyk(const pc_document *doc, pc_rect rect, pc_pixel_format fmt, bool paper,
+                                  bool *done, pc_surface *out, pc_error *err);
 /* A single layer, isolated (thumbnails): sRGB transfer, no document patterns. */
 pc_status pc_compose_render_layer(const pc_layer *layer, pc_rect rect, pc_compose_buffer *out, pc_error *err);
 
+/* Width and height of pc_compose_thumbnail(doc, max_side). */
+void pc_compose_thumbnail_size(const pc_document *doc, uint32_t max_side, uint32_t *w, uint32_t *h);
 /* Area-averaged RGBA8 thumbnail at most max_side on its longer side (from a proxy for large
  * documents when that is faithful). */
 pc_status pc_compose_thumbnail(const pc_document *doc, uint32_t max_side, pc_rgba8_image *out, pc_error *err);
@@ -153,6 +172,10 @@ bool pc_compose_adjustment_quantum(pc_sample_type depth, float *q);
 /* Bounds of a layer's own pixels (union over visible group children; the canvas for fill
  * layers and shapeless layers; an artboard's board; a filled shape with effects adds its path). */
 pc_rect pc_compose_layer_bounds(const pc_layer *layer, pc_rect canvas);
+/* Where a layer's effects take their shape from: pc_compose_layer_bounds, except that a group's
+ * children count with their own effects (a child's outside stroke shapes the group's drop shadow,
+ * #3274). */
+pc_rect pc_compose_effect_source_bounds(const pc_layer *layer, pc_rect canvas);
 /* The path a shape layer's effects are shaped by (its fill path), or NULL. Borrowed. */
 const pc_path *pc_compose_effect_outline(const pc_layer *layer);
 /* A shape layer's path control bounds truncated to whole pixels; false otherwise. */

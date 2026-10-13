@@ -13,6 +13,13 @@
  *               2), bounds 4 x i32, depth i16, compression u8, data
  *   "patt"   := patterns as in the Patt global block
  *   "desc"   := versioned ActionDescriptor; key Brsh lists brushPreset objects
+ *   "phry"   := versioned ActionDescriptor; key `hierarchy` lists objects read as a token stream:
+ *               `Grup` { `Nm  ` name, `zuid` uuid } opens a folder, `preset` {} is the next preset
+ *               of desc (in order), `groupEnd` {} closes the current folder
+ *
+ * The phry section keeps the Brushes panel folders of Photoshop CC (2018+) files: folders gives
+ * each preset's folder path. A damaged hierarchy never fails the parse: mismatches become
+ * warnings and the presets they affect land at the top level.
  *
  * Parsing never fails hard on one damaged brush: it is skipped with a warning while the rest of
  * the file is readable. Sizes are capped (PC_PSD_ABR_MAX_EDGE, PC_PSD_ABR_MAX_TOTAL_BYTES).
@@ -32,6 +39,14 @@
 #define PC_PSD_ABR_MAX_EDGE 8192u                       /* largest sampled tip edge */
 #define PC_PSD_ABR_MAX_BRUSHES 20000u                   /* most brushes read from one file */
 #define PC_PSD_ABR_MAX_TOTAL_BYTES ((size_t)512 << 20) /* decoded sample bytes over a file */
+/* Deepest folder nesting read or written; deeper folders merge into their ancestor at this depth. */
+#define PC_PSD_ABR_MAX_FOLDER_DEPTH 32u
+
+/* A preset's folder path: folder names from the outermost in (n == 0: the top level). */
+typedef struct pc_psd_abr_folder {
+    pc_psd_str *names;
+    size_t n;
+} pc_psd_abr_folder;
 
 /* A sampled tip: one grayscale plane where the maximum value is full paint. */
 typedef struct pc_psd_abr_sample {
@@ -68,6 +83,10 @@ typedef struct pc_psd_abr {
     size_t npatterns;
     pc_psd_desc *presets; /* v6+ brushPreset objects of desc, file order */
     size_t npresets;
+    /* v6+ folder of each preset, parallel to presets; nfolders == 0 when the file has no readable
+     * preset hierarchy (phry), i.e. every preset is at the top level. */
+    pc_psd_abr_folder *folders;
+    size_t nfolders;
     pc_psd_warnings warnings; /* problems that did not stop the parse */
 } pc_psd_abr;
 
@@ -78,15 +97,32 @@ pc_status pc_psd_abr_sample_to_unit(const pc_psd_abr_sample *s, float **out, siz
 void pc_psd_abr_legacy_fini(pc_psd_abr_legacy *b);
 bool pc_psd_abr_legacy_eq(const pc_psd_abr_legacy *a, const pc_psd_abr_legacy *b);
 void pc_psd_abr_fini(pc_psd_abr *f);
+void pc_psd_abr_folder_fini(pc_psd_abr_folder *f);
+void pc_psd_abr_folders_free(pc_psd_abr_folder *f, size_t n); /* NULL-safe */
+bool pc_psd_abr_folder_eq(const pc_psd_abr_folder *a, const pc_psd_abr_folder *b);
 
 pc_status pc_psd_abr_parse(const uint8_t *data, size_t len, pc_psd_abr *out, pc_error *err);
 /* A v1 or v2 file; sampled tips PackBits-compressed when rle. */
 pc_status pc_psd_abr_write_v12(uint16_t version, const pc_psd_abr_legacy *b, size_t n, bool rle, pc_psd_bytes *out,
                                pc_error *err);
 /* A v6 file (subversion 1 or 2): sampled tips, embedded patterns and preset descriptors (each a
- * brushPreset object listed under Brsh). */
+ * brushPreset object listed under Brsh). Every preset is at the top level. */
 pc_status pc_psd_abr_write_v6(uint16_t subversion, const pc_psd_abr_sample *s, size_t ns, const pc_psd_pattern *p,
                               size_t np, const pc_psd_desc *presets, size_t npresets, bool rle, pc_psd_bytes *out,
                               pc_error *err);
+/* pc_psd_abr_write_v6 that also writes the preset hierarchy (phry): folders holds each preset's
+ * path, parallel to presets (nfolders must be 0 or npresets: PC_ERR_INVALID otherwise). With no
+ * folders (none, or only empty paths) no hierarchy is written. */
+pc_status pc_psd_abr_write_v6_folders(uint16_t subversion, const pc_psd_abr_sample *s, size_t ns,
+                                      const pc_psd_pattern *p, size_t np, const pc_psd_desc *presets,
+                                      size_t npresets, const pc_psd_abr_folder *folders, size_t nfolders,
+                                      bool rle, pc_psd_bytes *out, pc_error *err);
+
+/* Internal to src/psd (abr_folders.c). read_phry: one path per preset (`presets` of them) from a
+ * phry section, *nout == 0 (with a warning) when it is unreadable or holds no folders. phry_bytes:
+ * the versioned descriptor for the paths. */
+pc_status psd_abr_read_phry(const uint8_t *data, size_t len, size_t presets, pc_psd_warnings *w,
+                            pc_psd_abr_folder **out, size_t *nout, pc_error *err);
+pc_status psd_abr_phry_bytes(const pc_psd_abr_folder *folders, size_t n, pc_psd_bytes *out, pc_error *err);
 
 #endif

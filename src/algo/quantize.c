@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "algo/fxutil.h"
+#include "algo/quantize_nearest.h"
 #include "base/mem.h"
 #include "base/num.h"
 #include "base/rmath.h"
@@ -44,27 +45,25 @@ bool pc_algo_palette_kind_from_id(const char *s, pc_algo_palette_kind *out)
     return false;
 }
 
-pc_algo_halftone_shape pc_algo_halftone_shape_from_id(const char *s)
+bool pc_algo_halftone_shape_from_id(const char *s, pc_algo_halftone_shape *out)
 {
+    static const struct {
+        const char *id;
+        pc_algo_halftone_shape k;
+    } T[] = {{"round", PC_ALGO_HALFTONE_ROUND},     {"ellipse", PC_ALGO_HALFTONE_ELLIPSE},
+             {"line", PC_ALGO_HALFTONE_LINE},       {"square", PC_ALGO_HALFTONE_SQUARE},
+             {"diamond", PC_ALGO_HALFTONE_DIAMOND}, {"cross", PC_ALGO_HALFTONE_CROSS}};
+    size_t i;
     if (s == NULL) {
-        return PC_ALGO_HALFTONE_ROUND;
+        return false;
     }
-    if (strcmp(s, "ellipse") == 0) {
-        return PC_ALGO_HALFTONE_ELLIPSE;
+    for (i = 0; i < sizeof T / sizeof T[0]; i++) {
+        if (strcmp(s, T[i].id) == 0) {
+            *out = T[i].k;
+            return true;
+        }
     }
-    if (strcmp(s, "line") == 0) {
-        return PC_ALGO_HALFTONE_LINE;
-    }
-    if (strcmp(s, "square") == 0) {
-        return PC_ALGO_HALFTONE_SQUARE;
-    }
-    if (strcmp(s, "diamond") == 0) {
-        return PC_ALGO_HALFTONE_DIAMOND;
-    }
-    if (strcmp(s, "cross") == 0) {
-        return PC_ALGO_HALFTONE_CROSS;
-    }
-    return PC_ALGO_HALFTONE_ROUND;
+    return false;
 }
 
 static void pal_push(pc_algo_palette *p, uint8_t r, uint8_t g, uint8_t b)
@@ -401,27 +400,13 @@ static pc_status median_cut(wpt *pts, size_t np, size_t n, float (*centers)[3], 
     return PC_OK;
 }
 
-static size_t nearest_f(const float (*centers)[3], size_t nc, const float p[3])
-{
-    float best = 3.40282347e+38f;
-    size_t bi = 0, i;
-    for (i = 0; i < nc; i++) {
-        float d0 = centers[i][0] - p[0], d1 = centers[i][1] - p[1], d2 = centers[i][2] - p[2];
-        float d = d0 * d0 + d1 * d1 + d2 * d2;
-        if (d < best) {
-            best = d;
-            bi = i;
-        }
-    }
-    return bi;
-}
-
 /* Lloyd refinement of centres over weighted points. */
 static pc_status kmeans(const wpt *pts, size_t np, float (*centers)[3], size_t nc, size_t iters,
                         pc_error *err)
 {
     double (*sum)[3], *cnt;
     size_t it, i, a;
+    pc_algo_nearest lookup;
     if (nc == 0) { /* the forced colours fill the palette: nothing to refine */
         return PC_OK;
     }
@@ -432,17 +417,22 @@ static pc_status kmeans(const wpt *pts, size_t np, float (*centers)[3], size_t n
         return pc_fail(err, PC_ERR_NOMEM, "out of memory for k-means");
     }
     for (it = 0; it < iters; it++) {
+        if (pc_algo_nearest_init(&lookup, (const float (*)[3])centers, nc) != PC_OK) {
+            free(sum), free(cnt);
+            return pc_fail(err, PC_ERR_NOMEM, "out of memory for k-means");
+        }
         for (i = 0; i < nc; i++) {
             sum[i][0] = sum[i][1] = sum[i][2] = 0.0;
             cnt[i] = 0.0;
         }
         for (i = 0; i < np; i++) {
-            size_t k = nearest_f((const float (*)[3])centers, nc, pts[i].v);
+            size_t k = pc_algo_nearest_find(&lookup, pts[i].v);
             for (a = 0; a < 3; a++) {
                 sum[k][a] += (double)pts[i].v[a] * (double)pts[i].w;
             }
             cnt[k] += (double)pts[i].w;
         }
+        pc_algo_nearest_fini(&lookup);
         for (i = 0; i < nc; i++) {
             if (cnt[i] > 0.0) {
                 for (a = 0; a < 3; a++) {
@@ -477,8 +467,11 @@ pc_status pc_algo_quantize_build_palette(const float (*px)[4], size_t n, pc_algo
     nforced = pal.n;
     room = colors > pal.n ? colors - pal.n : 0;
     comp.n = 0;
-    if (kind == PC_ALGO_PALETTE_EXACT || kind == PC_ALGO_PALETTE_ADAPTIVE ||
-        kind == PC_ALGO_PALETTE_PERCEPTUAL || kind == PC_ALGO_PALETTE_SELECTIVE) {
+    /* Fixed palettes, or computed palettes already filled by forced colours, need no scan.
+     * Exact still counts every colour to enforce its 256-colour limit. */
+    if (kind == PC_ALGO_PALETTE_EXACT ||
+        (room > 0 && (kind == PC_ALGO_PALETTE_ADAPTIVE || kind == PC_ALGO_PALETTE_PERCEPTUAL ||
+                      kind == PC_ALGO_PALETTE_SELECTIVE))) {
         st = histogram(px, n, &hist, &nh, err);
         if (st != PC_OK) {
             return st;
@@ -636,30 +629,19 @@ static float qhash01(size_t x, size_t y, uint32_t seed)
     return (float)(h & 0xffffu) / 65535.0f;
 }
 
-static size_t nearest(const uint8_t *pal, size_t npal, const float c[3])
+/* The palette lookup: entries as f32 0..255, queries scaled by 255 (same distances as the
+ * reference's former linear scan, which nearest.rs reproduces exactly). */
+static size_t nearest(const pc_algo_nearest *lookup, const float c[3])
 {
-    float best = 3.40282347e+38f;
-    size_t bi = 0, i;
-    for (i = 0; i < npal; i++) {
-        float d0 = c[0] * 255.0f - (float)pal[3 * i], d1 = c[1] * 255.0f - (float)pal[3 * i + 1];
-        float d2 = c[2] * 255.0f - (float)pal[3 * i + 2];
-        float d = -0.0f;
-        d += d0 * d0;
-        d += d1 * d1;
-        d += d2 * d2;
-        if (d < best) {
-            best = d;
-            bi = i;
-        }
-    }
-    return bi;
+    float q[3] = {c[0] * 255.0f, c[1] * 255.0f, c[2] * 255.0f};
+    return pc_algo_nearest_find(lookup, q);
 }
 
 typedef struct q_ctx {
     float (*px)[4];
     size_t n, stride;
     const uint8_t *pal;
-    size_t npal;
+    const pc_algo_nearest *lookup;
     pc_algo_dither dither;
     float spread;
     bool has_t;
@@ -699,7 +681,7 @@ static pc_status q_rows(void *vctx, size_t chunk, size_t begin, size_t end)
                 }
                 c[a] = pc_clampf(c[a], 0.0f, 1.0f);
             }
-            k = nearest(q->pal, q->npal, c);
+            k = nearest(q->lookup, c);
             q->idx[i] = (uint8_t)k;
             for (a = 0; a < 3; a++) {
                 e[a] = (float)q->pal[3 * k + (size_t)a] / 255.0f;
@@ -717,9 +699,23 @@ pc_status pc_algo_quantize(float (*px)[4], size_t n, size_t w, const uint8_t *pa
 {
     size_t h = w > 0 ? n / w : 0, x, y;
     float spread, a;
-    float (*errbuf)[3];
+    float (*errbuf)[3], (*pf)[3];
+    pc_algo_nearest lookup;
+    pc_status st;
     if (npal == 0 || pal == NULL) {
         return pc_fail(err, PC_ERR_INVALID, "quantize needs a non-empty palette");
+    }
+    pf = pc_malloc_array(npal, sizeof *pf);
+    if (pf == NULL) {
+        return pc_fail(err, PC_ERR_NOMEM, "out of memory for the palette lookup");
+    }
+    for (x = 0; x < npal; x++) {
+        pf[x][0] = (float)pal[3 * x], pf[x][1] = (float)pal[3 * x + 1], pf[x][2] = (float)pal[3 * x + 2];
+    }
+    st = pc_algo_nearest_init(&lookup, (const float (*)[3])pf, npal);
+    free(pf);
+    if (st != PC_OK) {
+        return pc_fail(err, PC_ERR_NOMEM, "out of memory for the palette lookup");
     }
     memset(idx, 0, n);
     /* Typical palette spacing sets the ordered/noise dither amplitude. */
@@ -728,16 +724,20 @@ pc_status pc_algo_quantize(float (*px)[4], size_t n, size_t w, const uint8_t *pa
     if (dither != PC_ALGO_DITHER_DIFFUSION) {
         q_ctx q;
         size_t stride = w > 0 ? w : 1;
-        q.px = px, q.n = n, q.stride = stride, q.pal = pal, q.npal = npal, q.dither = dither;
+        q.px = px, q.n = n, q.stride = stride, q.pal = pal, q.lookup = &lookup, q.dither = dither;
         q.spread = spread, q.has_t = has_transparent, q.t = transparent, q.idx = idx;
         /* chunks_mut: a short last row is mapped too. */
-        return pc_algo_par_for((n + stride - 1) / stride, 8, q_rows, &q);
+        st = pc_algo_par_for((n + stride - 1) / stride, 8, q_rows, &q);
+        pc_algo_nearest_fini(&lookup);
+        return st;
     }
     if (w > (PC_MAX_ALLOC / sizeof(float[3]) - 4) / 2) {
+        pc_algo_nearest_fini(&lookup);
         return pc_fail(err, PC_ERR_LIMIT, "image too wide to dither");
     }
     errbuf = pc_calloc_array(2 * (w + 2), sizeof *errbuf);
     if (errbuf == NULL) {
+        pc_algo_nearest_fini(&lookup);
         return pc_fail(err, PC_ERR_NOMEM, "out of memory for error diffusion");
     }
     a = pc_clampf(amount, 0.0f, 1.0f);
@@ -764,7 +764,7 @@ pc_status pc_algo_quantize(float (*px)[4], size_t n, size_t w, const uint8_t *pa
             for (q = 0; q < 3; q++) {
                 c[q] = pc_clampf(p[q] + cur[x + 1][q], 0.0f, 1.0f);
             }
-            k = nearest(pal, npal, c);
+            k = nearest(&lookup, c);
             idx[i] = (uint8_t)k;
             for (q = 0; q < 3; q++) {
                 e[q] = (float)pal[3 * k + (size_t)q] / 255.0f;
@@ -781,6 +781,7 @@ pc_status pc_algo_quantize(float (*px)[4], size_t n, size_t w, const uint8_t *pa
         }
     }
     free(errbuf);
+    pc_algo_nearest_fini(&lookup);
     return PC_OK;
 }
 

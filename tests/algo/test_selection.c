@@ -1,5 +1,9 @@
-/* Tests for src/algo/selection*.c (ports of the #[test]s in crates/algo/src/selection.rs) plus
- * never-crash checks. */
+/* Tests for src/algo/selection*.c: ports of the #[test]s in crates/algo/src/selection.rs and
+ * selection_blur.rs (the Photoshop measurements and the direct-definition comparisons; the other
+ * edge cases and the cosine-kernel check are in test_blur_oracles.c) plus never-crash checks. The
+ * distance transform and Elliptical Marquee tests are in test_selection_distance.c.
+ *
+ * Not ported: selection_blur.rs bench_24mp (an #[ignore]d timing). */
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -371,7 +375,8 @@ static void test_smooth_removes_specks_and_feather_softens(void)
     CHECK(s[2 * 20 + 2] == 0.0f && s[10 * 20 + 10] == 1.0f);
     free(m);
     m = square(20, 20);
-    CHECK(pc_algo_selection_feather(m, 400, 20, 20, 4.0f, &f, NULL) == PC_OK);
+    /* Radius 2 (sigma 2) keeps the blur inside the 20 x 20 canvas, so no coverage is lost. */
+    CHECK(pc_algo_selection_feather(m, 400, 20, 20, 2.0f, &f, NULL) == PC_OK);
     CHECK(f[10 * 20 + 5] > 0.3f && f[10 * 20 + 5] < 0.8f);
     for (i = 0; i < 400; i++) {
         sum += f[i];
@@ -502,12 +507,13 @@ static bool old_combine(const pc_surface *old, const float *nw, size_t n, pc_rec
 
 static void test_tiled_conversions_match_per_sample_ones(void)
 {
-    static const pc_rect areas[4] = {
-        {0, 0, 300, 20}, {-37, 250, 530, 263}, {255, -3, 258, 600}, {5, 5, 6, 6}};
+    /* The last area holds whole tiles, which fully selected masks fill (shared tiles). */
+    static const pc_rect areas[5] = {
+        {0, 0, 300, 20}, {-37, 250, 530, 263}, {255, -3, 258, 600}, {5, 5, 6, 6}, {-37, -300, 530, 263}};
     uint64_t rng = 7;
     size_t ai, i;
     int kind, mode, pi;
-    for (ai = 0; ai < 4; ai++) {
+    for (ai = 0; ai < 5; ai++) {
         pc_rect a = areas[ai];
         size_t n = (size_t)pc_rect_width(a) * pc_rect_height(a), len = 0;
         float *om = malloc(n * sizeof(float)), *nw = malloc(n * sizeof(float)), *rd = NULL, *slow = NULL;
@@ -523,11 +529,12 @@ static void test_tiled_conversions_match_per_sample_ones(void)
         CHECK(len == i && memcmp(rd, slow, len * sizeof(float)) == 0);
         free(rd);
         free(slow);
-        for (kind = 0; kind < 3; kind++) {
+        for (kind = 0; kind < 4; kind++) {
             for (i = 0; i < n; i++) {
                 nw[i] = kind == 0   ? (float)(sm_next(&rng) >> 11) / 9007199254740992.0f * 1.2f - 0.1f
                         : kind == 1 ? (i % 131 < 50 ? 1.0f : 0.0f)
-                                    : 0.001f;
+                        : kind == 2 ? 0.001f
+                                    : (i >= 1000 ? 1.0f : 0.0f);
             }
             for (mode = 0; mode < 4; mode++) {
                 for (pi = 0; pi < 2; pi++) {
@@ -686,6 +693,386 @@ static void test_combine_region_matches_combine(void)
     free(full);
 }
 
+/* ---- wand on transparent pixels ---- */
+
+static void test_wand_ignores_hidden_rgb_only_when_both_pixels_are_fully_transparent(void)
+{
+    static const uint8_t pixels[6][4] = {{255, 0, 0, 0},   {0, 255, 0, 0}, {255, 0, 0, 128},
+                                         {253, 0, 0, 128}, {0, 0, 255, 0}, {255, 0, 0, 255}};
+    static const struct {
+        int32_t x;
+        float tol;
+        bool cont;
+        float want[6];
+    } cases[6] = {{0, 0.0f, true, {1, 1, 0, 0, 0, 0}},   {0, 0.0f, false, {1, 1, 0, 0, 1, 0}},
+                  {4, 32.0f, false, {1, 1, 0, 0, 1, 0}}, {2, 0.0f, false, {0, 0, 1, 0, 0, 0}},
+                  {2, 2.0f, true, {0, 0, 1, 1, 0, 0}},   {5, 32.0f, false, {0, 0, 0, 0, 0, 1}}};
+    const pc_rect area = {0, 0, 6, 1};
+    float floats[6][4];
+    uint8_t plain[6][4];
+    int i, c, k;
+    for (i = 0; i < 6; i++) {
+        for (c = 0; c < 4; c++) {
+            floats[i][c] = (float)pixels[i][c] / 255.0f;
+            plain[i][c] = pixels[i][3] == 0 ? 0 : pixels[i][c];
+        }
+    }
+    for (k = 0; k < 6; k++) {
+        float *m = NULL;
+        size_t len = 0;
+        pc_algo_region r;
+        CHECK(pc_algo_selection_magic_wand((const float (*)[4])floats, 6, area, cases[k].x, 0, cases[k].tol,
+                                           cases[k].cont, false, &m, &len, NULL) == PC_OK);
+        CHECK(len == 6 && memcmp(m, cases[k].want, sizeof cases[k].want) == 0);
+        free(m);
+        CHECK(pc_algo_selection_wand_region(pixels, 6, area, cases[k].x, 0, cases[k].tol, cases[k].cont,
+                                            false, &r, NULL) == PC_OK);
+        CHECK(!pc_algo_region_is_none(&r));
+        for (i = 0; i < 6; i++) {
+            if (pc_algo_region_at(&r, i, 0) != cases[k].want[i]) {
+                PC_T_FAIL("seed=%d, tolerance=%g, x=%d", cases[k].x, (double)cases[k].tol, i);
+            }
+        }
+        pc_algo_region_fini(&r);
+    }
+    /* Hidden RGB cannot introduce extra edges into the anti-aliased selection either. */
+    for (k = 0; k < 2; k++) {
+        pc_algo_region a, b;
+        CHECK(pc_algo_selection_wand_region(pixels, 6, area, 0, 0, 0.0f, k == 1, true, &a, NULL) == PC_OK);
+        CHECK(pc_algo_selection_wand_region((const uint8_t (*)[4])plain, 6, area, 0, 0, 0.0f, k == 1, true,
+                                            &b, NULL) == PC_OK);
+        CHECK(pc_rect_eq(a.bbox, b.bbox) && a.len == b.len &&
+              (a.len == 0 || memcmp(a.mask, b.mask, a.len) == 0));
+        pc_algo_region_fini(&a);
+        pc_algo_region_fini(&b);
+    }
+}
+
+/* ---- border (selection.rs) ---- */
+
+/* A 32 x 32 rectangle at (16, 16) in 64 x 64. */
+static float *ps_square(void)
+{
+    float *m = malloc(64 * 64 * sizeof(float));
+    size_t i;
+    for (i = 0; i < 64 * 64; i++) {
+        m[i] = i % 64 >= 16 && i % 64 < 48 && i / 64 >= 16 && i / 64 < 48 ? 1.0f : 0.0f;
+    }
+    return m;
+}
+
+static int level(const float *m, size_t x, size_t y)
+{
+    return (int)pc_f32_to_i32(roundf(m[y * 64 + x] * 255.0f));
+}
+
+/* Photoshop 27.11, measured: the square, Select > Modify > Border 4 px, filled white. Row y = 32
+ * for x = 8..=24, and the diagonal (16,16)..(24,24). */
+static void test_border_matches_photoshop(void)
+{
+    static const int row[17] = {0, 0, 0, 0, 63, 127, 191, 255, 255, 191, 127, 63, 0, 0, 0, 0, 0};
+    static const int diag[9] = {255, 191, 127, 63, 0, 0, 0, 0, 0};
+    float *m = ps_square(), *b = NULL;
+    size_t i;
+    CHECK(pc_algo_selection_border(m, 64, 64, 4.0f, &b, NULL) == PC_OK);
+    for (i = 0; i < 17; i++) {
+        int v = level(b, 8 + i, 32);
+        if (abs(v - row[i]) > 1) {
+            PC_T_FAIL("row x %zu: %d vs Photoshop %d", 8 + i, v, row[i]);
+        }
+    }
+    for (i = 0; i < 9; i++) {
+        int v = level(b, 16 + i, 16 + i);
+        if (abs(v - diag[i]) > 1) {
+            PC_T_FAIL("diag %zu: %d vs Photoshop %d", 16 + i, v, diag[i]);
+        }
+    }
+    free(m);
+    free(b);
+}
+
+/* ---- Smooth and Feather (selection_blur.rs) ---- */
+
+/* The previous direct implementations, kept as the oracle. */
+static float *oracle_box(const float *m, size_t w, size_t h, size_t r)
+{
+    float *tmp = malloc(w * h * sizeof(float) + 4), *out = malloc(w * h * sizeof(float) + 4);
+    float win = (float)(2 * r + 1);
+    int64_t x, y, k, ir = (int64_t)r, iw = (int64_t)w, ih = (int64_t)h;
+    if (r == 0) {
+        memcpy(out, m, w * h * sizeof(float));
+        free(tmp);
+        return out;
+    }
+    for (y = 0; y < ih; y++) {
+        for (x = 0; x < iw; x++) {
+            float s = 0.0f;
+            for (k = x - ir; k <= x + ir; k++) {
+                s += m[y * iw + (k < 0 ? 0 : k > iw - 1 ? iw - 1 : k)];
+            }
+            tmp[y * iw + x] = s / win;
+        }
+    }
+    for (y = 0; y < ih; y++) {
+        for (x = 0; x < iw; x++) {
+            float s = 0.0f;
+            for (k = y - ir; k <= y + ir; k++) {
+                s += tmp[(k < 0 ? 0 : k > ih - 1 ? ih - 1 : k) * iw + x];
+            }
+            out[y * iw + x] = s / win;
+        }
+    }
+    free(tmp);
+    return out;
+}
+
+static size_t box_radius(float r)
+{
+    return (size_t)pc_f32_to_u32(roundf(pc_rs_maxf_k(r, 0.0f)));
+}
+
+static float *oracle_smooth(const float *m, size_t w, size_t h, float r)
+{
+    float *o = oracle_box(m, w, h, box_radius(r));
+    size_t i;
+    for (i = 0; i < w * h; i++) {
+        o[i] = o[i] >= 0.5f ? 1.0f : 0.0f;
+    }
+    return o;
+}
+
+static float *oracle_feather(const float *m, size_t w, size_t h, float radius)
+{
+    float sigma = pc_rs_maxf_k(radius, 0.0f), s = -0.0f, *k, *tmp, *out = malloc(w * h * sizeof(float) + 4);
+    int64_t r, i, x, y, iw = (int64_t)w, ih = (int64_t)h;
+    if (sigma < 0.1f) {
+        memcpy(out, m, w * h * sizeof(float));
+        return out;
+    }
+    r = (int64_t)ceilf(sigma * 3.0f);
+    k = malloc((size_t)(2 * r + 1) * sizeof(float));
+    for (i = -r; i <= r; i++) {
+        k[i + r] = expf((float)(-(i * i)) / (2.0f * sigma * sigma));
+        s += k[i + r];
+    }
+    for (i = 0; i <= 2 * r; i++) {
+        k[i] /= s;
+    }
+    tmp = malloc(w * h * sizeof(float) + 4);
+    for (y = 0; y < ih; y++) {
+        for (x = 0; x < iw; x++) {
+            float a = 0.0f;
+            for (i = 0; i <= 2 * r; i++) {
+                int64_t xx = x + i - r;
+                if (xx >= 0 && xx < iw) {
+                    a += m[y * iw + xx] * k[i];
+                }
+            }
+            tmp[y * iw + x] = a;
+        }
+    }
+    for (y = 0; y < ih; y++) {
+        for (x = 0; x < iw; x++) {
+            float a = 0.0f;
+            for (i = 0; i <= 2 * r; i++) {
+                int64_t yy = y + i - r;
+                if (yy >= 0 && yy < ih) {
+                    a += tmp[yy * iw + x] * k[i];
+                }
+            }
+            out[y * iw + x] = a;
+        }
+    }
+    free(k);
+    free(tmp);
+    return out;
+}
+
+/* Random masks: binary noise, soft noise, a soft-edged blob, a sparse scatter and an off-centre
+ * rectangle (selection_blur.rs masks, same photo_util::Rng draws). */
+static float *blur_mask(int kind, size_t w, size_t h, uint64_t seed)
+{
+    uint64_t rng = seed;
+    size_t n = w * h, i;
+    float *binary = malloc(n * sizeof(float)), *out = malloc(n * sizeof(float)), cx, cy, rad;
+    for (i = 0; i < n; i++) {
+        binary[i] = (float)(sm_next(&rng) >> 11) / 9007199254740992.0f < 0.5f ? 1.0f : 0.0f;
+    }
+    if (kind == 0) {
+        free(out);
+        return binary;
+    }
+    for (i = 0; i < n; i++) {
+        out[i] = (float)(sm_next(&rng) >> 11) / 9007199254740992.0f;
+    }
+    if (kind == 1) {
+        free(binary);
+        return out;
+    }
+    cx = (float)w * ((float)(sm_next(&rng) >> 11) / 9007199254740992.0f);
+    cy = (float)h * ((float)(sm_next(&rng) >> 11) / 9007199254740992.0f);
+    rad = pc_rs_maxf_k((float)(w < h ? w : h) * 0.4f, 1.0f);
+    for (i = 0; i < n; i++) {
+        float x = (float)(i % w) + 0.5f, y = (float)(i / w) + 0.5f;
+        float blob = pc_clampf(rad - sqrtf((x - cx) * (x - cx) + (y - cy) * (y - cy)), 0.0f, 1.0f);
+        float sparse = (float)(sm_next(&rng) >> 11) / 9007199254740992.0f < 0.02f ? 1.0f : 0.0f;
+        out[i] = kind == 2   ? blob
+                 : kind == 3 ? sparse
+                             : ((i % w) * 3 >= w && (i / w) * 4 < h * 3 ? 1.0f : 0.0f);
+    }
+    free(binary);
+    return out;
+}
+
+static float max_diff(const float *a, const float *b, size_t n)
+{
+    float d = 0.0f;
+    size_t i;
+    for (i = 0; i < n; i++) {
+        d = pc_rs_maxf(d, fabsf(a[i] - b[i]));
+    }
+    return d;
+}
+
+/* Photoshop 27.11, measured: the square, Select > Modify > Feather 4 px, filled white. Row y = 32
+ * for x = 8..=24, then (16,16), (18,18), (20,20). */
+static void test_feather_matches_photoshop(void)
+{
+    static const int row[17] = {7, 13, 22, 34, 50, 70, 92, 115, 140, 163, 185, 205, 221, 233, 242, 248, 252};
+    static const int diag[3][2] = {{16, 76}, {18, 134}, {20, 190}};
+    float *m = ps_square(), *f = NULL;
+    size_t i;
+    CHECK(pc_algo_selection_feather(m, 64 * 64, 64, 64, 4.0f, &f, NULL) == PC_OK);
+    for (i = 0; i < 17; i++) {
+        int v = level(f, 8 + i, 32);
+        if (abs(v - row[i]) > 3) {
+            PC_T_FAIL("x %zu: %d vs Photoshop %d", 8 + i, v, row[i]);
+        }
+    }
+    /* Photoshop's corners come out a few levels darker than a true 2-D Gaussian's. */
+    for (i = 0; i < 3; i++) {
+        size_t d = (size_t)diag[i][0];
+        int v = level(f, d, d);
+        if (abs(v - diag[i][1]) > 4) {
+            PC_T_FAIL("(%zu,%zu): %d vs Photoshop %d", d, d, v, diag[i][1]);
+        }
+    }
+    free(m);
+    free(f);
+}
+
+static void test_feather_matches_direct_gaussian(void)
+{
+    static const size_t dims[3][3] = {{97, 61, 1}, {40, 150, 2}, {13, 7, 3}};
+    static const float radii[11] = {0.1f, 0.3f, 1.0f, 2.5f, 8.0f, 9.0f, 17.0f, 25.0f, 50.0f, 120.0f, 1000.0f};
+    int d, kind, k;
+    for (d = 0; d < 3; d++) {
+        size_t w = dims[d][0], h = dims[d][1];
+        for (kind = 0; kind < 5; kind++) {
+            float *m = blur_mask(kind, w, h, dims[d][2]);
+            for (k = 0; k < 11; k++) {
+                float *a = NULL, *b = oracle_feather(m, w, h, radii[k]), e = 1.0f;
+                if (pc_algo_selection_feather(m, w * h, w, h, radii[k], &a, NULL) == PC_OK) {
+                    e = max_diff(a, b, w * h);
+                }
+                if (!(e <= 1.0f / 255.0f)) {
+                    PC_T_FAIL("kind %d %zux%zu r %g: %g", kind, w, h, (double)radii[k], (double)e);
+                }
+                free(a);
+                free(b);
+            }
+            free(m);
+        }
+    }
+}
+
+/* Photoshop 27.11, measured: the square, Select > Modify > Smooth 8 px, filled white. The straight
+ * edge stays hard at x = 16; only the corner rounds. */
+static void test_smooth_matches_photoshop(void)
+{
+    static const float diag[9] = {0, 0, 0, 0, 1, 1, 1, 1, 1};
+    float *m = ps_square(), *s = NULL;
+    size_t x;
+    CHECK(pc_algo_selection_smooth(m, 64 * 64, 64, 64, 8.0f, &s, NULL) == PC_OK);
+    for (x = 8; x <= 24; x++) {
+        CHECK(s[32 * 64 + x] == (x >= 16 ? 1.0f : 0.0f));
+    }
+    for (x = 16; x <= 24; x++) {
+        CHECK(s[x * 64 + x] == diag[x - 16]);
+    }
+    free(m);
+    free(s);
+}
+
+static void test_smooth_matches_direct_box(void)
+{
+    static const size_t dims[3][3] = {{97, 61, 4}, {40, 150, 5}, {13, 7, 6}};
+    static const float radii[8] = {0.0f, 0.4f, 1.0f, 2.0f, 5.0f, 16.0f, 50.0f, 500.0f};
+    int d, kind, k;
+    for (d = 0; d < 3; d++) {
+        size_t w = dims[d][0], h = dims[d][1], i;
+        for (kind = 0; kind < 5; kind++) {
+            float *m = blur_mask(kind, w, h, dims[d][2]);
+            for (k = 0; k < 8; k++) {
+                float *fast = NULL, *slow = oracle_smooth(m, w, h, radii[k]);
+                float *avg = oracle_box(m, w, h, box_radius(radii[k]));
+                CHECK(pc_algo_selection_smooth(m, w * h, w, h, radii[k], &fast, NULL) == PC_OK);
+                /* The threshold is hard, so a pixel may only differ where the box average sits
+                 * within float rounding of 1/2 (the running sum adds in another order). */
+                for (i = 0; fast != NULL && i < w * h; i++) {
+                    if (fast[i] != slow[i] && !(fabsf(avg[i] - 0.5f) < 1e-4f)) {
+                        PC_T_FAIL("kind %d %zux%zu r %g pixel %zu: %g vs %g (average %g)", kind, w, h,
+                                  (double)radii[k], i, (double)fast[i], (double)slow[i], (double)avg[i]);
+                        break;
+                    }
+                }
+                free(fast);
+                free(slow);
+                free(avg);
+            }
+            free(m);
+        }
+    }
+}
+
+/* selection_blur.rs edge_cases, the checks that compare against the direct definitions
+ * (test_blur_oracles.c has the rest, against the previous definitions). */
+static void test_blur_edge_cases_match_direct_definitions(void)
+{
+    const size_t n = 50 * 40;
+    static const float rs[4] = {0.0f, 1.0f, 50.0f, 1000.0f};
+    float *one = malloc(n * sizeof(float)), *m = malloc(n * sizeof(float)), *a = NULL, *b, single = 1.0f;
+    size_t i;
+    int k;
+    for (i = 0; i < n; i++) {
+        one[i] = 1.0f;
+        m[i] = (float)(i % 7) / 6.0f;
+    }
+    for (k = 0; k < 2; k++) {
+        float r = k ? 30.0f : 6.0f;
+        b = oracle_feather(one, 50, 40, r);
+        CHECK(pc_algo_selection_feather(one, n, 50, 40, r, &a, NULL) == PC_OK);
+        CHECK(a != NULL && max_diff(a, b, n) <= 1.0f / 255.0f);
+        free(a);
+        free(b);
+    }
+    /* Radius 0 is the bare threshold. */
+    b = oracle_smooth(m, 50, 40, 0.0f);
+    CHECK(pc_algo_selection_smooth(m, n, 50, 40, 0.0f, &a, NULL) == PC_OK);
+    CHECK(a != NULL && memcmp(a, b, n * sizeof(float)) == 0);
+    free(a);
+    free(b);
+    for (k = 0; k < 4; k++) {
+        b = oracle_feather(&single, 1, 1, rs[k]);
+        CHECK(pc_algo_selection_feather(&single, 1, 1, 1, rs[k], &a, NULL) == PC_OK);
+        CHECK(a != NULL && fabsf(a[0] - b[0]) <= 1.0f / 255.0f);
+        free(a);
+        free(b);
+    }
+    free(one);
+    free(m);
+}
+
 /* ---- never crash ---- */
 
 static void test_hostile_inputs(void)
@@ -737,6 +1124,13 @@ int main(int argc, char **argv)
     RUN(test_tiled_conversions_match_per_sample_ones);
     RUN(test_wand_region_matches_reference_magic_wand);
     RUN(test_combine_region_matches_combine);
+    RUN(test_wand_ignores_hidden_rgb_only_when_both_pixels_are_fully_transparent);
+    RUN(test_border_matches_photoshop);
+    RUN(test_feather_matches_photoshop);
+    RUN(test_feather_matches_direct_gaussian);
+    RUN(test_smooth_matches_photoshop);
+    RUN(test_smooth_matches_direct_box);
+    RUN(test_blur_edge_cases_match_direct_definitions);
     RUN(test_hostile_inputs);
     return pc_t_finish();
 }

@@ -57,6 +57,9 @@ typedef struct pc_format_source pc_format_source;
 pc_status pc_format_source_zip(const uint8_t *bytes, size_t len, pc_format_source **out, pc_error *err);
 /* A directory bundle (the path is copied). */
 pc_status pc_format_source_dir(const char *root, pc_format_source **out, pc_error *err);
+/* A caller's byte source (get and ctx borrowed; they must outlive the source). */
+pc_status pc_format_source_custom(pc_format_byte_source_get get, void *ctx, pc_format_source **out,
+                                  pc_error *err);
 void pc_format_source_free(pc_format_source *src); /* NULL-safe */
 /* The file at bundle path `path`, at most `max` bytes (*out replaced). Missing:
  * "corrupt .pcraft bundle: missing `path`"; too big: "limit exceeded: ...". */
@@ -153,8 +156,8 @@ pc_status pc_pcraft_writer_save_zip_prepared(pc_pcraft_writer *w, const pc_forma
 pc_status pc_pcraft_writer_save_dir_prepared(pc_pcraft_writer *w, const pc_format_prepared *p,
                                              const char *dir, pc_format_save_stats *stats, pc_error *err);
 
-/* Loading through a source (store::load): manifest, then the document; retries once with fresh
- * ids when the preserved ones are implausibly far ahead. */
+/* Loading through a source (store::load): manifest, the declared canvas checked against the
+ * options' budget, then the document. */
 pc_status pc_format_load_source(const pc_format_source *src, const pc_format_load_opts *opts,
                                 pc_document *out, pc_error *err);
 /* store::read_manifest. */
@@ -177,11 +180,13 @@ pc_status pc_format_manifest_build(const pc_document *doc, const char *thumbnail
  * JSON errors as pc_format_json; migration and model errors as the reference's. */
 pc_status pc_format_manifest_parse(const uint8_t *json, size_t len, pc_format_manifest **out, pc_error *err);
 
-/* convert::Loader::document. *max_id receives the largest id seen (for the id reservation).
+/* convert::Loader::document. With preserve_ids, every stored id (document, layers, smart
+ * contents) is reserved first; implausibly large ones remap the whole document to fresh ids.
  * The manifest's decoded values are moved into the document: afterwards m may only be freed. */
-pc_status pc_format_manifest_to_document(pc_format_manifest *m, pc_format_fetch *fetch,
-                                         bool preserve_ids, pc_document *out, uint64_t *max_id,
-                                         pc_error *err);
+pc_status pc_format_manifest_to_document(pc_format_manifest *m, pc_format_fetch *fetch, bool preserve_ids,
+                                         pc_document *out, pc_error *err);
+/* The canvas size the manifest declares. */
+pc_size pc_format_manifest_canvas(const pc_format_manifest *m);
 
 /* convert::reserve_ids_through: advance the id counter past max; false when max is implausibly
  * far ahead (the caller then remaps ids). */

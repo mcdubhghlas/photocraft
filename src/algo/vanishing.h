@@ -45,6 +45,22 @@ bool pc_algo_vp_plane_homography(const pc_algo_vp_plane *p, pc_algo_homography *
 /* Focal length (px) implied by the plane's vanishing points for a camera centred at c; false
  * when a vanishing point is at infinity or the geometry is inconsistent. */
 bool pc_algo_vp_plane_focal(const pc_algo_vp_plane *p, const double c[2], double *out);
+/* Plane validity (VpPlane::check): Photoshop draws a valid plane's grid blue, a doubtful one
+ * yellow and an invalid one red. */
+typedef enum pc_algo_vp_plane_check {
+    PC_ALGO_VP_VALID,
+    PC_ALGO_VP_QUESTIONABLE,
+    PC_ALGO_VP_INVALID
+} pc_algo_vp_plane_check;
+/* Invalid for a quad that isn't convex (self-intersecting, a corner pushed inside, a near-straight
+ * or near-zero corner), Questionable for a convex quad whose perspective can't come from a camera
+ * centred at `center` (or with a corner sharper than 10 degrees), else Valid. */
+pc_algo_vp_plane_check pc_algo_vp_plane_check_at(const pc_algo_vp_plane *p, const double center[2]);
+/* "valid" / "questionable" / "invalid" (serde camelCase). */
+const char *pc_algo_vp_plane_check_name(pc_algo_vp_plane_check c);
+/* The same quad with its corners clockwise on screen, starting at the top-left one (the order
+ * paste and tear_off expect), however they were clicked. */
+pc_algo_vp_plane pc_algo_vp_plane_normalized(const pc_algo_vp_plane *p);
 /* Lifts the plane to 3-D with focal f (camera at the origin looking along +z). */
 void pc_algo_vp_plane_lift(const pc_algo_vp_plane *p, double f, const double c[2], pc_algo_vp_lifted *out);
 /* 3-D point -> image; false behind the camera. */

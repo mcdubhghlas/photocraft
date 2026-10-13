@@ -11,10 +11,18 @@
 #include "base/rmath.h"
 #include "paint/pmath.h"
 #include "paint/procedural.h"
+#include "paint/render_priv.h"
 #include "paint/rng.h"
 
 #define SQRT_2_F 1.41421356237309504880f
 #define NOISE_SALT 0x006E6F697365ull
+/* Computed tips with a smaller radius (in pixels) are rasterised by area, not at pixel centres. */
+#define SMALL_TIP_RADIUS 3.0f
+/* How far a Height-mode dab at full depth and coverage reaches into the pattern, in pattern
+ * ranges (measured against Photoshop). */
+#define HEIGHT_REACH 12.0f
+/* Sub-pixel sample offsets (a 4x4 grid) for the area coverage of small tips. */
+static const float SUBPIXEL[4] = {-0.375f, -0.125f, 0.125f, 0.375f};
 
 void pc_paint_grid_center(double x, double y, float diameter, float *cx, float *cy)
 {
@@ -89,6 +97,44 @@ float pc_paint_mask_combine(pc_paint_mask_mode mode, float v, float t, float d)
     return pc_clampf(r, 0.0f, 1.0f);
 }
 
+/* Wet Edges: how much paint stays at a pixel whose nearest dab reaches it at rn (0 at a dab's
+ * centre, 1 at its rim). The interior keeps half the paint, the rim all of it. */
+float pc_paint_wet_factor(float rn)
+{
+    return 0.5f + 0.5f * smoothstep(0.5f, 1.0f, rn);
+}
+
+float pc_paint_texture_combine(pc_paint_mask_mode mode, float v, float t, float d)
+{
+    float r, reach;
+    if (v <= 0.0f) {
+        return 0.0f;
+    }
+    switch (mode) {
+    case PC_PAINT_MASK_SUBTRACT:
+        r = v - d * t;
+        break;
+    case PC_PAINT_MASK_COLOR_DODGE:
+        r = v / pc_paint_maxf_k(1.0f - d * t, 1e-3f);
+        break;
+    case PC_PAINT_MASK_COLOR_BURN:
+        r = 1.0f - (1.0f - v) / pc_paint_maxf_k(1.0f - d + d * t, 1e-3f);
+        break;
+    case PC_PAINT_MASK_HEIGHT:
+        /* Photoshop steps the depth in 1/255ths here, which shows at the lowest depths. */
+        r = HEIGHT_REACH * roundf(d * 255.0f) / 255.0f * v - t;
+        break;
+    case PC_PAINT_MASK_LINEAR_HEIGHT:
+        reach = HEIGHT_REACH * roundf(d * 255.0f) / 255.0f * v;
+        r = reach < 1.0f ? reach * (1.0f - t) : reach - t;
+        break;
+    default:
+        r = pc_paint_mask_combine(mode, v, t, d);
+        break;
+    }
+    return isfinite(r) ? pc_clampf(r, 0.0f, 1.0f) : 0.0f;
+}
+
 pc_rect pc_paint_rect_around(const pc_paint_dab *d, float reach)
 {
     int32_t rr = pc_i32_sat_add(pc_f32_to_i32(ceilf(reach)), 1);
@@ -127,7 +173,6 @@ static pc_status prepare_pattern(const pc_paint_brush *b, pc_paint_pattern_image
 {
     const pc_paint_texture *t = &b->texture;
     pc_paint_pattern_image *img = NULL;
-    float br, ct;
     *out = NULL;
     if (!t->enabled) {
         return PC_OK;
@@ -139,12 +184,13 @@ static pc_status prepare_pattern(const pc_paint_brush *b, pc_paint_pattern_image
             return st;
         }
     } else {
-        const pc_paint_gray_tile *g = &t->pattern.tile;
-        const uint16_t *s = pc_paint_gray_tile_samples(g);
+        const pc_paint_gray_tile *g = pc_paint_pattern_bitmap(&t->pattern);
+        const uint16_t *s;
         pc_status st;
-        if (!pc_paint_gray_tile_is_valid(g)) {
+        if (g == NULL || !pc_paint_gray_tile_is_valid(g)) {
             return PC_OK;
         }
+        s = pc_paint_gray_tile_samples(g);
         st = pc_paint_pattern_image_new(g->width, g->height, &img, err);
         if (st != PC_OK) {
             return st;
@@ -153,11 +199,8 @@ static pc_status prepare_pattern(const pc_paint_brush *b, pc_paint_pattern_image
             img->data[i] = (float)s[i] / 65535.0f;
         }
     }
-    br = pc_clampf(t->brightness, -1.0f, 1.0f);
-    ct = pc_clampf(t->contrast, -1.0f, 1.0f);
     for (size_t i = 0, n = img->width * img->height; i < n; i++) {
-        float x = pc_clampf((img->data[i] - 0.5f) * (1.0f + ct) + 0.5f + br, 0.0f, 1.0f);
-        img->data[i] = t->invert ? 1.0f - x : x;
+        img->data[i] = pc_paint_texture_level(t, img->data[i]);
     }
     *out = img;
     return PC_OK;
@@ -165,9 +208,10 @@ static pc_status prepare_pattern(const pc_paint_brush *b, pc_paint_pattern_image
 
 static pc_status tip_mips(const pc_paint_tip *t, pc_paint_mips **out, pc_error *err)
 {
+    const pc_paint_gray_tile *g = pc_paint_tip_bitmap(t);
     *out = NULL;
-    if (t->kind == PC_PAINT_TIP_SAMPLED && pc_paint_gray_tile_is_valid(&t->tile)) {
-        return pc_paint_mips_new(&t->tile, out, err);
+    if (g != NULL && pc_paint_gray_tile_is_valid(g)) {
+        return pc_paint_mips_new(g, out, err);
     }
     return PC_OK;
 }
@@ -253,24 +297,84 @@ pc_rect pc_paint_context_dab_rect(const pc_paint_context *ctx, const pc_paint_da
     return pc_paint_rect_around(d, sampled ? d->radius * SQRT_2_F : d->radius);
 }
 
-pc_status pc_paint_context_rasterize(const pc_paint_context *ctx, const pc_paint_dab *d, bool dual,
-                                     pc_rect rect, pc_paint_fbuf *out, pc_error *err)
+/* The zero-angle computed round tip without features (the common case), kept apart from the
+ * general loop so its rows stay simple; same bits as the general loop (tests/paint). */
+static void rasterize_round(const pc_paint_dab *d, pc_rect rect, float *out, size_t w, size_t h,
+                            float hardness, bool aliased)
+{
+    float cx, cy, ro, rm, reach2, inner;
+    if (aliased) {
+        pc_paint_grid_center(d->center.x, d->center.y, 2.0f * d->radius, &cx, &cy);
+    } else {
+        cx = pc_f64_to_f32(d->center.x);
+        cy = pc_f64_to_f32(d->center.y);
+    }
+    ro = pc_paint_minf_k(pc_rs_maxf(d->roundness, 0.5f / d->radius), 1.0f);
+    rm = pc_paint_maxf_k(d->radius * ro, 0.5f);
+    reach2 = (rm + 0.5f) * (rm + 0.5f);
+    inner = rm * pc_clampf(hardness, 0.0f, 1.0f);
+    for (size_t yy = 0; yy < h; yy++) {
+        float dy = (float)(int32_t)((int64_t)rect.y0 + (int64_t)yy) + 0.5f - cy;
+        float *row = out + yy * w;
+        for (size_t xx = 0; xx < w; xx++) {
+            float dx = (float)(int32_t)((int64_t)rect.x0 + (int64_t)xx) + 0.5f - cx;
+            float dr = dx * ro, d2 = dr * dr + dy * dy, dd = sqrtf(d2), edge, val;
+            if (aliased) {
+                row[xx] = d2 < reach2 && dd <= rm ? d->alpha : 0.0f;
+                continue;
+            }
+            edge = pc_clampf(rm + 0.5f - dd, 0.0f, 1.0f);
+            if (rm - inner < 1e-3f) {
+                row[xx] = d2 >= reach2 || edge <= 0.0f ? 0.0f : edge * d->alpha;
+            } else {
+                float t = pc_clampf((dd - inner) / (rm - inner), 0.0f, 1.0f), s = 1.0f - t * t, s2 = s * s;
+                val = edge * (dd <= inner ? 1.0f : s2 * s2);
+                row[xx] = d2 >= reach2 || val <= 0.0f ? 0.0f : val * d->alpha;
+            }
+        }
+    }
+}
+
+/* A pixel offset from the dab centre in tip space: to y-up, project, rotate by -angle, flip. */
+typedef struct tip_xf {
+    bool proj;
+    float pax, pay, pk, sn, cs, fx, fy;
+} tip_xf;
+
+static void to_tip(const tip_xf *t, float dx, float dy, float *u, float *v)
+{
+    float ux = dx, uy = -dy;
+    if (t->proj) {
+        float k = (ux * t->pax + uy * t->pay) * t->pk;
+        ux += k * t->pax;
+        uy += k * t->pay;
+    }
+    *u = (ux * t->cs + uy * t->sn) * t->fx;
+    *v = (-ux * t->sn + uy * t->cs) * t->fy;
+}
+
+pc_status pc_paint_rasterize_into(const pc_paint_context *ctx, const pc_paint_dab *d, bool dual, pc_rect rect,
+                                  pc_paint_fbuf *out, pc_paint_fbuf *depth, bool fast, pc_error *err)
 {
     const pc_paint_brush *b = &ctx->brush;
     size_t w = pc_rect_width(rect), h = pc_rect_height(rect), area;
     float hardness = dual ? b->dual_brush.hardness : b->hardness;
     const pc_paint_mips *mips = dual ? ctx->dual_tip : ctx->tip;
-    bool aliased = b->aliased && !dual, wet = b->wet_edges && !dual, noise = b->noise && !dual;
+    bool aliased = b->aliased && !dual, wet = b->wet_edges && !dual && depth == NULL,
+         noise = b->noise && !dual;
     bool tex_tip = !dual && b->texture.enabled && b->texture.each_tip && ctx->texture != NULL;
-    float cx, cy, sn, cs, fxs, fys, r, ro, rm, reach2, inv_scale = 1.0f, tw = 1.0f, th = 1.0f;
-    bool proj = !dual && d->proj_scale < 0.999f;
-    float pax = 0.0f, pay = 0.0f, pk = 0.0f;
+    bool square = aliased && b->square, small;
+    float cx, cy, r, ro, rm, reach2, small_reach2, inv_scale = 1.0f, tw = 1.0f, th = 1.0f;
+    tip_xf xf;
     size_t level = 0;
     pc_status st;
     if (!pc_size_mul(w, h, &area) || area > PC_PAINT_MAX_DAB_PIXELS) {
         return pc_fail(err, PC_ERR_LIMIT, "dab too large (%zux%zu pixels)", w, h);
     }
     st = pc_paint_fbuf_zeroed(out, area, err);
+    if (st == PC_OK && depth != NULL) {
+        st = pc_paint_fbuf_zeroed(depth, area, err);
+    }
     if (st != PC_OK || area == 0) {
         return st;
     }
@@ -280,16 +384,18 @@ pc_status pc_paint_context_rasterize(const pc_paint_context *ctx, const pc_paint
         cx = pc_f64_to_f32(d->center.x);
         cy = pc_f64_to_f32(d->center.y);
     }
-    sn = sinf(d->angle);
-    cs = cosf(d->angle);
-    fxs = d->flip_x ? -1.0f : 1.0f;
-    fys = d->flip_y ? -1.0f : 1.0f;
+    memset(&xf, 0, sizeof xf);
+    xf.sn = sinf(d->angle);
+    xf.cs = cosf(d->angle);
+    xf.fx = d->flip_x ? -1.0f : 1.0f;
+    xf.fy = d->flip_y ? -1.0f : 1.0f;
     /* Brush Projection: stretch the sampling coordinates along the tilt direction, which
      * foreshortens the tip there by proj_scale. */
-    if (proj) {
-        pay = sinf(d->proj_angle);
-        pax = cosf(d->proj_angle);
-        pk = 1.0f / pc_paint_maxf_k(d->proj_scale, 0.05f) - 1.0f;
+    xf.proj = !dual && d->proj_scale < 0.999f;
+    if (xf.proj) {
+        xf.pay = sinf(d->proj_angle);
+        xf.pax = cosf(d->proj_angle);
+        xf.pk = 1.0f / pc_paint_maxf_k(d->proj_scale, 0.05f) - 1.0f;
     }
     r = d->radius;
     ro = pc_paint_minf_k(pc_rs_maxf(d->roundness, 0.5f / r), 1.0f);
@@ -303,22 +409,52 @@ pc_status pc_paint_context_rasterize(const pc_paint_context *ctx, const pc_paint
         tw = (float)w0;
         th = (float)h0;
     }
+    /* A tip a few pixels across takes each pixel's covered area (a 4x4 grid inside it): sampling
+     * only the pixel centre made a tiny dab's total coverage swing with its sub-pixel position. */
+    small = mips == NULL && !aliased && rm < SMALL_TIP_RADIUS;
+    small_reach2 = (rm + 0.75f) * (rm + 0.75f);
+    if (fast && !(mips != NULL || small || square || noise || tex_tip || wet) && depth == NULL && !xf.proj &&
+        d->angle == 0.0f && isfinite(d->radius) && isfinite(d->roundness) && isfinite(rm) && isfinite(cx) &&
+        isfinite(cy) && isfinite(hardness) && isfinite(d->alpha)) {
+        rasterize_round(d, rect, out->v, w, h, hardness, aliased);
+        return PC_OK;
+    }
     for (size_t yy = 0; yy < h; yy++) {
         int32_t y = (int32_t)((int64_t)rect.y0 + (int64_t)yy);
         float dy = (float)y + 0.5f - cy;
         for (size_t xx = 0; xx < w; xx++) {
             int32_t x = (int32_t)((int64_t)rect.x0 + (int64_t)xx);
-            float dx = (float)x + 0.5f - cx;
-            /* To y-up, project, rotate by -angle, flip. */
-            float ux = dx, uy = -dy, u, v, val, rn;
-            if (proj) {
-                float t = (ux * pax + uy * pay) * pk;
-                ux += t * pax;
-                uy += t * pay;
-            }
-            u = (ux * cs + uy * sn) * fxs;
-            v = (-ux * sn + uy * cs) * fys;
-            if (mips == NULL) {
+            float dx = (float)x + 0.5f - cx, u, v, val, rn;
+            to_tip(&xf, dx, dy, &u, &v);
+            if (square) {
+                /* Block: the whole-pixel square, hard (the Eraser's Block mode). */
+                if (fabsf(dx) >= r || fabsf(dy) >= r) {
+                    continue;
+                }
+                val = 1.0f;
+                rn = 0.0f;
+            } else if (mips == NULL && small) {
+                float ur = u * ro, d2 = ur * ur + v * v, sum = 0.0f;
+                if (d2 >= small_reach2) {
+                    continue;
+                }
+                for (int sy = 0; sy < 4; sy++) {
+                    for (int sx = 0; sx < 4; sx++) {
+                        float su, sv, sur, sd, inside;
+                        to_tip(&xf, dx + SUBPIXEL[sx], dy + SUBPIXEL[sy], &su, &sv);
+                        sur = su * ro;
+                        sd = sqrtf(sur * sur + sv * sv);
+                        /* Each sample anti-aliases over its own quarter pixel, so the covered area
+                         * changes smoothly with the dab's position. */
+                        inside = pc_clampf((rm - sd) * 4.0f + 0.5f, 0.0f, 1.0f);
+                        if (inside > 0.0f) {
+                            sum += inside * pc_paint_tip_falloff(pc_rs_minf(sd, rm), rm, hardness);
+                        }
+                    }
+                }
+                val = sum / 16.0f;
+                rn = sqrtf(d2) / rm;
+            } else if (mips == NULL) {
                 float ur = u * ro, d2 = ur * ur + v * v, dd;
                 if (d2 >= reach2) {
                     continue;
@@ -344,11 +480,14 @@ pc_status pc_paint_context_rasterize(const pc_paint_context *ctx, const pc_paint
                 val += (hard - val) * 0.7f;
             }
             if (tex_tip) {
-                val = pc_paint_mask_combine(b->texture.mode, val, pc_paint_context_texture_at(ctx, x, y),
-                                            d->depth);
+                val = pc_paint_texture_combine(b->texture.mode, val, pc_paint_context_texture_at(ctx, x, y),
+                                               d->depth);
             }
             if (wet) {
-                val *= 0.5f + 0.5f * smoothstep(0.5f, 1.0f, rn);
+                val *= pc_paint_wet_factor(rn);
+            }
+            if (depth != NULL) {
+                depth->v[yy * w + xx] = pc_clampf(1.0f - rn, 0.0f, 1.0f);
             }
             out->v[yy * w + xx] = val * d->alpha;
         }
@@ -356,19 +495,31 @@ pc_status pc_paint_context_rasterize(const pc_paint_context *ctx, const pc_paint
     return PC_OK;
 }
 
-float pc_paint_context_stroke_mask(const pc_paint_context *ctx, float c, bool has_dual, float dual, int32_t x,
-                                   int32_t y)
+pc_status pc_paint_context_rasterize(const pc_paint_context *ctx, const pc_paint_dab *d, bool dual,
+                                     pc_rect rect, pc_paint_fbuf *out, pc_error *err)
+{
+    return pc_paint_rasterize_into(ctx, d, dual, rect, out, NULL, true, err);
+}
+
+float pc_paint_context_stroke_mask_wet(const pc_paint_context *ctx, float c, const float *depth,
+                                       bool has_dual, float dual, int32_t x, int32_t y)
 {
     const pc_paint_brush *b = &ctx->brush;
-    float m = c;
+    float m = depth != NULL ? c * pc_paint_wet_factor(1.0f - *depth) : c;
     if (has_dual) {
         m = pc_paint_mask_combine(b->dual_brush.mode, m, dual, 1.0f);
     }
     if (ctx->texture != NULL && !b->texture.each_tip) {
-        m = pc_paint_mask_combine(b->texture.mode, m, pc_paint_context_texture_at(ctx, x, y),
-                                  pc_clampf(b->texture.depth, 0.0f, 1.0f));
+        m = pc_paint_texture_combine(b->texture.mode, m, pc_paint_context_texture_at(ctx, x, y),
+                                     pc_clampf(b->texture.depth, 0.0f, 1.0f));
     }
     return m;
+}
+
+float pc_paint_context_stroke_mask(const pc_paint_context *ctx, float c, bool has_dual, float dual, int32_t x,
+                                   int32_t y)
+{
+    return pc_paint_context_stroke_mask_wet(ctx, c, NULL, has_dual, dual, x, y);
 }
 
 pc_status pc_paint_context_footprint(const pc_paint_context *ctx, const pc_paint_dab *d, size_t index,

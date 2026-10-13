@@ -22,6 +22,9 @@
 
 static pc_buf OUT;
 
+#if defined(__GNUC__)
+__attribute__((format(printf, 1, 2)))
+#endif
 static void line(const char *fmt, ...)
 {
     char tmp[8192];
@@ -923,6 +926,11 @@ static void tone_vectors(void)
 
 static int SKIPPED;
 
+/* The reference's filter list (indices printed in the golden). */
+static const pc_algo_resample RS5[5] = {PC_ALGO_RESAMPLE_NEAREST, PC_ALGO_RESAMPLE_BILINEAR,
+                                        PC_ALGO_RESAMPLE_BICUBIC, PC_ALGO_RESAMPLE_LANCZOS,
+                                        PC_ALGO_RESAMPLE_PRESERVE_DETAILS};
+
 static void resample_vectors(void)
 {
     static const double ks[8][2] = {{0.013, 0.013}, {0.37, 0.37}, {0.5, 0.5}, {1.0, 1.0},
@@ -935,16 +943,16 @@ static void resample_vectors(void)
         for (f = 0; f < 5; f++) {
             uint64_t h = H0, hp = H0;
             for (k = 0; k < 8; k++) {
-                bool up = f == PC_ALGO_RESAMPLE_PRESERVE_DETAILS && (ks[k][0] > 1.0 || ks[k][1] > 1.0);
+                bool up = RS5[f] == PC_ALGO_RESAMPLE_PRESERVE_DETAILS && (ks[k][0] > 1.0 || ks[k][1] > 1.0);
                 pc_surface o;
                 if (up && !have_usm) {
                     continue;
                 }
                 hh(up ? &hp : &h,
-                   hs_st(pc_algo_resize_surface(&s, ks[k][0], ks[k][1], (pc_algo_resample)f, &o, NULL), &o));
+                   hs_st(pc_algo_resize_surface(&s, ks[k][0], ks[k][1], RS5[f], &o, NULL), &o));
             }
             line("resize %s %zu %016llx", FORMATS[fi].name, f, (unsigned long long)h);
-            if (f == PC_ALGO_RESAMPLE_PRESERVE_DETAILS) {
+            if (RS5[f] == PC_ALGO_RESAMPLE_PRESERVE_DETAILS) {
                 if (have_usm) {
                     line("resize_pd %s %016llx", FORMATS[fi].name, (unsigned long long)hp);
                 } else {
@@ -969,12 +977,10 @@ static void resample_vectors(void)
                 for (k = 0; k < 4; k++) {
                     pc_surface o;
                     double kk = cks[k];
-                    hh(&h, hs_st(pc_algo_resize_surface_in_canvas(&s, kk, kk, (pc_algo_resample)f, canvas, &o,
-                                                                  NULL),
-                                 &o));
-                    hh(&h, hs_st(pc_algo_resize_surface_in_canvas(&inner, kk, kk * 1.1, (pc_algo_resample)f,
-                                                                  canvas, &o, NULL),
-                                 &o));
+                    hh(&h, hs_st(pc_algo_resize_surface_in_canvas(&s, kk, kk, RS5[f], canvas, &o, NULL), &o));
+                    hh(&h,
+                       hs_st(pc_algo_resize_surface_in_canvas(&inner, kk, kk * 1.1, RS5[f], canvas, &o, NULL),
+                             &o));
                 }
                 line("resize_canvas %s %zu %016llx", FORMATS[fi].name, f, (unsigned long long)h);
             }
@@ -1001,12 +1007,10 @@ static void resample_vectors(void)
             pc_surface o;
             double kk = 1.0 / 100096.0;
             for (k = 0; k < 3; k++) {
-                hh(&h, hs_st(pc_algo_resize_surface(&mask, mk[k], mk[k], (pc_algo_resample)f, &o, NULL), &o));
+                hh(&h, hs_st(pc_algo_resize_surface(&mask, mk[k], mk[k], RS5[f], &o, NULL), &o));
             }
-            hh(&h, hs_st(pc_algo_resize_surface(&sparse, kk, kk, (pc_algo_resample)f, &o, NULL), &o));
-            hh(&h,
-               hs_st(pc_algo_resize_surface(&sparse, 1000.0 / 100096.0, kk, (pc_algo_resample)f, &o, NULL),
-                     &o));
+            hh(&h, hs_st(pc_algo_resize_surface(&sparse, kk, kk, RS5[f], &o, NULL), &o));
+            hh(&h, hs_st(pc_algo_resize_surface(&sparse, 1000.0 / 100096.0, kk, RS5[f], &o, NULL), &o));
             line("resize_sparse %zu %016llx", f, (unsigned long long)h);
         }
         for (k = 0; k < 4; k++) {
@@ -1332,6 +1336,8 @@ static void apply_vectors(void)
 
 /* ------------------------------------------------------------------------------------------ */
 
+#include "core_parity_r5.h"
+
 static char *read_file(const char *path, size_t *len)
 {
     FILE *f = fopen(path, "rb");
@@ -1374,6 +1380,7 @@ static void test_core_parity(void)
     transform_vectors();
     pyramid_vectors();
     apply_vectors();
+    r5_vectors();
     want = strtok_r(golden, "\n", &wsave);
     got = strtok_r((char *)OUT.data, "\n", &gsave);
     while (want != NULL || got != NULL) {

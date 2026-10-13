@@ -64,5 +64,13 @@ pc_status pc_text_glyph_preview(pc_text_engine *e, const pc_char_style *style, u
  * locked) when the engine can't be created. */
 pc_status pc_text_engine_shared_lock(pc_text_engine **out, pc_error *err);
 void pc_text_engine_shared_unlock(void);
+/* The shared engine without blocking on the system font scan: the first call starts building it
+ * on a background thread (unless PHOTOCRAFT_NO_SYSTEM_FONTS is set, when it is cheap and built
+ * here) and returns with *ready false until that finished; once ready it behaves like
+ * pc_text_engine_shared_lock (unlock afterwards). Code that runs every UI frame uses this. */
+pc_status pc_text_engine_shared_try_lock(pc_text_engine **out, bool *ready, pc_error *err);
+/* Starts building the shared engine in the background (call once at startup; later calls do
+ * nothing). */
+void pc_text_engine_warm_shared(void);
 
 #endif

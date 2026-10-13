@@ -135,7 +135,7 @@ static pc_status draw(const pc_text_layout *l, const pc_xform *transform, const 
         for (k = 0; k < noff; k++) {
             double ox = bold ? BOLD_OFFSETS[k][0] : 0.0, oy = bold ? BOLD_OFFSETS[k][1] : 0.0;
             pc_xform off = {{1.0, 0.0, 0.0, 1.0, ox * r, oy * r}};
-            pc_xform local = pc_xform_mul(&off, &glyph);
+            pc_xform local = pc_xform_mul(&glyph, &off); /* offsets in glyph space (#3705) */
             pc_flatten_pen pen;
             pc_outline_pen op;
             pc_error e;

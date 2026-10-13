@@ -362,8 +362,7 @@ static pc_status outline_at(ax_reader *r, size_t id, pc_af_tag cls, pc_af_affine
         if (!ax_floats(s, owner, "ShpB", 4, b)) {
             return PC_OK;
         }
-        *even_odd = false;
-        return ax_shape(r, shape, b, world, ok, out, err);
+        return ax_shape(r, shape, b, world, ok, out, even_odd, err);
     }
 }
 

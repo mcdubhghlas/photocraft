@@ -44,13 +44,58 @@ static void test_basic_statistics(void)
     CHECK(at(5, PC_ALGO_STACK_MINIMUM) == 0.1f);
     CHECK(at(5, PC_ALGO_STACK_MAXIMUM) == 0.9f);
     CHECK(fabsf(at(5, PC_ALGO_STACK_RANGE) - 0.8f) < 1e-6f);
-    CHECK(at(5, PC_ALGO_STACK_SUMMATION) == 1.0f); /* clamped */
+    CHECK(fabsf(at(5, PC_ALGO_STACK_SUMMATION) - 1.6f) < 1e-6f);
     var = at(5, PC_ALGO_STACK_VARIANCE);
     CHECK(fabsf(at(5, PC_ALGO_STACK_STANDARD_DEVIATION) - sqrtf(var)) < 1e-6f);
     CHECK(at(5, PC_ALGO_STACK_SKEWNESS) > 0.5f); /* right-skewed */
     e = at(5, PC_ALGO_STACK_ENTROPY);
     CHECK(e > 0.0f && e <= 1.0f);
     CHECK(at(5, PC_ALGO_STACK_KURTOSIS) > 0.0f);
+}
+
+static float stat2(float a, float b, pc_algo_stack_stat s, int ch)
+{
+    const float v[2] = {a, b};
+    float (*out)[4] = NULL, r;
+    size_t len = 0;
+    set_layers(v, 2);
+    CHECK(pc_algo_stack_combine(LAYERS, LENS, 2, s, &out, &len, NULL) == PC_OK);
+    r = out != NULL ? out[0][ch] : NAN;
+    if (out != NULL) {
+        CHECK(out[0][0] == out[0][1] && out[0][1] == out[0][2]);
+    }
+    free(out);
+    return r;
+}
+
+static void test_statistics_preserve_hdr_and_signed_samples(void)
+{
+    static const struct {
+        pc_algo_stack_stat s;
+        float want;
+    } cases[] = {
+        {PC_ALGO_STACK_MEAN, 1.0f},     {PC_ALGO_STACK_MEDIAN, 1.0f},
+        {PC_ALGO_STACK_MINIMUM, -2.0f}, {PC_ALGO_STACK_MAXIMUM, 4.0f},
+        {PC_ALGO_STACK_RANGE, 6.0f},    {PC_ALGO_STACK_SUMMATION, 2.0f},
+        {PC_ALGO_STACK_VARIANCE, 9.0f}, {PC_ALGO_STACK_STANDARD_DEVIATION, 3.0f},
+    };
+    static const pc_algo_stack_stat norm[3] = {PC_ALGO_STACK_ENTROPY, PC_ALGO_STACK_SKEWNESS,
+                                               PC_ALGO_STACK_KURTOSIS};
+    size_t i;
+    for (i = 0; i < sizeof cases / sizeof cases[0]; i++) {
+        CHECK(stat2(-2.0f, 4.0f, cases[i].s, 0) == cases[i].want);
+        CHECK(stat2(-2.0f, 4.0f, cases[i].s, 3) == 1.0f);
+    }
+    for (i = 0; i < 2; i++) {
+        pc_algo_stack_stat s = i == 0 ? PC_ALGO_STACK_MEAN : PC_ALGO_STACK_MEDIAN;
+        CHECK(stat2(2.0f, 4.0f, s, 0) == 3.0f);
+        CHECK(stat2(-2.0f, -4.0f, s, 0) == -3.0f);
+    }
+    /* These display-oriented statistics still apply their own normalisation. */
+    for (i = 0; i < 3; i++) {
+        float v = stat2(-2.0f, 4.0f, norm[i], 0);
+        CHECK(v >= 0.0f && v <= 1.0f);
+    }
 }
 
 static void test_transparent_samples_are_ignored(void)
@@ -113,6 +158,7 @@ static void test_never_crash(void)
 int main(int argc, char **argv)
 {
     RUN(test_basic_statistics);
+    RUN(test_statistics_preserve_hdr_and_signed_samples);
     RUN(test_transparent_samples_are_ignored);
     RUN(test_median_removes_outlier);
     RUN(test_names);

@@ -5,6 +5,8 @@
 #include "codecs/internal.h"
 
 const pc_casymmetric PC_ASYMMETRIC_EXCEPTIONS[] = {
+    {PC_CF_PCX, "PCX is supported for opening legacy paint and clipart assets. New files should use PNG; "
+                "writing obsolete indexed and planar variants is intentionally not provided."},
     {PC_CF_AVIF, "AVIF is neither read nor written by this build: decoding would need an AV1 decoder and "
                  "encoding an AV1 encoder, and the format is listed only so files are recognised."},
     {PC_CF_HEIF, "HEIC decode uses libheif (with an HEVC decoder plugin), so iPhone and Mac photos open; "
@@ -24,6 +26,7 @@ static const pc_clayout L_ALL[] = {PC_CL_GRAY, PC_CL_GRAYA, PC_CL_RGB, PC_CL_RGB
 static const pc_clayout L_JPEG[] = {PC_CL_GRAY, PC_CL_RGB, PC_CL_CMYK};
 static const pc_clayout L_RGBA[] = {PC_CL_RGBA};
 static const pc_clayout L_RGB[] = {PC_CL_RGB};
+static const pc_clayout L_GRAY_RGB[] = {PC_CL_GRAY, PC_CL_RGB};
 
 #define ARR(a) (a), (sizeof(a) / sizeof((a)[0]))
 
@@ -99,6 +102,20 @@ pc_ccaps pc_cformat_caps(pc_cformat f)
         c.alpha = false;
         c.lossy = true;
         break;
+    case PC_CF_PCX:
+        c.write = false;
+        c.layouts = L_RGB;
+        c.nlayouts = 1;
+        c.alpha = false;
+        break;
+    case PC_CF_FITS:
+        c.depths = D_INT_F32;
+        c.ndepths = 3;
+        c.layouts = L_GRAY_RGB;
+        c.nlayouts = 2;
+        c.alpha = false;
+        c.text = true;
+        break;
     case PC_CF_AVIF:
         c.read = false;
         c.write = false;
@@ -122,15 +139,17 @@ bool pc_cformat_is_enabled(pc_cformat f)
 
 const char *pc_cformat_name(pc_cformat f)
 {
-    static const char *const N[PC_CF_COUNT] = {"PNG", "JPEG", "TIFF", "WebP", "GIF",     "BMP",          "TGA",
-                                               "ICO", "Netpbm", "QOI", "OpenEXR", "Radiance HDR", "AVIF", "HEIF"};
+    static const char *const N[PC_CF_COUNT] = {"PNG",          "JPEG", "TIFF",   "WebP", "GIF", "BMP",
+                                               "TGA",          "ICO",  "Netpbm", "PCX",  "QOI", "OpenEXR",
+                                               "Radiance HDR", "AVIF", "HEIF",   "FITS"};
     return (unsigned)f < PC_CF_COUNT ? N[f] : "?";
 }
 
 const char *pc_cformat_debug(pc_cformat f)
 {
-    static const char *const N[PC_CF_COUNT] = {"Png", "Jpeg", "Tiff", "WebP", "Gif",     "Bmp", "Tga",
-                                               "Ico", "Pnm",  "Qoi",  "OpenExr", "Hdr", "Avif", "Heif"};
+    static const char *const N[PC_CF_COUNT] = {"Png", "Jpeg", "Tiff", "WebP", "Gif", "Bmp",
+                                               "Tga", "Ico",  "Pnm",  "Pcx",  "Qoi", "OpenExr",
+                                               "Hdr", "Avif", "Heif", "Fits"};
     return (unsigned)f < PC_CF_COUNT ? N[f] : "?";
 }
 
@@ -150,18 +169,22 @@ const char *const *pc_cformat_extensions(pc_cformat f)
     static const char *const HDR[] = {"hdr", NULL};
     static const char *const AVIF[] = {"avif", NULL};
     static const char *const HEIF[] = {"heic", "heif", "hif", NULL};
-    static const char *const *const ALL[PC_CF_COUNT] = {PNG, JPEG, TIFF, WEBP, GIF, BMP, TGA,
-                                                        ICO, PNM,  QOI,  EXR,  HDR, AVIF, HEIF};
+    static const char *const PCX[] = {"pcx", NULL};
+    static const char *const FITS[] = {"fits", "fit", "fts", NULL};
+    static const char *const *const ALL[PC_CF_COUNT] = {PNG, JPEG, TIFF, WEBP, GIF, BMP,  TGA,  ICO,
+                                                        PNM, PCX,  QOI,  EXR,  HDR, AVIF, HEIF, FITS};
     return (unsigned)f < PC_CF_COUNT ? ALL[f] : HEIF + 3;
 }
 
 const char *pc_cformat_mime(pc_cformat f)
 {
-    static const char *const N[PC_CF_COUNT] = {"image/png",  "image/jpeg",  "image/tiff",
-                                               "image/webp", "image/gif",   "image/bmp",
-                                               "image/x-tga", "image/x-icon", "image/x-portable-anymap",
-                                               "image/qoi",  "image/x-exr", "image/vnd.radiance",
-                                               "image/avif", "image/heif"};
+    static const char *const N[PC_CF_COUNT] = {
+        "image/png",          "image/jpeg",   "image/tiff",
+        "image/webp",         "image/gif",    "image/bmp",
+        "image/x-tga",        "image/x-icon", "image/x-portable-anymap",
+        "image/x-pcx",        "image/qoi",    "image/x-exr",
+        "image/vnd.radiance", "image/avif",   "image/heif",
+        "image/fits"};
     return (unsigned)f < PC_CF_COUNT ? N[f] : "image/unknown";
 }
 
@@ -294,6 +317,10 @@ bool pc_cformat_detect(const uint8_t *b, size_t n, pc_cformat *out)
     } else if (n >= 3 && b[0] == 'P' && ((b[1] >= '1' && b[1] <= '7') || b[1] == 'F' || b[1] == 'f') &&
                is_space(b[2])) {
         f = PC_CF_PNM;
+    } else if (starts(b, n, "SIMPLE  =", 9)) {
+        f = PC_CF_FITS;
+    } else if (cx_pcx_looks_like(b, n)) {
+        f = PC_CF_PCX;
     } else if (looks_like_tga(b, n)) {
         f = PC_CF_TGA;
     } else {

@@ -615,16 +615,19 @@ static void test_distance_fields_and_kernels_take_hostile_input(void)
     float a[12] = {NAN, INFINITY, -1.0f, 2.0f, 0.5f, 0.0f, 1e-30f, -INFINITY, 1.0f, 0.001f, 0.999f, NAN};
     float *d = NULL;
     int k;
-    for (k = 0; k < 6; k++) {
-        CHECK(pc_compose_fx_distance_field((pc_compose_fx_field_kind)k, a, 4, 3, &d, NULL) == PC_OK);
+    for (k = 0; k < 8; k++) {
+        CHECK(pc_compose_fx_distance_field((pc_compose_fx_field_kind)k, a, 4, 3, 2.0f, &d, NULL) == PC_OK);
         free(d);
         d = NULL;
-        CHECK(pc_compose_fx_distance_field((pc_compose_fx_field_kind)k, NULL, 0, 7, &d, NULL) == PC_OK &&
+        CHECK(pc_compose_fx_distance_field((pc_compose_fx_field_kind)k, NULL, 0, 7, NAN, &d, NULL) == PC_OK &&
               d == NULL);
     }
-    CHECK(pc_compose_fx_distance_field(PC_COMPOSE_FIELD_OUTSIDE, NULL, 3, 3, &d, NULL) == PC_ERR_INVALID);
-    CHECK(pc_compose_fx_distance_field(PC_COMPOSE_FIELD_OUTSIDE, a, SIZE_MAX, 2, &d, NULL) == PC_ERR_LIMIT);
-    CHECK(pc_compose_fx_distance_field((pc_compose_fx_field_kind)99, a, 4, 3, &d, NULL) == PC_ERR_INVALID);
+    CHECK(pc_compose_fx_distance_field(PC_COMPOSE_FIELD_OUTSIDE, NULL, 3, 3, 1.0f, &d, NULL) ==
+          PC_ERR_INVALID);
+    CHECK(pc_compose_fx_distance_field(PC_COMPOSE_FIELD_OUTSIDE, a, SIZE_MAX, 2, 1.0f, &d, NULL) ==
+          PC_ERR_LIMIT);
+    CHECK(pc_compose_fx_distance_field((pc_compose_fx_field_kind)99, a, 4, 3, 1.0f, &d, NULL) ==
+          PC_ERR_INVALID);
     CHECK(pc_compose_fx_lut_at(a, 0, 0.5f) == 0.5f);
     (void)pc_compose_fx_outline_share(NAN, NAN);
 }

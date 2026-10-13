@@ -208,6 +208,12 @@ typedef struct pc_algo_hsb_params {
     pc_algo_hsb_model input, output;
 } pc_algo_hsb_params;
 
+/* Color to Alpha: color is straight sRGB RGBA (alpha ignored); thresholds 0..1. */
+typedef struct pc_algo_color_to_alpha_params {
+    float color[4];
+    float transparency_threshold, opacity_threshold;
+} pc_algo_color_to_alpha_params;
+
 typedef struct pc_algo_deinterlace_params {
     bool eliminate_even, interpolate;
 } pc_algo_deinterlace_params;
@@ -228,7 +234,12 @@ extern const pc_algo_filter_def pc_algo_def_oil_paint;
 extern const pc_algo_filter_def pc_algo_def_fibers, pc_algo_def_lens_flare, pc_algo_def_lighting;
 extern const pc_algo_filter_def pc_algo_def_tilt_shift, pc_algo_def_iris_blur, pc_algo_def_field_blur,
     pc_algo_def_spin_blur, pc_algo_def_path_blur;
-extern const pc_algo_filter_def pc_algo_def_custom, pc_algo_def_hsb_hsl;
+extern const pc_algo_filter_def pc_algo_def_custom, pc_algo_def_hsb_hsl, pc_algo_def_color_to_alpha;
+
+/* Test hook: true makes Extrude, Wind, Facet and Color Halftone skip their (bit-identical) fast
+ * paths and run the direct per-pixel searches, so tests can compare the two. Default false. */
+void pc_algo_fx_set_direct_only(bool on);
+bool pc_algo_fx_direct_only(void);
 extern const pc_algo_filter_def pc_algo_def_deinterlace, pc_algo_def_ntsc;
 
 /* ---- helpers other modules and tests use ---- */

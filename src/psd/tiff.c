@@ -2014,7 +2014,7 @@ pc_status pc_psd_isd_parse(const uint8_t *data, size_t len, pc_psd_isd *out, pc_
         blen = big.len;
     }
     r = psd_rd_make(body, blen);
-    CK(psd_read_blocks(&r, d.version, &d.global_blocks, &d.nglobal, &d.trailing, err));
+    CK(psd_read_blocks(&r, d.version, 2, &d.global_blocks, &d.nglobal, &d.trailing, err));
     /* Blocks in a TIFF are padded to 4 (to_bytes re-pads them): zero padding is the default. */
     for (i = 0; i < d.nglobal; i++) {
         pc_psd_opt_bytes *p = &d.global_blocks[i].padding;
@@ -2112,7 +2112,7 @@ pc_status pc_psd_isd_to_bytes(const pc_psd_isd *d, pc_psd_byte_order order, pc_p
             b.padding.has = true;
             b.padding.v.data = (uint8_t *)(uintptr_t)zeros;
             b.padding.v.len = (4 - li.len % 4) % 4;
-            psd_write_block(&w, &b, d->version);
+            psd_write_block(&w, &b, d->version, 2);
         }
         pc_psd_bytes_fini(&li);
     }
@@ -2125,7 +2125,7 @@ pc_status pc_psd_isd_to_bytes(const pc_psd_isd *d, pc_psd_byte_order order, pc_p
         b.padding.has = true;
         b.padding.v.data = (uint8_t *)(uintptr_t)zeros;
         b.padding.v.len = (4 - d->global_mask.len % 4) % 4;
-        psd_write_block(&w, &b, d->version);
+        psd_write_block(&w, &b, d->version, 2);
     }
     for (i = 0; i < d->nglobal; i++) {
         pc_psd_block b = d->global_blocks[i];
@@ -2134,7 +2134,7 @@ pc_status pc_psd_isd_to_bytes(const pc_psd_isd *d, pc_psd_byte_order order, pc_p
             b.padding.v.data = (uint8_t *)(uintptr_t)zeros;
             b.padding.v.len = (4 - b.data.len % 4) % 4;
         }
-        psd_write_block(&w, &b, d->version);
+        psd_write_block(&w, &b, d->version, 2);
     }
     psd_put(&w, d->trailing.data, d->trailing.len);
     st = psd_w_finish(&w, &body);

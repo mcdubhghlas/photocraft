@@ -451,19 +451,13 @@ const uint8_t *rx_raw(const rx_tiff *t, const rx_entry *e, size_t *len)
     return b;
 }
 
-char *rx_ascii(const rx_tiff *t, const rx_entry *e, bool *nomem)
+char *rx_lossy_trimmed(const uint8_t *b, size_t len, bool *nomem)
 {
-    size_t len;
-    const uint8_t *b = rx_raw(t, e, &len);
-    const uint8_t *z;
+    const uint8_t *z = len > 0 ? memchr(b, 0, len) : NULL;
     pc_buf s = PC_BUF_INIT;
     size_t start;
     size_t n;
     char *out;
-    if (b == NULL) {
-        return NULL;
-    }
-    z = len > 0 ? memchr(b, 0, len) : NULL;
     if (z != NULL) {
         len = (size_t)(z - b);
     }
@@ -482,6 +476,16 @@ char *rx_ascii(const rx_tiff *t, const rx_entry *e, bool *nomem)
         *nomem = true;
     }
     return out;
+}
+
+char *rx_ascii(const rx_tiff *t, const rx_entry *e, bool *nomem)
+{
+    size_t len;
+    const uint8_t *b = rx_raw(t, e, &len);
+    if (b == NULL) {
+        return NULL;
+    }
+    return rx_lossy_trimmed(b, len, nomem);
 }
 
 bool rx_tag_uint(const rx_tiff *t, const rx_ifd *ifd, uint16_t tag, uint32_t *v)
@@ -523,7 +527,8 @@ char *rx_find_ascii(const rx_tiff *t, const rx_ifd *ifds, size_t n, uint16_t tag
 uint16_t rx_orientation(const rx_tiff *t, const rx_ifd *ifd)
 {
     uint32_t o;
-    if (rx_tag_uint(t, ifd, RX_ORIENTATION, &o) && (uint16_t)o >= 1 && (uint16_t)o <= 8) {
+    /* The range is checked on the 32-bit value: narrowing first let a LONG like 65538 pass as 2. */
+    if (rx_tag_uint(t, ifd, RX_ORIENTATION, &o) && o >= 1 && o <= 8) {
         return (uint16_t)o;
     }
     return 1;

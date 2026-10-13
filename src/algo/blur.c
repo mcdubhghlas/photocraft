@@ -597,7 +597,7 @@ pc_status pc_algo_box_blur_apply(const pc_algo_apply_args *a, pc_surface *out, b
             pc_algo_image orig;
             st = pc_algo_image_read(surface, b, &orig, err);
             if (st == PC_OK) {
-                pc_algo_mix_selection(data, b, a->selection, &orig);
+                pc_algo_mix_selection(data, b, a->selection, &orig, fmt.alpha);
                 pc_algo_image_fini(&orig);
             }
         }

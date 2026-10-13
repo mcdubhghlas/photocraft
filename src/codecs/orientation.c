@@ -12,13 +12,7 @@
 #define TYPE_SHORT 3
 #define TYPE_LONG 4
 
-typedef struct tif {
-    const uint8_t *b;
-    size_t n;
-    bool le;
-} tif;
-
-static bool rd(const tif *t, size_t at, size_t k, uint64_t *v)
+bool cx_tif_rd(const cx_tif *t, size_t at, size_t k, uint64_t *v)
 {
     size_t i;
     uint64_t x = 0;
@@ -42,21 +36,12 @@ static bool add(size_t a, uint64_t b, size_t *out)
     return true;
 }
 
-/* The TIFF payload (a JPEG-style Exif\0\0 prefix skipped). */
-static size_t body_offset(const uint8_t *b, size_t n)
+size_t cx_exif_body(const uint8_t *b, size_t n)
 {
     return n >= 6 && memcmp(b, "Exif\0\0", 6) == 0 ? 6 : 0;
 }
 
-typedef struct ifd0 {
-    size_t first;
-    size_t count;
-    size_t entry;
-    bool big;
-} ifd0;
-
-/* IFD0: the whole table and the next-IFD pointer must be present, after the header. */
-static bool ifd0_entries(tif *t, ifd0 *out)
+bool cx_tif_ifd0(cx_tif *t, cx_ifd0 *out)
 {
     uint64_t v;
     uint64_t at;
@@ -81,7 +66,8 @@ static bool ifd0_entries(tif *t, ifd0 *out)
     }
     out->big = t->b[2] == 0x2b || t->b[3] == 0x2b;
     if (out->big) {
-        if (!rd(t, 4, 2, &v) || v != 8 || !rd(t, 6, 2, &v) || v != 0 || !rd(t, 8, 8, &at)) {
+        if (!cx_tif_rd(t, 4, 2, &v) || v != 8 || !cx_tif_rd(t, 6, 2, &v) || v != 0 ||
+            !cx_tif_rd(t, 8, 8, &at)) {
             return false;
         }
         count_bytes = 8;
@@ -89,7 +75,7 @@ static bool ifd0_entries(tif *t, ifd0 *out)
         next_bytes = 8;
         header = 16;
     } else {
-        if (!rd(t, 4, 4, &at)) {
+        if (!cx_tif_rd(t, 4, 4, &at)) {
             return false;
         }
         count_bytes = 2;
@@ -101,7 +87,7 @@ static bool ifd0_entries(tif *t, ifd0 *out)
         return false;
     }
     ifd = (size_t)at;
-    if (!rd(t, ifd, count_bytes, &count) || count > SIZE_MAX / entry) {
+    if (!cx_tif_rd(t, ifd, count_bytes, &count) || count > SIZE_MAX / entry) {
         return false;
     }
     if (!add(ifd, count_bytes, &first) || !add(first, count * entry, &next) || !add(next, next_bytes, &total) ||
@@ -120,13 +106,13 @@ typedef struct val {
 } val;
 
 /* The entry at e as a well-formed Orientation entry: exactly one SHORT or LONG. */
-static bool orientation_value(const tif *t, size_t e, bool big, val *out)
+static bool orientation_value(const cx_tif *t, size_t e, bool big, val *out)
 {
     uint64_t count;
     uint64_t tag;
     uint64_t ty;
-    if (!rd(t, e + 4, big ? 8 : 4, &count) || !rd(t, e, 2, &tag) || tag != TAG_ORIENTATION || count != 1 ||
-        !rd(t, e + 2, 2, &ty) || (ty != TYPE_SHORT && ty != TYPE_LONG)) {
+    if (!cx_tif_rd(t, e + 4, big ? 8 : 4, &count) || !cx_tif_rd(t, e, 2, &tag) || tag != TAG_ORIENTATION ||
+        count != 1 || !cx_tif_rd(t, e + 2, 2, &ty) || (ty != TYPE_SHORT && ty != TYPE_LONG)) {
         return false;
     }
     out->at = e + (big ? 12 : 8);
@@ -134,21 +120,24 @@ static bool orientation_value(const tif *t, size_t e, bool big, val *out)
     return true;
 }
 
-static bool read_val(const tif *t, val v, uint64_t *out) { return rd(t, v.at, v.ty == TYPE_SHORT ? 2 : 4, out); }
+static bool read_val(const cx_tif *t, val v, uint64_t *out)
+{
+    return cx_tif_rd(t, v.at, v.ty == TYPE_SHORT ? 2 : 4, out);
+}
 
 uint16_t pc_exif_orientation(const uint8_t *exif, size_t n)
 {
-    size_t off = body_offset(exif, n);
-    tif t = {exif + off, n - off, false};
-    ifd0 d;
+    size_t off = cx_exif_body(exif, n);
+    cx_tif t = {exif + off, n - off, false};
+    cx_ifd0 d;
     size_t i;
-    if (!ifd0_entries(&t, &d)) {
+    if (!cx_tif_ifd0(&t, &d)) {
         return 1;
     }
     for (i = 0; i < d.count; i++) {
         size_t e = d.first + i * d.entry;
         uint64_t tag;
-        if (rd(&t, e, 2, &tag) && tag == TAG_ORIENTATION) {
+        if (cx_tif_rd(&t, e, 2, &tag) && tag == TAG_ORIENTATION) {
             val v;
             uint64_t x;
             /* The first entry wins; a malformed first one hides later duplicates. */
@@ -163,15 +152,15 @@ uint16_t pc_exif_orientation(const uint8_t *exif, size_t n)
 
 pc_status pc_upright_exif(const uint8_t *exif, size_t n, uint8_t **out, size_t *out_len, pc_error *err)
 {
-    size_t off = body_offset(exif, n);
-    tif t = {exif + off, n - off, false};
-    ifd0 d;
+    size_t off = cx_exif_body(exif, n);
+    cx_tif t = {exif + off, n - off, false};
+    cx_ifd0 d;
     size_t i;
     bool all_one = true;
     uint8_t *c;
     *out = NULL;
     *out_len = 0;
-    if (!ifd0_entries(&t, &d)) {
+    if (!cx_tif_ifd0(&t, &d)) {
         return PC_OK;
     }
     for (i = 0; i < d.count; i++) {

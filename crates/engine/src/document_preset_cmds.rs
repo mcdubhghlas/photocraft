@@ -10,8 +10,13 @@ use crate::presets::{always, bad, req_str};
 use crate::{Result, Session};
 
 pub(crate) const MAX_DIMENSION: u32 = 300_000;
+// What `file.new` creates must reopen: the `.pcraft` loader's default canvas budget covers it (#2935).
+const _: () =
+    assert!(photocraft_format::MAX_CANVAS_SIDE >= MAX_DIMENSION && photocraft_format::MAX_CANVAS_PIXELS >= MAX_DIMENSION as u64 * MAX_DIMENSION as u64);
 pub(crate) const MAX_RESOLUTION: f64 = 30_000.0;
 const MAX_PRESETS: usize = 256;
+/// File › New › Recent keeps this many settings, like Photoshop's Recent tab.
+pub const MAX_RECENT: usize = 20;
 
 /// The formats accepted by `file.new`, also used when validating saved configurations.
 pub(crate) fn color_mode(mode: &str) -> Option<ColorMode> {
@@ -43,6 +48,46 @@ pub(crate) fn background_color(p: &Value, fallback: [f32; 4], cmd: &str) -> Resu
         return Err(bad(cmd, "`backgroundColor` must be [r,g,b] in 0..1"));
     }
     Ok([c[0], c[1], c[2], 1.0])
+}
+
+/// Validate creation before dispatch can commit a floating selection or add a document.
+/// Missing fields (including a null params object) keep the command's documented defaults.
+pub(crate) fn validate_new_params(s: &Session, p: &Value) -> Result<()> {
+    let cmd = "file.new";
+    if p.is_null() {
+        return Ok(());
+    }
+    let fields = p.as_object().ok_or_else(|| bad(cmd, "params must be a JSON object"))?;
+    for (key, value) in fields {
+        let (valid, expected) = match key.as_str() {
+            "width" | "height" | "resolution" => {
+                let max = if key == "resolution" { MAX_RESOLUTION } else { f64::from(MAX_DIMENSION) };
+                (value.as_f64().is_some_and(|n| n.is_finite() && (1.0..=max).contains(&n)), format!("a number within 1..={max}"))
+            }
+            "mode" => (value.as_str().and_then(color_mode).is_some(), "rgb, gray, grayscale, cmyk or lab".into()),
+            "depth" => (value.as_u64().and_then(sample_type).is_some(), "8, 16 or 32".into()),
+            "background" => (
+                value.as_str().is_some_and(|v| {
+                    matches!(v, "white" | "black" | "transparent" | "backgroundColor")
+                        || (v.strip_prefix('#').unwrap_or(v).bytes().all(|b| b.is_ascii_hexdigit()) && crate::commands::parse_hex(v).is_some())
+                }),
+                "white, black, transparent, backgroundColor or a valid hex colour".into(),
+            ),
+            "backgroundColor" => {
+                background_color(p, s.tools.background, cmd)?;
+                continue;
+            }
+            "name" => (value.is_string(), "a string".into()),
+            _ => return Err(bad(cmd, format!("unknown parameter `{key}`"))),
+        };
+        if !valid {
+            return Err(bad(cmd, format!("`{key}` must be {expected}")));
+        }
+    }
+    if p.get("background").and_then(Value::as_str) == Some("backgroundColor") {
+        background_color(p, s.tools.background, cmd)?;
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -96,8 +141,8 @@ impl DocumentSettings {
                 fields.entry(k.clone()).or_insert_with(|| v.clone());
             }
         }
-        // Like file.new, accept pixel counts sent as floats by a UI. Unlike file.new's fallback
-        // for legacy callers, refuse invalid input rather than saving a different configuration.
+        // Like file.new, accept pixel counts sent as floats by a UI, but refuse invalid input
+        // rather than saving a different configuration.
         for key in ["width", "height"] {
             let n = fields
                 .get(key)
@@ -160,6 +205,39 @@ pub(crate) fn load(value: Value) -> Vec<DocumentPreset> {
         presets.push(preset);
     }
     presets
+}
+
+/// Read the Recent list like [`load`]: a damaged entry is dropped, the rest kept, newest first.
+pub(crate) fn load_recent(value: Value) -> Vec<DocumentSettings> {
+    let Some(entries) = value.as_array() else { return Vec::new() };
+    let mut recent: Vec<DocumentSettings> = Vec::new();
+    for entry in entries {
+        let Ok(mut settings) = serde_json::from_value::<DocumentSettings>(entry.clone()) else { continue };
+        if settings.mode == "grayscale" {
+            settings.mode = "gray".into();
+        }
+        if settings.validate().is_err() || recent.iter().any(|r| r.command_params() == settings.command_params()) {
+            continue;
+        }
+        recent.push(settings);
+        if recent.len() >= MAX_RECENT {
+            break;
+        }
+    }
+    recent
+}
+
+/// Record settings a document was just created with: first in Recent, an equal older entry
+/// (the same document, perhaps shown in other units) removed, the oldest dropped past the cap.
+fn add_recent(s: &mut Session, p: &Value) -> Result<Value> {
+    const CMD: &str = "document.recent.add";
+    let settings = DocumentSettings::from_params(s, p.get("settings").unwrap_or(&Value::Null), CMD)?;
+    let recent = &mut s.presets.recent_documents;
+    recent.retain(|r| r.command_params() != settings.command_params());
+    recent.insert(0, settings);
+    recent.truncate(MAX_RECENT);
+    s.presets_changed();
+    Ok(json!({"recent":s.presets.recent_documents}))
 }
 
 fn save(s: &mut Session, p: &Value) -> Result<Value> {
@@ -236,6 +314,27 @@ pub fn specs() -> Vec<CommandSpec> {
             enabled: always,
             run: delete,
             journal: true,
+        },
+        CommandSpec {
+            id: "document.recent.list",
+            label: "List Recent Document Settings",
+            menu: &[],
+            shortcut: None,
+            params: "{} -> {recent:[settings]} (newest first; each settings.command params minus unit/resolutionUnit go to file.new)",
+            enabled: always,
+            run: |s, _| Ok(json!({"recent":s.presets.recent_documents})),
+            journal: false,
+        },
+        CommandSpec {
+            id: "document.recent.add",
+            label: "Add Recent Document Settings",
+            menu: &[],
+            shortcut: None,
+            params: r#"{"settings":{same fields as document.presets.save}} (File › New records each document it creates; newest first, max 20, duplicates collapsed)"#,
+            enabled: always,
+            run: add_recent,
+            // Bookkeeping for File › New, not an editing step an action should replay.
+            journal: false,
         },
     ]
 }
@@ -409,11 +508,53 @@ mod tests {
     }
 
     #[test]
+    fn recent_lists_created_settings_newest_first_capped_and_survives_reload() {
+        let mut s = Session::new();
+        let add = |s: &mut Session, w: u32, unit: &str| s.execute("document.recent.add", json!({"settings":{"width":w,"height":10,"unit":unit}}));
+        for w in 1..=MAX_RECENT as u32 + 5 {
+            add(&mut s, w, "px").unwrap();
+        }
+        // The same document again (shown in other units) moves to the front instead of repeating.
+        add(&mut s, 10, "mm").unwrap();
+        let mut s = reload(&s);
+        let recent = s.execute("document.recent.list", json!({})).unwrap()["recent"].clone();
+        let widths: Vec<u64> = recent.as_array().unwrap().iter().map(|r| r["width"].as_u64().unwrap()).collect();
+        assert_eq!(widths.len(), MAX_RECENT);
+        assert_eq!(&widths[..3], &[10, 25, 24]);
+        assert_eq!(widths.iter().filter(|w| **w == 10).count(), 1);
+        assert_eq!(recent[0]["unit"], "mm");
+        // Bad settings change nothing; damaged stored entries are dropped, the rest kept.
+        let rev = s.prefs.rev();
+        for bad in [json!({}), json!({"settings":{"width":0,"height":1}}), json!({"settings":"x"}), Value::Null] {
+            assert!(s.execute("document.recent.add", bad).is_err());
+        }
+        assert_eq!(s.prefs.rev(), rev);
+        let mut value = s.prefs_value();
+        value["presets"]["recent_documents"] = json!([{"width":-1}, recent[1], "junk", recent[1], recent[2]]);
+        let mut next = Session::new();
+        next.load_prefs_json(&value.to_string()).unwrap();
+        assert_eq!(next.presets.recent_documents.iter().map(|r| r.width).collect::<Vec<_>>(), [25, 24]);
+        assert!(next.documents().is_empty(), "recording never creates a document");
+    }
+
+    #[test]
     fn invalid_explicit_background_colour_does_not_create_a_document() {
         let mut s = Session::new();
         for color in [Value::Null, json!([1, 2]), json!([1, -1, 0]), json!("red")] {
             assert!(s.execute("file.new", json!({"background":"backgroundColor","backgroundColor":color})).is_err());
             assert!(s.documents().is_empty());
         }
+    }
+
+    /// What `file.new` can create, `.pcraft` can reopen: the loader's default canvas budget
+    /// covers the largest new document (#2935), and such a document round-trips.
+    #[test]
+    fn the_largest_new_document_reopens_from_pcraft() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": MAX_DIMENSION, "height": MAX_DIMENSION, "background": "transparent"})).unwrap();
+        let doc = &s.active().unwrap().doc;
+        let bytes = photocraft_format::save_to_bytes(doc, &Default::default()).unwrap();
+        let back = photocraft_format::load_from_bytes(&bytes).unwrap();
+        assert_eq!(back.size, photocraft_geom::Size::new(MAX_DIMENSION, MAX_DIMENSION));
     }
 }

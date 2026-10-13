@@ -1,5 +1,5 @@
 /* Minimal EXIF reader for the camera settings the photography commands use (exposure, aperture,
- * ISO, focal length, camera and lens names) (port of crates/algo/src/exif.rs).
+ * ISO, focal length, camera and lens names, date taken) (port of crates/algo/src/exif.rs).
  *
  * Input is the raw TIFF-structured EXIF payload (`II*\0` / `MM\0*`, optionally behind an
  * `Exif\0\0` prefix), as stored in the document metadata. It is untrusted: every read is
@@ -35,6 +35,7 @@ typedef struct pc_algo_camera_info {
     pc_algo_exif_num iso;
     pc_algo_exif_num focal_length;      /* mm */
     pc_algo_exif_num focal_length_35mm; /* 35 mm-equivalent, mm */
+    pc_algo_exif_str date_taken;        /* DateTimeOriginal as stored (`YYYY:MM:DD HH:MM:SS`) */
 } pc_algo_camera_info;
 
 void pc_algo_camera_info_fini(pc_algo_camera_info *info);

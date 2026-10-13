@@ -710,7 +710,8 @@ static void texture(mapper *m, const pc_psd_desc *d, pc_paint_brush *b)
     t->brightness = pc_f64_to_f32(pc_clampd(v / 150.0, -1.0, 1.0));
     v = 0.0;
     (void)num(d, "textureContrast", &v);
-    t->contrast = pc_f64_to_f32(pc_clampd(v / 50.0, -1.0, 2.0));
+    /* Photoshop's -50..100 onto the model's -1..1 (negative and positive scale apart). */
+    t->contrast = pc_f64_to_f32(pc_clampd(v < 0.0 ? v / 50.0 : v / 100.0, -1.0, 1.0));
     code = enum_value(d, "textureBlendMode", &len);
     t->mode = mask_mode(code, len, PC_PAINT_MASK_MULTIPLY);
     t->depth = pc_clampf(pct_or(d, "textureDepth", 1.0f), 0.0f, 1.0f);
@@ -950,9 +951,10 @@ typedef struct plist {
     size_t cap;
 } plist;
 
-/* Appends a preset taking over *brush (released on failure). */
+/* Appends a preset taking over *brush (released on failure). The file's own folder path (phry),
+ * when present, becomes the preset's folder inside `group` (NULL = top level). */
 static pc_status push_preset(plist *pl, const char *name, size_t nlen, pc_paint_brush *brush,
-                             const char *group, pc_error *err)
+                             const char *group, const pc_psd_abr_folder *folder, pc_error *err)
 {
     pc_paint_preset p;
     pc_paint_preset *g;
@@ -963,6 +965,27 @@ static pc_status push_preset(plist *pl, const char *name, size_t nlen, pc_paint_
     st = pc_str_set(&p.name, name, nlen, err);
     if (st == PC_OK) {
         st = pc_str_set_c(&p.group, group, err);
+    }
+    if (st == PC_OK && folder != NULL && folder->n > 0) {
+        pc_str *fv = pc_malloc_array(folder->n, sizeof *fv);
+        if (fv == NULL) {
+            st = pc_io_nomem(err, "importing brush folders");
+        }
+        for (size_t i = 0; st == PC_OK && i < folder->n; i++) {
+            fv[i] = (pc_str){NULL, 0};
+            st = pc_str_set(&fv[i], folder->names[i].s, folder->names[i].len, err);
+            if (st != PC_OK) {
+                for (size_t j = 0; j <= i; j++) {
+                    pc_str_fini(&fv[j]);
+                }
+                free(fv);
+                fv = NULL;
+            }
+        }
+        if (st == PC_OK) {
+            p.folder.v = fv;
+            p.folder.len = folder->n;
+        }
     }
     if (st != PC_OK) {
         pc_paint_preset_fini(&p);
@@ -1039,7 +1062,7 @@ static pc_status map_legacy(mapper *m, const pc_psd_abr *f, const char *group, c
             name = dflt;
             nlen = strlen(dflt);
         }
-        st = push_preset(pl, name, nlen, &br, group, err);
+        st = push_preset(pl, name, nlen, &br, group, NULL, err);
     }
     return st;
 }
@@ -1069,7 +1092,7 @@ static pc_status map_samples(mapper *m, const pc_psd_abr *f, const char *group, 
         pc_paint_tip_fini(&br.tip);
         br.tip = tp;
         (void)snprintf(name, sizeof name, "Sampled Brush %zu", i + 1);
-        st = push_preset(pl, name, strlen(name), &br, group, err);
+        st = push_preset(pl, name, strlen(name), &br, group, NULL, err);
     }
     return st;
 }
@@ -1110,7 +1133,8 @@ static pc_status map_presets(mapper *m, const pc_psd_abr *f, const char *group, 
             }
             st = m->st;
         } else if (ok) {
-            st = push_preset(pl, name, nlen, &br, group, err);
+            const pc_psd_abr_folder *folder = i < f->nfolders ? &f->folders[i] : NULL;
+            st = push_preset(pl, name, nlen, &br, group, folder, err);
         } else {
             pc_str q = {(char *)(uintptr_t)name, nlen};
             warn_quoted(m, "\"", &q, "\": its sampled tip is missing from the file; skipped");
@@ -1210,7 +1234,7 @@ pc_status pc_io_read_abr_with(const uint8_t *bytes, size_t len, const char *grou
             char msg[sizeof err->msg];
             memcpy(msg, err->msg, sizeof msg);
             msg[sizeof msg - 1] = '\0';
-            (void)pc_fail(err, st, "not a readable Photoshop brush file: %s", msg);
+            (void)pc_fail(err, st, "not a readable brush file (.abr): %s", msg);
         }
         return st;
     }

@@ -12,6 +12,7 @@
 #include <string.h>
 
 #include "base/mem.h"
+#include "base/num.h"
 #include "base/pool.h"
 #include "compose/internal.h"
 #include "compose/keyhash.h"
@@ -341,7 +342,7 @@ static pc_cmp_fx_ref *local_get(pc_cmp_fx_local *l, uint64_t key)
 
 /* Inserts maps unless the key is there already; returns the table's entry (a new reference).
  * When the table can't grow the maps are still returned, just not kept for the render. */
-static pc_cmp_fx_ref *local_put(pc_cmp_fx_local *l, uint64_t key, pc_cmp_fx_ref *maps)
+static pc_cmp_fx_ref *local_put(pc_cmp_fx_local *l, uint64_t key, pc_cmp_fx_ref *maps, bool clipped)
 {
     pc_cmp_fx_ref *r;
     pthread_mutex_lock(&l->lock);
@@ -352,6 +353,7 @@ static pc_cmp_fx_ref *local_put(pc_cmp_fx_local *l, uint64_t key, pc_cmp_fx_ref 
             l->items = grown;
             l->items[l->len].key = key;
             l->items[l->len].ref = ref_retain(maps);
+            l->items[l->len].clipped = clipped;
             l->len++;
         }
         r = ref_retain(maps);
@@ -360,11 +362,58 @@ static pc_cmp_fx_ref *local_put(pc_cmp_fx_local *l, uint64_t key, pc_cmp_fx_ref 
     return r;
 }
 
-pc_status pc_cmp_effect_maps(const pc_layer *layer, const pc_cmp_ctx *cx, pc_cmp_fx_ref **out, pc_error *err)
+void pc_cmp_set_fx_clip(const pc_cmp_ctx *cx, pc_rect rect)
+{
+    pc_cmp_fx_local *l = cx->fx;
+    size_t i;
+    size_t kept = 0;
+    if (l == NULL) {
+        return;
+    }
+    pthread_mutex_lock(&l->lock);
+    if (!l->has_clip || !pc_rect_eq(l->clip, rect)) {
+        l->has_clip = true;
+        l->clip = rect;
+        for (i = 0; i < l->len; i++) {
+            if (l->items[i].clipped) {
+                pc_cmp_fx_ref_release(l->items[i].ref);
+            } else {
+                l->items[kept++] = l->items[i];
+            }
+        }
+        l->len = kept;
+    }
+    pthread_mutex_unlock(&l->lock);
+}
+
+pc_rect pc_cmp_effect_region(const pc_layer *layer, pc_rect rect, const pc_cmp_ctx *cx, bool *clipped)
 {
     int32_t m = pc_compose_effects_margin(layer);
-    pc_rect region = pc_rect_intersect(pc_rect_inflate(pc_compose_layer_bounds(layer, cx->canvas), m),
+    pc_rect region = pc_rect_intersect(pc_rect_inflate(pc_compose_effect_source_bounds(layer, cx->canvas), m),
                                        pc_rect_inflate(cx->canvas, m));
+    bool has_clip = false;
+    pc_rect clip = PC_RECT_EMPTY;
+    if (cx->fx != NULL) {
+        pthread_mutex_lock(&cx->fx->lock);
+        has_clip = cx->fx->has_clip;
+        clip = cx->fx->clip;
+        pthread_mutex_unlock(&cx->fx->lock);
+    }
+    if (has_clip && pc_rect_contains_rect(clip, rect) && pc_compose_shapeless(layer) &&
+        pc_compose_fx_maps_are_local(layer)) {
+        pc_rect part = pc_rect_intersect(region, pc_rect_inflate(clip, pc_i32_sat_add(m, m)));
+        *clipped = !pc_rect_eq(part, region);
+        return part;
+    }
+    *clipped = false;
+    return region;
+}
+
+pc_status pc_cmp_effect_maps(const pc_layer *layer, pc_rect rect, const pc_cmp_ctx *cx, pc_cmp_fx_ref **out,
+                             pc_error *err)
+{
+    bool clipped = false;
+    pc_rect region = pc_cmp_effect_region(layer, rect, cx, &clipped);
     uint64_t key = PC_CMP_HASH0;
     pc_cmp_fx_ref *maps = NULL;
     pc_cmp_fx_ref *r;
@@ -398,7 +447,7 @@ pc_status pc_cmp_effect_maps(const pc_layer *layer, const pc_cmp_ctx *cx, pc_cmp
         *out = maps;
         return PC_OK;
     }
-    r = local_put(cx->fx, key, maps);
+    r = local_put(cx->fx, key, maps, clipped);
     pc_cmp_fx_ref_release(maps);
     *out = r;
     return PC_OK;
@@ -456,6 +505,7 @@ static void effect_layers(const pc_layer *layers, size_t n, pc_rect rect, unsign
 
 typedef struct prep_job {
     todo_list *todo;
+    pc_rect rect;
     const pc_cmp_ctx *cx;
     pc_cmyk_space *cmyk;
     bool lab;
@@ -471,14 +521,14 @@ static pc_status prep_chunk(void *ctx, size_t chunk, size_t begin, size_t end)
         todo_item *t = &j->todo->items[i];
         pc_cmyk_space *prev = pc_cmyk_space_enter(j->cmyk);
         pc_cmp_fx_ref *r = NULL;
-        pc_psblend_set_lab_mix(j->lab);
-        pc_psblend_set_hdr(j->hdr);
+        bool lab = pc_psblend_set_lab_mix(j->lab);
+        bool hdr = pc_psblend_set_hdr(j->hdr);
         /* Failures surface again when the tile that needs the maps builds them. */
-        if (pc_cmp_effect_maps(t->has_owned ? &t->owned : t->layer, j->cx, &r, NULL) == PC_OK) {
+        if (pc_cmp_effect_maps(t->has_owned ? &t->owned : t->layer, j->rect, j->cx, &r, NULL) == PC_OK) {
             pc_cmp_fx_ref_release(r);
         }
-        pc_psblend_set_lab_mix(false);
-        pc_psblend_set_hdr(false);
+        (void)pc_psblend_set_lab_mix(lab);
+        (void)pc_psblend_set_hdr(hdr);
         pc_cmyk_space_leave(prev);
     }
     return PC_OK;
@@ -488,7 +538,7 @@ pc_status pc_cmp_prepare_effects(const pc_layer *layers, size_t n, pc_rect rect,
                                  pc_cmyk_space *cmyk, bool lab, bool hdr, pc_error *err)
 {
     todo_list todo = {NULL, 0, 0};
-    prep_job j = {&todo, cx, cmyk, lab, hdr};
+    prep_job j = {&todo, rect, cx, cmyk, lab, hdr};
     size_t i;
     (void)err;
     effect_layers(layers, n, rect, 0, &todo);

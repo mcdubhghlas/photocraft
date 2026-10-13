@@ -697,4 +697,328 @@ pub fn run() {
     trace_vectors();
     paint_vectors();
     surface_vectors();
+    // R8 (upstream resync): appended, so the lines above keep their order.
+    r8_vectors(&paths);
+}
+
+// ---- R8: validate_shape, dash seams, miter limits, render_sequential, Add / Delete Anchor,
+// Curvature Pen knots, fit_trace, non-affine maps. ----
+
+fn r8_res<T>(r: Result<T, &'static str>) -> String {
+    match r {
+        Ok(_) => "ok".into(),
+        Err(e) => format!("ERR {e}"),
+    }
+}
+
+fn r8_strokes() -> Vec<ShapeStroke> {
+    let mut v = vec![ShapeStroke::default()];
+    v.push(ShapeStroke { dashes: vec![2.0, 1.0], dash_offset: 0.5, ..Default::default() });
+    v.push(ShapeStroke { width: 1.0, dashes: vec![0.01, 0.01], ..Default::default() });
+    v.push(ShapeStroke { width: 0.0, dashes: vec![0.01, 0.0], ..Default::default() });
+    v.push(ShapeStroke { miter_limit: 0.5, ..Default::default() });
+    v.push(ShapeStroke { width: f32::NAN, ..Default::default() });
+    v.push(ShapeStroke { dashes: vec![1.0; 33], ..Default::default() });
+    v.push(ShapeStroke { dashes: vec![0.001, 0.002], ..Default::default() });
+    v.push(ShapeStroke { opacity: 1.5, ..Default::default() });
+    v.push(ShapeStroke { dash_offset: 2e6, ..Default::default() });
+    v.push(ShapeStroke { width: 100.0, dashes: vec![3.0, 0.5, 1.0], dash_offset: -7.0, ..Default::default() });
+    v
+}
+
+fn r8_validate(paths: &[Path]) {
+    let strokes = r8_strokes();
+    for (i, p) in paths.iter().enumerate() {
+        let mut line = format!("validate {i} {}", r8_res(flatten::validate_shape(p, None)));
+        for s in &strokes {
+            line.push(' ');
+            line.push_str(&r8_res(flatten::validate_shape(p, Some(s))).replace(' ', "_"));
+        }
+        println!("{line}");
+    }
+    // Hostile sizes: too many knots / subpaths, far coordinates, heavy tessellation.
+    let many = Path::new(vec![Subpath::polyline(&(0..4097).map(|i| (i as f64, 0.0)).collect::<Vec<_>>())]);
+    let subs = Path::new((0..4097).map(|i| Subpath::polyline(&[(i as f64, 0.0)])).collect());
+    let far = Path::new(vec![Subpath::polygon(&[(0.0, 0.0), (1_000_001.0, 0.0), (0.0, 5.0)])]);
+    let edge = Path::new(vec![Subpath::polygon(&[(0.0, 0.0), (1_000_000.0, 0.0), (0.0, -1_000_000.0)])]);
+    let mut heavy = Vec::new();
+    for i in 0..40 {
+        let mut c = Subpath::polyline(&[(0.0, i as f64), (900_000.0, i as f64)]);
+        c.knots[0].out_ctrl = Point::new(0.0, 900_000.0);
+        c.knots[1].in_ctrl = Point::new(900_000.0, -900_000.0);
+        heavy.push(c);
+    }
+    let heavy = Path::new(heavy);
+    let long = Path::new(vec![Subpath::polyline(&[(0.0, 0.0), (900_000.0, 0.0)])]);
+    for (i, p) in [many, subs, far, edge, heavy, long].iter().enumerate() {
+        let mut line = format!("validatebig {i} {}", r8_res(flatten::validate_shape(p, None)));
+        for s in &strokes {
+            line.push(' ');
+            line.push_str(&r8_res(flatten::validate_shape(p, Some(s))).replace(' ', "_"));
+        }
+        println!("{line}");
+    }
+}
+
+fn r8_dashes_and_miters(paths: &[Path]) {
+    // Closed polylines: the dash crossing the seam is stitched.
+    let shapes_pl = [
+        Polyline { pts: vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)], knot: vec![true; 4], closed: true },
+        Polyline { pts: vec![(3.0, 1.0), (20.0, 4.0), (9.0, 17.0)], knot: vec![true, false, true], closed: true },
+        Polyline { pts: vec![(0.0, 0.0), (5.0, 0.0)], knot: vec![true, true], closed: true },
+    ];
+    let pats: [&[f64]; 6] = [&[8.0, 4.0], &[80.0, 2.0], &[3.0, 1.0, 2.0], &[1.0, 1.0, 0.0, 2.0], &[40.0, 0.0], &[0.5, 0.25]];
+    for (li, pl) in shapes_pl.iter().enumerate() {
+        for (ki, pat) in pats.iter().enumerate() {
+            for (oi, off) in [0.0, 2.0, -3.5, 7.25].iter().enumerate() {
+                let d = dash_polyline(pl, pat, *off);
+                let mut h = H::new();
+                let n = hash_lines(&mut h, &d);
+                println!("dashseam {li} {ki} {oi} {} {n} {:016x}", d.len(), h.0);
+            }
+        }
+    }
+    // Miter limits: invalid ones draw nothing, large ones are capped at 500.
+    for (pi, p) in [paths[3].clone(), paths[4].clone(), paths[24].clone()].iter().enumerate() {
+        let lines = flatten_path(p, 0.05);
+        for (mi, m) in [0.5, f64::NAN, f64::INFINITY, 1.0, 400.0, 500.0, 5000.0].iter().enumerate() {
+            let st = StrokeStyle { width: 6.0, cap: LineCap::Butt, join: LineJoin::Miter, miter_limit: *m, dashes: vec![], dash_offset: 0.0 };
+            let polys = stroke_polygons(&lines, &st, 0.01);
+            let mut h = H::new();
+            let n = hash_polys(&mut h, &polys);
+            println!("miter {pi} {mi} {n} {:016x}", h.0);
+        }
+    }
+    // Non-finite points skip the polyline; a dashed stroke with a bad pattern draws nothing.
+    let lines = vec![
+        Polyline { pts: vec![(0.0, 0.0), (f64::NAN, 3.0), (10.0, 10.0)], knot: vec![true; 3], closed: false },
+        Polyline { pts: vec![(0.0, 0.0), (30.0, 0.0), (30.0, 20.0)], knot: vec![true; 3], closed: false },
+    ];
+    for (di, ds) in [vec![], vec![0.0, 0.0], vec![4.0, 2.0], vec![-1.0, 3.0]].iter().enumerate() {
+        let st = StrokeStyle { width: 3.0, cap: LineCap::Round, join: LineJoin::Round, miter_limit: 4.0, dashes: ds.clone(), dash_offset: 1.0 };
+        let polys = stroke_polygons(&lines, &st, 0.01);
+        let mut h = H::new();
+        let n = hash_polys(&mut h, &polys);
+        println!("strokeskip {di} {n} {:016x}", h.0);
+    }
+}
+
+fn r8_masks(paths: &[Path]) {
+    let rects = [Rect::new(-3, -7, 140, 90), Rect::new(0, 0, 1, 1), Rect::new(5, 5, 5, 40), Rect::new(-50, 20, 300, 300)];
+    for (pi, pidx) in [0usize, 1, 12, 13, 16, 24].iter().enumerate() {
+        for (di, density) in [1.0f32, 0.25, 0.0].iter().enumerate() {
+            for enabled in [true, false] {
+                let mut vm = VectorMask::new(paths[*pidx].clone());
+                vm.density = *density;
+                vm.enabled = enabled;
+                let c = CompiledVectorMask::new(&vm);
+                let mut h = H::new();
+                for r in &rects {
+                    let v = c.render_sequential(*r);
+                    h.u64(v.len() as u64);
+                    for x in &v {
+                        h.f32(*x);
+                    }
+                }
+                println!("seqmask {pi} {di} {} {:016x}", enabled as u8, h.0);
+            }
+        }
+    }
+}
+
+fn r8_anchor_str(r: Result<[usize; 2], String>, p: &Path) -> String {
+    match r {
+        Ok([s, k]) => format!("{s}.{k} {:016x}", path_hash(p)),
+        Err(e) => format!("ERR {e}"),
+    }
+}
+
+fn r8_anchors(paths: &[Path]) {
+    let ts = [0.5, 0.13, 0.9, 1e-9, 0.0, 1.0, f64::NAN, -0.5];
+    for (pi, base) in [curve(), tri(), paths[2].clone(), paths[1].clone(), paths[25].clone(), paths[30].clone(), paths[3].clone()].iter().enumerate() {
+        let nk = base.subpaths.first().map_or(0, |s| s.knots.len());
+        for k in [0, 1, nk.saturating_sub(1), nk, usize::MAX] {
+            for (ti, t) in ts.iter().enumerate() {
+                let mut p = base.clone();
+                let r = edit::add_anchor(&mut p, [0, k], *t);
+                println!("addanchor {pi} {k} {ti} {}", r8_anchor_str(r, &p));
+            }
+        }
+        let mut p = base.clone();
+        println!("addanchor {pi} badsub {}", r8_anchor_str(edit::add_anchor(&mut p, [7, 0], 0.5), &p));
+        // Repeated inserts on the same segment, then deleting them again.
+        let mut p = base.clone();
+        let mut h = H::new();
+        for i in 0..6 {
+            let r = edit::add_anchor(&mut p, [0, 0], 0.3 + 0.1 * i as f64);
+            h.b(r8_anchor_str(r, &p).as_bytes());
+        }
+        println!("addmany {pi} {:016x}", h.0);
+        for s in [0, 1, 7] {
+            for k in [0, 1, nk.saturating_sub(1), nk] {
+                let mut p = base.clone();
+                let r = edit::delete_anchor(&mut p, [s, k]);
+                let out = match r {
+                    Ok(b) => format!("{} {:016x}", b as u8, path_hash(&p)),
+                    Err(e) => format!("ERR {e}"),
+                };
+                println!("delanchor {pi} {s} {k} {out}");
+            }
+        }
+        // Delete until refused.
+        let mut p = base.clone();
+        let mut n = 0;
+        while edit::delete_anchor(&mut p, [0, 0]).is_ok() && n < 1000 {
+            n += 1;
+        }
+        println!("delall {pi} {n} {:016x}", path_hash(&p));
+    }
+    let mut p = Path::new(vec![Subpath::polyline(&[(5.0, 5.0)])]);
+    println!("delanchor one {}", match edit::delete_anchor(&mut p, [0, 0]) {
+        Ok(b) => format!("{}", b as u8),
+        Err(e) => format!("ERR {e}"),
+    });
+}
+
+fn r8_curvature() {
+    let mut rng = Rng(0xc0_47e5);
+    for i in 0..24 {
+        let n = [0usize, 1, 2, 3, 4, 5, 7, 12][i % 8];
+        let mut anchors: Vec<[f64; 2]> = (0..n).map(|_| [rng.f() * 200.0 - 50.0, rng.f() * 150.0]).collect();
+        if i % 5 == 3 && n >= 3 {
+            anchors[1] = anchors[0];
+        }
+        if i % 7 == 2 && n >= 3 {
+            anchors[2] = anchors[0];
+        }
+        let corners: Vec<bool> = (0..(n + i % 3).saturating_sub(1)).map(|_| rng.below(4) == 0).collect();
+        for closed in [false, true] {
+            let k = edit::curvature_knots(&anchors, &corners, closed);
+            let mut h = H::new();
+            h.u64(k.len() as u64);
+            for kn in &k {
+                for q in kn {
+                    h.f64(q[0]);
+                    h.f64(q[1]);
+                }
+            }
+            println!("curv {i} {} {:016x}", closed as u8, h.0);
+        }
+    }
+    // Hostile: non-finite anchors (NaN sign and payload depend on operand order, so every NaN
+    // hashes as one value).
+    let k = edit::curvature_knots(&[[0.0, 0.0], [f64::NAN, 1.0], [f64::INFINITY, 2.0], [3.0, 4.0]], &[], false);
+    let mut h = H::new();
+    let canon = |v: f64| if v.is_nan() { f64::NAN } else { v };
+    for kn in &k {
+        for q in kn {
+            h.f64(canon(q[0]));
+            h.f64(canon(q[1]));
+        }
+    }
+    println!("curv hostile {:016x}", h.0);
+}
+
+fn r8_traces() -> Vec<Vec<[f64; 2]>> {
+    use std::f64::consts::TAU;
+    let mut v = Vec::new();
+    v.push((0..=100).map(|i| [10.0 + 3.0 * i as f64, 50.0 + if i % 2 == 0 { 0.5 } else { -0.5 }]).collect());
+    let turns = [[0.0, 0.0], [60.0, 0.0], [60.0, 60.0], [120.0, 60.0], [120.0, 120.0], [180.0, 120.0]];
+    v.push(
+        turns
+            .windows(2)
+            .flat_map(|w| (0..30).map(move |k| [w[0][0] + (w[1][0] - w[0][0]) * k as f64 / 30.0, w[0][1] + (w[1][1] - w[0][1]) * k as f64 / 30.0]))
+            .chain([turns[5]])
+            .collect(),
+    );
+    v.push((0..180).map(|i| (i as f64).to_radians() * 2.0).map(|a| [100.0 + 80.0 * a.cos(), 100.0 + 80.0 * a.sin()]).collect());
+    v.push((0..=200).map(|i| i as f64 * 2.0).enumerate().map(|(i, x)| [x, 100.0 + 40.0 * (x / 200.0 * TAU).sin() + 0.5 - (i % 2) as f64]).collect());
+    // A random walk (hand jitter) and a spiral.
+    let mut rng = Rng(0xf1ee);
+    let (mut x, mut y, mut a) = (50.0, 50.0, 0.0f64);
+    let mut walk = Vec::new();
+    for _ in 0..600 {
+        a += (rng.f() - 0.5) * 0.6;
+        x += 1.5 * a.cos();
+        y += 1.5 * a.sin();
+        walk.push([x + (rng.f() - 0.5), y + (rng.f() - 0.5)]);
+    }
+    v.push(walk);
+    v.push((0..900).map(|i| i as f64 * 0.05).map(|t| [200.0 + t * 4.0 * t.cos(), 200.0 + t * 4.0 * t.sin()]).collect());
+    // Hostile: duplicates, non-finite and far samples, two points, a long trace (thinned).
+    v.push(vec![[1.0, 1.0]; 50]);
+    v.push(vec![[0.0, 0.0], [f64::NAN, 1.0], [5.0, 5.0], [f64::INFINITY, 2.0], [1e300, 3.0], [10.0, 0.0], [10.0, 0.1], [20.0, 7.0]]);
+    v.push(vec![[0.0, 0.0], [30.0, 40.0]]);
+    v.push((0..20_000).map(|i| [i as f64 * 0.01, ((i as f64) * 0.001).sin() * 40.0]).collect());
+    v.push(vec![[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0], [0.05, 0.05]]);
+    v
+}
+
+fn r8_fit() {
+    for (i, pts) in r8_traces().iter().enumerate() {
+        for (ti, tol) in [2.0, 0.5, 10.0, f64::NAN, -5.0, 1000.0].iter().enumerate() {
+            for closed in [false, true] {
+                let out = match trace::fit_trace(pts, *tol, closed) {
+                    Some(sp) => {
+                        let n = sp.knots.len();
+                        format!("{n} {:016x}", path_hash(&Path::new(vec![sp])))
+                    }
+                    None => "none".into(),
+                };
+                println!("fit {i} {ti} {} {out}", closed as u8);
+            }
+        }
+    }
+}
+
+fn r8_maps(paths: &[Path]) {
+    let persp = |q: Point| {
+        let w = 1.0 + 0.002 * q.x - 0.001 * q.y;
+        Point::new((1.1 * q.x + 0.2 * q.y + 3.0) / w, (-0.1 * q.x + 0.9 * q.y - 2.0) / w)
+    };
+    let bend = |q: Point| Point::new(q.x, q.y - (q.x - 50.0).powi(2) * 0.01);
+    let wave = |q: Point| Point::new(q.x + 6.0 * (q.y * 0.08).sin(), q.y + 4.0 * (q.x * 0.05).cos());
+    let swirl = |q: Point| {
+        let (dx, dy) = (q.x - 50.0, q.y - 50.0);
+        let a = (dx.hypot(dy) * 0.02).min(3.0);
+        let (s, c) = a.sin_cos();
+        Point::new(50.0 + dx * c - dy * s, 50.0 + dx * s + dy * c)
+    };
+    let maps: [&dyn Fn(Point) -> Point; 4] = [&persp, &bend, &wave, &swirl];
+    for (pi, p) in paths.iter().enumerate() {
+        let mut h = H::new();
+        for f in &maps {
+            hash_path(&mut h, &map::map_points(p, f));
+        }
+        println!("mappts {pi} {:016x}", h.0);
+        for (mi, f) in maps.iter().enumerate() {
+            for (ti, tol) in [0.1, 0.01, 1.0, f64::NAN, 0.0].iter().enumerate() {
+                if (pi + mi + ti) % 3 != 0 && ti != 0 {
+                    continue;
+                }
+                let m = map::map_path(p, f, *tol);
+                let knots: usize = m.subpaths.iter().map(|s| s.knots.len()).sum();
+                println!("mappath {pi} {mi} {ti} {knots} {:016x}", path_hash(&m));
+            }
+        }
+    }
+    // Hostile maps: non-finite output, and a huge path that splits less.
+    let nanmap = |q: Point| Point::new(if q.x > 30.0 { f64::NAN } else { q.x }, q.y * f64::INFINITY);
+    let m = map::map_path(&paths[1], nanmap, 0.1);
+    println!("mapnan {} {:016x}", m.subpaths.iter().map(|s| s.knots.len()).sum::<usize>(), path_hash(&m));
+    let big = Path::new(vec![Subpath::polygon(
+        &(0..(1usize << 15)).map(|i| (i as f64 * std::f64::consts::TAU / 32768.0).sin_cos()).map(|(s, c)| (1000.0 * c, 1000.0 * s)).collect::<Vec<_>>(),
+    )]);
+    let m = map::map_path(&big, wave, 1e-9);
+    println!("mapbig {} {:016x}", m.subpaths.iter().map(|s| s.knots.len()).sum::<usize>(), path_hash(&m));
+}
+
+fn r8_vectors(paths: &[Path]) {
+    r8_validate(paths);
+    r8_dashes_and_miters(paths);
+    r8_masks(paths);
+    r8_anchors(paths);
+    r8_curvature();
+    r8_fit();
+    r8_maps(paths);
 }

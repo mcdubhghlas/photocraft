@@ -44,6 +44,24 @@ const char *pc_text_warp_psd_style(const char *id, size_t len)
     return NULL;
 }
 
+const char *pc_text_warp_short_style(const char *psd, size_t len)
+{
+    size_t i;
+    if (psd == NULL) {
+        return NULL;
+    }
+    if (len == 8 && memcmp(psd, "warpNone", 8) == 0) {
+        return "none";
+    }
+    for (i = 0; i < 15; i++) {
+        const char *p = PC_TEXT_WARP_STYLES[i][0];
+        if (strlen(p) == len && memcmp(p, psd, len) == 0) {
+            return PC_TEXT_WARP_STYLES[i][1];
+        }
+    }
+    return NULL;
+}
+
 bool pc_text_warp_prepare(const pc_text_warp *w, const float bounds[4], pc_style_warp *out)
 {
     pc_warp_style s;

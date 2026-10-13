@@ -59,8 +59,13 @@ typedef struct pc_zip_entry {
 typedef struct pc_zip_reader {
     const uint8_t *bytes;
     size_t len;
-    pc_zip_entry *entries; /* in central-directory order */
+    pc_zip_entry *entries; /* in central-directory order; treat as read-only */
     size_t count;
+    /* private: name -> first entry with that name (open addressing; slot value index + 1, 0 =
+     * empty), so pc_zip_find is O(1) (a bundle reads one entry per tile). NULL falls back to a
+     * scan. */
+    size_t *index;
+    size_t index_cap;
 } pc_zip_reader;
 
 /* Parse the central directory (*r is initialised on success only). */
@@ -71,7 +76,8 @@ void pc_zip_reader_close(pc_zip_reader *r); /* NULL-safe */
 const pc_zip_entry *pc_zip_find(const pc_zip_reader *r, const char *name, size_t len);
 
 /* An entry's payload (decompressed), at most `max` bytes, size- and CRC-checked. *out is replaced
- * on success. */
+ * on success. An entry whose data lies outside this archive (e.g. one from another reader) is
+ * corrupt "zip entry `name` out of range". */
 pc_status pc_zip_read(const pc_zip_reader *r, const pc_zip_entry *e, size_t max, pc_buf *out, pc_error *err);
 /* pc_zip_read of the first entry named `name` (NUL-terminated); a missing one is
  * "corrupt .pcraft bundle: missing `name`". */

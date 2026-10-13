@@ -3,6 +3,7 @@
 #include <float.h>
 #include <math.h>
 #include <pthread.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "base/buf.h"
@@ -361,7 +362,7 @@ static void test_psd_keys_roundtrip_and_unique(void)
     unsigned i;
     unsigned j;
     pc_blend_mode m = PC_BLEND_NORMAL;
-    for (i = 0; i < PC_BLEND_COUNT; i++) {
+    for (i = 0; i < PC_BLEND_PSD_COUNT; i++) {
         for (j = 0; j < i; j++) {
             CHECK(memcmp(pc_blend_psd_key((pc_blend_mode)i), pc_blend_psd_key((pc_blend_mode)j), 4) != 0);
         }
@@ -525,7 +526,8 @@ static void test_add_and_divide_clip_at_integer_depths_but_not_in_float(void)
     for (m = 0; m < PC_BLEND_LAYER_MODE_COUNT; m++) {
         pc_blend_mode mode = PC_BLEND_LAYER_MODES[m];
         int i;
-        if (mode == PC_BLEND_LINEAR_DODGE || mode == PC_BLEND_DIVIDE) {
+        /* Non-separable modes keep values above 1 in float (pc_blend_rgb_within). */
+        if (!pc_blend_is_separable(mode) || mode == PC_BLEND_LINEAR_DODGE || mode == PC_BLEND_DIVIDE) {
             continue;
         }
         for (i = 0; i < 4; i++) {
@@ -607,6 +609,334 @@ static void test_composite_alpha_rules(void)
     CHECK(close(r[0], 0.6f) && close(r[3], 1.0f));
 }
 
+static void test_paint_net_modes_keep_their_math_and_distinct_psd_status(void)
+{
+    static const float vals[4] = {0.0f, 0.1f, 0.5f, 1.0f};
+    size_t i;
+    unsigned b;
+    unsigned sv;
+    size_t count = 0;
+    CHECK(close(pc_blend_channel(PC_BLEND_REFLECT, 0.5f, 0.5f), 0.5f));
+    CHECK(close(pc_blend_channel(PC_BLEND_REFLECT, 0.2f, 0.0f), 0.04f));
+    CHECK(close(pc_blend_channel(PC_BLEND_GLOW, 0.5f, 0.2f), 0.08f));
+    CHECK(close(pc_blend_channel(PC_BLEND_NEGATION, 0.2f, 0.7f), 0.9f));
+    CHECK(pc_blend_channel(PC_BLEND_REFLECT, 0.0f, 1.0f) == 1.0f);
+    CHECK(pc_blend_channel(PC_BLEND_GLOW, 1.0f, 0.0f) == 1.0f);
+    CHECK(pc_blend_channel(PC_BLEND_PAINT_NET_COLOR_BURN, 1.0f, 0.0f) == 0.0f);
+    CHECK(pc_blend_channel(PC_BLEND_PAINT_NET_COLOR_DODGE, 0.0f, 1.0f) == 1.0f);
+    for (b = 0; b <= 255; b++) {
+        for (sv = 0; sv <= 255; sv++) {
+            float got = pc_blend_channel(PC_BLEND_XOR, (float)b / 255.0f, (float)sv / 255.0f);
+            if (!close(got, (float)(b ^ sv) / 255.0f)) {
+                PC_T_FAIL("xor %u %u", b, sv);
+            }
+        }
+    }
+    for (i = 0; i < PC_BLEND_PAINT_NET_MODE_COUNT; i++) {
+        pc_blend_mode m = PC_BLEND_PAINT_NET_MODES[i];
+        size_t x;
+        size_t y;
+        CHECK(!pc_blend_has_psd_equivalent(m));
+        CHECK(memcmp(pc_blend_psd_key(m), "norm", 4) == 0);
+        for (x = 0; x < 4; x++) {
+            for (y = 0; y < 4; y++) {
+                float v = pc_blend_channel(m, vals[x], vals[y]);
+                CHECK(isfinite(v) && v >= 0.0f && v <= 1.0f);
+            }
+        }
+    }
+    for (i = 0; i < PC_BLEND_PSD_COUNT; i++) {
+        CHECK(pc_blend_has_psd_equivalent((pc_blend_mode)i));
+    }
+    count = PC_BLEND_LAYER_MODE_COUNT + PC_BLEND_PAINT_NET_MODE_COUNT;
+    CHECK_EQ_UINT(count, 33);
+    CHECK_EQ_UINT(PC_BLEND_ALL_LAYER_MODE_COUNT, 33);
+    /* "norm" still reads as Normal; serde names round-trip. */
+    {
+        pc_blend_mode m = PC_BLEND_XOR;
+        CHECK(pc_blend_from_psd_key("norm", &m) && m == PC_BLEND_NORMAL);
+        CHECK(pc_blend_from_name("Xor", 3, &m) && m == PC_BLEND_XOR);
+        CHECK(pc_blend_from_name("PaintNetColorDodge", 18, &m) && m == PC_BLEND_PAINT_NET_COLOR_DODGE);
+        CHECK_EQ_STR(pc_blend_label(PC_BLEND_XOR), "XOR");
+        CHECK_EQ_STR(pc_blend_label(PC_BLEND_PAINT_NET_COLOR_BURN), "Color Burn (Paint.NET)");
+    }
+}
+
+/* ---- the spec's ClipColor (what clip_color was before it guarded out-of-range luminosity) ---- */
+
+static float lum3(const float c[3])
+{
+    return pc_blend_lum(c);
+}
+
+static void spec_clip_color(const float c[3], float out[3])
+{
+    float l = lum3(c);
+    float n = fminf(fminf(c[0], c[1]), c[2]);
+    float x = fmaxf(fmaxf(c[0], c[1]), c[2]);
+    int i;
+    memcpy(out, c, 3 * sizeof *out);
+    if (n < 0.0f) {
+        float d = l - n;
+        for (i = 0; i < 3; i++) {
+            out[i] = fabsf(d) < 1e-12f ? l : l + (out[i] - l) * l / d;
+        }
+    }
+    if (x > 1.0f) {
+        float d = x - l;
+        for (i = 0; i < 3; i++) {
+            out[i] = fabsf(d) < 1e-12f ? l : l + (out[i] - l) * (1.0f - l) / d;
+        }
+    }
+}
+
+static float sat3(const float c[3])
+{
+    return fmaxf(fmaxf(c[0], c[1]), c[2]) - fminf(fminf(c[0], c[1]), c[2]);
+}
+
+static void set_sat3(const float c[3], float sv, float out[3])
+{
+    size_t idx[3] = {0, 1, 2};
+    size_t i;
+    float o[3] = {0.0f, 0.0f, 0.0f};
+    for (i = 1; i < 3; i++) {
+        size_t t = idx[i];
+        size_t j = i;
+        while (j > 0 && c[t] < c[idx[j - 1]]) {
+            idx[j] = idx[j - 1];
+            j--;
+        }
+        idx[j] = t;
+    }
+    if (c[idx[2]] > c[idx[0]]) {
+        o[idx[1]] = (c[idx[1]] - c[idx[0]]) * sv / (c[idx[2]] - c[idx[0]]);
+        o[idx[2]] = sv;
+    }
+    o[idx[0]] = 0.0f;
+    memcpy(out, o, sizeof o);
+}
+
+static void spec_set_lum(const float c[3], float l, float out[3])
+{
+    float d = l - lum3(c);
+    float t[3] = {c[0] + d, c[1] + d, c[2] + d};
+    spec_clip_color(t, out);
+}
+
+static void spec_blend_rgb(pc_blend_mode m, const float cb[3], const float cs[3], float out[3])
+{
+    float t[3];
+    switch (m) {
+    case PC_BLEND_HUE:
+        set_sat3(cs, sat3(cb), t);
+        spec_set_lum(t, lum3(cb), out);
+        return;
+    case PC_BLEND_SATURATION:
+        set_sat3(cb, sat3(cs), t);
+        spec_set_lum(t, lum3(cb), out);
+        return;
+    case PC_BLEND_COLOR:
+        spec_set_lum(cs, lum3(cb), out);
+        return;
+    case PC_BLEND_LUMINOSITY:
+        spec_set_lum(cb, lum3(cs), out);
+        return;
+    default:
+        pc_blend_rgb(m, cb, cs, out);
+        return;
+    }
+}
+
+static const pc_blend_mode NON_SEPARABLE[4] = {PC_BLEND_HUE, PC_BLEND_SATURATION, PC_BLEND_COLOR,
+                                               PC_BLEND_LUMINOSITY};
+
+static void test_non_separable_modes_unchanged_on_integer_inputs(void)
+{
+    /* 8/16-bit documents only hold 0..1, where the luminosity stays in range (up to a rounding
+     * step at white) and ClipColor is the plain ISO 32000 formula. */
+    float edges[15] = {0.0f, 1.0f / 255.0f, 0.5f, 254.0f / 255.0f, 65534.0f / 65535.0f, 1.0f};
+    float (*colors)[3];
+    size_t ncolors = 0;
+    size_t ne = 6;
+    size_t a;
+    size_t b;
+    size_t c;
+    uint32_t seed = 0x12345678u;
+    float worst = 0.0f;
+    int i;
+    for (i = 0; i <= 8; i++) {
+        edges[ne++] = (float)i / 8.0f;
+    }
+    colors = malloc((15 * 15 * 15 + 2000) * sizeof *colors);
+    CHECK(colors != NULL);
+    if (colors == NULL) {
+        return;
+    }
+    for (a = 0; a < ne; a++) {
+        for (b = 0; b < ne; b++) {
+            for (c = 0; c < ne; c++) {
+                colors[ncolors][0] = edges[a];
+                colors[ncolors][1] = edges[b];
+                colors[ncolors][2] = edges[c];
+                ncolors++;
+            }
+        }
+    }
+#define NEXT_LEVEL(levels)                                                                                   \
+    (seed = seed * 1664525u + 1013904223u, (float)((seed >> 8) % ((levels) + 1u)) / (float)(levels))
+    for (i = 0; i < 2000; i++) {
+        uint32_t levels = NEXT_LEVEL(1u) > 0.5f ? 255u : 65535u;
+        float x = NEXT_LEVEL(levels);
+        float y = NEXT_LEVEL(levels);
+        float z = NEXT_LEVEL(levels);
+        colors[ncolors][0] = x;
+        colors[ncolors][1] = y;
+        colors[ncolors][2] = z;
+        ncolors++;
+    }
+#undef NEXT_LEVEL
+    for (a = 0; a < ncolors; a++) {
+        for (b = a % 7; b < ncolors; b += 7) {
+            size_t m;
+            for (m = 0; m < 4; m++) {
+                float got[3];
+                float want[3];
+                size_t k;
+                pc_blend_rgb(NON_SEPARABLE[m], colors[a], colors[b], got);
+                spec_blend_rgb(NON_SEPARABLE[m], colors[a], colors[b], want);
+                for (k = 0; k < 3; k++) {
+                    worst = fmaxf(worst, fabsf(got[k] - want[k]));
+                }
+            }
+        }
+    }
+    free(colors);
+    /* Only white-ish colours whose luminosity rounds a step above 1 can differ, by a rounding step. */
+    CHECK(worst <= 1e-6f);
+}
+
+static void test_non_separable_modes_stable_when_luminosity_is_out_of_range(void)
+{
+    static const float colors[10][3] = {
+        {1.0f, 1.0f, 1.0f},          {1.5f, 1.5f, 1.5f},      {2.0f, 2.0f, 2.0f},    {4.0f, 4.0f, 4.0f},
+        {1000.0f, 1000.0f, 1000.0f}, {2.0f, 2.0f, 1.999999f}, {4.0f, 3.9999f, 4.0f}, {3.0f, 0.25f, 0.125f},
+        {1.25f, 0.875f, 3.75f},      {-0.25f, 0.5f, 1.375f},
+    };
+    static const float tops[2] = {1.0f, FLT_MAX};
+    static const float greys[4] = {1.5f, 2.0f, 4.0f, 1000.0f};
+    const float base[3] = {0.5f, 0.25f, 0.125f};
+    float spec[3];
+    float r[3];
+    size_t t;
+    size_t m;
+    size_t a;
+    size_t b;
+    size_t g;
+    /* The spec formula turns colours inside out when the luminosity is above 1. */
+    {
+        float two[3] = {2.0f, 2.0f, 2.0f};
+        spec_blend_rgb(PC_BLEND_LUMINOSITY, base, two, spec);
+        CHECK(spec[0] < spec[2]);
+    }
+    for (t = 0; t < 2; t++) {
+        for (m = 0; m < 4; m++) {
+            for (a = 0; a < 10; a++) {
+                for (b = 0; b < 10; b++) {
+                    float want;
+                    float lo;
+                    float hi;
+                    pc_blend_rgb_within(NON_SEPARABLE[m], colors[a], colors[b], tops[t], r);
+                    if (!(isfinite(r[0]) && isfinite(r[1]) && isfinite(r[2]))) {
+                        PC_T_FAIL("mode %zu cb %zu cs %zu top %zu: not finite", m, a, b, t);
+                        continue;
+                    }
+                    /* The target luminosity is kept, at any depth. */
+                    want = NON_SEPARABLE[m] == PC_BLEND_LUMINOSITY ? lum3(colors[b]) : lum3(colors[a]);
+                    if (want >= 0.0f && !(fabsf(lum3(r) - want) <= 1e-4f * fmaxf(want, 1.0f))) {
+                        PC_T_FAIL("mode %zu cb %zu cs %zu top %zu: luminosity", m, a, b, t);
+                    }
+                    lo = fminf(fminf(r[0], r[1]), r[2]);
+                    hi = fmaxf(fmaxf(r[0], r[1]), r[2]);
+                    if (t == 0) {
+                        /* In gamut, or (a luminosity above 1 has no in-gamut colour) its grey. */
+                        if (!((lo >= 0.0f && hi <= 1.0f + (float)E) || hi - lo <= 1e-6f * hi)) {
+                            PC_T_FAIL("mode %zu cb %zu cs %zu: out of gamut", m, a, b);
+                        }
+                    } else if (!(lo >= -1e-6f * fmaxf(hi, 1.0f))) {
+                        PC_T_FAIL("mode %zu cb %zu cs %zu: negative", m, a, b);
+                    }
+                }
+            }
+        }
+    }
+    /* 32-bit: a grey backdrop gives a grey of its own luminosity in Hue and Saturation, a grey
+     * source a grey in Color, and bright colours keep their values above 1. */
+    for (g = 0; g < 4; g++) {
+        float gv = greys[g];
+        float grey[3] = {gv, gv, gv};
+        float bright[3] = {3.0f, 0.25f, 0.125f};
+        for (b = 0; b < 10; b++) {
+            pc_blend_mode hs[2] = {PC_BLEND_HUE, PC_BLEND_SATURATION};
+            for (m = 0; m < 2; m++) {
+                size_t k;
+                pc_blend_rgb_within(hs[m], grey, colors[b], FLT_MAX, r);
+                for (k = 0; k < 3; k++) {
+                    CHECK(fabsf(r[k] - lum3(grey)) <= 1e-5f * gv);
+                }
+            }
+        }
+        pc_blend_rgb_within(PC_BLEND_LUMINOSITY, base, grey, FLT_MAX, r);
+        CHECK(r[0] > 1.0f && r[0] > r[1] && r[1] > r[2]);
+        pc_blend_rgb_within(PC_BLEND_COLOR, grey, bright, FLT_MAX, r);
+        CHECK(r[0] > 1.0f && r[0] > r[1] && r[1] > r[2]);
+        /* Integer documents: no colour of that luminosity fits in 0..1, so it is its grey. */
+        pc_blend_rgb_within(PC_BLEND_LUMINOSITY, base, grey, 1.0f, r);
+        CHECK(fabsf(r[0] - lum3(grey)) <= 1e-5f * gv && fabsf(r[1] - lum3(grey)) <= 1e-5f * gv &&
+              fabsf(r[2] - lum3(grey)) <= 1e-5f * gv);
+    }
+    /* Continuous across near-greys: the result barely moves from the grey's. */
+    for (m = 0; m < 4; m++) {
+        const float g2[3] = {2.0f, 2.0f, 2.0f};
+        const float g4[3] = {4.0f, 4.0f, 4.0f};
+        const float n2[3] = {2.0f, 2.0f, 1.999999f};
+        const float n4[3] = {4.0f, 3.999999f, 4.0f};
+        float ra[3];
+        float rb[3];
+        pc_blend_rgb_within(NON_SEPARABLE[m], g2, g4, FLT_MAX, ra);
+        pc_blend_rgb_within(NON_SEPARABLE[m], n2, n4, FLT_MAX, rb);
+        CHECK(fabsf(ra[0] - rb[0]) <= 1e-4f && fabsf(ra[1] - rb[1]) <= 1e-4f &&
+              fabsf(ra[2] - rb[2]) <= 1e-4f);
+    }
+}
+
+static void test_colors_convert_into_a_document_mode(void)
+{
+    pc_color blue = pc_color_rgba(0.0f, 0.0f, 1.0f, 0.5f);
+    pc_color g = pc_color_in_mode(&blue, PC_COLOR_MODE_GRAYSCALE);
+    pc_color same;
+    static const pc_color_mode modes[2] = {PC_COLOR_MODE_CMYK, PC_COLOR_MODE_LAB};
+    size_t i;
+    CHECK(g.mode == PC_COLOR_MODE_GRAYSCALE && g.alpha == 0.5f);
+    CHECK(fabsf(g.c[0] - 0.114f) < 1e-6f);
+    /* RGB-based modes keep RGB colours; a colour already in the mode is unchanged. */
+    same = pc_color_in_mode(&blue, PC_COLOR_MODE_INDEXED);
+    CHECK(memcmp(&same, &blue, sizeof same) == 0);
+    same = pc_color_in_mode(&g, PC_COLOR_MODE_GRAYSCALE);
+    CHECK(memcmp(&same, &g, sizeof same) == 0);
+    for (i = 0; i < 2; i++) {
+        pc_color c = pc_color_in_mode(&blue, modes[i]);
+        pc_color back = pc_color_in_mode(&c, PC_COLOR_MODE_RGB);
+        float a[3];
+        float b[3];
+        CHECK(c.mode == modes[i]);
+        CHECK(back.mode == PC_COLOR_MODE_RGB);
+        pc_color_to_rgb(&back, a);
+        pc_color_to_rgb(&c, b);
+        CHECK_EQ_MEM(a, b, sizeof a); /* back to RGB shows the same colour */
+    }
+}
+
 int main(int argc, char **argv)
 {
     RUN(test_pixel_format_sizes);
@@ -634,5 +964,9 @@ int main(int argc, char **argv)
     RUN(test_luminosity_and_color_swap_components);
     RUN(test_darker_lighter_color_pick_whole_pixel);
     RUN(test_composite_alpha_rules);
+    RUN(test_paint_net_modes_keep_their_math_and_distinct_psd_status);
+    RUN(test_non_separable_modes_unchanged_on_integer_inputs);
+    RUN(test_non_separable_modes_stable_when_luminosity_is_out_of_range);
+    RUN(test_colors_convert_into_a_document_mode);
     return pc_t_finish();
 }

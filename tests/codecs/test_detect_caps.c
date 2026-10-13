@@ -81,8 +81,9 @@ static void test_never_write_only_without_exception(void)
 
 static void test_default_build_formats_all_symmetric(void)
 {
-    static const pc_cformat EXPECTED[] = {PC_CF_PNG, PC_CF_TGA, PC_CF_JPEG, PC_CF_ICO, PC_CF_TIFF, PC_CF_PNM,
-                                          PC_CF_WEBP, PC_CF_QOI, PC_CF_GIF, PC_CF_EXR, PC_CF_BMP, PC_CF_HDR};
+    static const pc_cformat EXPECTED[] = {PC_CF_PNG, PC_CF_TGA,  PC_CF_JPEG, PC_CF_ICO, PC_CF_TIFF,
+                                          PC_CF_PNM, PC_CF_WEBP, PC_CF_QOI,  PC_CF_GIF, PC_CF_EXR,
+                                          PC_CF_BMP, PC_CF_HDR,  PC_CF_FITS};
     size_t i;
     for (i = 0; i < sizeof EXPECTED / sizeof EXPECTED[0]; i++) {
         pc_ccaps c = pc_cformat_caps(EXPECTED[i]);
@@ -348,6 +349,8 @@ static void test_extension_specific_cases(void)
     CHECK(ext("pfm") == PC_CF_PNM);
     CHECK(ext("pam") == PC_CF_PNM);
     CHECK(ext("exr") == PC_CF_EXR);
+    CHECK(ext("FIT") == PC_CF_FITS);
+    CHECK(ext("m31.fits") == PC_CF_FITS);
     CHECK(ext("psd") == -1);
     CHECK(ext("") == -1);
     CHECK(ext("png.bak") == -1);

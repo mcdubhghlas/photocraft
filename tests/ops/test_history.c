@@ -374,6 +374,161 @@ static void test_counter_tracks_eviction_undo_redo_branching_purge_and_clones(vo
     }
 }
 
+/* A 64 x 64 RGB document with one video layer of `frames` frames; frame i has pixel (1, 1) red
+ * = i / frames, and the layer's raster content shares frame 0's tiles. */
+static pc_doc_arc *video_document(pc_sample_type depth, size_t frames)
+{
+    pc_document d;
+    pc_layer l;
+    pc_surface *footage;
+    pc_doc_arc *a = NULL;
+    pc_pixel_format f;
+    size_t i;
+    if (pc_document_init(&d, "video", pc_size_make(64, 64), PC_COLOR_MODE_RGB, depth, NULL) != PC_OK) {
+        return NULL;
+    }
+    f = pc_document_pixel_format(&d);
+    footage = calloc(frames, sizeof *footage);
+    CHECK(footage != NULL);
+    if (footage == NULL || pc_layer_raster(&l, "Video", f, NULL) != PC_OK) {
+        free(footage);
+        pc_document_fini(&d);
+        return NULL;
+    }
+    for (i = 0; i < frames; i++) {
+        float px[4] = {(float)i / (float)frames, 0.0f, 0.0f, 1.0f};
+        pc_surface_init(&footage[i], f);
+        CHECK_EQ_INT(pc_surface_write_pixel(&footage[i], 1, 1, px, 4, NULL), PC_OK);
+    }
+    pc_surface_fini(&l.content.u.raster);
+    CHECK_EQ_INT(pc_surface_clone(&footage[0], &l.content.u.raster, NULL), PC_OK);
+    pc_video_data_init(&l.video, footage, frames, 24.0f);
+    l.has_video = true;
+    CHECK_EQ_INT(pc_document_insert_above(&d, NULL, &l, NULL, NULL), PC_OK);
+    CHECK_EQ_INT(pc_doc_arc_new(&d, &a, NULL), PC_OK);
+    return a;
+}
+
+static size_t first_tile_len(const pc_document *d)
+{
+    size_t cursor = 0;
+    pc_tile c;
+    const pc_raster_tile *t = NULL;
+    const pc_surface *s = d->nlayers > 0 ? pc_layer_surface(&d->layers[0]) : NULL;
+    if (s == NULL || !pc_surface_next_tile(s, &cursor, &c, &t) || t == NULL) {
+        PC_T_FAIL("no tile");
+        return 0;
+    }
+    return pc_raster_tile_len(t);
+}
+
+static void rasterize_video(pc_document *d, void *ctx)
+{
+    (void)ctx;
+    pc_video_data_fini(&d->layers[0].video);
+    d->layers[0].has_video = false;
+}
+
+static void delete_frame_1(pc_document *d, void *ctx)
+{
+    pc_video_data *v = &d->layers[0].video;
+    (void)ctx;
+    pc_surface_fini(&v->frames[1]);
+    memmove(&v->frames[1], &v->frames[2], (v->nframes - 2) * sizeof *v->frames);
+    v->nframes--;
+}
+
+static void test_video_memory_counts_originals_and_deduplicates_displayed_frames(void)
+{
+    const pc_sample_type depths[] = {PC_SAMPLE_TYPE_U8, PC_SAMPLE_TYPE_U16, PC_SAMPLE_TYPE_F32};
+    for (size_t k = 0; k < 3; k++) {
+        pc_doc_arc *cur = video_document(depths[k], 3);
+        pc_document *doc = NULL;
+        pc_video_data *v;
+        pc_history *h = hist(PC_HISTORY_DEFAULT_MAX_STATES);
+        size_t tile;
+        float green[4] = {0.0f, 1.0f, 0.0f, 1.0f};
+        if (cur == NULL) {
+            pc_history_free(h);
+            return;
+        }
+        tile = first_tile_len(pc_doc_arc_get(cur));
+        CHECK_EQ_INT(pc_doc_arc_make_mut(&cur, &doc, NULL), PC_OK);
+        v = &doc->layers[0].video;
+        v->original_frames = calloc(v->nframes, sizeof *v->original_frames);
+        CHECK(v->original_frames != NULL);
+        for (size_t i = 0; v->original_frames != NULL && i < v->nframes; i++) {
+            CHECK_EQ_INT(pc_surface_clone(&v->frames[i], &v->original_frames[i], NULL), PC_OK);
+        }
+        v->has_original_frames = v->original_frames != NULL;
+        v->noriginal_frames = v->original_frames != NULL ? v->nframes : 0;
+        /* Original footage and the displayed frame alias the stack, except this painted frame. */
+        CHECK_EQ_INT(pc_surface_write_pixel(&v->frames[2], 1, 1, green, 4, NULL), PC_OK);
+        pc_history_set_max_bytes(h, SIZE_MAX);
+        CHECK_EQ_UINT(pixel(h, pc_doc_arc_get(cur)), 4 * tile);
+        edit(h, &cur, "Rename", rename_to, "A");
+        (void)trim(h, pc_doc_arc_get(cur));
+        edit(h, &cur, "Rename", rename_to, "B");
+        (void)trim(h, pc_doc_arc_get(cur));
+        assert_counter(h, pc_doc_arc_get(cur));
+        CHECK_EQ_UINT(pixel(h, pc_doc_arc_get(cur)), 4 * tile);
+        CHECK_EQ_UINT(unique(h, pc_doc_arc_get(cur)), 0);
+        /* Rasterizing keeps the displayed frame; the rest of the clip survives only in undo. */
+        edit(h, &cur, "Rasterize", rasterize_video, NULL);
+        CHECK_EQ_UINT(unique(h, pc_doc_arc_get(cur)), 3 * tile);
+        CHECK_EQ_UINT(pixel(h, pc_doc_arc_get(cur)), 4 * tile);
+        assert_counter(h, pc_doc_arc_get(cur));
+        CHECK(do_undo(h, &cur, NULL));
+        CHECK_EQ_UINT(unique(h, pc_doc_arc_get(cur)), 0);
+        assert_counter(h, pc_doc_arc_get(cur));
+        CHECK(do_redo(h, &cur, NULL));
+        CHECK_EQ_UINT(unique(h, pc_doc_arc_get(cur)), 3 * tile);
+        assert_counter(h, pc_doc_arc_get(cur));
+        pc_history_clear(h);
+        CHECK_EQ_UINT(pixel(h, pc_doc_arc_get(cur)), tile);
+        pc_history_free(h);
+        pc_doc_arc_release(cur);
+    }
+}
+
+static void test_video_memory_budget_evicts_deleted_off_playhead_frames(void)
+{
+    const pc_sample_type depths[] = {PC_SAMPLE_TYPE_U8, PC_SAMPLE_TYPE_U16, PC_SAMPLE_TYPE_F32};
+    for (size_t k = 0; k < 3; k++) {
+        pc_doc_arc *cur = video_document(depths[k], 6);
+        pc_history *h = hist(PC_HISTORY_DEFAULT_MAX_STATES);
+        size_t tile;
+        if (cur == NULL) {
+            pc_history_free(h);
+            return;
+        }
+        tile = first_tile_len(pc_doc_arc_get(cur));
+        for (int i = 0; i < 4; i++) {
+            edit(h, &cur, "Delete Frame", delete_frame_1, NULL);
+        }
+        CHECK_EQ_UINT(pixel(h, pc_doc_arc_get(cur)), 6 * tile);
+        CHECK_EQ_UINT(unique(h, pc_doc_arc_get(cur)), 4 * tile);
+        pc_history_set_max_bytes(h, 3 * tile);
+        CHECK_EQ_UINT(trim(h, pc_doc_arc_get(cur)), 3);
+        CHECK_EQ_UINT(pc_history_past_len(h), 1);
+        CHECK_EQ_UINT(pixel(h, pc_doc_arc_get(cur)), 3 * tile);
+        CHECK_EQ_UINT(unique(h, pc_doc_arc_get(cur)), tile);
+        assert_counter(h, pc_doc_arc_get(cur));
+        CHECK(do_undo(h, &cur, NULL));
+        CHECK_EQ_UINT(pc_doc_arc_get(cur)->layers[0].video.nframes, 3);
+        assert_counter(h, pc_doc_arc_get(cur));
+        CHECK(do_redo(h, &cur, NULL));
+        CHECK_EQ_UINT(pc_doc_arc_get(cur)->layers[0].video.nframes, 2);
+        assert_counter(h, pc_doc_arc_get(cur));
+        /* A budget below the remaining clip still keeps the latest step undoable. */
+        pc_history_set_max_bytes(h, 1);
+        CHECK_EQ_UINT(trim(h, pc_doc_arc_get(cur)), 0);
+        CHECK(pc_history_can_undo(h));
+        pc_history_free(h);
+        pc_doc_arc_release(cur);
+    }
+}
+
 static void test_shared_masks_channels_and_repeated_snapshot_references_count_once(void)
 {
     pc_document doc;
@@ -928,6 +1083,8 @@ int main(int argc, char **argv)
     RUN(test_byte_budget_drops_oldest_states_but_keeps_one);
     RUN(test_history_shares_untouched_tiles);
     RUN(test_counter_tracks_eviction_undo_redo_branching_purge_and_clones);
+    RUN(test_video_memory_counts_originals_and_deduplicates_displayed_frames);
+    RUN(test_video_memory_budget_evicts_deleted_off_playhead_frames);
     RUN(test_shared_masks_channels_and_repeated_snapshot_references_count_once);
     RUN(test_threshold_rechecks_coalesced_current_and_changed_budget);
     RUN(test_transferred_tiles_cannot_make_the_budget_check_underestimate_current);

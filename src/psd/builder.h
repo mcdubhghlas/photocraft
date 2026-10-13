@@ -88,6 +88,8 @@ pc_status pc_psd_builder_push_layer(pc_psd_builder *b, const pc_psd_layer_spec *
 pc_status pc_psd_builder_begin_group(pc_psd_builder *b, const pc_psd_group_spec *spec, pc_error *err);
 /* "end_group without begin_group" when no group is open. */
 pc_status pc_psd_builder_end_group(pc_psd_builder *b, pc_error *err);
+/* The merged composite (straight samples, same format as layers, full canvas). Transparent RGB is
+ * stored against white, quantized at the document depth. */
 pc_status pc_psd_builder_composite(pc_psd_builder *b, pc_psd_pixels pixels, pc_error *err);
 
 pc_status pc_psd_builder_build(const pc_psd_builder *b, pc_psd_file *out, pc_error *err);

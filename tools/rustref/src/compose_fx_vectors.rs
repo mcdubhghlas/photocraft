@@ -216,7 +216,7 @@ fn contour(r: &mut Rng) -> Contour {
             _ => vec![pt(1.0, 1.0), pt(0.0, 0.0), pt(0.5, 2.0), pt(0.25, -1.0)],
         },
     };
-    Contour::Custom { name: "c".into(), points }
+    Contour::Custom { name: "c".into(), points, corners: Vec::new() }
 }
 
 fn gradient(r: &mut Rng) -> Gradient {
@@ -600,15 +600,23 @@ fn unit_sweeps() {
         hi(&mut h, g.pillow as i32);
         hf(&mut h, g.chisel_soft);
     }
+    // R0: upstream bevel_chisel_h panics for a NaN size on some paths (f32::clamp with a NaN
+    // bound: Outer hard with dout > 0); such inputs hash the bytes "panic" instead of a value.
+    let prev_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
     for p in [fx::BevelPaint::Inner, fx::BevelPaint::Outer, fx::BevelPaint::Both] {
         for &s in &vals {
             for &din in &vals {
                 for &dout in &[0.0f32, 1.0, 3.0, -0.5, f32::NAN] {
-                    hf(&mut h, fx::bevel_chisel_h(p, s, din, dout));
+                    match std::panic::catch_unwind(|| fx::bevel_chisel_h(p, s, din, dout, false)) {
+                        Ok(v) => hf(&mut h, v),
+                        Err(_) => fnv(&mut h, b"panic"),
+                    }
                 }
             }
         }
     }
+    std::panic::set_hook(prev_hook);
     println!("unit\tbevel_geom\t{h:016x}");
 
     let mut h = H0;
@@ -641,7 +649,7 @@ fn unit_sweeps() {
                 _ => (1 + rr.below(30) as usize, 1 + rr.below(20) as usize),
             };
             let a = shape(&mut rr, w, hh);
-            for v in fx::distance_field(*k, a, w, hh) {
+            for v in fx::distance_field(*k, a, w, hh, f32::INFINITY) {
                 hf(&mut h, v);
             }
         }
@@ -746,7 +754,16 @@ fn map_line(seed: u64) {
         (f64::from(x0), f64::from(y0))
     };
     let tex = fx::TextureCtx { rect, patterns: &pats, anchor };
-    let maps = fx::build_maps(&layer, shp.clone(), rect, &lt, &tex);
+    // R0: upstream build_maps can panic on hostile bevel values (bevel_chisel_h: f32::clamp with a
+    // NaN bound); such cases print "map SEED panic" and stop there.
+    let prev_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+    let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| fx::build_maps(&layer, shp.clone(), rect, &lt, &tex)));
+    std::panic::set_hook(prev_hook);
+    let Ok(maps) = built else {
+        println!("map\t{seed}\tpanic");
+        return;
+    };
     let mut out = format!("map\t{seed}\tbytes={}", maps.bytes());
     let mut hfr = H0;
     for e in &layer.effects.items {
@@ -1080,15 +1097,111 @@ fn doc_line(seed: u64) {
     }
 }
 
+/// R0: upstream compose can panic on hostile bevel values (bevel_chisel_h: f32::clamp with a NaN
+/// bound); such documents print "doc SEED panic" (doc_line prints only at its end).
+fn doc_line_guarded(seed: u64) {
+    let prev_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+    let r = std::panic::catch_unwind(|| doc_line(seed));
+    std::panic::set_hook(prev_hook);
+    if r.is_err() {
+        println!("doc\t{seed}\tpanic");
+    }
+}
+
 pub fn run() {
     unit_sweeps();
     for seed in 1..=500u64 {
         map_line(seed);
     }
     for seed in 1..=300u64 {
-        doc_line(seed);
+        doc_line_guarded(seed);
     }
     for seed in 1001..=1080u64 {
-        doc_line(seed);
+        doc_line_guarded(seed);
     }
+    r9_sweeps();
+}
+
+/// R9 (resync): functionality added upstream after C3, appended so earlier lines keep their
+/// positions: Chisel Soft heights, the bevel distance fields (edges placed by coverage, with a
+/// reach), contours with corner points, the satin and bevel contour tables.
+fn r9_sweeps() {
+    let vals = [0.0f32, 1.0, 0.5, 2.5, -1.0, 4.0, 16.0, 1e30, f32::INFINITY, f32::NAN, 0.25, 0.75, -1.5];
+    let mut h = H0;
+    let prev_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+    for p in [fx::BevelPaint::Inner, fx::BevelPaint::Outer, fx::BevelPaint::Both] {
+        for &sz in &vals {
+            for &din in &vals {
+                for &dout in &[0.0f32, 1.0, 3.0, -0.5, f32::NAN] {
+                    match std::panic::catch_unwind(|| fx::bevel_chisel_h(p, sz, din, dout, true)) {
+                        Ok(v) => hf(&mut h, v),
+                        Err(_) => fnv(&mut h, b"panic"),
+                    }
+                }
+            }
+        }
+    }
+    std::panic::set_hook(prev_hook);
+    println!("unit\tr9_chisel_soft\t{h:016x}");
+
+    for (ki, kind) in [fx::FieldKind::BevelInside, fx::FieldKind::BevelOutside].into_iter().enumerate() {
+        for reach in [0.0f32, 3.0, 12.0, f32::INFINITY] {
+            let mut rr = Rng(0x7a7a + ki as u64);
+            let mut h = H0;
+            for _ in 0..10 {
+                let w = 4 + rr.below(60) as usize;
+                let hh = 4 + rr.below(50) as usize;
+                let a = aa_shape(&mut rr, w, hh);
+                for v in fx::distance_field(kind, a, w, hh, reach) {
+                    hf(&mut h, v);
+                }
+            }
+            println!("unit\tr9_field_{ki}_{reach}\t{h:016x}");
+        }
+    }
+
+    let mut hs = H0;
+    let mut hb = H0;
+    let mut rr = Rng(0x5a71);
+    for _ in 0..200 {
+        let mut c = contour(&mut rr);
+        if let Contour::Custom { points, corners, .. } = &mut c {
+            *corners = (0..points.len() + rr.below(2) as usize).map(|_| rr.below(2) == 0).collect();
+        }
+        match fx::satin_lut(&c) {
+            Some(l) => {
+                for v in l {
+                    hf(&mut hs, v);
+                }
+            }
+            None => fnv(&mut hs, b"none"),
+        }
+        let range = rr.unit();
+        for v in fx::bevel_contour_lut(&photocraft_doc::BevelContour { contour: c, range, anti_alias: false }) {
+            hf(&mut hb, v);
+        }
+    }
+    println!("unit\tr9_satin_lut\t{hs:016x}");
+    println!("unit\tr9_bevel_contour_lut\t{hb:016x}");
+}
+
+/// An anti-aliased disc or oblique bar (coverage by the distance to its edge, one pixel wide).
+fn aa_shape(r: &mut Rng, w: usize, h: usize) -> Vec<f32> {
+    let disc = r.below(2) == 0;
+    let cx = r.unit() * w as f32;
+    let cy = r.unit() * h as f32;
+    let size = 2.0 + r.unit() * (w.min(h) as f32 / 2.0);
+    let ang = r.unit() * 6.2831855;
+    let (sn, cs) = ang.sin_cos();
+    let mut v = vec![0.0f32; w * h];
+    for y in 0..h {
+        for x in 0..w {
+            let (px, py) = (x as f32 + 0.5 - cx, y as f32 + 0.5 - cy);
+            let d = if disc { (px * px + py * py).sqrt() - size } else { (-px * sn + py * cs).abs() - size / 2.0 };
+            v[y * w + x] = (0.5 - d).clamp(0.0, 1.0);
+        }
+    }
+    v
 }

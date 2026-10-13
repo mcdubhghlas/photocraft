@@ -125,6 +125,18 @@ static pc_status paint_fx_map(const fxc *c, pc_compose_buffer *dst, size_t i, si
     return PC_OK;
 }
 
+/* Keeps an exterior effect behind the layer's shape where Fill is partly or wholly transparent;
+ * under a fully opaque fill the layer covers it anyway (no double-attenuated anti-aliased edges). */
+static void knock_out_exterior(pc_fxm *m, const fxc *c)
+{
+    float see = 1.0f - pc_clampf(c->layer->fill_opacity, 0.0f, 1.0f);
+    size_t n = pc_fxm_len(m) < c->n ? pc_fxm_len(m) : c->n;
+    size_t i;
+    for (i = 0; i < n; i++) {
+        m->v[i] *= 1.0f - c->shape.v[i] * see;
+    }
+}
+
 /* The exterior effects below the layer: drop shadows, then outer glows. */
 static pc_status exterior_below(const fxc *c, pc_compose_buffer *work, pc_error *err)
 {
@@ -134,7 +146,6 @@ static pc_status exterior_below(const fxc *c, pc_compose_buffer *work, pc_error 
         const pc_effect *e = c->items[r];
         pc_fxm m;
         float rgb[3];
-        size_t i;
         if (e->kind != PC_FX_DROP_SHADOW) {
             continue;
         }
@@ -145,10 +156,7 @@ static pc_status exterior_below(const fxc *c, pc_compose_buffer *work, pc_error 
         if (e->u.shadow.knocks_out) {
             /* The layer hides the shadow beneath it only where its fill is see-through: at 100 %
              * fill the layer covers it anyway, at 0 % the shape shows the bare backdrop. */
-            float see = 1.0f - pc_clampf(c->layer->fill_opacity, 0.0f, 1.0f);
-            for (i = 0; i < c->n; i++) {
-                m.v[i] *= 1.0f - c->shape.v[i] * see;
-            }
+            knock_out_exterior(&m, c);
         }
         pc_color_to_rgb(&e->u.shadow.color, rgb);
         pc_fx_paint_color(work, &m, rgb, e->u.shadow.common.blend, e->u.shadow.common.opacity);
@@ -162,6 +170,8 @@ static pc_status exterior_below(const fxc *c, pc_compose_buffer *work, pc_error 
         }
         st = fx_map(c, r, 0, &m, err);
         if (st == PC_OK) {
+            /* The glow is behind the shape, not painted across its interior at 0 % Fill. */
+            knock_out_exterior(&m, c);
             st = pc_fx_paint_glow(work, &m, &e->u.glow, c->sb, c->anchor, c->big, c->patterns, err);
             pc_fxm_free(&m);
         }

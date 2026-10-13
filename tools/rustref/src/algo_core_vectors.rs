@@ -10,7 +10,7 @@ use photocraft_algo::histogram::{RgbHistogram, clipping};
 use photocraft_algo::pyramid::{self, Level};
 use photocraft_algo::resample::{Resample, crop_surface, resize_surface, resize_surface_in_canvas, scaled_rect, translate_surface};
 use photocraft_algo::tone::{self, HdrToning, MatchColor, ShadowsHighlights};
-use photocraft_algo::transform::{Homography, Interp, warp_surface};
+use photocraft_algo::transform::{Homography, Interp, convex_quad, quad_size, quad_to_rect, warp_surface, warp_surface_clipped};
 use photocraft_algo::*;
 use photocraft_color::{ColorMode, PixelFormat, SampleType};
 use photocraft_geom::Rect;
@@ -396,7 +396,20 @@ fn enums() {
     use BlurShape as B;
     enum_line!("BlurShape", &[B::Circle, B::Ring, B::Square, B::Diamond, B::Triangle, B::Hexagon, B::Star, B::Heart, B::Cross]);
     enum_line!("HsbModel", &[HsbModel::Rgb, HsbModel::Hsb, HsbModel::Hsl]);
-    enum_line!("Resample", &[Resample::Nearest, Resample::Bilinear, Resample::Bicubic, Resample::Lanczos, Resample::PreserveDetails]);
+    // R5: Bicubic Smoother / Sharper / Automatic added upstream.
+    enum_line!(
+        "Resample",
+        &[
+            Resample::Nearest,
+            Resample::Bilinear,
+            Resample::Bicubic,
+            Resample::BicubicSmoother,
+            Resample::BicubicSharper,
+            Resample::BicubicAutomatic,
+            Resample::Lanczos,
+            Resample::PreserveDetails
+        ]
+    );
     enum_line!("Interp", &[Interp::Nearest, Interp::Bilinear, Interp::Bicubic]);
     for s in ["nearest", "nearestNeighbor", "bilinear", "bicubic", "x", ""] {
         println!("interp_parse {:?} {}", s, serde_json::to_string(&Interp::parse(s)).unwrap_or_default());
@@ -974,10 +987,10 @@ fn transform_vectors() {
         for (mn, m) in &ms {
             let mut h = H0;
             for interp in [Interp::Nearest, Interp::Bilinear, Interp::Bicubic] {
-                fnv(&mut h, &hs(&warp_surface(&s, src_r, m, interp)).to_le_bytes());
+                fnv(&mut h, &warp_surface(&s, src_r, m, interp).as_ref().map_or(u64::MAX, hs).to_le_bytes());
             }
-            fnv(&mut h, &hs(&warp_surface(&s, Rect::EMPTY, m, Interp::Bicubic)).to_le_bytes());
-            fnv(&mut h, &hs(&warp_surface(&s, Rect::new(10, 6, 30, 20), m, Interp::Bilinear)).to_le_bytes());
+            fnv(&mut h, &warp_surface(&s, Rect::EMPTY, m, Interp::Bicubic).as_ref().map_or(u64::MAX, hs).to_le_bytes());
+            fnv(&mut h, &warp_surface(&s, Rect::new(10, 6, 30, 20), m, Interp::Bilinear).as_ref().map_or(u64::MAX, hs).to_le_bytes());
             println!("warp {} {} {:016x}", name, mn, h);
         }
     }
@@ -1094,4 +1107,211 @@ pub fn run() {
     transform_vectors();
     pyramid_vectors();
     apply_vectors();
+    r5_vectors();
+}
+
+/// R5 (upstream resync): Photoshop's bicubic family and two-pass plans, the new Shadows/Highlights,
+/// Perspective Crop quads, clipped and horizon-crossing warps, float range kept by warps.
+fn r5_vectors() {
+    let all = [
+        Resample::Nearest,
+        Resample::Bilinear,
+        Resample::Bicubic,
+        Resample::BicubicSmoother,
+        Resample::BicubicSharper,
+        Resample::BicubicAutomatic,
+        Resample::Lanczos,
+        Resample::PreserveDetails,
+    ];
+    let scales = [(0.013, 0.013), (0.2, 0.2), (0.24, 0.3), (0.37, 0.37), (0.5, 0.5), (1.0, 1.0), (1.37, 1.37), (2.0, 2.0), (2.3, 0.7), (0.7, 2.3), (1.0, 0.01), (0.6, 1.0), (1.0, 1.6), (3.1, 3.1)];
+    for (name, fmt) in formats() {
+        let s = surf(fmt, Rect::new(-5, 3, 61, 37), 3, false);
+        for (fi, f) in all.iter().enumerate() {
+            let mut h = H0;
+            for (kx, ky) in scales {
+                fnv(&mut h, &hs(&resize_surface(&s, kx, ky, *f)).to_le_bytes());
+            }
+            println!("r5_resize {} {} {:016x}", name, fi, h);
+        }
+    }
+    let canvas = Rect::new(0, 0, 30, 20);
+    for (name, fmt) in formats() {
+        let mut s = Surface::new(fmt);
+        let px: Vec<f32> = (0..fmt.channels()).map(|c| [0.2, 0.6, 1.0, 1.0, 0.5][c]).collect();
+        s.fill_rect(canvas, &px);
+        let inner = surf(fmt, Rect::new(10, 5, 20, 15), 4, false);
+        let edge = surf(fmt, Rect::new(0, 0, 30, 20), 5, true);
+        for (fi, f) in all.iter().enumerate() {
+            let mut h = H0;
+            for (kx, ky) in [(2.0, 2.0), (1.37, 1.37), (0.5, 0.5), (0.11, 0.11), (0.2, 0.2), (0.6, 1.7), (1.7, 0.6), (0.3, 0.9)] {
+                fnv(&mut h, &hs(&resize_surface_in_canvas(&s, kx, ky, *f, canvas)).to_le_bytes());
+                fnv(&mut h, &hs(&resize_surface_in_canvas(&inner, kx, ky * 1.1, *f, canvas)).to_le_bytes());
+                fnv(&mut h, &hs(&resize_surface_in_canvas(&edge, kx, ky, *f, canvas)).to_le_bytes());
+            }
+            println!("r5_resize_canvas {} {} {:016x}", name, fi, h);
+        }
+    }
+    let mut mask = Surface::with_default(PixelFormat::GRAY8, &[1.0]);
+    mask.fill_rect(Rect::new(0, 0, 40, 30), &[0.0]);
+    mask.fill_rect(Rect::new(500, 900, 530, 940), &[0.25]);
+    let mut sparse = Surface::new(PixelFormat::RGBA32F);
+    sparse.fill_rect(Rect::new(0, 0, 256, 256), &[1.0, 1.0, 1.0, 1.0]);
+    sparse.fill_rect(Rect::new(99_840, 99_840, 100_096, 100_096), &[0.5, 0.25, 1.0, 1.0]);
+    for (fi, f) in all.iter().enumerate() {
+        let mut h = H0;
+        for k in [0.013, 0.37, 1.6] {
+            fnv(&mut h, &hs(&resize_surface(&mask, k, k, *f)).to_le_bytes());
+        }
+        let k = 1.0 / 100_096.0;
+        fnv(&mut h, &hs(&resize_surface(&sparse, k, k, *f)).to_le_bytes());
+        fnv(&mut h, &hs(&resize_surface(&sparse, 1000.0 / 100_096.0, k, *f)).to_le_bytes());
+        println!("r5_resize_sparse {} {:016x}", fi, h);
+    }
+    // Shadows/Highlights (measured on Photoshop 25.4 upstream).
+    let sh = [
+        ShadowsHighlights { color: 0.0, black_clip: 0.0, white_clip: 0.0, ..Default::default() },
+        ShadowsHighlights { shadow_amount: 100.0, shadow_tone: 100.0, shadow_radius: 10.0, color: 0.0, black_clip: 0.0, white_clip: 0.0, ..Default::default() },
+        ShadowsHighlights { shadow_amount: 15.0, shadow_tone: 2.5, shadow_radius: 0.1, highlight_amount: 60.0, highlight_tone: 73.0, highlight_radius: 0.2, ..Default::default() },
+        ShadowsHighlights { shadow_amount: 50.0, shadow_radius: 12.0, highlight_amount: 50.0, highlight_radius: 12.0, color: 100.0, midtone: 100.0, ..Default::default() },
+        ShadowsHighlights { shadow_amount: 1.0, highlight_amount: 99.0, highlight_radius: 40.0, color: -100.0, midtone: -60.0, black_clip: 0.5, white_clip: 0.0, ..Default::default() },
+        ShadowsHighlights { shadow_amount: 0.0, highlight_amount: 0.0, color: 37.0, midtone: 12.5, black_clip: 0.0, white_clip: 3.0, ..Default::default() },
+        ShadowsHighlights { shadow_amount: 80.0, shadow_tone: 95.0, shadow_radius: 2500.0, highlight_amount: 30.0, highlight_tone: 0.0, highlight_radius: 7.5, color: -15.0, ..Default::default() },
+    ];
+    let (w, h) = (61usize, 47usize);
+    let mut big = rgba_px(w * h, 21);
+    for (i, p) in big.iter_mut().enumerate() {
+        if i % 13 == 0 {
+            p[3] = 0.0;
+        }
+    }
+    for (i, p) in sh.iter().enumerate() {
+        let mut a = big.clone();
+        tone::shadows_highlights(&mut a, w, h, p);
+        let mut r = ramp(40, 9);
+        tone::shadows_highlights(&mut r, 40, 9, p);
+        let mut g: Vec<[f32; 4]> = (0..121 * 121).map(|k| if k == 60 * 121 + 60 { [0.25, 0.125, 0.0, 1.0] } else { [0.15, 0.15, 0.15, 1.0] }).collect();
+        tone::shadows_highlights(&mut g, 121, 121, p);
+        println!("r5_shadows_highlights {} {:016x} {:016x} {:016x}", i, hpx(&a), hpx(&r), hpx(&g));
+    }
+    // Perspective Crop quads.
+    let quads = [
+        [[30.0, 12.0], [140.0, 25.0], [128.0, 110.0], [14.0, 95.0]],
+        [[0.0, 0.0], [50.0, 0.0], [100.0, 0.0], [0.0, 50.0]],
+        [[0.0, 0.0], [50.0, 50.0], [50.0, 0.0], [0.0, 50.0]],
+        [[0.0, 0.0], [0.0, 50.0], [50.0, 50.0], [50.0, 0.0]],
+        [[0.0, 0.0], [f64::NAN, 0.0], [50.0, 50.0], [0.0, 50.0]],
+        [[0.0, 0.0]; 4],
+        [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
+        [[0.0, 0.0], [1.5, 0.0], [1.5, 1.5], [0.0, 1.5]],
+        [[10.0, 10.0], [1e9, 10.0], [1e9, 2e9], [10.0, 2e9]],
+        [[0.0, 0.0], [100.0, 0.0], [100.0, 100.0], [99.99, 100.0]],
+    ];
+    let mut hq = H0;
+    for q in &quads {
+        fnv(&mut hq, if convex_quad(q) { b"c" } else { b"n" });
+        let (qw, qh) = quad_size(q);
+        hd(&mut hq, &[qw, qh]);
+        for (ow, oh) in [(100.0, 80.0), (qw, qh), (0.0, 10.0), (f64::INFINITY, 5.0), (1e-3, 1e-3)] {
+            match quad_to_rect(q, ow, oh) {
+                Some(m) => {
+                    hd(&mut hq, &m.0);
+                    for c in q {
+                        let p = m.apply(c[0], c[1]);
+                        hd(&mut hq, &[p.0, p.1]);
+                    }
+                }
+                None => fnv(&mut hq, b"none"),
+            }
+        }
+    }
+    println!("r5_quads {:016x}", hq);
+    let mut hi_ = H0;
+    for m in [
+        Homography::IDENTITY,
+        Homography([2.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 2.0]),
+        Homography([1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]),
+        Homography([1.0, 0.1, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]),
+        Homography([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1e-13]),
+        Homography([-1.0, 0.0, 0.0, 0.0, -1.0, 0.0, 0.0, 0.0, -1.0]),
+        Homography([1.0 + 1e-10, 0.0, 1e-10, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]),
+        Homography([f64::NAN, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]),
+    ] {
+        fnv(&mut hi_, if m.is_identity() { b"i" } else { b"n" });
+    }
+    println!("r5_is_identity {:016x}", hi_);
+    // Clipped and horizon-crossing warps.
+    let fmts = [
+        ("rgba8", PixelFormat::RGBA8),
+        ("rgba16", PixelFormat::new(ColorMode::Rgb, SampleType::U16, true)),
+        ("rgba32", PixelFormat::RGBA32F),
+        ("rgb8", PixelFormat::new(ColorMode::Rgb, SampleType::U8, false)),
+        ("gray32", PixelFormat::new(ColorMode::Grayscale, SampleType::F32, false)),
+    ];
+    let src_r = Rect::new(0, 0, 100, 100);
+    let steep = Homography::rect_to_quad([0.0, 0.0, 100.0, 100.0], [[0.0, 0.0], [300.0, 0.0], [155.0, 155.0], [0.0, 300.0]]).unwrap_or(Homography::IDENTITY);
+    let horizon = Homography([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.012, 0.0, 0.4]);
+    let ms = [
+        ("steep", steep),
+        ("horizon", horizon),
+        ("behind", Homography([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, -0.01, -0.01, -0.5])),
+        ("cross", Homography([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, -0.012, 0.0, 0.6])),
+        ("shrink", Homography::rect_to_quad([0.0, 0.0, 100.0, 100.0], [[3.0, 3.0], [20.0, 4.0], [19.0, 18.0], [2.0, 21.0]]).unwrap_or(Homography::IDENTITY)),
+        ("translate", Homography([1.0, 0.0, 7.5, 0.0, 1.0, -3.25, 0.0, 0.0, 1.0])),
+    ];
+    for (name, fmt) in fmts {
+        let mut s = surf(fmt, src_r, 9, false);
+        if fmt.sample == SampleType::F32 {
+            // Signed and HDR samples keep their range through the warp.
+            let n = fmt.channels();
+            let mut px = vec![2.0f32; n];
+            if n > 1 {
+                px[1] = -0.25;
+            }
+            if fmt.alpha {
+                px[n - 1] = 0.5;
+            }
+            s.fill_rect(Rect::new(40, 40, 60, 60), &px);
+        }
+        for (mn, m) in &ms {
+            let mut h = H0;
+            for interp in [Interp::Nearest, Interp::Bilinear, Interp::Bicubic] {
+                fnv(&mut h, &warp_surface(&s, src_r, m, interp).as_ref().map_or(u64::MAX, hs).to_le_bytes());
+                for clip in [Rect::new(0, 0, 300, 300), Rect::new(100, 100, 200, 200), Rect::new(-50, -50, 10, 10), Rect::new(240, 0, 256, 512), Rect::EMPTY] {
+                    fnv(&mut h, &warp_surface_clipped(&s, src_r, m, interp, clip).as_ref().map_or(u64::MAX, hs).to_le_bytes());
+                }
+            }
+            println!("r5_warp {} {} {:016x}", name, mn, h);
+        }
+    }
+    // Focus-stack fusion.
+    let mut hl = H0;
+    for (w, h) in [(64usize, 64usize), (48, 100), (2070, 1378), (8280, 5520), (100_000, 100_000), (0, 5), (1, 1), (63, 200)] {
+        hu(&mut hl, &[pyramid::stack_levels(w, h) as u64]);
+    }
+    println!("r5_stack_levels {:016x}", hl);
+    let (w, h) = (45usize, 37usize);
+    for ch in [1usize, 3, 4] {
+        let imgs: Vec<Vec<f32>> = (0..3).map(|k| buf(w * h * ch, 30 + k)).collect();
+        let lumas: Vec<Vec<f32>> = (0..3).map(|k| buf(w * h, 40 + k)).collect();
+        let alphas: Vec<Vec<f32>> = (0..3).map(|k| (0..w * h).map(|i| if (i + k as usize * 7) % 9 == 0 { 0.25 } else { 1.0 }).collect()).collect();
+        let refs: Vec<&[f32]> = imgs.iter().map(|v| v.as_slice()).collect();
+        let d = pyramid::StackFusion::default();
+        let cases = [
+            d,
+            pyramid::StackFusion { halo: 0.0, ..d },
+            pyramid::StackFusion { guide: 0, ..d },
+            pyramid::StackFusion { energy_radius: 0, ..d },
+            pyramid::StackFusion { energy_radius: 3, halo: 100.0, ..d },
+            pyramid::StackFusion { levels: Some(1), ..d },
+            pyramid::StackFusion { levels: Some(3), halo: 0.0, ..d },
+            pyramid::StackFusion { levels: Some(40), guide: 9, ..d },
+        ];
+        for (i, p) in cases.iter().enumerate() {
+            let mut hh = H0;
+            for n in [1usize, 2, 3] {
+                hf(&mut hh, &pyramid::fuse_stack(w, h, ch, &refs[..n], &lumas[..n], &alphas[..n], *p));
+            }
+            println!("r5_fuse_stack {} {} {:016x}", ch, i, hh);
+        }
+    }
 }

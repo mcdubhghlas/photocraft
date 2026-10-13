@@ -117,12 +117,17 @@ static parsed parse_curves(const adj_rd *r, pc_adjustment *a)
     uint16_t version;
     uint32_t bits;
     size_t at = 7;
+    uint8_t flag = 0;
+    bool pencil;
     pc_curve curves[5];
     memset(curves, 0, sizeof curves);
-    /* pad(1) version(2) bitmap(4) */
-    if (!be16(r, 1, &version) || (version != 1 && version != 4) || !be32(r, 3, &bits)) {
+    /* map flag(1) version(2) bitmap(4). A map (Photoshop's pencil-drawn curves) stores 256 output
+     * bytes per channel instead of a point list. */
+    if (!byte_at(r, 0, &flag) || !be16(r, 1, &version) || (version != 1 && version != 4) ||
+        !be32(r, 3, &bits)) {
         return P_NONE;
     }
+    pencil = flag != 0;
     for (size_t i = 0; i < 5; i++) {
         if (!line(&curves[i])) {
             goto nomem;
@@ -132,6 +137,25 @@ static parsed parse_curves(const adj_rd *r, pc_adjustment *a)
         uint16_t n;
         pc_curve pts = {NULL, 0};
         if ((bits & (1u << bit)) == 0) {
+            continue;
+        }
+        if (pencil) {
+            if (r->len < at || r->len - at < PC_CURVE_MAP_LEN) {
+                goto none;
+            }
+            if (bit < 5) {
+                float outs[PC_CURVE_MAP_LEN];
+                pc_curve m = {NULL, 0};
+                for (size_t k = 0; k < PC_CURVE_MAP_LEN; k++) {
+                    outs[k] = (float)r->d[at + k] / 255.0f;
+                }
+                if (pc_curve_map(outs, PC_CURVE_MAP_LEN, &m, NULL) != PC_OK) {
+                    goto nomem;
+                }
+                pc_curve_fini(&curves[bit]);
+                curves[bit] = m;
+            }
+            at += PC_CURVE_MAP_LEN;
             continue;
         }
         if (!be16(r, at, &n)) {
@@ -170,6 +194,7 @@ static parsed parse_curves(const adj_rd *r, pc_adjustment *a)
     a->u.curves.per_channel[2] = curves[3];
     a->u.curves.space = PC_TONE_RGB;
     a->u.curves.black = curves[4];
+    a->u.curves.pencil = pencil;
     return P_OK;
 none:
     for (size_t i = 0; i < 5; i++) {
@@ -305,7 +330,9 @@ static parsed parse_hue(const adj_rd *r, pc_adjustment *a)
  * reverse, dither, [method], name, colour stops (location /4096, midpoint %, colour space + four
  * u16 components, 2 bytes), transparency stops, then smoothness (/4096) among noise-gradient
  * fields. Smoothness, midpoints and the method are baked into dense stops like gradient fills.
- * Noise gradients (no colour stops) and non-RGB stops stay unsupported. */
+ * Stops may be in any plain colour space Photoshop writes (RGB, HSB, CMYK, Lab, Grayscale);
+ * they are converted to RGB. Noise gradients (no colour stops) and stops in other spaces (book
+ * colours) stay unsupported. */
 static parsed parse_gradient_map(const adj_rd *r, pc_adjustment *a)
 {
     uint16_t version;
@@ -360,14 +387,13 @@ static parsed parse_gradient_map(const adj_rd *r, pc_adjustment *a)
         uint32_t loc;
         uint32_t mid;
         uint16_t space;
-        uint16_t c[3];
-        if (!be32(r, at, &loc) || !be32(r, at + 4, &mid) || !be16(r, at + 8, &space) || space != 0 ||
-            !be16(r, at + 10, &c[0]) || !be16(r, at + 12, &c[1]) || !be16(r, at + 14, &c[2])) {
+        uint16_t c[4];
+        if (!be32(r, at, &loc) || !be32(r, at + 4, &mid) || !be16(r, at + 8, &space) ||
+            !be16(r, at + 10, &c[0]) || !be16(r, at + 12, &c[1]) || !be16(r, at + 14, &c[2]) ||
+            !be16(r, at + 16, &c[3]) || !pc_io_decode_known_color(space, c, &stops[ns].color)) {
             goto done;
         }
         stops[ns].pos = pc_clampf((float)loc / 4096.0f, 0.0f, 1.0f);
-        stops[ns].color =
-            pc_color_rgb((float)c[0] / 65535.0f, (float)c[1] / 65535.0f, (float)c[2] / 65535.0f);
         mids_raw[ns] = (float)mid / 100.0f;
         ns++;
         at = sat_add(at, 20);
@@ -492,40 +518,84 @@ static bool enum_is(const pc_psd_desc *d, const char *key, const char *s)
 }
 
 /* clrL: version 1 + a versioned descriptor carrying the LUT file itself (LUT3DFileData, in the
- * format named by LUTFormat). Profile-based lookups (abstract / device link) have no table. */
-static parsed parse_lookup(const adj_rd *r, pc_adjustment *a)
+ * format named by LUTFormat). Profile-based lookups (abstract / device link) have no table and
+ * stay unsupported. On P_NONE, when reason != NULL, the import-warning reason is appended to it
+ * (matching adjust_map::read_lookup's Err text). */
+static parsed read_lookup(const adj_rd *r, pc_adjustment *a, pc_buf *reason)
 {
     uint16_t v;
     pc_psd_desc d;
     const pc_psd_value *data;
     const char *ext;
+    const char *format;
     pc_lutfile lut;
     pc_error e;
     pc_str name = PC_STR_INIT;
     bool found = false;
     bool dither = false;
+    size_t used = 0;
     pc_blob *blob = NULL;
-    parsed p;
     pc_status st;
-    if (!be16(r, 0, &v) || v != 1 || r->len < 2) {
+    if (!be16(r, 0, &v)) {
+        if (reason != NULL) {
+            (void)pc_buf_append_str(reason, "the block is truncated", NULL);
+        }
         return P_NONE;
     }
-    p = versioned(r->d + 2, r->len - 2, &d);
-    if (p != P_OK) {
-        return p;
+    if (v != 1) {
+        if (reason != NULL) {
+            (void)pc_buf_appendf(reason, NULL, "unknown version %u", (unsigned)v);
+        }
+        return P_NONE;
+    }
+    st = pc_psd_vdesc_parse_prefix(r->d + 2, r->len - 2, &d, &used, &e);
+    if (st == PC_ERR_NOMEM) {
+        return P_NOMEM;
+    }
+    if (st != PC_OK) {
+        if (reason != NULL) {
+            (void)pc_buf_appendf(reason, NULL, "unreadable settings (%s)", e.msg);
+        }
+        return P_NONE;
     }
     data = pc_psd_desc_get(&d, "LUT3DFileData");
-    if (data == NULL || data->kind != PC_PSD_V_RAW_DATA || data->raw.len == 0) {
+    if (data == NULL) {
         pc_psd_desc_fini(&d);
+        if (reason != NULL) {
+            (void)pc_buf_append_str(reason,
+                                    "it uses a colour profile (abstract or device link), not a "
+                                    "LUT file, which isn't supported yet",
+                                    NULL);
+        }
         return P_NONE;
     }
-    ext = enum_is(&d, "LUTFormat", "LUTFormat3DL")    ? "x.3dl"
-          : enum_is(&d, "LUTFormat", "LUTFormatLOOK") ? "x.look"
-                                                      : "x.cube";
+    if (data->kind != PC_PSD_V_RAW_DATA || data->raw.len == 0) {
+        pc_psd_desc_fini(&d);
+        if (reason != NULL) {
+            (void)pc_buf_append_str(reason, "its LUT data is empty", NULL);
+        }
+        return P_NONE;
+    }
+    if (enum_is(&d, "LUTFormat", "LUTFormat3DL")) {
+        ext = "x.3dl";
+        format = "3DL";
+    } else if (enum_is(&d, "LUTFormat", "LUTFormatLOOK")) {
+        ext = "x.look";
+        format = "LOOK";
+    } else {
+        ext = "x.cube";
+        format = "CUBE";
+    }
     st = pc_lutfile_parse(ext, data->raw.data, data->raw.len, &lut, &e);
     if (st != PC_OK) {
         pc_psd_desc_fini(&d);
-        return st == PC_ERR_NOMEM ? P_NOMEM : P_NONE;
+        if (st == PC_ERR_NOMEM) {
+            return P_NOMEM;
+        }
+        if (reason != NULL) {
+            (void)pc_buf_appendf(reason, NULL, "its %s LUT can't be read (%s)", format, e.msg);
+        }
+        return P_NONE;
     }
     st = pc_io_desc_text(&d, "LUT3DFileName", &found, &name, NULL);
     if (st == PC_OK && !found) {
@@ -549,6 +619,11 @@ static parsed parse_lookup(const adj_rd *r, pc_adjustment *a)
     a->u.color_lookup.dither = dither;
     pc_lutfile_fini(&lut);
     return P_OK;
+}
+
+static parsed parse_lookup(const adj_rd *r, pc_adjustment *a)
+{
+    return read_lookup(r, a, NULL);
 }
 
 /* vibA (Adobe spec, "Vibrance"): a versioned descriptor with vibrance and Strt (saturation),
@@ -668,8 +743,9 @@ static parsed parse_black_white(const adj_rd *r, pc_adjustment *a)
 }
 
 /* phfl (Adobe spec, "Photo Filter"): version (2 or 3); version 2 has a colour structure (colour
- * space + four u16), version 3 three i32 holding the Lab colour x100 (as documented by ag-psd,
- * MIT); then density (u32 percent) and preserve luminosity (1 byte). */
+ * space + four u16), version 3 "4 bytes each for XYZ color"; then density (u32 percent) and
+ * preserve luminosity (1 byte). The XYZ values are read as D50 XYZ (the ICC PCS) with 1.0 = 32768
+ * (the ICC 16-bit PCSXYZ encoding); inferred, not documented. Version 3 is read, never written. */
 static parsed parse_photo_filter(const adj_rd *r, pc_adjustment *a)
 {
     uint16_t version;
@@ -697,17 +773,23 @@ static parsed parse_photo_filter(const adj_rd *r, pc_adjustment *a)
         at = 12;
     } else if (version == 3) {
         uint32_t u[3];
-        float lab[3];
+        float xyz[3];
+        float lin[3];
         for (size_t i = 0; i < 3; i++) {
             if (!be32(r, 2 + 4 * i, &u[i])) {
                 return P_NONE;
             }
-            lab[i] = (float)pc_u32_as_i32(u[i]) / 100.0f;
+            /* The stored components are an XYZ colour scaled by 32768 (unsigned). */
+            xyz[i] = (float)u[i] / 32768.0f;
         }
-        if (!(lab[0] >= 0.0f && lab[0] <= 100.0f) || fabsf(lab[1]) > 128.0f || fabsf(lab[2]) > 128.0f) {
+        /* Real colours stay below about 1.0; anything past 2.0 is not an XYZ colour. */
+        if (xyz[0] > 2.0f || xyz[1] > 2.0f || xyz[2] > 2.0f) {
             return P_NONE;
         }
-        pc_lab_to_srgb(lab, rgb);
+        pc_color_mat3_mul(PC_XYZ_D50_TO_SRGB, xyz, lin);
+        for (size_t i = 0; i < 3; i++) {
+            rgb[i] = pc_linear_to_srgb(pc_clampf(lin[i], 0.0f, 1.0f));
+        }
         at = 14;
     } else {
         return P_NONE;
@@ -892,6 +974,46 @@ static bool copy_curve(const pc_curve *src, pc_curve *dst)
     }
     *dst = c;
     return true;
+}
+
+const char *pc_io_adjust_label(const uint8_t key[4])
+{
+    static const struct {
+        char k[5];
+        const char *name;
+    } labels[] = {
+        {"levl", "Levels"},    {"curv", "Curves"},     {"hue2", "Hue/Saturation"},
+        {"brit", "Brightness/Contrast"}, {"nvrt", "Invert"}, {"thrs", "Threshold"},
+        {"post", "Posterize"}, {"expA", "Exposure"},   {"vibA", "Vibrance"},
+        {"blnc", "Color Balance"}, {"mixr", "Channel Mixer"}, {"grdm", "Gradient Map"},
+        {"phfl", "Photo Filter"}, {"selc", "Selective Color"}, {"blwh", "Black & White"},
+        {"clrL", "Color Lookup"},
+    };
+    for (size_t i = 0; i < sizeof labels / sizeof labels[0]; i++) {
+        if (memcmp(key, labels[i].k, 4) == 0) {
+            return labels[i].name;
+        }
+    }
+    return "adjustment";
+}
+
+bool pc_io_adjust_unreadable_reason(const uint8_t key[4], const uint8_t *data, size_t len, pc_buf *reason)
+{
+    adj_rd r = {data != NULL ? data : (const uint8_t *)"", data != NULL ? len : 0};
+    pc_adjustment a;
+    parsed p;
+    size_t start = reason != NULL ? reason->len : 0;
+    if (memcmp(key, "clrL", 4) != 0) {
+        return false;
+    }
+    memset(&a, 0, sizeof a);
+    p = read_lookup(&r, &a, reason);
+    if (p == P_OK) {
+        pc_adjustment_fini(&a);
+        return false;
+    }
+    /* P_NOMEM (and any path that appended nothing) leaves no reason. */
+    return reason != NULL && reason->len > start;
 }
 
 pc_status pc_io_adjust_parse(const uint8_t key[4], const uint8_t *data, size_t len, const uint8_t *cged,

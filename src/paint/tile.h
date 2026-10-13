@@ -23,6 +23,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "base/blob.h"
 #include "base/buf.h"
 #include "base/status.h"
 
@@ -62,6 +63,41 @@ float pc_paint_gray_tile_get(const pc_paint_gray_tile *t, uint32_t x, uint32_t y
 pc_status pc_paint_gray_tile_to_f32(const pc_paint_gray_tile *t, float **out, size_t *n, pc_error *err);
 bool pc_paint_gray_tile_is_valid(const pc_paint_gray_tile *t);
 bool pc_paint_gray_tile_eq(const pc_paint_gray_tile *a, const pc_paint_gray_tile *b);
+/* A box-filtered copy whose larger side is at most max_side (0 counts as 1; the whole tile when
+ * it is already that small), quantised to 8-bit levels (multiples of 257). Deterministic. An
+ * invalid tile gives a 1x1 tile of 0. */
+pc_status pc_paint_gray_tile_preview(const pc_paint_gray_tile *t, uint32_t max_side, pc_paint_gray_tile *out,
+                                     pc_error *err);
+
+/* Larger side of the previews kept for tips loaded on demand (pc_paint_stored_tile). */
+#define PC_PAINT_PREVIEW_SIDE 96u
+
+/* A tip or texture bitmap kept outside the brush settings by its owner (the preset store) and
+ * loaded only when the brush is used: `preview` is a small copy for thumbnails, `full` the
+ * bitmap once loaded (never serialised). Rendering uses pc_paint_stored_tile_bitmap: the full
+ * bitmap, or the preview when it isn't loaded. Two stored tiles are equal when their key and size
+ * are. Copies share everything (the key is an immutable shared blob) and never fail. */
+typedef struct pc_paint_stored_tile {
+    pc_blob *key; /* the owner's key (UTF-8 bytes); NULL = "" */
+    uint32_t width;
+    uint32_t height;
+    pc_paint_gray_tile preview;
+    bool loaded;
+    pc_paint_gray_tile full; /* loaded only */
+} pc_paint_stored_tile;
+
+/* *out = a stored tile with copies of the key bytes and shares of preview (and full when not
+ * NULL). PC_ERR_NOMEM. */
+pc_status pc_paint_stored_tile_init(const char *key, size_t key_len, uint32_t width, uint32_t height,
+                                    const pc_paint_gray_tile *preview, const pc_paint_gray_tile *full,
+                                    pc_paint_stored_tile *out, pc_error *err);
+void pc_paint_stored_tile_copy(pc_paint_stored_tile *dst, const pc_paint_stored_tile *src);
+void pc_paint_stored_tile_fini(pc_paint_stored_tile *t); /* NULL-safe */
+bool pc_paint_stored_tile_eq(const pc_paint_stored_tile *a, const pc_paint_stored_tile *b);
+/* The key bytes (borrowed; not NUL-terminated) and their length. */
+const char *pc_paint_stored_tile_key(const pc_paint_stored_tile *t, size_t *len);
+/* The full bitmap when loaded, else the preview (borrowed). */
+const pc_paint_gray_tile *pc_paint_stored_tile_bitmap(const pc_paint_stored_tile *t);
 
 /* Standard base64 with padding: appends to *out. */
 pc_status pc_paint_b64_encode(const uint8_t *b, size_t n, pc_buf *out, pc_error *err);

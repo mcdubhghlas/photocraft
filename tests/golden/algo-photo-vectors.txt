@@ -17,12 +17,12 @@ cr 37 23 0 {"exposure":-1.5} 06f87b5c28d69e9d
 cr 37 23 1 {"exposure":-1.5} 036c47327c368318
 cr 37 23 0 {"contrast":100} 77a532d29b246b0e
 cr 37 23 1 {"contrast":100} 9d8947d17a5abaad
-cr 37 23 0 {"contrast":-60,"whites":50,"blacks":-50} 02cf3c4b506717e1
-cr 37 23 1 {"contrast":-60,"whites":50,"blacks":-50} 0867e5dfa3271e25
-cr 37 23 0 {"highlights":-100,"shadows":100} a0a007985e5c4ac2
-cr 37 23 1 {"highlights":-100,"shadows":100} 94a0612f1dbd1bd0
-cr 37 23 0 {"highlights":60} 8cce5c1932cc55d6
-cr 37 23 1 {"highlights":60} defab61bddfcd436
+cr 37 23 0 {"contrast":-60,"whites":50,"blacks":-50} 3777cbf9ea36a0ae
+cr 37 23 1 {"contrast":-60,"whites":50,"blacks":-50} 177d43334f177bc6
+cr 37 23 0 {"highlights":-100,"shadows":100} 61a83815e840c54c
+cr 37 23 1 {"highlights":-100,"shadows":100} 4b11bbee44007132
+cr 37 23 0 {"highlights":60} fadc3a33368b97bb
+cr 37 23 1 {"highlights":60} d8f8c271aab42a7d
 cr 37 23 0 {"clarity":80} 774564b8897d417c
 cr 37 23 1 {"clarity":80} 31749c61d25464c1
 cr 37 23 0 {"clarity":-50,"texture":70} 8c735de05b5ec433
@@ -77,16 +77,32 @@ cr 37 23 0 {"vignetteAmount":-50,"vignetteStyle":"paintOverlay"} f67029bc4101ab1
 cr 37 23 1 {"vignetteAmount":-50,"vignetteStyle":"paintOverlay"} 667c6292ed5dd3ae
 cr 37 23 0 {"vignetteAmount":40,"vignetteStyle":"paintOverlay"} a7106634fcdd0f97
 cr 37 23 1 {"vignetteAmount":40,"vignetteStyle":"paintOverlay"} ac4cb90300442480
-cr 37 23 0 {"temperature":20,"exposure":0.3,"contrast":20,"highlights":-30,"shadows":30,"clarity":20,"dehaze":10,"vibrance":20,"curveLights":10,"hslSat":[10,0,0,0,0,0,0,0],"gradeGlobal":{"hue":30,"sat":10},"sharpenAmount":40,"noiseLuminance":20,"grainAmount":10,"vignetteAmount":-20} dad9df80f541fdc5
-cr 37 23 1 {"temperature":20,"exposure":0.3,"contrast":20,"highlights":-30,"shadows":30,"clarity":20,"dehaze":10,"vibrance":20,"curveLights":10,"hslSat":[10,0,0,0,0,0,0,0],"gradeGlobal":{"hue":30,"sat":10},"sharpenAmount":40,"noiseLuminance":20,"grainAmount":10,"vignetteAmount":-20} 5f856f8b5bbff37c
+cr 37 23 0 {"temperature":20,"exposure":0.3,"contrast":20,"highlights":-30,"shadows":30,"clarity":20,"dehaze":10,"vibrance":20,"curveLights":10,"hslSat":[10,0,0,0,0,0,0,0],"gradeGlobal":{"hue":30,"sat":10},"sharpenAmount":40,"noiseLuminance":20,"grainAmount":10,"vignetteAmount":-20} a9f0ccc4dd2c9c98
+cr 37 23 1 {"temperature":20,"exposure":0.3,"contrast":20,"highlights":-30,"shadows":30,"clarity":20,"dehaze":10,"vibrance":20,"curveLights":10,"hslSat":[10,0,0,0,0,0,0,0],"gradeGlobal":{"hue":30,"sat":10},"sharpenAmount":40,"noiseLuminance":20,"grainAmount":10,"vignetteAmount":-20} 63c3f72059d444c7
+cr 37 23 0 {"whites":80} c389ebaceb1511ee
+cr 37 23 1 {"whites":80} 3bb96a472c88f219
+cr 37 23 0 {"whites":-60} 06bf3738d27eed65
+cr 37 23 1 {"whites":-60} d924f6de9a63db5e
+cr 37 23 0 {"blacks":-70} db97b79a96310d6e
+cr 37 23 1 {"blacks":-70} ce1be4afb8f25b1c
+cr 37 23 0 {"blacks":40,"whites":30} 5ac6a7cd6a9202fa
+cr 37 23 1 {"blacks":40,"whites":30} c47f5b2b24a6f2bd
+cr 37 23 0 {"shadows":-80} fe4c4ca648ad5ec5
+cr 37 23 1 {"shadows":-80} 4f50eca7e3212997
+cr 37 23 0 {"highlights":100,"shadows":-30,"encodingGamma":1.8} e7222c28c6b33839
+cr 37 23 1 {"highlights":100,"shadows":-30,"encodingGamma":1.8} 9a73bc95fe9f374b
+cr 37 23 0 {"whites":60,"blacks":-40,"encodingGamma":2.2} 31b744f39f24f0f6
+cr 37 23 1 {"whites":60,"blacks":-40,"encodingGamma":2.2} 8972e78b390fda03
+cr 37 23 0 {"shadows":50,"contrast":30,"whites":-20,"encodingGamma":9} ddd8809c9696ee79
+cr 37 23 1 {"shadows":50,"contrast":30,"whites":-20,"encodingGamma":9} ea48426fcb7eff4d
 cr 800 40 0 {} 2f44803f3f75ce45
 cr 800 40 0 {"temperature":50} 40116ab612a36d1b
 cr 800 40 0 {"temperature":-30,"tint":40,"exposure":0.7} 711b35c3c564622e
 cr 800 40 0 {"exposure":-1.5} 7a5f56f30f14cee1
 cr 800 40 0 {"contrast":100} 792e216ae4d0e984
-cr 800 40 0 {"contrast":-60,"whites":50,"blacks":-50} 4175f16b501d9ccb
-cr 800 40 0 {"highlights":-100,"shadows":100} 3bc9e535380e6bb3
-cr 800 40 0 {"highlights":60} 4e8f0a15eb17967c
+cr 800 40 0 {"contrast":-60,"whites":50,"blacks":-50} e027d390406c5187
+cr 800 40 0 {"highlights":-100,"shadows":100} 2d39cc8857b1c378
+cr 800 40 0 {"highlights":60} bff802d1556cb36a
 cr 800 40 0 {"clarity":80} 8d79e5b72a198b34
 cr 800 40 0 {"clarity":-50,"texture":70} 769d0a601716f38e
 cr 800 40 0 {"texture":-80,"pixelScale":0.25} a3e96303a522fab8
@@ -114,15 +130,23 @@ cr 800 40 0 {"vignetteAmount":60,"vignetteMidpoint":20,"vignetteRoundness":-70,"
 cr 800 40 0 {"vignetteAmount":-50,"vignetteHighlights":70,"vignetteRoundness":50,"vignetteStyle":"colorPriority"} 2c58f3b68e5ed31f
 cr 800 40 0 {"vignetteAmount":-50,"vignetteStyle":"paintOverlay"} e6ebd98e74bea32c
 cr 800 40 0 {"vignetteAmount":40,"vignetteStyle":"paintOverlay"} 251faaa1343914f1
-cr 800 40 0 {"temperature":20,"exposure":0.3,"contrast":20,"highlights":-30,"shadows":30,"clarity":20,"dehaze":10,"vibrance":20,"curveLights":10,"hslSat":[10,0,0,0,0,0,0,0],"gradeGlobal":{"hue":30,"sat":10},"sharpenAmount":40,"noiseLuminance":20,"grainAmount":10,"vignetteAmount":-20} 4a481c5d676804c7
+cr 800 40 0 {"temperature":20,"exposure":0.3,"contrast":20,"highlights":-30,"shadows":30,"clarity":20,"dehaze":10,"vibrance":20,"curveLights":10,"hslSat":[10,0,0,0,0,0,0,0],"gradeGlobal":{"hue":30,"sat":10},"sharpenAmount":40,"noiseLuminance":20,"grainAmount":10,"vignetteAmount":-20} 5f282faad12948da
+cr 800 40 0 {"whites":80} db7c0c51e769322f
+cr 800 40 0 {"whites":-60} 415e3e324be4b50c
+cr 800 40 0 {"blacks":-70} dfe2b78f894c5dfa
+cr 800 40 0 {"blacks":40,"whites":30} b681af289fc6d043
+cr 800 40 0 {"shadows":-80} 78cc0a60214acccc
+cr 800 40 0 {"highlights":100,"shadows":-30,"encodingGamma":1.8} 8c0548314aeae8e0
+cr 800 40 0 {"whites":60,"blacks":-40,"encodingGamma":2.2} 2e530bd1ca7a5784
+cr 800 40 0 {"shadows":50,"contrast":30,"whites":-20,"encodingGamma":9} 09517e4736a70486
 cr 5 3 0 {} 96cc2bdd28de048b
 cr 5 3 0 {"temperature":50} 95ac7ae7fda172ec
 cr 5 3 0 {"temperature":-30,"tint":40,"exposure":0.7} 6dfb41d528d69397
 cr 5 3 0 {"exposure":-1.5} 5089eb851edaa4df
 cr 5 3 0 {"contrast":100} f4daa367a8dd1320
-cr 5 3 0 {"contrast":-60,"whites":50,"blacks":-50} b6ea26a5fcc91bfa
-cr 5 3 0 {"highlights":-100,"shadows":100} 084107511fc47d1e
-cr 5 3 0 {"highlights":60} 43c6b164a12cc2cb
+cr 5 3 0 {"contrast":-60,"whites":50,"blacks":-50} 405439f2da8e33c4
+cr 5 3 0 {"highlights":-100,"shadows":100} e923fdb2d0a34477
+cr 5 3 0 {"highlights":60} f6af780aae3cf680
 cr 5 3 0 {"clarity":80} f440311b541f0887
 cr 5 3 0 {"clarity":-50,"texture":70} 5e9feaf85530ad10
 cr 5 3 0 {"texture":-80,"pixelScale":0.25} dd26539daf50b84b
@@ -150,12 +174,23 @@ cr 5 3 0 {"vignetteAmount":60,"vignetteMidpoint":20,"vignetteRoundness":-70,"vig
 cr 5 3 0 {"vignetteAmount":-50,"vignetteHighlights":70,"vignetteRoundness":50,"vignetteStyle":"colorPriority"} 4f263abb09443694
 cr 5 3 0 {"vignetteAmount":-50,"vignetteStyle":"paintOverlay"} a8602138f007f144
 cr 5 3 0 {"vignetteAmount":40,"vignetteStyle":"paintOverlay"} 108b32b3d04b5a33
-cr 5 3 0 {"temperature":20,"exposure":0.3,"contrast":20,"highlights":-30,"shadows":30,"clarity":20,"dehaze":10,"vibrance":20,"curveLights":10,"hslSat":[10,0,0,0,0,0,0,0],"gradeGlobal":{"hue":30,"sat":10},"sharpenAmount":40,"noiseLuminance":20,"grainAmount":10,"vignetteAmount":-20} 3c3a0aaace2fcd59
-crjson {"temperature":0.0,"tint":0.0,"exposure":0.0,"contrast":0.0,"highlights":0.0,"shadows":0.0,"whites":0.0,"blacks":0.0,"texture":0.0,"clarity":0.0,"dehaze":0.0,"vibrance":0.0,"saturation":0.0,"curveHighlights":0.0,"curveLights":0.0,"curveDarks":0.0,"curveShadows":0.0,"curveSplits":[25.0,50.0,75.0],"pointCurve":[],"pointCurveRed":[],"pointCurveGreen":[],"pointCurveBlue":[],"hslHue":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"hslSat":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"hslLum":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"gradeShadows":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeMidtones":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeHighlights":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeGlobal":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeBlending":50.0,"gradeBalance":0.0,"sharpenAmount":0.0,"sharpenRadius":1.0,"sharpenDetail":25.0,"sharpenMasking":0.0,"noiseLuminance":0.0,"noiseLuminanceDetail":50.0,"noiseColor":0.0,"noiseColorDetail":50.0,"grainAmount":0.0,"grainSize":25.0,"grainRoughness":50.0,"vignetteAmount":0.0,"vignetteMidpoint":50.0,"vignetteRoundness":0.0,"vignetteFeather":50.0,"vignetteHighlights":0.0,"vignetteStyle":"highlightPriority","seed":0,"pixelScale":1.0}
-crjson {"temperature":0.0,"tint":0.0,"exposure":0.0,"contrast":0.0,"highlights":0.0,"shadows":0.0,"whites":0.0,"blacks":0.0,"texture":0.0,"clarity":0.0,"dehaze":0.0,"vibrance":0.0,"saturation":0.0,"curveHighlights":-40.0,"curveLights":0.0,"curveDarks":0.0,"curveShadows":50.0,"curveSplits":[10.0,60.0,80.0],"pointCurve":[],"pointCurveRed":[],"pointCurveGreen":[],"pointCurveBlue":[],"hslHue":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"hslSat":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"hslLum":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"gradeShadows":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeMidtones":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeHighlights":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeGlobal":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeBlending":50.0,"gradeBalance":0.0,"sharpenAmount":0.0,"sharpenRadius":1.0,"sharpenDetail":25.0,"sharpenMasking":0.0,"noiseLuminance":0.0,"noiseLuminanceDetail":50.0,"noiseColor":0.0,"noiseColorDetail":50.0,"grainAmount":0.0,"grainSize":25.0,"grainRoughness":50.0,"vignetteAmount":0.0,"vignetteMidpoint":50.0,"vignetteRoundness":0.0,"vignetteFeather":50.0,"vignetteHighlights":0.0,"vignetteStyle":"highlightPriority","seed":0,"pixelScale":1.0}
-crjson {"temperature":0.0,"tint":0.0,"exposure":0.0,"contrast":0.0,"highlights":0.0,"shadows":0.0,"whites":0.0,"blacks":0.0,"texture":0.0,"clarity":0.0,"dehaze":0.0,"vibrance":0.0,"saturation":0.0,"curveHighlights":0.0,"curveLights":0.0,"curveDarks":0.0,"curveShadows":0.0,"curveSplits":[25.0,50.0,75.0],"pointCurve":[],"pointCurveRed":[],"pointCurveGreen":[],"pointCurveBlue":[],"hslHue":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"hslSat":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"hslLum":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"gradeShadows":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeMidtones":{"hue":120.0,"sat":30.0,"lum":-30.0},"gradeHighlights":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeGlobal":{"hue":300.0,"sat":20.0,"lum":10.0},"gradeBlending":80.0,"gradeBalance":-40.0,"sharpenAmount":0.0,"sharpenRadius":1.0,"sharpenDetail":25.0,"sharpenMasking":0.0,"noiseLuminance":0.0,"noiseLuminanceDetail":50.0,"noiseColor":0.0,"noiseColorDetail":50.0,"grainAmount":0.0,"grainSize":25.0,"grainRoughness":50.0,"vignetteAmount":0.0,"vignetteMidpoint":50.0,"vignetteRoundness":0.0,"vignetteFeather":50.0,"vignetteHighlights":0.0,"vignetteStyle":"highlightPriority","seed":0,"pixelScale":1.0}
-crjson {"temperature":0.0,"tint":0.0,"exposure":0.0,"contrast":0.0,"highlights":0.0,"shadows":0.0,"whites":0.0,"blacks":0.0,"texture":0.0,"clarity":0.0,"dehaze":0.0,"vibrance":0.0,"saturation":0.0,"curveHighlights":0.0,"curveLights":0.0,"curveDarks":0.0,"curveShadows":0.0,"curveSplits":[25.0,50.0,75.0],"pointCurve":[],"pointCurveRed":[],"pointCurveGreen":[],"pointCurveBlue":[],"hslHue":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"hslSat":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"hslLum":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"gradeShadows":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeMidtones":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeHighlights":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeGlobal":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeBlending":50.0,"gradeBalance":0.0,"sharpenAmount":0.0,"sharpenRadius":1.0,"sharpenDetail":25.0,"sharpenMasking":0.0,"noiseLuminance":0.0,"noiseLuminanceDetail":50.0,"noiseColor":0.0,"noiseColorDetail":50.0,"grainAmount":0.0,"grainSize":25.0,"grainRoughness":50.0,"vignetteAmount":-50.0,"vignetteMidpoint":50.0,"vignetteRoundness":0.0,"vignetteFeather":50.0,"vignetteHighlights":0.0,"vignetteStyle":"paintOverlay","seed":0,"pixelScale":1.0}
-crjson {"temperature":0.0,"tint":0.0,"exposure":0.0,"contrast":0.0,"highlights":0.0,"shadows":0.0,"whites":0.0,"blacks":0.0,"texture":0.0,"clarity":0.0,"dehaze":0.0,"vibrance":0.0,"saturation":0.0,"curveHighlights":0.0,"curveLights":0.0,"curveDarks":0.0,"curveShadows":0.0,"curveSplits":[25.0,50.0,75.0],"pointCurve":[],"pointCurveRed":[],"pointCurveGreen":[],"pointCurveBlue":[],"hslHue":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"hslSat":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"hslLum":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"gradeShadows":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeMidtones":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeHighlights":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeGlobal":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeBlending":50.0,"gradeBalance":0.0,"sharpenAmount":0.0,"sharpenRadius":1.0,"sharpenDetail":25.0,"sharpenMasking":0.0,"noiseLuminance":0.0,"noiseLuminanceDetail":50.0,"noiseColor":0.0,"noiseColorDetail":50.0,"grainAmount":0.0,"grainSize":25.0,"grainRoughness":50.0,"vignetteAmount":0.0,"vignetteMidpoint":50.0,"vignetteRoundness":0.0,"vignetteFeather":50.0,"vignetteHighlights":0.0,"vignetteStyle":"x y","seed":4294967295,"pixelScale":1e-7}
+cr 5 3 0 {"temperature":20,"exposure":0.3,"contrast":20,"highlights":-30,"shadows":30,"clarity":20,"dehaze":10,"vibrance":20,"curveLights":10,"hslSat":[10,0,0,0,0,0,0,0],"gradeGlobal":{"hue":30,"sat":10},"sharpenAmount":40,"noiseLuminance":20,"grainAmount":10,"vignetteAmount":-20} e274b60a1392b802
+cr 5 3 0 {"whites":80} c408d988d2df747a
+cr 5 3 0 {"whites":-60} 25e4428b8cdce56a
+cr 5 3 0 {"blacks":-70} 53a990ae460453cd
+cr 5 3 0 {"blacks":40,"whites":30} 6a374fe682842558
+cr 5 3 0 {"shadows":-80} 9faf6e8459238e6c
+cr 5 3 0 {"highlights":100,"shadows":-30,"encodingGamma":1.8} fc5cf4c72940c832
+cr 5 3 0 {"whites":60,"blacks":-40,"encodingGamma":2.2} 293bcbba9e1c9d16
+cr 5 3 0 {"shadows":50,"contrast":30,"whites":-20,"encodingGamma":9} 6996ecf49486e707
+cr 1700 9 0 {"shadows":70,"highlights":-50} 7e2553c3668152b4
+cr 1700 9 0 {"highlights":40,"whites":20,"encodingGamma":1.8} 7c7d45e9d011f23d
+crjson {"temperature":0.0,"tint":0.0,"exposure":0.0,"contrast":0.0,"highlights":0.0,"shadows":0.0,"whites":0.0,"blacks":0.0,"texture":0.0,"clarity":0.0,"dehaze":0.0,"vibrance":0.0,"saturation":0.0,"curveHighlights":0.0,"curveLights":0.0,"curveDarks":0.0,"curveShadows":0.0,"curveSplits":[25.0,50.0,75.0],"pointCurve":[],"pointCurveRed":[],"pointCurveGreen":[],"pointCurveBlue":[],"hslHue":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"hslSat":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"hslLum":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"gradeShadows":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeMidtones":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeHighlights":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeGlobal":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeBlending":50.0,"gradeBalance":0.0,"sharpenAmount":0.0,"sharpenRadius":1.0,"sharpenDetail":25.0,"sharpenMasking":0.0,"noiseLuminance":0.0,"noiseLuminanceDetail":50.0,"noiseColor":0.0,"noiseColorDetail":50.0,"grainAmount":0.0,"grainSize":25.0,"grainRoughness":50.0,"vignetteAmount":0.0,"vignetteMidpoint":50.0,"vignetteRoundness":0.0,"vignetteFeather":50.0,"vignetteHighlights":0.0,"vignetteStyle":"highlightPriority","seed":0,"pixelScale":1.0,"encodingGamma":0.0}
+crjson {"temperature":0.0,"tint":0.0,"exposure":0.0,"contrast":0.0,"highlights":0.0,"shadows":0.0,"whites":0.0,"blacks":0.0,"texture":0.0,"clarity":0.0,"dehaze":0.0,"vibrance":0.0,"saturation":0.0,"curveHighlights":-40.0,"curveLights":0.0,"curveDarks":0.0,"curveShadows":50.0,"curveSplits":[10.0,60.0,80.0],"pointCurve":[],"pointCurveRed":[],"pointCurveGreen":[],"pointCurveBlue":[],"hslHue":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"hslSat":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"hslLum":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"gradeShadows":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeMidtones":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeHighlights":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeGlobal":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeBlending":50.0,"gradeBalance":0.0,"sharpenAmount":0.0,"sharpenRadius":1.0,"sharpenDetail":25.0,"sharpenMasking":0.0,"noiseLuminance":0.0,"noiseLuminanceDetail":50.0,"noiseColor":0.0,"noiseColorDetail":50.0,"grainAmount":0.0,"grainSize":25.0,"grainRoughness":50.0,"vignetteAmount":0.0,"vignetteMidpoint":50.0,"vignetteRoundness":0.0,"vignetteFeather":50.0,"vignetteHighlights":0.0,"vignetteStyle":"highlightPriority","seed":0,"pixelScale":1.0,"encodingGamma":0.0}
+crjson {"temperature":0.0,"tint":0.0,"exposure":0.0,"contrast":0.0,"highlights":0.0,"shadows":0.0,"whites":0.0,"blacks":0.0,"texture":0.0,"clarity":0.0,"dehaze":0.0,"vibrance":0.0,"saturation":0.0,"curveHighlights":0.0,"curveLights":0.0,"curveDarks":0.0,"curveShadows":0.0,"curveSplits":[25.0,50.0,75.0],"pointCurve":[],"pointCurveRed":[],"pointCurveGreen":[],"pointCurveBlue":[],"hslHue":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"hslSat":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"hslLum":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"gradeShadows":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeMidtones":{"hue":120.0,"sat":30.0,"lum":-30.0},"gradeHighlights":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeGlobal":{"hue":300.0,"sat":20.0,"lum":10.0},"gradeBlending":80.0,"gradeBalance":-40.0,"sharpenAmount":0.0,"sharpenRadius":1.0,"sharpenDetail":25.0,"sharpenMasking":0.0,"noiseLuminance":0.0,"noiseLuminanceDetail":50.0,"noiseColor":0.0,"noiseColorDetail":50.0,"grainAmount":0.0,"grainSize":25.0,"grainRoughness":50.0,"vignetteAmount":0.0,"vignetteMidpoint":50.0,"vignetteRoundness":0.0,"vignetteFeather":50.0,"vignetteHighlights":0.0,"vignetteStyle":"highlightPriority","seed":0,"pixelScale":1.0,"encodingGamma":0.0}
+crjson {"temperature":0.0,"tint":0.0,"exposure":0.0,"contrast":0.0,"highlights":0.0,"shadows":0.0,"whites":0.0,"blacks":0.0,"texture":0.0,"clarity":0.0,"dehaze":0.0,"vibrance":0.0,"saturation":0.0,"curveHighlights":0.0,"curveLights":0.0,"curveDarks":0.0,"curveShadows":0.0,"curveSplits":[25.0,50.0,75.0],"pointCurve":[],"pointCurveRed":[],"pointCurveGreen":[],"pointCurveBlue":[],"hslHue":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"hslSat":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"hslLum":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"gradeShadows":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeMidtones":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeHighlights":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeGlobal":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeBlending":50.0,"gradeBalance":0.0,"sharpenAmount":0.0,"sharpenRadius":1.0,"sharpenDetail":25.0,"sharpenMasking":0.0,"noiseLuminance":0.0,"noiseLuminanceDetail":50.0,"noiseColor":0.0,"noiseColorDetail":50.0,"grainAmount":0.0,"grainSize":25.0,"grainRoughness":50.0,"vignetteAmount":-50.0,"vignetteMidpoint":50.0,"vignetteRoundness":0.0,"vignetteFeather":50.0,"vignetteHighlights":0.0,"vignetteStyle":"paintOverlay","seed":0,"pixelScale":1.0,"encodingGamma":0.0}
+crjson {"temperature":0.0,"tint":0.0,"exposure":0.0,"contrast":0.0,"highlights":0.0,"shadows":0.0,"whites":0.0,"blacks":0.0,"texture":0.0,"clarity":0.0,"dehaze":0.0,"vibrance":0.0,"saturation":0.0,"curveHighlights":0.0,"curveLights":0.0,"curveDarks":0.0,"curveShadows":0.0,"curveSplits":[25.0,50.0,75.0],"pointCurve":[],"pointCurveRed":[],"pointCurveGreen":[],"pointCurveBlue":[],"hslHue":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"hslSat":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"hslLum":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"gradeShadows":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeMidtones":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeHighlights":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeGlobal":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeBlending":50.0,"gradeBalance":0.0,"sharpenAmount":0.0,"sharpenRadius":1.0,"sharpenDetail":25.0,"sharpenMasking":0.0,"noiseLuminance":0.0,"noiseLuminanceDetail":50.0,"noiseColor":0.0,"noiseColorDetail":50.0,"grainAmount":0.0,"grainSize":25.0,"grainRoughness":50.0,"vignetteAmount":0.0,"vignetteMidpoint":50.0,"vignetteRoundness":0.0,"vignetteFeather":50.0,"vignetteHighlights":0.0,"vignetteStyle":"x y","seed":4294967295,"pixelScale":1e-7,"encodingGamma":0.0}
+crjson {"temperature":0.0,"tint":0.0,"exposure":0.0,"contrast":0.0,"highlights":0.0,"shadows":0.0,"whites":0.0,"blacks":0.0,"texture":0.0,"clarity":0.0,"dehaze":0.0,"vibrance":0.0,"saturation":0.0,"curveHighlights":0.0,"curveLights":0.0,"curveDarks":0.0,"curveShadows":0.0,"curveSplits":[25.0,50.0,75.0],"pointCurve":[],"pointCurveRed":[],"pointCurveGreen":[],"pointCurveBlue":[],"hslHue":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"hslSat":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"hslLum":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"gradeShadows":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeMidtones":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeHighlights":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeGlobal":{"hue":0.0,"sat":0.0,"lum":0.0},"gradeBlending":50.0,"gradeBalance":0.0,"sharpenAmount":0.0,"sharpenRadius":1.0,"sharpenDetail":25.0,"sharpenMasking":0.0,"noiseLuminance":0.0,"noiseLuminanceDetail":50.0,"noiseColor":0.0,"noiseColorDetail":50.0,"grainAmount":0.0,"grainSize":25.0,"grainRoughness":50.0,"vignetteAmount":0.0,"vignetteMidpoint":50.0,"vignetteRoundness":0.0,"vignetteFeather":50.0,"vignetteHighlights":0.0,"vignetteStyle":"highlightPriority","seed":0,"pixelScale":1.0,"encodingGamma":1.8}
 hdr_est e56bfa498dc5fbc4
 hdr_mtb 5 -3 0 0 0
 hdr_mtb 5 -3 2 3 -3
@@ -416,53 +451,53 @@ wide_apply rgba8 bicubic a f0 {"focalLength":10,"cropFactor":1.5} 042bace70f6735
 wide_apply rgba8 bicubic a f3 {"focalLength":10,"cropFactor":1.5} a8a7c3e4a85dcd40
 wide_apply rgba8 bicubic a f0 {"scale":80} 4dc773481e1b099e
 wide_apply rgba8 bicubic a f3 {"scale":80} 69e6c886b4b292e6
-wide_apply rgba8 bicubic a f0 {"scale":50} 801e0a4101733562
-wide_apply rgba8 bicubic a f3 {"scale":50} c9ee8058f39d3976
+wide_apply rgba8 bicubic a f0 {"scale":50} c8956337838037e1
+wide_apply rgba8 bicubic a f3 {"scale":50} c24898dc2c5866b5
 wide_apply rgba8 bicubic a f0 {"scale":150} 34963f2ec068a6ae
 wide_apply rgba8 bicubic a f3 {"scale":150} 32ae3cf6b05a166d
-wide_apply rgba8 bicubic a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} d65df7c9b23f82e0
-wide_apply rgba8 bicubic a f3 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 816c9f129e089d19
-wide_apply rgba8 bicubic a f0 {"model":"fisheye","focalLength":12,"constraints":[{"a":[20,30],"b":[460,35],"orientation":"horizontal"}]} a8fff022f242df78
+wide_apply rgba8 bicubic a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 6c96568bb5221ce1
+wide_apply rgba8 bicubic a f3 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} aba1ce94341fd8f4
+wide_apply rgba8 bicubic a f0 {"model":"fisheye","focalLength":12,"constraints":[{"a":[20,30],"b":[460,35],"orientation":"horizontal"}]} efb02755841640da
 wide_apply rgba8 bicubic a f3 {"model":"fisheye","focalLength":12,"constraints":[{"a":[20,30],"b":[460,35],"orientation":"horizontal"}]} f690eea4617402ee
 wide_apply rgba8 bicubic a f0 {"model":"perspective","constraints":[{"a":[100,20],"b":[110,300],"orientation":"vertical"},{"a":[30,250],"b":[400,280]}],"scale":110} fe8a91f765f34225
-wide_apply rgba8 bicubic a f3 {"model":"perspective","constraints":[{"a":[100,20],"b":[110,300],"orientation":"vertical"},{"a":[30,250],"b":[400,280]}],"scale":110} e326d20b893c27f5
-wide_apply rgba8 bicubic a f0 {"model":"fullSpherical","constraints":[{"a":[10,100],"b":[300,120]}]} 6c80993d26332426
-wide_apply rgba8 bicubic a f3 {"model":"fullSpherical","constraints":[{"a":[10,100],"b":[300,120]}]} af535b747bbf7e22
-wide_apply rgba8 bicubic a f0 {"model":"fisheye","focalLength":10,"constraints":[{"a":[30,300],"b":[450,290],"orientation":"horizontal"},{"a":[400,40],"b":[410,280],"orientation":"vertical"},{"a":[50,50],"b":[200,150]}],"scale":90} a55e74a548135c8f
-wide_apply rgba8 bicubic a f3 {"model":"fisheye","focalLength":10,"constraints":[{"a":[30,300],"b":[450,290],"orientation":"horizontal"},{"a":[400,40],"b":[410,280],"orientation":"vertical"},{"a":[50,50],"b":[200,150]}],"scale":90} 7f9063ba49df5dca
+wide_apply rgba8 bicubic a f3 {"model":"perspective","constraints":[{"a":[100,20],"b":[110,300],"orientation":"vertical"},{"a":[30,250],"b":[400,280]}],"scale":110} 781100346273d379
+wide_apply rgba8 bicubic a f0 {"model":"fullSpherical","constraints":[{"a":[10,100],"b":[300,120]}]} dde0fe546fc4c064
+wide_apply rgba8 bicubic a f3 {"model":"fullSpherical","constraints":[{"a":[10,100],"b":[300,120]}]} 43f92d2446b3eb84
+wide_apply rgba8 bicubic a f0 {"model":"fisheye","focalLength":10,"constraints":[{"a":[30,300],"b":[450,290],"orientation":"horizontal"},{"a":[400,40],"b":[410,280],"orientation":"vertical"},{"a":[50,50],"b":[200,150]}],"scale":90} de9a60f3946cf710
+wide_apply rgba8 bicubic a f3 {"model":"fisheye","focalLength":10,"constraints":[{"a":[30,300],"b":[450,290],"orientation":"horizontal"},{"a":[400,40],"b":[410,280],"orientation":"vertical"},{"a":[50,50],"b":[200,150]}],"scale":90} f8536611e8b0eba6
 wide_apply rgba8 nearest a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 14bb74472eccf254
-wide_apply rgba8 bilinear a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 773923e50b083d37
-wide_apply rgba8 bicubic a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} d65df7c9b23f82e0
+wide_apply rgba8 bilinear a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} fb46834069b90eb8
+wide_apply rgba8 bicubic a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 6c96568bb5221ce1
 wide_apply rgb8 nearest a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} ce17d2425b36e6c4
-wide_apply rgb8 bilinear a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} a9d6d3c18bf72c56
-wide_apply rgb8 bicubic a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 3b4661726da2880e
+wide_apply rgb8 bilinear a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} ad0c8cddd42529e0
+wide_apply rgb8 bicubic a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} eae7b0534872fa38
 wide_apply rgba32 nearest a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} a4f753b67e5c0e0b
-wide_apply rgba32 bilinear a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 9710cfa83e10f010
-wide_apply rgba32 bicubic a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} e8ae61b30753a7b5
+wide_apply rgba32 bilinear a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} e6cdf3cfe409a14f
+wide_apply rgba32 bicubic a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} c1aa5e355cb32ddc
 wide_apply gray16 nearest a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} f2295a22f4e3f7b2
-wide_apply gray16 bilinear a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 3d7af4632da3fb2b
-wide_apply gray16 bicubic a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 0afafe8dcb7fdcf3
+wide_apply gray16 bilinear a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 3036ed3d13c26e72
+wide_apply gray16 bicubic a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 9c3c361a32a7d94b
 wide_apply cmyka8 nearest a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} c02b1e6e9ba95e1c
-wide_apply cmyka8 bilinear a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 20526e96f4360951
-wide_apply cmyka8 bicubic a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} d9fcbb54de786b0f
+wide_apply cmyka8 bilinear a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} a19522cb81e6b22d
+wide_apply cmyka8 bicubic a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 61e9631b97754772
 wide_apply laba16 nearest a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 799f2b8af2eefe1e
-wide_apply laba16 bilinear a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 3f5c6b7dd00bbc93
-wide_apply laba16 bicubic a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 5e49945109976df2
+wide_apply laba16 bilinear a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 8aa599f81b1baefa
+wide_apply laba16 bicubic a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 44038f5d63386f5b
 wide_apply rgba16 nearest a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 799f2b8af2eefe1e
-wide_apply rgba16 bilinear a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 3f5c6b7dd00bbc93
-wide_apply rgba16 bicubic a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 5e49945109976df2
+wide_apply rgba16 bilinear a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 8aa599f81b1baefa
+wide_apply rgba16 bicubic a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 44038f5d63386f5b
 wide_apply rgb32 nearest a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 3505bad729e131bb
-wide_apply rgb32 bilinear a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 9dbf3b7666b9ecda
-wide_apply rgb32 bicubic a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 50a440603d614a5a
+wide_apply rgb32 bilinear a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} f4a53e95d4ff681c
+wide_apply rgb32 bicubic a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 69be7ab939be598c
 wide_apply gray8 nearest a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} c92d235034f2cac7
-wide_apply gray8 bilinear a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 3b9f0d059bf315be
-wide_apply gray8 bicubic a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 2eb41a0142630846
+wide_apply gray8 bilinear a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} ed111ae4187c0d23
+wide_apply gray8 bicubic a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} c7288a2c471073be
 wide_apply graya32 nearest a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} a2d9b6837abc5b3c
-wide_apply graya32 bilinear a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 4143c221d7747b12
-wide_apply graya32 bicubic a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} ff5b6d5e31db66a8
+wide_apply graya32 bilinear a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 8d49ede5b37f6aaf
+wide_apply graya32 bicubic a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} d60540555bc41c32
 wide_apply cmyk16 nearest a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} fdba6eac5c3fc091
-wide_apply cmyk16 bilinear a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 4e39e8afa4a4f0e0
-wide_apply cmyk16 bicubic a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} d29d8def7563895b
+wide_apply cmyk16 bilinear a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 64371b31c4db4808
+wide_apply cmyk16 bicubic a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 5cb77f66be7b0347
 wide_apply rgba8 nearest a f0 {"model":"perspective","constraints":[{"a":[100,20],"b":[110,300],"orientation":"vertical"},{"a":[30,250],"b":[400,280]}],"scale":110} ca68d84f056cd808
 wide_apply rgba8 bilinear a f0 {"model":"perspective","constraints":[{"a":[100,20],"b":[110,300],"orientation":"vertical"},{"a":[30,250],"b":[400,280]}],"scale":110} 6bdea68d0780aeef
 wide_apply rgba8 bicubic a f0 {"model":"perspective","constraints":[{"a":[100,20],"b":[110,300],"orientation":"vertical"},{"a":[30,250],"b":[400,280]}],"scale":110} fe8a91f765f34225
@@ -516,20 +551,20 @@ wide_apply rgba8 nearest e f1 {"model":"fisheye","focalLength":8,"constraints":[
 wide_apply rgba8 nearest e f2 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} b52b3f1c8e59bc78
 wide_apply rgba8 nearest e f4 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} b52b3f1c8e59bc78
 wide_apply rgba8 nearest e fe {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} b52b3f1c8e59bc78
-wide_apply rgba8 bicubic a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} d65df7c9b23f82e0
-wide_apply rgba8 bicubic a f1 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 9b233b2422f0d35f
-wide_apply rgba8 bicubic a f2 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} ce7bbff7b323619a
-wide_apply rgba8 bicubic a f4 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 01bcc24a3876c81d
+wide_apply rgba8 bicubic a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 6c96568bb5221ce1
+wide_apply rgba8 bicubic a f1 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} a7b0897bb2950ef3
+wide_apply rgba8 bicubic a f2 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 9f736372368fd44e
+wide_apply rgba8 bicubic a f4 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} f29601446fbd24b1
 wide_apply rgba8 bicubic a fe {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} b52b3f1c8e59bc78
-wide_apply rgba8 bicubic o f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 3b4661726da2880e
-wide_apply rgba8 bicubic o f1 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} a8cc487ba45bee5d
-wide_apply rgba8 bicubic o f2 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 2dd27837bf2fe0a0
-wide_apply rgba8 bicubic o f4 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 9f76eac612b54d32
+wide_apply rgba8 bicubic o f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} eae7b0534872fa38
+wide_apply rgba8 bicubic o f1 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 604f21f052d5df1d
+wide_apply rgba8 bicubic o f2 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} c5bb5d5f0934f20f
+wide_apply rgba8 bicubic o f4 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 346d11b703c6b027
 wide_apply rgba8 bicubic o fe {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} b52b3f1c8e59bc78
-wide_apply rgba8 bicubic s f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 26d90c78b4bb8d55
-wide_apply rgba8 bicubic s f1 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 66efbb6517d32c78
-wide_apply rgba8 bicubic s f2 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} d68e20de3dada1cd
-wide_apply rgba8 bicubic s f4 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 09ca1aad743da804
+wide_apply rgba8 bicubic s f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 4b6ca88dd7d74050
+wide_apply rgba8 bicubic s f1 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 3a95f6301b9ed104
+wide_apply rgba8 bicubic s f2 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 6e1d947d03b49d9d
+wide_apply rgba8 bicubic s f4 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} bd2b89d35f0d04a8
 wide_apply rgba8 bicubic s fe {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} b52b3f1c8e59bc78
 wide_apply rgba8 bicubic e f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} b52b3f1c8e59bc78
 wide_apply rgba8 bicubic e f1 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} b52b3f1c8e59bc78
@@ -556,23 +591,49 @@ wide_apply rgba32 nearest e f1 {"model":"fisheye","focalLength":8,"constraints":
 wide_apply rgba32 nearest e f2 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} b52b3f1c8e59bc78
 wide_apply rgba32 nearest e f4 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} b52b3f1c8e59bc78
 wide_apply rgba32 nearest e fe {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} b52b3f1c8e59bc78
-wide_apply rgba32 bicubic a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} e8ae61b30753a7b5
-wide_apply rgba32 bicubic a f1 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} f7a61c2fcacacb8a
-wide_apply rgba32 bicubic a f2 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 0670ca9caa0318c6
-wide_apply rgba32 bicubic a f4 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} d570c64d5a8a0b00
+wide_apply rgba32 bicubic a f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} c1aa5e355cb32ddc
+wide_apply rgba32 bicubic a f1 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 627f8dfd0450bebf
+wide_apply rgba32 bicubic a f2 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 9f6f5977d6fc435c
+wide_apply rgba32 bicubic a f4 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 4a9ac46e5414b4a7
 wide_apply rgba32 bicubic a fe {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} b52b3f1c8e59bc78
-wide_apply rgba32 bicubic o f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 50a440603d614a5a
-wide_apply rgba32 bicubic o f1 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 2e23391796b45427
-wide_apply rgba32 bicubic o f2 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} def05c54124ca6c7
-wide_apply rgba32 bicubic o f4 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 386faafe1b26ba86
+wide_apply rgba32 bicubic o f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 69be7ab939be598c
+wide_apply rgba32 bicubic o f1 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} b69ca9ede189ce57
+wide_apply rgba32 bicubic o f2 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 85722e352fc03c61
+wide_apply rgba32 bicubic o f4 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 67e9056b83a697e6
 wide_apply rgba32 bicubic o fe {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} b52b3f1c8e59bc78
-wide_apply rgba32 bicubic s f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} e6ffde0842ff8f87
-wide_apply rgba32 bicubic s f1 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 9e19419f494e1ca2
-wide_apply rgba32 bicubic s f2 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 0f26a02da61dd379
-wide_apply rgba32 bicubic s f4 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 5fb83281757ac5f1
+wide_apply rgba32 bicubic s f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 2e18e8e79d9ebd22
+wide_apply rgba32 bicubic s f1 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} ca4863eff32c72cf
+wide_apply rgba32 bicubic s f2 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 40ee9e419a54f7ae
+wide_apply rgba32 bicubic s f4 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} 6deb92e709418f0e
 wide_apply rgba32 bicubic s fe {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} b52b3f1c8e59bc78
 wide_apply rgba32 bicubic e f0 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} b52b3f1c8e59bc78
 wide_apply rgba32 bicubic e f1 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} b52b3f1c8e59bc78
 wide_apply rgba32 bicubic e f2 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} b52b3f1c8e59bc78
 wide_apply rgba32 bicubic e f4 {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} b52b3f1c8e59bc78
 wide_apply rgba32 bicubic e fe {"model":"fisheye","focalLength":8,"constraints":[{"a":[60,70],"b":[420,70],"orientation":"horizontal"},{"a":[80,60],"b":[80,260]}]} b52b3f1c8e59bc78
+vp_check 0 valid 5ad7a963ad09c89c
+vp_check 1 valid d84158286bd62be1
+vp_check 2 valid f63b97c263e6bf15
+vp_check 3 valid 34b72781d317981b
+vp_check 4 valid 499e7de2e0dae425
+vp_check 5 invalid 64b323a8b05f77e5
+vp_check 6 invalid a00a7bf248bcc385
+vp_check 7 questionable d160d9be82b92030
+vp_check 8 valid 499e7de2e0dae425
+vp_check 9 invalid d3eab06945493bc4
+vp_check 10 invalid 4605ab071fba4aa5
+vp_check 11 questionable cf749e9686966a51
+vp_check 12 valid 3a72990bb921e522
+direct_warp 6c7588fc6a1b9e77
+direct translation 0 12a570bb4c52f6e0 3f926fb591bcef99 18135 3fefaa8c5e401405
+direct translation 1 e56f7106eac82c69 3f77c4677c77f2fa 4466 3feff714f20e5cd3
+direct translation 5 e56f7106eac82c69 3f77c4677c77f2fa 4466 3feff714f20e5cd3
+direct euclidean 0 abdd947fbfc58141 3f8eaf94fefb407b 18181 3fefc4fd460e0baf
+direct euclidean 1 497b05a506f281c2 3f7117225bff4470 4532 3feffbb125b99557
+direct euclidean 5 497b05a506f281c2 3f7117225bff4470 4532 3feffbb125b99557
+direct similarity 0 b395af4b0a4bfb45 3f8877d30c70097f 17975 3fefda38c541f116
+direct similarity 1 3df5481a35f8d1bd 3f6646d1914f01b1 4466 3feffdfadb7bc184
+direct similarity 5 3df5481a35f8d1bd 3f6646d1914f01b1 4466 3feffdfadb7bc184
+direct homography 0 e3c5dcba9b6a21b4 3f8b7a1d54aca257 18104 3fefd0a2e3e90f0f
+direct homography 1 5f53f05f523b5e48 3f6fad35d2d29735 4500 3feffbf098f9487e
+direct homography 5 5f53f05f523b5e48 3f6fad35d2d29735 4500 3feffbf098f9487e

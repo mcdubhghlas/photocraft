@@ -88,5 +88,9 @@ pc_color pc_color_gray(float v);
  * components are stored normalised: L/100, (a+128)/255, (b+128)/255). */
 void pc_color_to_rgb(const pc_color *c, float out[3]);
 void pc_color_to_rgba8(const pc_color *c, uint8_t out[4]);
+/* This colour in `mode`'s model, converted as pixels written to a surface of that mode are
+ * (through sRGB); unchanged when already in `mode`. Indexed and Multichannel keep RGB colours,
+ * as pc_color_to_rgb reads them. Alpha is kept. */
+pc_color pc_color_in_mode(const pc_color *c, pc_color_mode mode);
 
 #endif

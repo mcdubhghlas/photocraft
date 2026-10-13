@@ -843,6 +843,140 @@ static void test_public_documents_parse_and_map_to_the_model(void)
     free(docs);
 }
 
+/* ---- special shapes (clouds, hearts, cogs, callouts, ...) ---- */
+
+typedef struct shape_case {
+    const char *cls;
+    double box[4];
+    const char *ptag; /* one numeric parameter (or NULL) */
+    double pval;
+} shape_case;
+
+/* A document with one spread holding a ShpN per case, plus a converted (PCrv-class) artboard
+ * marked by an aprp property object in phrp. */
+static pc_buf shapes_doc(const shape_case *cases, size_t n)
+{
+    static const char *const SHPN[1] = {"ShpN"};
+    static const char *const PCRV[1] = {"PCrv"};
+    static const char *const SPRD[1] = {"Sprd"};
+    static const char *const DOCN[1] = {"DocN"};
+    static const double SPRB[4] = {0, 0, 400, 300};
+    static const double XFRM[6] = {1, 0, 0, 0, 1, 0};
+    pc_buf d = PC_BUF_INIT;
+    sy_entry_t ent;
+    pc_buf out;
+    size_t i;
+    uint32_t id = 100;
+    sy_stream_begin(&d);
+    sy_def(&d, "DocR", 1, DOCN, 1);
+    sy_shared(&d, "Chld", 1);
+    sy_def_payload(&d, 2, SPRD, 1);
+    sy_f64s(&d, "SprB", SPRB, 4);
+    sy_shared(&d, "Chld", n + 1);
+    for (i = 0; i < n; i++) {
+        const char *chain[1];
+        chain[0] = cases[i].cls;
+        sy_def_payload(&d, id++, SHPN, 1);
+        sy_str(&d, "Desc", cases[i].cls);
+        sy_def(&d, "Shpe", id++, chain, 1);
+        if (cases[i].ptag != NULL) {
+            sy_f64(&d, cases[i].ptag, cases[i].pval);
+        }
+        sy_end(&d);
+        sy_f64s(&d, "ShpB", cases[i].box, 4);
+        sy_f64s(&d, "Xfrm", XFRM, 6);
+        sy_end(&d);
+    }
+    /* A converted artboard: a curve whose properties are artboard properties. */
+    sy_def_payload(&d, id++, PCRV, 1);
+    sy_str(&d, "Desc", "Converted board");
+    sy_obj(&d, "phrp", "aprp");
+    sy_end(&d);
+    sy_f64s(&d, "Xfrm", XFRM, 6);
+    sy_end(&d);
+    sy_end(&d); /* spread */
+    sy_end(&d); /* DocR */
+    sy_end(&d); /* root */
+    ent.name = "doc.dat";
+    ent.data = d.data;
+    ent.len = d.len;
+    ent.method = SY_STORED;
+    out = sy_container(&ent, 1, NULL, 0);
+    pc_buf_fini(&d);
+    return out;
+}
+
+static void test_special_shapes_import_as_outlines_and_never_crash(void)
+{
+    static const shape_case cases[] = {
+        {"ShCl", {10, 10, 110, 80}, "Bubl", 7},
+        {"ShHt", {10, 10, 110, 80}, NULL, 0},
+        {"ShCg", {10, 10, 110, 110}, "Hole", 0.4},
+        {"ShCg", {10, 10, 110, 110}, "Hole", 0.0},
+        {"ShCR", {10, 10, 110, 80}, "TlHg", 0.3},
+        {"ShCE", {10, 10, 110, 80}, "TlAn", 1e300},
+        {"ShDA", {10, 10, 110, 80}, "Thck", 5.0},
+        {"ShDS", {10, 10, 110, 80}, "Pnts", 1e9},
+        {"ShTr", {10, 10, 110, 80}, "Bend", -9.0},
+        {"ShCr", {10, 10, 110, 80}, NULL, 0},
+        {"ShpD", {10, 10, 110, 80}, NULL, 0},
+        {"ShSg", {10, 10, 110, 80}, "Angl", -1e300},
+        /* Inverted and degenerate boxes (the reference's clamp panics on the inverted callout). */
+        {"ShCR", {110, 80, 10, 10}, "TlEP", 0.9},
+        {"ShCl", {5, 5, 5, 5}, "Bubl", 1e12},
+        {"ShCg", {0, 0, 1e300, 1e300}, "Teth", 3},
+        {"ShXX", {10, 10, 110, 80}, NULL, 0},
+    };
+    size_t n = sizeof cases / sizeof cases[0];
+    pc_buf b = shapes_doc(cases, n);
+    pc_af_document d;
+    pc_error e;
+    size_t i;
+    bool warned_unknown = false;
+    bool warned_board = false;
+    if (pc_af_read(b.data, b.len, pc_af_limits_default(), &d, &e) != PC_OK) {
+        PC_T_FAIL("%s", e.msg);
+        pc_buf_fini(&b);
+        return;
+    }
+    CHECK_EQ_UINT(d.nspreads, 1);
+    if (d.nspreads == 1 && d.spreads[0].nnodes == n + 1) {
+        const pc_af_node *nodes = d.spreads[0].nodes;
+        for (i = 0; i < n; i++) {
+            const pc_af_node *nd = &nodes[i];
+            CHECK(nd->kind == PC_AF_SHAPE);
+            CHECK(nd->path.nsubpaths >= 1);
+            if (nd->path.nsubpaths >= 1) {
+                CHECK(nd->path.subpaths[0].closed);
+                CHECK(nd->path.subpaths[0].nsegments >= 2);
+            }
+        }
+        /* A cog with a hole is two subpaths filled even-odd; without one, a single subpath. */
+        CHECK(nodes[2].path.nsubpaths == 2 && nodes[2].even_odd);
+        CHECK(nodes[3].path.nsubpaths == 1 && nodes[3].even_odd);
+        CHECK(!nodes[0].even_odd && !nodes[1].even_odd);
+        /* The diamond's four corners. */
+        if (nodes[10].path.nsubpaths == 1 && nodes[10].path.subpaths[0].nsegments == 3) {
+            const pc_af_subpath *sp = &nodes[10].path.subpaths[0];
+            CHECK(sp->start.x == 60.0 && sp->start.y == 10.0);
+            CHECK(sp->segments[0][2].x == 110.0 && sp->segments[0][2].y == 45.0);
+        } else {
+            CHECK(false);
+        }
+        CHECK(nodes[n].kind == PC_AF_ARTBOARD);
+    } else {
+        CHECK(false);
+    }
+    for (i = 0; i < d.nwarnings; i++) {
+        warned_unknown = warned_unknown || strstr(d.warnings[i], "unrecognized parametric shape") != NULL;
+        warned_board = warned_board || strstr(d.warnings[i], "converted artboard outline") != NULL;
+    }
+    CHECK(warned_unknown);
+    CHECK(warned_board);
+    pc_af_document_fini(&d);
+    pc_buf_fini(&b);
+}
+
 int main(int argc, char **argv)
 {
     RUN(test_indexed_preview_and_header);
@@ -862,5 +996,6 @@ int main(int argc, char **argv)
     RUN(test_a_small_compressed_entry_cannot_make_the_stream_allocate_gigabytes);
     RUN(test_mutated_containers_and_streams_never_panic);
     RUN(test_public_documents_parse_and_map_to_the_model);
+    RUN(test_special_shapes_import_as_outlines_and_never_crash);
     return pc_t_finish();
 }

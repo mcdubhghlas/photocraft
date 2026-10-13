@@ -1365,6 +1365,7 @@ static pc_status build_document(builder *b, const pc_af_document *d, pc_error *e
             pc_layer_content_fini(&c);
         } else {
             bg.locks.transparency = true;
+            bg.locks.position = true;
             st = lvec_push(&layers, &bg, err);
             if (st == PC_OK) {
                 pc_layer top = layers.v[layers.n - 1];

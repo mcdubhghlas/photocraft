@@ -43,10 +43,12 @@ typedef struct pc_cmp_fx_ref pc_cmp_fx_ref;
 const pc_compose_fx_maps *pc_cmp_fx_maps(const pc_cmp_fx_ref *r);
 void pc_cmp_fx_ref_release(pc_cmp_fx_ref *r); /* NULL-safe */
 
-/* The effect maps prepared for one render (Ctx::fx_maps), by cache key. */
+/* The effect maps prepared for one render (Ctx::fx_maps), by cache key; `clipped` maps cover only
+ * the rectangle being rendered (a band) and are let go when the next one starts. */
 typedef struct pc_cmp_fx_pair {
     uint64_t key;
     pc_cmp_fx_ref *ref;
+    bool clipped;
 } pc_cmp_fx_pair;
 
 typedef struct pc_cmp_fx_local {
@@ -54,6 +56,8 @@ typedef struct pc_cmp_fx_local {
     pc_cmp_fx_pair *items;
     size_t len;
     size_t cap;
+    bool has_clip; /* Ctx::fx_clip: the rectangle being rendered (see pc_cmp_effect_region) */
+    pc_rect clip;
 } pc_cmp_fx_local;
 
 /* Rendering context shared down the tree (lib.rs Ctx). Built once per render call; the mutable
@@ -141,8 +145,18 @@ pc_status pc_cmp_effect_shape(const pc_layer *layer, pc_rect rect, const pc_cmp_
 
 /* ---- C1 effect-map cache (fx_cache.c) ---- */
 
-/* effect_maps: the layer's maps over its whole region, built once per layer state. */
-pc_status pc_cmp_effect_maps(const pc_layer *layer, const pc_cmp_ctx *cx, pc_cmp_fx_ref **out, pc_error *err);
+/* effect_region: where the layer's effect maps are built and whether that is clipped to the
+ * rectangle being rendered. Transparency Shapes Layer off makes the region the whole canvas; when
+ * such a layer's effects are local and rect (what the caller composites the layer over) lies
+ * within the render rectangle, the maps cover that rectangle padded by twice the effect reach
+ * (#1909: a tall webtoon page held gigabytes of maps per layer). */
+pc_rect pc_cmp_effect_region(const pc_layer *layer, pc_rect rect, const pc_cmp_ctx *cx, bool *clipped);
+/* effect_maps: the layer's maps over its region (pc_cmp_effect_region), built once per layer
+ * state. */
+pc_status pc_cmp_effect_maps(const pc_layer *layer, pc_rect rect, const pc_cmp_ctx *cx, pc_cmp_fx_ref **out,
+                             pc_error *err);
+/* Ctx::set_fx_clip: start rendering rect; effect maps clipped to the previous rectangle are let go. */
+void pc_cmp_set_fx_clip(const pc_cmp_ctx *cx, pc_rect rect);
 /* prepare_effects: builds the maps of every visible layer with effects that can reach rect
  * before tiles render in parallel. */
 pc_status pc_cmp_prepare_effects(const pc_layer *layers, size_t n, pc_rect rect, const pc_cmp_ctx *cx,
@@ -151,6 +165,9 @@ void pc_cmp_fx_local_init(pc_cmp_fx_local *l);
 void pc_cmp_fx_local_fini(pc_cmp_fx_local *l);
 /* empty_in (composite.c): the layer contributes nothing in rect. */
 bool pc_cmp_empty_in(const pc_layer *layer, pc_rect rect);
+/* shapeless_stroke_bounds (composite.c): for a Transparency Shapes Layer off layer whose only
+ * enabled effects are local strokes, the bounds its effects grow from; false otherwise. */
+bool pc_cmp_shapeless_stroke_bounds(const pc_layer *layer, pc_rect *out);
 
 /* ---- Advanced Blending hooks (C2: advanced.c) ---- */
 

@@ -11,7 +11,6 @@
 #include "base/num.h"
 #include "base/rmath.h"
 
-#define SQRT_2_F 1.41421356237309504880f
 #define TAU_F 6.28318530717958647692f
 
 static float d2(const float a[3], const float b[3])
@@ -295,7 +294,6 @@ size_t pc_algo_segment_scale_for(pc_rect area, size_t max_px)
 
 /* The 4 forward neighbour offsets of an 8-connected grid and their lengths. */
 static const int32_t NB[4][2] = {{1, 0}, {0, 1}, {1, 1}, {-1, 1}};
-static const float NB_LEN[4] = {1.0f, 1.0f, SQRT_2_F, SQRT_2_F};
 
 float pc_algo_segment_contrast_beta(const pc_algo_rgb_image *img)
 {
@@ -322,108 +320,6 @@ float pc_algo_segment_contrast_beta(const pc_algo_rgb_image *img)
         return 0.0f;
     }
     return pc_f64_to_f32((double)n / (2.0 * sum));
-}
-
-static pc_status fixed_link(pc_algo_maxflow *g, size_t node, uint8_t fixed, float wt)
-{
-    if (fixed == PC_ALGO_SEGMENT_HARD_FG) {
-        /* Labelling node background cuts the link. */
-        pc_algo_maxflow_add_tweights(g, node, wt, 0.0f);
-    } else {
-        pc_algo_maxflow_add_tweights(g, node, 0.0f, wt);
-    }
-    return PC_OK;
-}
-
-pc_status pc_algo_segment_grid_cut(const pc_algo_rgb_image *img, const float *cost_fg, const float *cost_bg,
-                                   const uint8_t *fixed, float gamma, float beta, bool *out, pc_error *err)
-{
-    int64_t w = (int64_t)img->w, h = (int64_t)img->h, x, y;
-    size_t n = img->w * img->h, i, count = 0, edges;
-    uint32_t *idx;
-    pc_algo_maxflow *g = NULL;
-    double flow;
-    pc_status st = PC_OK;
-    for (i = 0; i < n; i++) {
-        out[i] = fixed[i] == PC_ALGO_SEGMENT_HARD_FG;
-    }
-    idx = pc_malloc_array(n ? n : 1, sizeof(uint32_t));
-    if (idx == NULL) {
-        return pc_fail(err, PC_ERR_NOMEM, "out of memory for a graph cut");
-    }
-    for (i = 0; i < n; i++) {
-        if (fixed[i] == PC_ALGO_SEGMENT_FREE) {
-            if (count >= (size_t)UINT32_MAX - 3) {
-                free(idx);
-                return pc_fail(err, PC_ERR_LIMIT, "graph cut too large");
-            }
-            idx[i] = (uint32_t)count++;
-        } else {
-            idx[i] = UINT32_MAX;
-        }
-    }
-    if (count == 0 || img->px == NULL) {
-        free(idx);
-        return PC_OK;
-    }
-    if (!pc_size_mul(count, 4, &edges)) {
-        free(idx);
-        return pc_fail(err, PC_ERR_LIMIT, "graph cut too large");
-    }
-    st = pc_algo_maxflow_new(count, edges, &g, err);
-    if (st != PC_OK) {
-        free(idx);
-        return st;
-    }
-    for (i = 0; i < n; i++) {
-        if (idx[i] != UINT32_MAX) {
-            pc_algo_maxflow_add_tweights(g, idx[i], cost_bg[i], cost_fg[i]);
-        }
-    }
-    for (y = 0; y < h && st == PC_OK; y++) {
-        for (x = 0; x < w && st == PC_OK; x++) {
-            size_t ii = (size_t)(y * w + x);
-            const float *a = img->px[ii];
-            int k;
-            for (k = 0; k < 4; k++) {
-                int64_t nx = x + NB[k][0], ny = y + NB[k][1];
-                size_t j;
-                float wt;
-                bool fi, fj;
-                if (nx < 0 || nx >= w || ny >= h) {
-                    continue;
-                }
-                j = (size_t)(ny * w + nx);
-                wt = gamma * expf(-beta * d2(a, img->px[j])) / NB_LEN[k];
-                fi = idx[ii] != UINT32_MAX;
-                fj = idx[j] != UINT32_MAX;
-                if (fi && fj) {
-                    st = pc_algo_maxflow_add_edge(g, idx[ii], idx[j], wt, wt, err);
-                    if (st != PC_OK) {
-                        break;
-                    }
-                } else if (fi) {
-                    /* Neighbour fixed: disagreeing with it costs wt. */
-                    (void)fixed_link(g, idx[ii], fixed[j], wt);
-                } else if (fj) {
-                    (void)fixed_link(g, idx[j], fixed[ii], wt);
-                }
-            }
-        }
-    }
-    if (st == PC_OK) {
-        st = pc_algo_maxflow_run(g, &flow, err);
-    }
-    if (st == PC_OK) {
-        for (i = 0; i < n; i++) {
-            if (idx[i] != UINT32_MAX) {
-                out[i] = pc_algo_maxflow_in_source(g, idx[i]);
-            }
-        }
-    }
-    pc_algo_maxflow_free(g);
-    free(idx);
-    return st;
 }
 
 typedef struct costs_ctx {

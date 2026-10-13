@@ -20,6 +20,9 @@
 
 static pc_buf OUT;
 
+#if defined(__GNUC__)
+__attribute__((format(printf, 1, 2)))
+#endif
 static void line(const char *fmt, ...)
 {
     char tmp[1024];
@@ -189,11 +192,11 @@ static void photo_util_vectors(void)
 
 static void info_hash(uint64_t *h, const pc_algo_camera_info *i)
 {
-    const pc_algo_exif_str *ss[3] = {&i->make, &i->model, &i->lens};
+    const pc_algo_exif_str *ss[4] = {&i->make, &i->model, &i->lens, &i->date_taken};
     const pc_algo_exif_num *ns[5] = {&i->exposure_time, &i->f_number, &i->iso, &i->focal_length,
                                      &i->focal_length_35mm};
     int k;
-    for (k = 0; k < 3; k++) {
+    for (k = 0; k < 4; k++) {
         if (ss[k]->s != NULL) {
             hu(h, ss[k]->len);
             fnv(h, ss[k]->s, ss[k]->len);
@@ -231,7 +234,7 @@ static pc_algo_exif_str xs(char *s, size_t n)
 static void exif_vectors(void)
 {
     static char lens40[41], model2[] = " x \xc3\xa9\0y ";
-    pc_algo_camera_info infos[5];
+    pc_algo_camera_info infos[6];
     pc_algo_photo_rng rng = {99};
     uint64_t h;
     int k;
@@ -248,7 +251,9 @@ static void exif_vectors(void)
     infos[2].focal_length_35mm = (pc_algo_exif_num){true, 0.0};
     infos[4].lens = xs(lens40, 40), infos[4].focal_length = (pc_algo_exif_num){true, 1e12};
     infos[4].iso = (pc_algo_exif_num){true, NAN};
-    for (k = 0; k < 5; k++) {
+    infos[5].make = xs("Make", 4), infos[5].date_taken = xs("2024:02:17 12:40:19", 19);
+    infos[5].exposure_time = (pc_algo_exif_num){true, 0.004};
+    for (k = 0; k < 6; k++) {
         pc_buf b = PC_BUF_INIT, pre = PC_BUF_INIT;
         pc_algo_camera_info r;
         double f;
@@ -1130,7 +1135,9 @@ static void quantize_vectors(void)
             for (c = 0; c < 4; c++) {
                 ms[nmeth].kind = PC_ALGO_BITMAP_HALFTONE;
                 ms[nmeth].cell = cells[c], ms[nmeth].angle = angles[c];
-                ms[nmeth].shape = pc_algo_halftone_shape_from_id(shapes[s]);
+                if (!pc_algo_halftone_shape_from_id(shapes[s], &ms[nmeth].shape)) {
+                    ms[nmeth].shape = PC_ALGO_HALFTONE_ROUND;
+                }
                 nmeth++;
             }
         }
@@ -1212,6 +1219,76 @@ static void scancrop_vectors(void)
 
 /* ---------------------------------------------------------------------------------------- */
 
+/* R5 (upstream resync): palettes above 64 entries use the exact k-d tree nearest search;
+ * HalftoneShape::from_id is an Option. */
+static void r5_quantize_vectors(void)
+{
+    static const char *const dn[4] = {"None", "Diffusion", "Pattern", "Noise"};
+    static const pc_algo_dither ds[4] = {PC_ALGO_DITHER_NONE, PC_ALGO_DITHER_DIFFUSION,
+                                         PC_ALGO_DITHER_PATTERN, PC_ALGO_DITHER_NOISE};
+    static const char *const pn[5] = {"sel256", "ada128", "per65", "mac", "web"};
+    static const char *const ids[9] = {"round", "ellipse", "line", "square", "diamond",
+                                       "cross", "x",       "",     "Round"};
+    static const char *const shape_names[6] = {"Round", "Ellipse", "Line", "Square", "Diamond", "Cross"};
+    static const float alphas[4] = {0.0f, 0.2f, 0.7f, 1.0f};
+    const size_t gn = 93 * 61;
+    float (*noisy)[4] = rgba(3000, 23), (*grad)[4] = malloc(gn * sizeof *grad), (*px)[4];
+    pc_algo_palette pals[5];
+    uint8_t *idx = malloc(gn);
+    uint64_t h;
+    size_t i, k, x;
+    (void)dn;
+    for (i = 0; i < gn; i++) {
+        grad[i][0] = (float)(i % 93) / 92.0f, grad[i][1] = (float)(i / 93) / 60.0f;
+        grad[i][2] = (float)(i % 71) / 70.0f, grad[i][3] = alphas[i % 4];
+    }
+    memset(pals, 0, sizeof pals);
+    CHECK(pc_algo_quantize_build_palette((const float (*)[4])grad, gn, PC_ALGO_PALETTE_SELECTIVE, 256,
+                                         PC_ALGO_FORCED_BLACK_WHITE, &pals[0], NULL) == PC_OK);
+    CHECK(pc_algo_quantize_build_palette((const float (*)[4])noisy, 3000, PC_ALGO_PALETTE_ADAPTIVE, 128,
+                                         PC_ALGO_FORCED_NONE, &pals[1], NULL) == PC_OK);
+    CHECK(pc_algo_quantize_build_palette((const float (*)[4])noisy, 3000, PC_ALGO_PALETTE_PERCEPTUAL, 65,
+                                         PC_ALGO_FORCED_PRIMARIES, &pals[2], NULL) == PC_OK);
+    pc_algo_quantize_mac_palette(&pals[3]);
+    pc_algo_quantize_web_palette(&pals[4]);
+    px = malloc(gn * sizeof *px);
+    for (k = 0; k < 5; k++) {
+        h = H0;
+        pal_hash(&h, &pals[k].c[0][0], pals[k].n);
+        line("r5_palette %s %zu %016llx", pn[k], pals[k].n, (unsigned long long)h);
+        for (x = 0; x < 2; x++) {
+            const float (*src)[4] = x == 0 ? (const float (*)[4])grad : (const float (*)[4])noisy;
+            size_t n = x == 0 ? gn : 3000, w = x == 0 ? 93 : 50, d, t;
+            h = H0;
+            for (d = 0; d < 4; d++) {
+                for (t = 0; t < 2; t++) {
+                    memcpy(px, src, n * sizeof *px);
+                    CHECK(pc_algo_quantize(px, n, w, &pals[k].c[0][0], pals[k].n, ds[d], 0.75f, t == 1, 1,
+                                           idx, NULL) == PC_OK);
+                    fnv(&h, idx, n);
+                    for (i = 0; i < n; i++) {
+                        hf(&h, px[i], 4);
+                    }
+                }
+            }
+            line("r5_quantize %s %s %016llx", pn[k], x == 0 ? "grad" : "noisy", (unsigned long long)h);
+        }
+    }
+    h = H0;
+    for (i = 0; i < 9; i++) {
+        pc_algo_halftone_shape sh;
+        char txt[32];
+        if (pc_algo_halftone_shape_from_id(ids[i], &sh)) {
+            (void)snprintf(txt, sizeof txt, "Some(%s)", shape_names[sh]);
+        } else {
+            (void)snprintf(txt, sizeof txt, "None");
+        }
+        fnv(&h, txt, strlen(txt));
+    }
+    line("r5_halftone_from_id %016llx", (unsigned long long)h);
+    free(noisy), free(grad), free(px), free(idx);
+}
+
 static char *read_file(const char *path, size_t *len)
 {
     FILE *f = fopen(path, "rb");
@@ -1249,6 +1326,7 @@ static void test_analysis_parity(void)
     blend_vectors();
     quantize_vectors();
     scancrop_vectors();
+    r5_quantize_vectors();
     want = strtok_r(golden, "\n", &wsave);
     got = strtok_r((char *)OUT.data, "\n", &gsave);
     while (want != NULL || got != NULL) {

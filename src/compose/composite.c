@@ -165,8 +165,11 @@ pc_status pc_cmp_mask_vals(const pc_layer *layer, pc_rect rect, const pc_cmp_ctx
 
 /* ---- content ---- */
 
+/* quantum (has_q): the document depth's levels, which a dithered gradient is rounded to
+ * (gradient_fill::render_quantized); has_q false keeps it in float. */
 static pc_status render_fill(const pc_fill *f, pc_rect rect, pc_rect frame,
-                             const pc_compose_patterns *patterns, pc_compose_buffer *out, pc_error *err)
+                             const pc_compose_patterns *patterns, bool has_q, float q, pc_compose_buffer *out,
+                             pc_error *err)
 {
     switch (f->kind) {
     case PC_FILL_SOLID: {
@@ -181,7 +184,7 @@ static pc_status render_fill(const pc_fill *f, pc_rect rect, pc_rect frame,
     }
     case PC_FILL_GRADIENT:
         /* Gradient geometry relative to the layer's frame, independent of the render rect. */
-        return pc_compose_gradient_fill_render(f, rect, frame, out, err);
+        return pc_compose_gradient_fill_render_quantized(f, rect, frame, has_q, q, out, err);
     default:
         /* Laid out from the layer's frame when linked; transparent if the pattern is missing. */
         return pc_compose_pattern_fill_render(patterns, f, frame, rect, out, err);
@@ -191,7 +194,34 @@ static pc_status render_fill(const pc_fill *f, pc_rect rect, pc_rect frame,
 pc_status pc_cmp_fill_content(const pc_fill *f, pc_rect rect, pc_rect frame,
                               const pc_compose_patterns *patterns, pc_compose_buffer *out, pc_error *err)
 {
-    return render_fill(f, rect, frame, patterns, out, err);
+    return render_fill(f, rect, frame, patterns, false, 0.0f, out, err);
+}
+
+/* A fill layer's content in a CMYK document: solid and gradient fills worked out in ink values at
+ * the document's depth (gradient_fill::render_cmyk_fill), patterns through RGB. */
+static pc_status render_fill_cmyk(const pc_fill *f, pc_rect rect, pc_rect frame, const pc_cmp_ctx *cx,
+                                  bool has_q, float q, pc_compose_buffer *out, pc_error *err)
+{
+    bool solid = f->kind == PC_FILL_SOLID;
+    bool found = false;
+    pc_surface s;
+    pc_status st = pc_compose_render_cmyk_fill(f, solid ? pc_rect_make(0, 0, 1, 1) : rect, frame, cx->depth,
+                                               &found, &s, err);
+    if (st != PC_OK) {
+        return st;
+    }
+    if (!found) {
+        return render_fill(f, rect, frame, cx->patterns, has_q, q, out, err);
+    }
+    if (solid) {
+        float c[4];
+        pc_surface_rgba(&s, 0, 0, c);
+        st = pc_compose_buffer_filled(rect, c, out, err);
+    } else {
+        st = pc_compose_surface_to_buffer(&s, rect, out, err);
+    }
+    pc_surface_fini(&s);
+    return st;
 }
 
 pc_status pc_cmp_render_content(const pc_layer *layer, pc_rect rect, const pc_cmp_ctx *cx, bool *some,
@@ -217,8 +247,14 @@ pc_status pc_cmp_render_content(const pc_layer *layer, pc_rect rect, const pc_cm
             /* Photoshop's own rendering, valid while the fill is unchanged. */
             st = pc_compose_surface_to_buffer(&layer->fill_cache.surface, rect, &buf, err);
         } else {
-            st = render_fill(&layer->content.u.fill, rect, pc_compose_fill_frame(layer, cx->canvas),
-                             cx->patterns, &buf, err);
+            float q = 0.0f;
+            bool has_q = pc_compose_adjustment_quantum(cx->depth, &q);
+            pc_rect frame = pc_compose_fill_frame(layer, cx->canvas);
+            if (cx->mode == PC_COLOR_MODE_CMYK) {
+                st = render_fill_cmyk(&layer->content.u.fill, rect, frame, cx, has_q, q, &buf, err);
+            } else {
+                st = render_fill(&layer->content.u.fill, rect, frame, cx->patterns, has_q, q, &buf, err);
+            }
         }
         break;
     case PC_LAYER_ADJUSTMENT:
@@ -287,6 +323,24 @@ void pc_cmp_blend_into(pc_compose_buffer *backdrop, const pc_compose_buffer *src
             continue;
         }
         pc_psblend_composite_gamma(mode, b, s, opacity, gamma, b);
+    }
+}
+
+/* blend_into_fill: blend_into for a layer's own opacity and fill: Fill is part of the blend for
+ * Photoshop's special eight (pc_psblend_composite_fill), plain coverage otherwise. */
+static void blend_into_fill(pc_compose_buffer *backdrop, const pc_compose_buffer *src, pc_blend_mode mode,
+                            float opacity, float fill, float gamma)
+{
+    size_t i;
+    if (fill >= 1.0f || !pc_psblend_fill_is_special(mode)) {
+        pc_cmp_blend_into(backdrop, src, mode, opacity * fill, gamma);
+        return;
+    }
+    for (i = 0; i < backdrop->len && i < src->len; i++) {
+        if (src->px[i][3] > 0.0f) {
+            pc_psblend_composite_fill(mode, backdrop->px[i], src->px[i], opacity, fill, gamma,
+                                      backdrop->px[i]);
+        }
     }
 }
 
@@ -419,16 +473,73 @@ bool pc_compose_adjustment_quantum(pc_sample_type depth, float *q)
 
 /* ---- emptiness ---- */
 
+/* shapeless_stroke_bounds: for a Transparency Shapes Layer off layer whose only enabled effects
+ * are local strokes, the effects can't reach past the stroke from the layer's pixels; false in
+ * every other case (other effects can cover the whole layer, and advanced blending can change the
+ * backdrop independently of those pixels). */
+bool pc_cmp_shapeless_stroke_bounds(const pc_layer *layer, pc_rect *out)
+{
+    size_t i;
+    bool any = false;
+    const pc_surface *s;
+    pc_rect b;
+    pc_rect p;
+    if (layer->advanced.transparency_shapes || layer->advanced.knockout != PC_KNOCKOUT_NONE ||
+        layer->advanced.blend_interior || layer->clipped || !pc_blend_if_is_default(&layer->blend_if) ||
+        (layer->has_mask && layer->mask.enabled) || (layer->has_vector_mask && layer->vector_mask.enabled) ||
+        !pc_compose_transparent_outside(layer) || !pc_compose_fx_maps_are_local(layer)) {
+        return false;
+    }
+    if (!layer->effects.enabled) {
+        return false;
+    }
+    for (i = 0; i < layer->effects.nitems; i++) {
+        const pc_effect *e = &layer->effects.items[i];
+        if (!pc_effect_enabled(e)) {
+            continue;
+        }
+        if (e->kind != PC_FX_STROKE) {
+            return false;
+        }
+        any = true;
+    }
+    if (!any) {
+        return false;
+    }
+    switch (layer->content.kind) {
+    case PC_LAYER_RASTER:
+    case PC_LAYER_TEXT:
+    case PC_LAYER_SHAPE:
+    case PC_LAYER_SMART:
+        s = pc_layer_surface(layer);
+        b = s != NULL ? pc_compose_content_bounds(s) : PC_RECT_EMPTY;
+        /* A filled shape's effects follow its outline, also where its fill is transparent (as in
+         * layer_bounds). */
+        if (pc_compose_effect_outline(layer) != NULL && pc_compose_paint_bounds(layer, &p)) {
+            *out = pc_rect_is_empty(b) ? p : pc_rect_union(b, p);
+        } else {
+            *out = b;
+        }
+        return true;
+    default:
+        return false;
+    }
+}
+
 bool pc_cmp_empty_in(const pc_layer *layer, pc_rect rect)
 {
     if (pc_compose_has_effects(layer)) {
         /* Effects reach at most `margin` beyond the layer's pixels (when it is transparent
-         * outside them): tiles away from a small layer skip it entirely. */
+         * outside them; a group's from its children with their effects): tiles away from a small
+         * layer skip it entirely. */
         pc_rect canvas = pc_rect_make(INT32_MIN / 4, INT32_MIN / 4, INT32_MAX / 4, INT32_MAX / 4);
+        pc_rect bounds;
+        if (!pc_cmp_shapeless_stroke_bounds(layer, &bounds)) {
+            bounds = pc_compose_effect_source_bounds(layer, canvas);
+        }
         return pc_compose_transparent_outside(layer) &&
-               pc_rect_is_empty(pc_rect_intersect(
-                   pc_rect_inflate(pc_compose_layer_bounds(layer, canvas), pc_compose_effects_margin(layer)),
-                   rect));
+               pc_rect_is_empty(
+                   pc_rect_intersect(pc_rect_inflate(bounds, pc_compose_effects_margin(layer)), rect));
     }
     switch (layer->content.kind) {
     case PC_LAYER_RASTER:
@@ -558,7 +669,7 @@ static pc_status composite_layer_effects(const pc_layer *layer, const pc_layer *
     }
     st = pc_cmp_composite_clipped(clipped, nclipped, &p.fill, cx, err);
     if (st == PC_OK) {
-        st = pc_cmp_effect_maps(layer, cx, &maps, err);
+        st = pc_cmp_effect_maps(layer, backdrop->rect, cx, &maps, err);
     }
     if (st == PC_OK) {
         vs.stroke = &p.stroke;
@@ -689,8 +800,8 @@ static pc_status composite_adjustment(const pc_layer *layer, const pc_layer *cli
     if (st != PC_OK) {
         return st;
     }
-    st = pc_compose_adjust_apply_depth(&layer->content.u.adjustment, &adjusted, cx->transfer, true, cx->depth,
-                                       err);
+    st = pc_compose_adjust_apply_in(&layer->content.u.adjustment, &adjusted, cx->transfer, true, cx->depth,
+                                    cx->mode, err);
     /* Clipped layers onto an adjustment are uncommon; they composite atop the adjusted result. */
     if (st == PC_OK) {
         st = pc_cmp_composite_clipped(clipped, nclipped, &adjusted, cx, err);
@@ -728,7 +839,11 @@ static pc_status composite_layer_plain(const pc_layer *layer, const pc_layer *cl
     parts p;
     bool found = false;
     pc_status st;
-    if (pc_cmp_empty_in(layer, rect)) {
+    pc_rect unused;
+    /* A TSL-off stroke base that is transparent here can still have visible clipped siblings: it
+     * keeps the full clipping path instead of the stroke-bounds shortcut. Other bases keep the
+     * usual skip (their clipped layers vanish with them). */
+    if ((nclipped == 0 || !pc_cmp_shapeless_stroke_bounds(layer, &unused)) && pc_cmp_empty_in(layer, rect)) {
         return PC_OK;
     }
     opacity = layer->opacity * layer->fill_opacity;
@@ -782,7 +897,7 @@ static pc_status composite_layer_plain(const pc_layer *layer, const pc_layer *cl
                 p.fill.px[i][3] *= mask_k(p.mask, i);
             }
             if (st == PC_OK) {
-                pc_cmp_blend_into(backdrop, &p.fill, layer->blend, opacity, 1.0f);
+                blend_into_fill(backdrop, &p.fill, layer->blend, layer->opacity, layer->fill_opacity, 1.0f);
             }
             parts_fini(&p);
             return st;
@@ -794,7 +909,8 @@ static pc_status composite_layer_plain(const pc_layer *layer, const pc_layer *cl
     }
     st = pc_cmp_composite_clipped(clipped, nclipped, &content, cx, err);
     if (st == PC_OK) {
-        pc_cmp_blend_into(backdrop, &content, layer->blend, opacity, pc_compose_text_gamma(layer));
+        blend_into_fill(backdrop, &content, layer->blend, layer->opacity, layer->fill_opacity,
+                        pc_compose_text_gamma(layer));
     }
     pc_compose_buffer_fini(&content);
     return st;
@@ -994,7 +1110,7 @@ static pc_status composite_atop_effects(const pc_layer *layer, pc_compose_buffer
             opaque.px[i][3] = 1.0f;
         }
         if (st == PC_OK) {
-            st = pc_cmp_effect_maps(src, cx, &maps, err);
+            st = pc_cmp_effect_maps(src, rect, cx, &maps, err);
         }
         if (st == PC_OK) {
             vs.stroke = &p.stroke;
@@ -1048,8 +1164,8 @@ static pc_status composite_atop_any(const pc_layer *layer, pc_compose_buffer *ba
         if (st != PC_OK) {
             return st;
         }
-        st = pc_compose_adjust_apply_depth(&layer->content.u.adjustment, &adjusted, cx->transfer, true,
-                                           cx->depth, err);
+        st = pc_compose_adjust_apply_in(&layer->content.u.adjustment, &adjusted, cx->transfer, true,
+                                        cx->depth, cx->mode, err);
         if (st == PC_OK) {
             st = pc_cmp_mask_vals(layer, rect, cx, &mv, err);
         }

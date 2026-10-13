@@ -505,10 +505,136 @@ typedef struct plane_ctx {
     size_t samples;
     uint32_t bits;
     uint32_t compression;
+    uint32_t predictor;
+    bool tiled;
     rx_jpeg_layout layout;
+    const pc_raw_limits *limits;
     uint16_t **out;
     pc_error *errs;
 } plane_ctx;
+
+/* Reverses TIFF predictor 2 (horizontal differencing) on interleaved samples: each sample gains its
+ * channel's predecessor in the row, wrapping at the sample's container (8 or 16 bits). */
+static void undelta(uint16_t *v, size_t n, size_t plane, size_t row_samples, size_t rows, uint32_t bits)
+{
+    unsigned mask = bits <= 8 ? 0xFFu : 0xFFFFu;
+    size_t step = row_samples > 0 ? row_samples : 1;
+    size_t r;
+    for (r = 0; r < rows && r * step < n; r++) {
+        uint16_t *row = v + r * step;
+        size_t len = n - r * step < step ? n - r * step : step;
+        size_t i;
+        for (i = plane; i < len; i++) {
+            row[i] = (uint16_t)(((unsigned)row[i] + row[i - plane]) & mask);
+        }
+    }
+}
+
+/* Lossless JPEG segment (compression 7): the frame is capped by the budget, not only by the
+ * segment, and the Quads scatter buffer comes out of the same budget (max_alloc counts bytes, a
+ * sample is two). */
+static pc_status ljpeg_segment(const plane_ctx *c, const rx_segment *s, const uint8_t *src, size_t rows,
+                               uint16_t **out, pc_error *err)
+{
+    size_t need = s->w * rows * c->samples;
+    uint64_t scatter = 0;
+    uint64_t budget64;
+    size_t budget;
+    size_t geom = s->w;
+    rx_frame f;
+    uint16_t *v;
+    size_t nv;
+    pc_status st;
+    size_t k;
+    if (c->layout == RX_QUADS && c->samples == 1) {
+        size_t a = s->w != 0 && s->h > SIZE_MAX / s->w ? SIZE_MAX : s->w * s->h;
+        scatter = a > SIZE_MAX / 2 ? SIZE_MAX : (uint64_t)a * 2;
+    }
+    budget64 = (c->limits->max_alloc > scatter ? c->limits->max_alloc - scatter : 0) / 2;
+    budget = budget64 > SIZE_MAX ? SIZE_MAX : (size_t)budget64;
+    for (k = 0; k < 3; k++) {
+        size_t m = k == 0 ? s->h : k == 1 ? c->samples : 4;
+        geom = geom != 0 && m > SIZE_MAX / geom ? SIZE_MAX : geom * m;
+    }
+    if ((st = rx_ljpeg_decode(src, s->len, geom < budget ? geom : budget, &f, &v, &nv, err)) != PC_OK) {
+        return st;
+    }
+    if (nv < need) {
+        free(v);
+        return rx_malformed(err, "lossless JPEG tile is smaller than its tile");
+    }
+    if (c->layout == RX_QUADS && c->samples == 1 && f.components == 4 && f.width * 2 == s->w &&
+        f.height * 2 == s->h) {
+        uint16_t *tile = pc_calloc_array(s->w * s->h, sizeof *tile);
+        size_t i;
+        if (tile == NULL) {
+            free(v);
+            return rx_nomem(err);
+        }
+        for (i = 0; i < nv / 4; i++) {
+            size_t at = 2 * (i / f.width) * s->w + 2 * (i % f.width);
+            tile[at] = v[4 * i];
+            tile[at + 1] = v[4 * i + 1];
+            tile[at + s->w] = v[4 * i + 2];
+            tile[at + s->w + 1] = v[4 * i + 3];
+        }
+        free(v);
+        v = tile;
+    }
+    *out = v;
+    return PC_OK;
+}
+
+/* Adobe DNG compression 8: a zlib stream, inflated into at most the segment's size in whole bytes
+ * per sample (a bomb cannot grow past the tile), unpacked, then the TIFF predictor per row and
+ * sample plane. */
+static pc_status deflate_segment(const plane_ctx *c, const rx_segment *s, const uint8_t *src, size_t rows,
+                                 uint16_t **out, pc_error *err)
+{
+    size_t need;
+    uint8_t *buf;
+    size_t got;
+    uint16_t *v;
+    size_t n = s->w * rows * c->samples;
+    pc_status st;
+    if (!pc_size_mul3(s->w, rows, c->samples, &need) || !pc_size_mul(need, (c->bits + 7) / 8, &need)) {
+        return rx_malformed(err, "deflate tile is too large");
+    }
+    buf = malloc(need > 0 ? need : 1);
+    if (buf == NULL) {
+        return rx_nomem(err);
+    }
+    if ((st = rx_inflate_zlib(src, s->len, buf, need, &got, err)) != PC_OK) {
+        free(buf);
+        return st;
+    }
+    v = pc_malloc_array(n > 0 ? n : 1, sizeof *v);
+    if (v == NULL) {
+        free(buf);
+        return rx_nomem(err);
+    }
+    st = rx_unpack(buf, got, s->w, rows, c->samples, c->bits, c->t->le, v, err);
+    free(buf);
+    if (st != PC_OK) {
+        free(v);
+        return st;
+    }
+    switch (c->predictor) {
+    case 1:
+        break;
+    case 2:
+        undelta(v, n, c->samples, s->w * c->samples, rows, c->bits);
+        break;
+    case 3:
+        free(v);
+        return rx_unsupported(err, "floating-point predictor (compression 8, predictor 3)");
+    default:
+        free(v);
+        return rx_malformed(err, "unknown predictor %u", (unsigned)c->predictor);
+    }
+    *out = v;
+    return PC_OK;
+}
 
 static pc_status decode_segment(void *ctx, size_t chunk, size_t begin, size_t end)
 {
@@ -517,14 +643,20 @@ static pc_status decode_segment(void *ctx, size_t chunk, size_t begin, size_t en
     size_t rows = s->h < c->height - s->y ? s->h : c->height - s->y;
     pc_error *err = &c->errs[chunk];
     const uint8_t *src = rx_bytes(c->t, s->offset, s->len);
+    pc_status st;
     (void)end;
     if (src == NULL) {
         return rx_malformed(err, "raw data lies outside the file");
     }
-    if (c->compression == 1) {
+    /* Every branch sizes a buffer from the segment's own geometry, which the file declares
+     * independently of the image: charge the segment before decoding it. */
+    if ((st = pc_raw_limits_check(c->limits, s->w, s->h, (uint64_t)c->samples * 2, err)) != PC_OK) {
+        return st;
+    }
+    switch (c->compression) {
+    case 1: {
         size_t n = s->w * rows * c->samples;
         uint16_t *v = pc_malloc_array(n > 0 ? n : 1, sizeof *v);
-        pc_status st;
         if (v == NULL) {
             return rx_nomem(err);
         }
@@ -534,46 +666,39 @@ static pc_status decode_segment(void *ctx, size_t chunk, size_t begin, size_t en
         }
         c->out[begin] = v;
         return PC_OK;
-    } else {
-        size_t need = s->w * rows * c->samples;
-        size_t max = s->w;
-        rx_frame f;
+    }
+    case 8:
+        return deflate_segment(c, s, src, rows, &c->out[begin], err);
+    case RX_JPEG_XL: {
+        /* A JPEG XL segment codes only the rows inside the image (strips) or the whole tile. */
+        size_t coded = c->tiled ? s->h : rows;
+        size_t full = s->w * s->h * c->samples;
         uint16_t *v;
-        size_t nv;
-        pc_status st;
-        size_t k;
-        for (k = 0; k < 3; k++) {
-            size_t m = k == 0 ? s->h : k == 1 ? c->samples : 4;
-            max = max != 0 && m > SIZE_MAX / max ? SIZE_MAX : max * m;
-        }
-        if ((st = rx_ljpeg_decode(src, s->len, max, &f, &v, &nv, err)) != PC_OK) {
+        uint16_t *grown;
+        if ((st = rx_jxl_decode(src, s->len, s->w, coded, c->samples, c->bits, c->limits, &v, err)) !=
+            PC_OK) {
             return st;
         }
-        if (nv < need) {
+        grown = pc_calloc_array(full > 0 ? full : 1, sizeof *grown);
+        if (grown == NULL) {
             free(v);
-            return rx_malformed(err, "lossless JPEG tile is smaller than its tile");
+            return rx_nomem(err);
         }
-        if (c->layout == RX_QUADS && c->samples == 1 && f.components == 4 && f.width * 2 == s->w &&
-            f.height * 2 == s->h) {
-            uint16_t *tile = pc_calloc_array(s->w * s->h, sizeof *tile);
-            size_t i;
-            if (tile == NULL) {
-                free(v);
-                return rx_nomem(err);
-            }
-            for (i = 0; i < nv / 4; i++) {
-                size_t at = 2 * (i / f.width) * s->w + 2 * (i % f.width);
-                tile[at] = v[4 * i];
-                tile[at + 1] = v[4 * i + 1];
-                tile[at + s->w] = v[4 * i + 2];
-                tile[at + s->w + 1] = v[4 * i + 3];
-            }
-            free(v);
-            v = tile;
-        }
-        c->out[begin] = v;
+        memcpy(grown, v, s->w * coded * c->samples * sizeof *v);
+        free(v);
+        c->out[begin] = grown;
         return PC_OK;
     }
+    case RX_LOSSY_JPEG:
+        return rx_lossy_jpeg_segment(src, s->len, s->w, rows, c->samples, &c->out[begin], err);
+    default:
+        return ljpeg_segment(c, s, src, rows, &c->out[begin], err);
+    }
+}
+
+bool pc_raw_sensor_is_monochrome(const pc_raw_sensor *s)
+{
+    return s->samples == 1 && !s->has_cfa;
 }
 
 pc_status rx_read_plane(const rx_tiff *t, const rx_ifd *ifd, const pc_raw_limits *limits, rx_jpeg_layout layout,
@@ -617,13 +742,10 @@ pc_status rx_read_plane(const rx_tiff *t, const rx_ifd *ifd, const pc_raw_limits
     switch (compression) {
     case 1:
     case 7:
-        break;
     case 8:
-        return rx_unsupported(err, "Deflate-compressed (floating-point) DNG");
-    case 34892:
-        return rx_unsupported(err, "lossy-compressed DNG");
-    case 52546:
-        return rx_unsupported(err, "JPEG XL-compressed DNG");
+    case RX_LOSSY_JPEG:
+    case RX_JPEG_XL:
+        break;
     case 34713:
         return rx_unsupported(err, "Nikon compressed NEF");
     case 32767:
@@ -644,6 +766,9 @@ pc_status rx_read_plane(const rx_tiff *t, const rx_ifd *ifd, const pc_raw_limits
     c.bits = bits;
     c.compression = compression;
     c.layout = layout;
+    c.limits = limits;
+    c.predictor = rx_tag_uint(t, ifd, RX_PREDICTOR, &v) ? v : 1;
+    c.tiled = rx_tag_uint(t, ifd, RX_TILE_WIDTH, &v);
     c.out = pc_calloc_array(nseg > 0 ? nseg : 1, sizeof *c.out);
     c.errs = pc_calloc_array(nseg > 0 ? nseg : 1, sizeof *c.errs);
     if (c.out == NULL || c.errs == NULL) {

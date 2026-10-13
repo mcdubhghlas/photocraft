@@ -1,8 +1,9 @@
 /* Smart selection: Quick Selection, Object Selection, Select Subject, Sky and Focus Area (port of
  * crates/algo/src/segment/: mod.rs, maxflow.rs, gmm.rs, slic.rs, grabcut.rs, quick.rs, sky.rs,
  * subject.rs, focus.rs). Everything is classical and implemented from the published papers:
- * Boykov-Kolmogorov max-flow, GMM colour models (k-means++ seeding, EM), SLIC superpixels,
- * GrabCut, geodesic stroke segmentation, saliency optimisation, Laplacian focus measures.
+ * hybrid push/relabel + Boykov-Kolmogorov max-flow, GMM colour models (k-means++ seeding, EM),
+ * SLIC superpixels, GrabCut, a min-cut Quick Selection fitted to Photoshop, saliency
+ * optimisation, Laplacian focus measures.
  *
  * Colour analysis runs on straight RGB samples in 0..=1 read through a pc_algo_sampler, so any
  * depth or colour model can be segmented; results are 8-bit coverage pc_algo_regions (None is an
@@ -25,6 +26,7 @@
 #include "algo/selection.h"
 #include "base/status.h"
 #include "geom/geom.h"
+#include "raster/interrupt.h"
 #include "raster/surface.h"
 
 typedef struct pc_algo_gmm pc_algo_gmm;
@@ -88,6 +90,33 @@ float pc_algo_segment_contrast_beta(const pc_algo_rgb_image *img);
 pc_status pc_algo_segment_grid_cut(const pc_algo_rgb_image *img, const float *cost_fg, const float *cost_bg,
                                    const uint8_t *fixed, float gamma, float beta, bool *fg_out,
                                    pc_error *err);
+/* Separating neighbours costs weight(ctx, |z_p - z_q|^2) / dist(p, q). Called on the calling
+ * thread. */
+typedef float (*pc_algo_cut_weight_fn)(void *ctx, float d2);
+/* grid_cut with any edge weight (only links touching a free pixel are weighted), asking ctl (NULL:
+ * never) every 1024 max-flow steps whether to stop: PC_ERR_CANCELLED then. Graphs of 2^32 - 3 or
+ * more pixels, or sides past i32, are PC_ERR_LIMIT (the reference returns an empty cut). */
+pc_status pc_algo_segment_grid_cut_with(const pc_algo_rgb_image *img, const float *cost_fg,
+                                        const float *cost_bg, const uint8_t *fixed,
+                                        pc_algo_cut_weight_fn weight, void *wctx, const pc_interrupt *ctl,
+                                        bool *out, pc_error *err);
+/* The same; optimized false is the reference's previous graph (every link visited in raster
+ * order, Boykov-Kolmogorov only), kept for before/after tests. */
+pc_status pc_algo_segment_grid_cut_impl(const pc_algo_rgb_image *img, const float *cost_fg,
+                                        const float *cost_bg, const uint8_t *fixed,
+                                        pc_algo_cut_weight_fn weight, void *wctx, const pc_interrupt *ctl,
+                                        bool optimized, bool *out, pc_error *err);
+/* Source pixels of the canonical grid links touching a free pixel, in raster order (edge_starts.rs):
+ * free (sorted, borrowed) merged with each one's left, upper, upper-left and upper-right
+ * neighbours, deduplicated. */
+typedef struct pc_algo_edge_starts {
+    const size_t *free_px;
+    size_t n, w;
+    size_t at[5], peek[5];
+    bool has[5];
+} pc_algo_edge_starts;
+void pc_algo_segment_edge_starts_init(pc_algo_edge_starts *s, const size_t *free_px, size_t n, size_t w);
+bool pc_algo_segment_edge_starts_next(pc_algo_edge_starts *s, size_t *out);
 /* Data costs (-ln p(z|fg), -ln p(z|bg)) for every pixel (caller buffers of w * h). */
 pc_status pc_algo_segment_data_costs(const pc_algo_rgb_image *img, const pc_algo_gmm *fg,
                                      const pc_algo_gmm *bg, float *cost_fg, float *cost_bg, pc_error *err);
@@ -132,8 +161,17 @@ void pc_algo_maxflow_add_tweights(pc_algo_maxflow *g, size_t i, float cap_source
 /* Edge i -> j with cap and j -> i with rev_cap (PC_ERR_INVALID for i == j or out of range). */
 pc_status pc_algo_maxflow_add_edge(pc_algo_maxflow *g, size_t i, size_t j, float cap, float rev_cap,
                                    pc_error *err);
-/* Computes the maximum flow (= minimum cut capacity) into *flow. */
+/* Deep copy (*out newly allocated). */
+pc_status pc_algo_maxflow_clone(const pc_algo_maxflow *g, pc_algo_maxflow **out, pc_error *err);
+/* Computes the maximum flow (= minimum cut capacity) into *flow: graphs of 4096+ nodes with
+ * finite capacities and terminal links both ways use push/relabel, others Boykov-Kolmogorov. */
 pc_status pc_algo_maxflow_run(pc_algo_maxflow *g, double *flow, pc_error *err);
+/* The same, asking ctl (NULL: never) every 1024 steps whether to stop: PC_ERR_CANCELLED then
+ * (*flow untouched, the cut meaningless). Not cancelled, exactly pc_algo_maxflow_run. */
+pc_status pc_algo_maxflow_run_with(pc_algo_maxflow *g, const pc_interrupt *ctl, double *flow, pc_error *err);
+/* One solver regardless of the graph (the reference's test entry points). */
+pc_status pc_algo_maxflow_run_bk(pc_algo_maxflow *g, double *flow, pc_error *err);
+pc_status pc_algo_maxflow_run_push_relabel(pc_algo_maxflow *g, double *flow, pc_error *err);
 /* After run: is node i on the source side of the minimum cut? */
 bool pc_algo_maxflow_in_source(const pc_algo_maxflow *g, size_t i);
 double pc_algo_maxflow_flow(const pc_algo_maxflow *g);
@@ -227,21 +265,43 @@ pc_status pc_algo_segment_finish_region(const pc_algo_sampler *s, pc_rect window
 
 /* ---- Quick Selection (quick.rs) ---- */
 
-#define PC_ALGO_QUICK_WORK_PX 160000
+/* The model's constants (see quick.c); pc_algo_quick_tuning_default is the fit to Photoshop. */
+typedef struct pc_algo_quick_tuning {
+    /* Cost of each selected pixel beyond the footprint, times 1 + dist * d^pow (d: working
+     * pixels from the footprint). */
+    float area, dist, pow;
+    /* Cut weight between neighbours: floor + 1 / (1 + (|Ip - Iq| / sigma)^k), RGB in 0..1. */
+    float floor, sigma, k;
+    /* The footprint grows by grow + grow_frac * radius working pixels. */
+    float grow, grow_frac;
+    /* Larger working windows are cut coarse to fine. */
+    size_t direct_px;
+} pc_algo_quick_tuning;
 
-/* Grows a selection from a brush stroke (points in document pixels, brush diameter size). */
+pc_algo_quick_tuning pc_algo_quick_tuning_default(void);
+/* 1 up to 512 x 512 document pixels, else 2 (Photoshop's working resolution). */
+size_t pc_algo_quick_working_step(size_t w, size_t h);
+/* Grows a selection from a brush stroke (points in document pixels, brush diameter size) on the
+ * document canvas; None when the stroke misses it. */
 pc_status pc_algo_quick_select(const pc_algo_sampler *s, pc_rect canvas, const float (*points)[2],
-                               size_t npoints, float size, size_t work_px, pc_algo_region *out,
-                               pc_error *err);
-/* The working-resolution segmentation: models and labels (low: caller buffer of w * h). */
-pc_status pc_algo_quick_segment(const pc_algo_rgb_image *img, const bool *seeds, pc_algo_gmm *fg,
-                                pc_algo_gmm *bg, bool *low, pc_error *err);
-/* A near-uniform density over the RGB cube. */
-pc_status pc_algo_quick_broad_model(pc_algo_gmm *out, pc_error *err);
+                               size_t npoints, float size, pc_algo_region *out, pc_error *err);
+pc_status pc_algo_quick_select_with(const pc_algo_sampler *s, pc_rect canvas, const float (*points)[2],
+                                    size_t npoints, float size, const pc_algo_quick_tuning *t,
+                                    pc_algo_region *out, pc_error *err);
+/* optimized false runs the reference's previous graph construction (same result; tests). */
+pc_status pc_algo_quick_select_using(const pc_algo_sampler *s, pc_rect canvas, const float (*points)[2],
+                                     size_t npoints, float size, const pc_algo_quick_tuning *t,
+                                     bool optimized, pc_algo_region *out, pc_error *err);
+/* The model at working resolution: seeds (the footprint, radius working pixels) are selected;
+ * low: caller buffer of w * h. */
+pc_status pc_algo_quick_select_working(const pc_algo_rgb_image *img, const bool *seeds, float radius,
+                                       const pc_algo_quick_tuning *t, bool *low, pc_error *err);
 /* Pixels within radius of the polyline, plus each point's own pixel (out: caller w * h). */
 void pc_algo_quick_stroke_mask(const float (*pts)[2], size_t n, float radius, size_t w, size_t h, bool *out);
-/* Geodesic distance from seeds over the barrier map (out: newly allocated w * h, free()). */
-pc_status pc_algo_quick_geodesic(const pc_algo_rgb_image *img, const bool *seeds, float **out, pc_error *err);
+/* Bilinear upsampling (pixel centres aligned, edges clamped) of a working selection to 8-bit
+ * coverage (out: caller w * h), as Photoshop scales its half-resolution result. */
+pc_status pc_algo_quick_upsample(const bool *low, size_t lw, size_t lh, size_t step, size_t w, size_t h,
+                                 uint8_t *out, pc_error *err);
 
 /* ---- Select > Sky (sky.rs) ---- */
 

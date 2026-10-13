@@ -312,6 +312,9 @@ fail:
 
 /* ---- writing ---- */
 
+/* put_name writes the length as units + 1 in a u16, so the cap must leave room. */
+_Static_assert(PC_PSD_ASE_MAX_NAME_UNITS < 65535u, "ASE name cap must fit a u16 length with the NUL");
+
 static void put_name(psd_w *w, const pc_psd_str *name)
 {
     uint16_t *u = NULL;
@@ -326,9 +329,7 @@ static void put_name(psd_w *w, const pc_psd_str *name)
         psd_w_fail(w, st);
         return;
     }
-    if (n > PC_PSD_ASE_MAX_NAME_UNITS) {
-        n = PC_PSD_ASE_MAX_NAME_UNITS;
-    }
+    n = psd_units_capped(u, n, PC_PSD_ASE_MAX_NAME_UNITS);
     psd_put_u16(w, (uint16_t)(n + 1));
     for (i = 0; i < n; i++) {
         psd_put_u16(w, u[i]);

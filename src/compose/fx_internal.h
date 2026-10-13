@@ -52,6 +52,10 @@ typedef enum pc_fx_metric { PC_FX_EUCLIDEAN, PC_FX_CHAMFER } pc_fx_metric;
 pc_status pc_fx_dist_outside(const pc_fxm *s, pc_fx_metric m, float **out, pc_error *err);
 /* Distance from pixel centres inside the shape to its edge (outside pixels -0.5). */
 pc_status pc_fx_dist_inside(const pc_fxm *s, pc_fx_metric m, float **out, pc_error *err);
+/* Exact Euclidean distance to the nearest `inside` pixel (0 there; 1e10 when there is none) and
+ * that pixel's index (malloc'd, w * h each). */
+pc_status pc_fx_edt_nearest(const bool *inside, size_t w, size_t h, float **dist, size_t **nearest,
+                            pc_error *err);
 /* Grows the shape by r pixels (chamfer metric, anti-aliased), keeping its soft edge. */
 pc_status pc_fx_dilate(const pc_fxm *s, float r, pc_fxm *out, pc_error *err);
 /* Alpha relative to the 3 x 3 neighbourhood maximum. */
@@ -65,6 +69,46 @@ pc_status pc_fx_shadow_map(const pc_fxm *shape, const pc_shadow *s, const pc_glo
 pc_status pc_fx_glow_map(const pc_fxm *shape, const pc_glow *g, bool inner, int32_t ox, int32_t oy,
                          pc_fxm *out, pc_error *err);
 pc_status pc_fx_satin_map(const pc_fxm *shape, const pc_satin *s, pc_fxm *out, pc_error *err);
+
+/* ---- fx_sharp.c: distances for chiselled bevels ---- */
+
+/* Where a sharp, anti-aliased edge pixel puts the straight edge crossing it. */
+typedef struct pc_fx_sharp_edge {
+    float offset;    /* signed distance from the pixel's centre to the edge, positive inside */
+    float normal[2]; /* unit normal into the shape ([0, 0]: the coverage gives no direction) */
+} pc_fx_sharp_edge;
+
+typedef struct pc_fx_edge_pixel {
+    uint32_t at; /* index in the map */
+    float cov;   /* local coverage */
+    pc_fx_sharp_edge edge;
+} pc_fx_edge_pixel;
+
+/* The sharp edge pixels of a map: a list in pixel order, and per pixel a slot (0 = none, k = the
+ * k-th of the list); slot is NULL for an empty set. */
+typedef struct pc_fx_sharp_edges {
+    size_t w;
+    size_t h;
+    uint32_t *slot;
+    pc_fx_edge_pixel *pixels;
+    size_t npixels;
+} pc_fx_sharp_edges;
+
+/* effects::sharp_edges: partly covered pixels touching both an empty and a full pixel, with the
+ * edge placed by their coverage along the coverage gradient's normal, refined by the line
+ * through their neighbours' edge points. */
+pc_status pc_fx_sharp_edges_find(const pc_fxm *s, pc_fx_sharp_edges *out, pc_error *err);
+void pc_fx_sharp_edges_fini(pc_fx_sharp_edges *e);
+/* bevel_dist_inside / bevel_dist_outside: dist_inside / dist_outside with sharp edge pixels placed
+ * by their coverage at any angle (planar ramps along oblique edges); values past reach are not
+ * refined. *out is malloc'd (w * h). */
+pc_status pc_fx_bevel_dist_inside(const pc_fxm *s, const pc_fx_sharp_edges *sharp, float reach, float **out,
+                                  pc_error *err);
+pc_status pc_fx_bevel_dist_outside(const pc_fxm *s, const pc_fx_sharp_edges *sharp, float reach, float **out,
+                                   pc_error *err);
+/* effects::edge_offset: the signed distance from the centre of a pixel of coverage a to the
+ * straight edge with unit normal n crossing it, positive inside. */
+float pc_fx_edge_offset(const float n[2], float a);
 
 /* ---- fx_paint.c ---- */
 

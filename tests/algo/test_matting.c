@@ -1,5 +1,6 @@
-/* Tests for src/algo/matting.c (ports of the #[test]s in crates/algo/src/matting.rs) plus
- * never-crash checks. */
+/* Tests for src/algo/matting.c and matting_brush.c (ports of the #[test]s in
+ * crates/algo/src/matting.rs and matting/brush.rs) plus never-crash checks. The morphology tests
+ * (matting/morphology/tests.rs) are in test_matting_morph.c. */
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -164,6 +165,22 @@ static void test_feather_contrast_and_shift(void)
     (void)pc_algo_matting_refine_buffer(NULL, m, w, h, &p, &g, NULL);
     CHECK(g[5 * w + 27] == 1.0f && g[5 * w + 28] == 0.0f);
     free(g);
+    /* Radius 0 scales 100% to 4 px, so 12.5% is half a pixel and 25% is one pixel. The pixel
+     * just outside a hard edge fades in instead of snapping on. */
+    CHECK(m[5 * w + 30] == 0.0f);
+    p.shift_edge = 12.5f;
+    (void)pc_algo_matting_refine_buffer(NULL, m, w, h, &p, &g, NULL);
+    CHECK_NEAR(g[5 * w + 30], 0.5, 0.02);
+    CHECK(g[5 * w + 31] == 0.0f); /* the blend must not jump a second pixel */
+    free(g);
+    p.shift_edge = 25.0f;
+    (void)pc_algo_matting_refine_buffer(NULL, m, w, h, &p, &g, NULL);
+    CHECK(g[5 * w + 30] == 1.0f);
+    free(g);
+    p.shift_edge = -12.5f;
+    (void)pc_algo_matting_refine_buffer(NULL, m, w, h, &p, &g, NULL);
+    CHECK_NEAR(g[5 * w + 29], 0.5, 0.02); /* half-pixel contract */
+    free(g);
     p = pc_algo_refine_params_default();
     p.smooth = 50.0f;
     (void)pc_algo_matting_refine_buffer(NULL, m, w, h, &p, &g, NULL);
@@ -273,6 +290,119 @@ static void test_decontaminate_and_masked_copy_any_depth(void)
     pc_algo_region_fini(&a2);
 }
 
+/* ---- Refine Edge Brush (matting/brush.rs) ---- */
+
+static pc_status refine_brushed(const pc_algo_rgb_image *img, const pc_algo_region *reg,
+                                const pc_algo_refine_params *p, const pc_algo_edge_stroke *strokes, size_t n,
+                                pc_algo_region *out)
+{
+    pc_algo_image_sampler hold = {img, 0, 0};
+    pc_algo_sampler s = pc_algo_image_sampler_make(&hold);
+    pc_algo_edge_brush b;
+    bool some = false;
+    pc_status st;
+    if (n > 0) {
+        CHECK(pc_algo_edge_brush_new(strokes, n, reg->bbox, &b, &some, NULL) == PC_OK);
+    }
+    st = pc_algo_matting_refine_mask_brushed(&s, pc_algo_matting_region_reader, reg, reg->bbox, reg->bbox, p,
+                                             some ? &b : NULL, out, NULL);
+    if (some) {
+        pc_algo_edge_brush_fini(&b);
+    }
+    CHECK(st == PC_OK && !pc_algo_region_is_none(out));
+    return st;
+}
+
+/* Strands of the subject's colour (every 4th column from x = 60) beyond the selection's edge at
+ * x = 40: brushing over them adds them, Alt-brushing the edge keeps it as it was. */
+static void test_brush_picks_up_strands_beyond_the_band_and_restores_the_edge(void)
+{
+    static const float fg[3] = {0.9f, 0.7f, 0.2f}, bg[3] = {0.1f, 0.3f, 0.8f};
+    static const float over[2][2] = {{70.0f, 10.0f}, {70.0f, 50.0f}},
+                       edge[2][2] = {{40.0f, 0.0f}, {40.0f, 60.0f}};
+    const size_t w = 120, h = 60;
+    pc_algo_rgb_image img, blurred;
+    pc_algo_region reg, plain, brushed, refined, restored;
+    pc_algo_refine_params p = pc_algo_refine_params_default();
+    pc_algo_edge_stroke add = {over, 2, 30.0f, true}, restore = {edge, 2, 20.0f, false};
+    size_t x, y;
+    int c;
+    (void)pc_algo_rgb_image_init(&img, w, h, NULL);
+    (void)pc_algo_rgb_image_init(&blurred, w, h, NULL);
+    for (y = 0; y < h; y++) {
+        for (x = 0; x < w; x++) {
+            bool strand = x < 40 || (x >= 60 && x < 84 && x % 4 == 0);
+            float t = pc_clampf(((float)x - 36.0f) / 8.0f, 0.0f, 1.0f);
+            for (c = 0; c < 3; c++) {
+                img.px[y * w + x][c] = strand ? fg[c] : bg[c];
+                blurred.px[y * w + x][c] = fg[c] * (1.0f - t) + bg[c] * t;
+            }
+        }
+    }
+    reg.bbox = pc_rect_make(0, 0, (int32_t)w, (int32_t)h);
+    reg.len = w * h;
+    reg.mask = malloc(reg.len);
+    for (x = 0; x < reg.len; x++) {
+        reg.mask[x] = x % w < 40 ? 255 : 0;
+    }
+    p.radius = 4.0f;
+    if (refine_brushed(&img, &reg, &p, NULL, 0, &plain) == PC_OK) {
+        CHECK(pc_algo_region_at(&plain, 64, 30) < 0.01f); /* the band alone stops short of the strands */
+        pc_algo_region_fini(&plain);
+    }
+    if (refine_brushed(&img, &reg, &p, &add, 1, &brushed) == PC_OK) {
+        CHECK(pc_algo_region_at(&brushed, 64, 30) > 0.9f && pc_algo_region_at(&brushed, 72, 30) > 0.9f);
+        CHECK(pc_algo_region_at(&brushed, 66, 30) < 0.1f); /* the background between them stays out */
+        CHECK(pc_algo_region_at(&brushed, 20, 30) > 0.99f && pc_algo_region_at(&brushed, 100, 30) < 0.01f);
+        pc_algo_region_fini(&brushed);
+    }
+    /* Restoring paints the refinement out: with Shift Edge 0 the edge is the original one. */
+    p.feather = 0.0f;
+    if (refine_brushed(&blurred, &reg, &p, NULL, 0, &refined) == PC_OK) {
+        CHECK(pc_algo_region_at(&refined, 41, 30) > 0.1f); /* the band softens the blurred edge */
+        pc_algo_region_fini(&refined);
+    }
+    if (refine_brushed(&blurred, &reg, &p, &restore, 1, &restored) == PC_OK) {
+        CHECK(pc_algo_region_at(&restored, 41, 30) < 0.01f && pc_algo_region_at(&restored, 38, 30) > 0.99f);
+        pc_algo_region_fini(&restored);
+    }
+    pc_algo_region_fini(&reg);
+    pc_algo_rgb_image_fini(&img);
+    pc_algo_rgb_image_fini(&blurred);
+}
+
+static void test_strokes_paint_in_order_and_clip_to_the_canvas(void)
+{
+    static const float line[2][2] = {{10.0f, 25.0f}, {90.0f, 25.0f}}, dab[1][2] = {{50.0f, 25.0f}};
+    static const float far[1][2] = {{-500.0f, -500.0f}};
+    const float nanp[1][2] = {{NAN, 3.0f}};
+    const pc_rect canvas = {0, 0, 100, 50};
+    pc_algo_edge_stroke add = {line, 2, 10.0f, true}, two[2], bad[3];
+    pc_algo_edge_brush b;
+    bool some = false;
+    CHECK(pc_algo_edge_brush_new(&add, 1, canvas, &b, &some, NULL) == PC_OK && some);
+    if (some) {
+        CHECK(pc_algo_edge_brush_at(&b, 50, 25) > 0.99f && pc_algo_edge_brush_at(&b, 50, 40) == 0.0f);
+        CHECK_EQ_UINT(b.window, 10);
+        pc_algo_edge_brush_fini(&b);
+    }
+    /* A later subtract stroke paints over the add. */
+    two[0] = add;
+    two[1] = (pc_algo_edge_stroke){dab, 1, 20.0f, false};
+    some = false;
+    CHECK(pc_algo_edge_brush_new(two, 2, canvas, &b, &some, NULL) == PC_OK && some);
+    if (some) {
+        CHECK(pc_algo_edge_brush_at(&b, 50, 25) < -0.99f && pc_algo_edge_brush_at(&b, 20, 25) > 0.99f);
+        pc_algo_edge_brush_fini(&b);
+    }
+    /* Off the canvas, non-finite or empty strokes paint nothing. */
+    bad[0] = (pc_algo_edge_stroke){far, 1, 10.0f, true};
+    bad[1] = (pc_algo_edge_stroke){nanp, 1, 10.0f, true};
+    bad[2] = (pc_algo_edge_stroke){NULL, 0, 10.0f, true};
+    some = true;
+    CHECK(pc_algo_edge_brush_new(bad, 3, canvas, &b, &some, NULL) == PC_OK && !some);
+}
+
 /* ---- never crash ---- */
 
 static void test_hostile_inputs(void)
@@ -342,6 +472,8 @@ int main(int argc, char **argv)
     RUN(test_feather_contrast_and_shift);
     RUN(test_refine_mask_tiles_match_single_buffer);
     RUN(test_decontaminate_and_masked_copy_any_depth);
+    RUN(test_brush_picks_up_strands_beyond_the_band_and_restores_the_edge);
+    RUN(test_strokes_paint_in_order_and_clip_to_the_canvas);
     RUN(test_hostile_inputs);
     return pc_t_finish();
 }

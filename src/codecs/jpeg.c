@@ -16,6 +16,7 @@
 #include "base/utf8.h"
 #include "codecs/internal.h"
 #include "codecs/orientation.h"
+#include "codecs/resolution.h"
 
 #define F PC_CF_JPEG
 #define EXIF_HEADER "Exif\0\0"
@@ -23,6 +24,8 @@
 #define XMP_HEADER "http://ns.adobe.com/xap/1.0/\0"
 #define XMP_HEADER_LEN 29
 #define ICC_HEADER "ICC_PROFILE\0"
+#define PHOTOSHOP_HEADER "Photoshop 3.0\0"
+#define PHOTOSHOP_HEADER_LEN 14
 #define MAX_SEGMENT 65533u
 
 /* ---- marker scan ---- */
@@ -73,6 +76,11 @@ static pc_status scan_metadata(const uint8_t *b, size_t n, jmeta *m, pc_error *e
     size_t cap = 0;
     size_t i = 2;
     pc_status st = PC_OK;
+    /* Photoshop splits a large resource block over consecutive APP13 segments. */
+    pc_buf photoshop = PC_BUF_INIT;
+    bool jfif = false;
+    float jx = 0.0f;
+    float jy = 0.0f;
     memset(m, 0, sizeof *m);
     while (st == PC_OK && i + 4 <= n) {
         uint8_t marker;
@@ -105,12 +113,16 @@ static pc_status scan_metadata(const uint8_t *b, size_t n, jmeta *m, pc_error *e
             float x = (float)cx_be16(seg + 8);
             float y = (float)cx_be16(seg + 10);
             if (x > 0.0f && y > 0.0f) {
-                m->has_dpi = unit == 1 || unit == 2;
-                m->dpi_x = unit == 2 ? x * 2.54f : x;
-                m->dpi_y = unit == 2 ? y * 2.54f : y;
+                jfif = unit == 1 || unit == 2;
+                jx = unit == 2 ? x * 2.54f : x;
+                jy = unit == 2 ? y * 2.54f : y;
             }
-        } else if (marker == 0xE1 && sl >= EXIF_HEADER_LEN && memcmp(seg, EXIF_HEADER, EXIF_HEADER_LEN) == 0 &&
-                   !m->exif.has) {
+        } else if (marker == 0xED && sl >= PHOTOSHOP_HEADER_LEN &&
+                   memcmp(seg, PHOTOSHOP_HEADER, PHOTOSHOP_HEADER_LEN) == 0 &&
+                   photoshop.len < ((size_t)1 << 24)) {
+            st = pc_buf_append(&photoshop, seg + PHOTOSHOP_HEADER_LEN, sl - PHOTOSHOP_HEADER_LEN, err);
+        } else if (marker == 0xE1 && sl >= EXIF_HEADER_LEN &&
+                   memcmp(seg, EXIF_HEADER, EXIF_HEADER_LEN) == 0 && !m->exif.has) {
             st = pc_meta_blob_set(&m->exif, seg + EXIF_HEADER_LEN, sl - EXIF_HEADER_LEN, err);
         } else if (marker == 0xE1 && sl >= XMP_HEADER_LEN && memcmp(seg, XMP_HEADER, XMP_HEADER_LEN) == 0 &&
                    !m->xmp.has) {
@@ -143,6 +155,20 @@ static pc_status scan_metadata(const uint8_t *b, size_t n, jmeta *m, pc_error *e
         }
         i += 2 + len;
     }
+    /* Resolution (#1691): the first usable of Photoshop's ResolutionInfo, the XMP, the EXIF and
+     * last the JFIF density (a unit-0 density is only an aspect ratio). */
+    if (st == PC_OK) {
+        if (pc_photoshop_resolution(photoshop.data, photoshop.len, &m->dpi_x, &m->dpi_y) ||
+            (m->xmp.has && pc_xmp_resolution((const char *)m->xmp.data, m->xmp.len, &m->dpi_x, &m->dpi_y)) ||
+            (m->exif.has && pc_exif_resolution(m->exif.data, m->exif.len, &m->dpi_x, &m->dpi_y))) {
+            m->has_dpi = true;
+        } else if (jfif) {
+            m->has_dpi = true;
+            m->dpi_x = jx;
+            m->dpi_y = jy;
+        }
+    }
+    pc_buf_fini(&photoshop);
     if (st == PC_OK && np > 0) {
         size_t k;
         size_t j;
@@ -443,14 +469,15 @@ pc_status cx_jpeg_decode(const uint8_t *b, size_t n, const pc_climits *l, pc_cim
 
 /* ---- segments ---- */
 
-bool cx_jpeg_exif_segment(const uint8_t *exif, size_t n, pc_buf *seg)
+bool cx_jpeg_exif_segment(const uint8_t *exif, size_t n, const float *dpi, pc_buf *seg)
 {
     uint8_t *up = NULL;
     size_t un = 0;
     const uint8_t *d = exif;
     bool ok;
-    /* The pixels are written as they are shown: never let a viewer rotate them again. */
-    if (pc_upright_exif(exif, n, &up, &un, NULL) != PC_OK) {
+    /* The pixels are written as they are shown: never let a viewer rotate them again; and the
+     * resolution is the one written to JFIF, not the source's (#1691). */
+    if (pc_export_exif(exif, n, dpi, &up, &un, NULL) != PC_OK) {
         return false;
     }
     if (up != NULL) {
@@ -543,7 +570,7 @@ static pc_status remove_element(const char *x, size_t n, const char *name, pc_bu
     return st;
 }
 
-bool cx_jpeg_xmp_segment(const uint8_t *xmp, size_t n, pc_buf *seg)
+bool cx_jpeg_xmp_segment(const uint8_t *xmp, size_t n, const float *dpi, pc_buf *seg)
 {
     char *up = NULL;
     size_t un = 0;
@@ -551,7 +578,7 @@ bool cx_jpeg_xmp_segment(const uint8_t *xmp, size_t n, pc_buf *seg)
     pc_buf a = PC_BUF_INIT;
     pc_buf b = PC_BUF_INIT;
     bool ok = false;
-    if (pc_upright_xmp((const char *)xmp, n, &up, &un, NULL) != PC_OK) {
+    if (pc_export_xmp((const char *)xmp, n, dpi, &up, &un, NULL) != PC_OK) {
         return false;
     }
     if (up != NULL) {
@@ -733,9 +760,16 @@ pc_status cx_jpeg_encode(const pc_cimage *src, cx_plan p, const pc_cencode_opts 
     enc_job j;
     pc_buf exif = PC_BUF_INIT;
     pc_buf xmp = PC_BUF_INIT;
+    float dpiv[2];
+    const float *dpi = NULL;
     pc_status st = pc_cimage_converted(src, p.layout, p.sample, &tmp, &img, err);
     if (st != PC_OK) {
         return st;
+    }
+    if (img->meta.has_dpi) {
+        dpiv[0] = img->meta.dpi_x;
+        dpiv[1] = img->meta.dpi_y;
+        dpi = dpiv;
     }
     memset(&j, 0, sizeof j);
     if (img->width > 65535 || img->height > 65535) {
@@ -761,10 +795,10 @@ pc_status cx_jpeg_encode(const pc_cimage *src, cx_plan p, const pc_cencode_opts 
             j.dy = pc_f32_to_u16(pc_rs_minf_k(roundf(img->meta.dpi_y), 65535.0f));
         }
         /* Metadata too large for its one segment is left out (the fidelity warnings say so). */
-        if (img->meta.exif.has && cx_jpeg_exif_segment(img->meta.exif.data, img->meta.exif.len, &exif)) {
+        if (img->meta.exif.has && cx_jpeg_exif_segment(img->meta.exif.data, img->meta.exif.len, dpi, &exif)) {
             j.app1[0] = &exif;
         }
-        if (img->meta.xmp.has && cx_jpeg_xmp_segment(img->meta.xmp.data, img->meta.xmp.len, &xmp)) {
+        if (img->meta.xmp.has && cx_jpeg_xmp_segment(img->meta.xmp.data, img->meta.xmp.len, dpi, &xmp)) {
             j.app1[1] = &xmp;
         }
     }

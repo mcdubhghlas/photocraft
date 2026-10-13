@@ -325,7 +325,8 @@ fn photo_util_vectors() {
 }
 
 fn info_hash(h: &mut u64, i: &CameraInfo) {
-    for s in [&i.make, &i.model, &i.lens] {
+    // R5: date_taken (new upstream field) hashed with the other strings.
+    for s in [&i.make, &i.model, &i.lens, &i.date_taken] {
         match s {
             Some(s) => {
                 hu(h, s.len() as u64);
@@ -353,11 +354,14 @@ fn exif_infos() -> Vec<CameraInfo> {
             iso: Some(200.0),
             focal_length: Some(35.0),
             focal_length_35mm: Some(52.0),
+            date_taken: None,
         },
         CameraInfo { make: Some("Ab".into()), iso: Some(70000.0), exposure_time: Some(1.0 / 3.0), ..Default::default() },
         CameraInfo { model: Some(" x \u{e9}\0y ".into()), f_number: Some(-2.0), focal_length_35mm: Some(0.0), ..Default::default() },
         CameraInfo::default(),
         CameraInfo { lens: Some("L".repeat(40)), focal_length: Some(1e12), iso: Some(f64::NAN), ..Default::default() },
+        // R5: DateTimeOriginal.
+        CameraInfo { make: Some("Make".into()), date_taken: Some("2024:02:17 12:40:19".into()), exposure_time: Some(0.004), ..Default::default() },
     ]
 }
 
@@ -886,7 +890,7 @@ fn quantize_vectors() {
     let mut methods = vec![BitmapMethod::Threshold, BitmapMethod::Pattern, BitmapMethod::Diffusion];
     for shape in ["round", "ellipse", "line", "square", "diamond", "cross", "bogus"] {
         for (cell, angle) in [(6.0f32, 45.0f32), (1.0, -30.0), (13.5, 0.0), (4.0, 400.0)] {
-            methods.push(BitmapMethod::Halftone { cell, angle, shape: HalftoneShape::from_id(shape) });
+            methods.push(BitmapMethod::Halftone { cell, angle, shape: HalftoneShape::from_id(shape).unwrap_or(HalftoneShape::Round) });
         }
     }
     for (k, m) in methods.iter().enumerate() {
@@ -949,4 +953,47 @@ pub fn run() {
     blend_vectors();
     quantize_vectors();
     scancrop_vectors();
+    r5_quantize_vectors();
+}
+
+/// R5 (upstream resync): palettes above 64 entries go through the exact k-d tree nearest search
+/// (quantize/nearest.rs); HalftoneShape::from_id is an Option now.
+fn r5_quantize_vectors() {
+    let noisy = rgba(3000, 23);
+    let mut grad: Vec<[f32; 4]> = (0..93 * 61).map(|i| [(i % 93) as f32 / 92.0, (i / 93) as f32 / 60.0, 0.3, 1.0]).collect();
+    for (i, p) in grad.iter_mut().enumerate() {
+        p[2] = (i % 71) as f32 / 70.0;
+        p[3] = [0.0, 0.2, 0.7, 1.0][i % 4];
+    }
+    let pals = [
+        ("sel256", quantize::build_palette(&grad, PaletteKind::Selective, 256, Forced::BlackWhite).unwrap_or_default()),
+        ("ada128", quantize::build_palette(&noisy, PaletteKind::Adaptive, 128, Forced::None).unwrap_or_default()),
+        ("per65", quantize::build_palette(&noisy, PaletteKind::Perceptual, 65, Forced::Primaries).unwrap_or_default()),
+        ("mac", quantize::mac_palette()),
+        ("web", quantize::web_palette()),
+    ];
+    for (pn, pal) in &pals {
+        let mut hp = H0;
+        pal_hash(&mut hp, pal);
+        println!("r5_palette {pn} {} {hp:016x}", pal.len());
+        for (xn, src, w) in [("grad", &grad, 93usize), ("noisy", &noisy, 50)] {
+            let mut h = H0;
+            for dither in [Dither::None, Dither::Diffusion, Dither::Pattern, Dither::Noise] {
+                for transparent in [None, Some(1usize)] {
+                    let mut px = src.clone();
+                    let idx = quantize::quantize(&mut px, w, pal, dither, 0.75, transparent);
+                    fnv(&mut h, &idx);
+                    for p in &px {
+                        hf(&mut h, p);
+                    }
+                }
+            }
+            println!("r5_quantize {pn} {xn} {h:016x}");
+        }
+    }
+    let mut h = H0;
+    for id in ["round", "ellipse", "line", "square", "diamond", "cross", "x", "", "Round"] {
+        fnv(&mut h, format!("{:?}", HalftoneShape::from_id(id)).as_bytes());
+    }
+    println!("r5_halftone_from_id {h:016x}");
 }

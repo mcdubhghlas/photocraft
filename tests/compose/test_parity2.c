@@ -110,6 +110,9 @@ typedef struct out {
     size_t cap;
 } out;
 
+#if defined(__GNUC__)
+__attribute__((format(printf, 2, 3)))
+#endif
 static void put(out *o, const char *fmt, ...)
 {
     va_list ap;
@@ -858,6 +861,191 @@ static void split_sweeps(out *o)
 
 /* ---- comparison ---- */
 
+/* R9 (resync) sweeps, appended by rustref compose2_vectors.rs r9_sweeps. */
+static void r9_fill_sweeps(out *o)
+{
+    static const bool labs[3] = {false, true, false};
+    static const bool hdrs[3] = {false, false, true};
+    static const float balpha[3] = {1.0f, 0.5f, 0.0f};
+    static const float talpha[4] = {1.0f, 0.25f, 1.0f, 0.6f};
+    static const size_t js[7] = {0, 3, 7, 11, 12, 13, 15};
+    static const float fills[5] = {0.0f, 0.3f, 0.5f, 1.0f, NAN};
+    static const float ops[3][2] = {{1.0f, 1.0f}, {0.6f, 1.0f}, {0.8f, 1.45f}};
+    uint64_t h = H0;
+    uint64_t hc = H0;
+    int flag;
+    for (flag = 0; flag < 3; flag++) {
+        bool lab = pc_psblend_set_lab_mix(labs[flag]);
+        bool hdr = pc_psblend_set_hdr(hdrs[flag]);
+        size_t m;
+        for (m = 0; m < PC_BLEND_LAYER_MODE_COUNT + PC_BLEND_PAINT_NET_MODE_COUNT; m++) {
+            pc_blend_mode mode = m < PC_BLEND_LAYER_MODE_COUNT
+                                     ? PC_BLEND_LAYER_MODES[m]
+                                     : PC_BLEND_PAINT_NET_MODES[m - PC_BLEND_LAYER_MODE_COUNT];
+            size_t i;
+            size_t jj;
+            for (i = 0; i < 16; i++) {
+                for (jj = 0; jj < 7; jj++) {
+                    size_t j = js[jj];
+                    const float b[4] = {VALS[i], VALS[j], VALS[(i + j) % 16], balpha[flag]};
+                    const float t[4] = {VALS[j], VALS[(i * 3) % 16], VALS[i], talpha[i % 4]};
+                    float v[4];
+                    int f;
+                    int k;
+                    for (f = 0; f < 5; f++) {
+                        int q;
+                        pc_psblend_rgb_fill(mode, b, t, fills[f], v);
+                        for (k = 0; k < 3; k++) {
+                            hf(&h, v[k]);
+                        }
+                        for (q = 0; q < 3; q++) {
+                            pc_psblend_composite_fill(mode, b, t, ops[q][0], fills[f], ops[q][1], v);
+                            for (k = 0; k < 4; k++) {
+                                hf(&h, v[k]);
+                            }
+                        }
+                    }
+                    pc_psblend_composite(mode, b, t, 0.7f, v);
+                    for (k = 0; k < 4; k++) {
+                        hf(&hc, v[k]);
+                    }
+                }
+            }
+        }
+        (void)pc_psblend_set_hdr(hdr);
+        (void)pc_psblend_set_lab_mix(lab);
+    }
+    fn_line(o, "r9_fill_blend", h);
+    fn_line(o, "r9_paint_net_composite", hc);
+}
+
+static void r9_curve_sweeps(out *o)
+{
+    float *lut = xmalloc(4 * LUT * sizeof *lut);
+    uint64_t hp = H0;
+    uint64_t hk = H0;
+    uint64_t ha = H0;
+    uint64_t hl = H0;
+    uint64_t seed;
+    size_t k;
+    const bool has_d[4] = {false, true, true, true};
+    const pc_sample_type ds[4] = {PC_SAMPLE_TYPE_F32, PC_SAMPLE_TYPE_U8, PC_SAMPLE_TYPE_U16,
+                                  PC_SAMPLE_TYPE_F32};
+    const pc_compose_transfer srgb = {PC_COMPOSE_TRANSFER_SRGB, 0.0f};
+    for (seed = 1; seed <= 300; seed++) {
+        rng r = {(seed * 0x9e3779b97f4a7c15ull) | 1};
+        pc_curve c = curve(&r);
+        size_t nc = c.len + (size_t)below(&r, 2);
+        bool *corners = xmalloc((nc > 0 ? nc : 1) * sizeof *corners);
+        for (k = 0; k < nc; k++) {
+            corners[k] = below(&r, 2) == 0;
+        }
+        CHECK(pc_compose_curve_map_lut(c.pts, c.len, lut, NULL) == PC_OK);
+        for (k = 0; k < LUT; k++) {
+            hf(&hp, lut[k]);
+        }
+        CHECK(pc_compose_contour_curve_lut(c.pts, c.len, corners, nc, lut, NULL) == PC_OK);
+        for (k = 0; k < LUT; k++) {
+            hf(&hk, lut[k]);
+        }
+        free(corners);
+        pc_curve_fini(&c);
+    }
+    fn_line(o, "r9_curve_map_lut", hp);
+    fn_line(o, "r9_contour_curve_lut", hk);
+    for (seed = 1; seed <= 300; seed++) {
+        rng r = {(seed * 0x2545f4914f6cdd1dull) | 1};
+        pc_adjustment a = adjustment(&r);
+        int d;
+        if (a.kind == PC_ADJ_CURVES) {
+            a.u.curves.pencil = below(&r, 2) == 0;
+        }
+        for (d = 0; d < 4; d++) {
+            pc_compose_buffer b = test_buffer();
+            CHECK(pc_compose_adjust_apply_in(&a, &b, srgb, has_d[d], ds[d], PC_COLOR_MODE_LAB, NULL) ==
+                  PC_OK);
+            hu64(&ha, hpx(b.px, b.len));
+            pc_compose_buffer_fini(&b);
+        }
+        if (a.kind == PC_ADJ_CURVES) {
+            CHECK(pc_compose_tone_luts(&a, lut, NULL) == PC_OK);
+            for (k = 0; k < 4 * LUT; k++) {
+                hf(&hl, lut[k]);
+            }
+        }
+        pc_adjustment_fini(&a);
+    }
+    fn_line(o, "r9_apply_in_lab", ha);
+    fn_line(o, "r9_pencil_tone_luts", hl);
+    free(lut);
+}
+
+static void r9_native_lines(out *o)
+{
+    static const float alphas[4] = {1.0f, 0.5f, 0.0f, 0.3f};
+    static const float opac[3] = {1.0f, 0.6f, 0.0f};
+    static const float fills[2] = {1.0f, 0.5f};
+    uint64_t seed;
+    for (seed = 1; seed <= 40; seed++) {
+        rng r = {(seed * 0x517cc1b727220aull) | 1};
+        pc_sample_type depth = below(&r, 2) == 0 ? PC_SAMPLE_TYPE_U8 : PC_SAMPLE_TYPE_U16;
+        uint32_t w = 1 + (uint32_t)below(&r, 40);
+        uint32_t h = 1 + (uint32_t)below(&r, 30);
+        pc_document doc = ch_doc(w, h, PC_COLOR_MODE_CMYK, depth);
+        pc_pixel_format fmt = {PC_COLOR_MODE_CMYK, depth, true};
+        uint64_t nl = 1 + below(&r, 3);
+        uint64_t k;
+        bool paper;
+        bool done = false;
+        pc_rect rect;
+        pc_surface s;
+        for (k = 0; k < nl; k++) {
+            pc_layer l = ch_raster("ink", fmt);
+            int32_t x0 = (int32_t)below(&r, 30) - 5;
+            int32_t y0 = (int32_t)below(&r, 20) - 5;
+            float px[5];
+            int32_t x1;
+            int32_t y1;
+            int c;
+            for (c = 0; c < 4; c++) {
+                px[c] = unit(&r);
+            }
+            px[4] = alphas[below(&r, 4)];
+            x1 = x0 + 1 + (int32_t)below(&r, 30);
+            y1 = y0 + 1 + (int32_t)below(&r, 20);
+            ch_fill(&l, pc_rect_make(x0, y0, x1, y1), px, 5);
+            l.opacity = opac[below(&r, 3)];
+            l.fill_opacity = fills[below(&r, 2)];
+            l.visible = below(&r, 6) != 0;
+            if (below(&r, 8) == 0) {
+                l.blend = PC_BLEND_MULTIPLY;
+            }
+            ch_push(&doc, l);
+        }
+        paper = below(&r, 2) == 0;
+        rect = pc_rect_make(-2, -1, (int32_t)w + 3, (int32_t)h + 1);
+        CHECK(pc_compose_flatten_cmyk(&doc, rect, fmt, paper, &done, &s, NULL) == PC_OK);
+        if (done) {
+            size_t n = (size_t)pc_rect_width(rect) * (size_t)pc_rect_height(rect) * 5;
+            float *v = xmalloc(n * sizeof *v);
+            uint64_t hh = H0;
+            size_t i;
+            CHECK(pc_surface_read_region_into(&s, rect, v, n, NULL) == PC_OK);
+            for (i = 0; i < n; i++) {
+                hf(&hh, v[i]);
+            }
+            put(o, "native\t%llu\t%016llx\t", (unsigned long long)seed, (unsigned long long)hh);
+            rs(o, pc_surface_content_bounds(&s));
+            put(o, "\n");
+            free(v);
+            pc_surface_fini(&s);
+        } else {
+            put(o, "native\t%llu\tnone\n", (unsigned long long)seed);
+        }
+        pc_document_fini(&doc);
+    }
+}
+
 static char *read_file(const char *path, size_t *len)
 {
     FILE *f = fopen(path, "rb");
@@ -911,6 +1099,9 @@ static void test_parity(void)
     for (seed = 1; seed <= 400; seed++) {
         doc_line(&o, seed);
     }
+    r9_fill_sweeps(&o);
+    r9_curve_sweeps(&o);
+    r9_native_lines(&o);
     while (a < o.len || b < glen) {
         size_t ea = a;
         size_t eb = b;

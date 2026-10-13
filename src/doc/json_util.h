@@ -65,8 +65,11 @@ typedef struct jfield {
     size_t off2;
     unsigned char kind;      /* jf_kind */
     unsigned char def;       /* jf_def */
-    unsigned char skip_none; /* skip_serializing_if = "Option::is_none" (JF_OPT) */
+    /* skip_serializing_if: "Option::is_none" (JF_OPT), "Vec::is_empty" (JF_VEC), or (JF_VAL)
+     * the field's skip predicate (a false bool when skip is NULL: "std::ops::Not::not"). */
+    unsigned char skip_none;
     void (*deffn)(void *slot);
+    bool (*skip)(const void *slot);
 } jfield;
 
 typedef struct jstruct {
@@ -80,13 +83,21 @@ typedef struct jstruct {
 
 #define JS_MAX_FIELDS 32
 
-#define JFV(nm, T, m, jt) {(nm), &(jt), offsetof(T, m), 0, JF_VAL, JD_REQ, 0, NULL}
-#define JFVD(nm, T, m, jt, d) {(nm), &(jt), offsetof(T, m), 0, JF_VAL, (d), 0, NULL}
-#define JFFN(nm, T, m, jt, fn) {(nm), &(jt), offsetof(T, m), 0, JF_VAL, JD_FN, 0, (fn)}
-#define JFO(nm, T, m, has, jt, d) {(nm), &(jt), offsetof(T, m), offsetof(T, has), JF_OPT, (d), 0, NULL}
-#define JFOSKIP(nm, T, m, has, jt, d) {(nm), &(jt), offsetof(T, m), offsetof(T, has), JF_OPT, (d), 1, NULL}
-#define JFVEC(nm, T, m, cnt, jt) {(nm), &(jt), offsetof(T, m), offsetof(T, cnt), JF_VEC, JD_REQ, 0, NULL}
-#define JFVECD(nm, T, m, cnt, jt, d) {(nm), &(jt), offsetof(T, m), offsetof(T, cnt), JF_VEC, (d), 0, NULL}
+#define JFV(nm, T, m, jt) {(nm), &(jt), offsetof(T, m), 0, JF_VAL, JD_REQ, 0, NULL, NULL}
+#define JFVD(nm, T, m, jt, d) {(nm), &(jt), offsetof(T, m), 0, JF_VAL, (d), 0, NULL, NULL}
+/* JF_VAL skipped when skipfn says so (NULL: a bool skipped when false). */
+#define JFVSKIP(nm, T, m, jt, d, skipfn) {(nm), &(jt), offsetof(T, m), 0, JF_VAL, (d), 1, NULL, (skipfn)}
+#define JFFN(nm, T, m, jt, fn) {(nm), &(jt), offsetof(T, m), 0, JF_VAL, JD_FN, 0, (fn), NULL}
+#define JFO(nm, T, m, has, jt, d) {(nm), &(jt), offsetof(T, m), offsetof(T, has), JF_OPT, (d), 0, NULL, NULL}
+#define JFOSKIP(nm, T, m, has, jt, d)                                                                        \
+    {(nm), &(jt), offsetof(T, m), offsetof(T, has), JF_OPT, (d), 1, NULL, NULL}
+#define JFVEC(nm, T, m, cnt, jt)                                                                             \
+    {(nm), &(jt), offsetof(T, m), offsetof(T, cnt), JF_VEC, JD_REQ, 0, NULL, NULL}
+#define JFVECD(nm, T, m, cnt, jt, d)                                                                         \
+    {(nm), &(jt), offsetof(T, m), offsetof(T, cnt), JF_VEC, (d), 0, NULL, NULL}
+/* Vec field with skip_serializing_if = "Vec::is_empty". */
+#define JFVECSKIP(nm, T, m, cnt, jt, d)                                                                      \
+    {(nm), &(jt), offsetof(T, m), offsetof(T, cnt), JF_VEC, (d), 1, NULL, NULL}
 #define JCOUNT(a) (sizeof(a) / sizeof((a)[0]))
 
 /* Reads struct s from v (object, or array from element `start` on) into base. */

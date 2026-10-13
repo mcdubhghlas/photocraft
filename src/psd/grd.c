@@ -1,5 +1,6 @@
 #include "psd/grd.h"
 
+#include <float.h>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -97,18 +98,52 @@ static bool num(const pc_psd_desc *d, const char *k, double *out)
     default:
         return false;
     }
-    if (!isfinite(x)) {
+    /* Deliberately not filtered: every caller passes the result through `finite`. */
+    *out = x;
+    return true;
+}
+
+/* The single guard every number passes through on its way to a float: only NaN has no value
+ * (false; the caller falls back to its field default); everything else, +-inf included, saturates
+ * to the float range so the mapping stays monotonic. */
+static bool finite(double v, float *out)
+{
+    if (isnan(v)) {
         return false;
     }
-    *out = x;
+    if (v < -(double)FLT_MAX) {
+        v = -(double)FLT_MAX;
+    } else if (v > (double)FLT_MAX) {
+        v = (double)FLT_MAX;
+    }
+    *out = (float)v;
     return true;
 }
 
 static float f(const pc_psd_desc *d, const char *k)
 {
     double x = 0.0;
+    float r = 0.0f;
     (void)num(d, k, &x);
-    return pc_f64_to_f32(x);
+    (void)finite(x, &r);
+    return r;
+}
+
+static float clamp01(float v)
+{
+    return pc_clampf(v, 0.0f, 1.0f);
+}
+
+/* A hue in degrees: in range (0..=360, 360 included) kept verbatim, otherwise wrapped like
+ * f32::rem_euclid (370 -> 10, -10 -> 350). */
+static float hue(float h)
+{
+    float r;
+    if (h >= 0.0f && h <= 360.0f) {
+        return h;
+    }
+    r = fmodf(h, 360.0f);
+    return r < 0.0f ? r + 360.0f : r;
 }
 
 static const pc_psd_desc *obj(const pc_psd_desc *d, const char *k)
@@ -149,28 +184,29 @@ static bool color(const pc_psd_desc *c, pc_psd_grd_color *out)
     memset(out, 0, sizeof *out);
     if (class_is(c, "RGBC")) {
         out->model = PC_PSD_GRD_RGB;
-        out->c[0] = f(c, "Rd  ") / 255.0f;
-        out->c[1] = f(c, "Grn ") / 255.0f;
-        out->c[2] = f(c, "Bl  ") / 255.0f;
+        out->c[0] = clamp01(f(c, "Rd  ") / 255.0f);
+        out->c[1] = clamp01(f(c, "Grn ") / 255.0f);
+        out->c[2] = clamp01(f(c, "Bl  ") / 255.0f);
     } else if (class_is(c, "HSBC")) {
         out->model = PC_PSD_GRD_HSB;
-        out->c[0] = f(c, "H   ");
-        out->c[1] = f(c, "Strt") / 100.0f;
-        out->c[2] = f(c, "Brgh") / 100.0f;
+        out->c[0] = hue(f(c, "H   "));
+        out->c[1] = clamp01(f(c, "Strt") / 100.0f);
+        out->c[2] = clamp01(f(c, "Brgh") / 100.0f);
     } else if (class_is(c, "CMYC")) {
         out->model = PC_PSD_GRD_CMYK;
-        out->c[0] = f(c, "Cyn ") / 100.0f;
-        out->c[1] = f(c, "Mgnt") / 100.0f;
-        out->c[2] = f(c, "Ylw ") / 100.0f;
-        out->c[3] = f(c, "Blck") / 100.0f;
+        out->c[0] = clamp01(f(c, "Cyn ") / 100.0f);
+        out->c[1] = clamp01(f(c, "Mgnt") / 100.0f);
+        out->c[2] = clamp01(f(c, "Ylw ") / 100.0f);
+        out->c[3] = clamp01(f(c, "Blck") / 100.0f);
     } else if (class_is(c, "LbCl")) {
         out->model = PC_PSD_GRD_LAB;
-        out->c[0] = f(c, "Lmnc");
-        out->c[1] = f(c, "A   ");
-        out->c[2] = f(c, "B   ");
+        /* L* 0..=100; a*, b* bounded to the CIELAB gamut. */
+        out->c[0] = pc_clampf(f(c, "Lmnc"), 0.0f, 100.0f);
+        out->c[1] = pc_clampf(f(c, "A   "), -128.0f, 127.0f);
+        out->c[2] = pc_clampf(f(c, "B   "), -128.0f, 127.0f);
     } else if (class_is(c, "Grsc")) {
         out->model = PC_PSD_GRD_GRAY;
-        out->c[0] = f(c, "Gry ") / 100.0f;
+        out->c[0] = clamp01(f(c, "Gry ") / 100.0f);
     } else {
         return false;
     }
@@ -182,11 +218,14 @@ static float location(const pc_psd_desc *d)
     return pc_clampf(f(d, "Lctn") / 4096.0f, 0.0f, 1.0f);
 }
 
+/* A percentage key as 0..1: divided in f64, NaN falls back to dflt / 100. */
 static float percent(const pc_psd_desc *d, const char *k, double dflt)
 {
     double x = dflt;
+    float r = (float)(dflt / 100.0);
     (void)num(d, k, &x);
-    return pc_clampf(pc_f64_to_f32(x) / 100.0f, 0.0f, 1.0f);
+    (void)finite(x / 100.0, &r);
+    return pc_clampf(r, 0.0f, 1.0f);
 }
 
 static pc_status gradient(const pc_psd_desc *g, pc_psd_grd_gradient *out, pc_error *err)

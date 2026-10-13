@@ -17,7 +17,8 @@ Capability details such as sample depth, channel layout, alpha, ICC, EXIF, XMP, 
 Every route that writes a document to a flat format (Save As, the CLI, MCP `doc_export`, Layers to Files, Layer › Export As) flattens it the same way:
 
 - Formats without transparency (JPEG, Radiance HDR) get the image composited over white, as Export As and Quick Export do; in CMYK, white is no ink.
-- Formats that can't embed an ICC profile (GIF, BMP, TGA, QOI, ICO, Netpbm/PFM) get RGB documents in another profile (linear light, Display P3, …) converted to sRGB through the colour engine (perceptual intent), since an untagged file is read as sRGB. OpenEXR and Radiance HDR get linear sRGB instead.
+- Formats that can't embed an ICC profile (GIF, BMP, TGA, QOI, ICO, Netpbm/PFM) get RGB documents in another profile (linear light, Display P3, …) converted to sRGB through the colour engine (perceptual intent), since an untagged file is read as sRGB. OpenEXR and Radiance HDR get linear sRGB instead (linear gray for a grayscale OpenEXR), which is how they are tagged when opened.
+- TGA, as Photoshop's Targa: an RGB Targa is 24 or 32 bits per pixel. Save As and Save a Copy ask (Targa Options, starting at 32 with an alpha channel, else 24); Export As has a Resolution choice (Auto, 24 or 32 bits/pixel); scripts pass `tgaBits` (`--tga-bits` on the CLI). At 32 bits the document's alpha channel is the file's alpha when it has exactly one (spot channels don't count; with several, none is used), and the colours are written exactly, never premultiplied or cleared where the alpha is 0, so a game texture's mask and its colours both survive. Without a usable alpha channel the layers' transparency is the alpha (opaque without any). 24 bits write no alpha, compositing transparency over white. Without a choice: 32 with an alpha channel or transparency, else 24. A 32-bit Targa opens as an opaque Background with its alpha as "Alpha 1", so it round-trips. Grayscale Targas are 8-bit.
 
 ## Implemented decode limits
 
@@ -27,8 +28,8 @@ Every route that writes a document to a flat format (Save As, the CLI, MCP `doc_
 |---|---:|
 | Maximum width | 262,144 pixels |
 | Maximum height | 262,144 pixels |
-| Maximum pixel count | 268,435,456 pixels |
-| Maximum decoded allocation | 2 GiB |
+| Maximum pixel count | 1,073,741,824 pixels |
+| Maximum decoded allocation | 8 GiB on 64-bit targets; 2 GiB on 32-bit targets (including wasm32) |
 
 Format adapters pass compatible allocation limits into PNG, TIFF, WebP, and `image`-based decoders, while other implementations perform explicit checked dimension/buffer validation. Tests cover bomb-like headers, truncation, bit flips, header overwrites, and random data.
 

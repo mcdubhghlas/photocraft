@@ -122,8 +122,10 @@ pub(crate) fn frame(app: &mut PhotocraftApp) -> Option<TransformSession> {
         warp: None,
         selection: false,
         target: None,
+        path: None,
         made: None,
         mode: Default::default(),
+        content_aware: None,
     })
 }
 
@@ -138,7 +140,7 @@ fn near_border(t: &TransformSession, p: [f64; 2], tol: f64) -> bool {
 
 fn hit(app: &PhotocraftApp, t: &TransformSession, p: [f64; 2]) -> Option<Hit> {
     let h = crate::transform_tool::hit(t, p, crate::transform_tool::handle_tolerance(app));
-    (h != Hit::Outside || near_border(t, p, ROTATE_PX / f64::from(app.current_zoom().max(0.01)))).then_some(h)
+    (h != Hit::Outside || near_border(t, p, ROTATE_PX / f64::from(app.point_zoom().max(0.01)))).then_some(h)
 }
 
 /// Type uses legacy scaling: Shift constrains; Ctrl/Cmd is the mode key, never corner Distort.
@@ -321,6 +323,13 @@ pub(crate) fn draw(app: &mut PhotocraftApp, painter: &egui::Painter, xf: &ViewXf
         return false;
     }
     let Some(t) = frame(app) else { return false };
+    draw_box(painter, xf, &t);
+    true
+}
+
+/// A transform box: its outline, corner and edge handles and reference point. Shared with
+/// Content-Aware Move's Transform On Drop.
+pub(crate) fn draw_box(painter: &egui::Painter, xf: &ViewXform, t: &TransformSession) {
     let tokens = crate::theme::Tokens::get(painter.ctx());
     let pts = t.quad.map(|p| xf.to_screen(p[0] as f32, p[1] as f32));
     painter.add(egui::Shape::closed_line(pts.to_vec(), Stroke::new(3.0, tokens.shadow)));
@@ -337,10 +346,9 @@ pub(crate) fn draw(app: &mut PhotocraftApp, painter: &egui::Painter, xf: &ViewXf
     for axis in [vec2(6.0, 0.0), vec2(0.0, 6.0)] {
         painter.line_segment([c - axis, c + axis], Stroke::new(1.0, tokens.accent));
     }
-    true
 }
 
-fn resize_cursor(d: [f64; 2], flip: bool) -> CursorIcon {
+pub(crate) fn resize_cursor(d: [f64; 2], flip: bool) -> CursorIcon {
     let angle = d[1].atan2(if flip { -d[0] } else { d[0] }).rem_euclid(std::f64::consts::PI);
     match (angle / std::f64::consts::FRAC_PI_4).round() as u8 % 4 {
         0 => CursorIcon::ResizeHorizontal,
@@ -350,7 +358,7 @@ fn resize_cursor(d: [f64; 2], flip: bool) -> CursorIcon {
     }
 }
 
-fn rotation_cursor(ctx: &egui::Context, p: Pos2) {
+pub(crate) fn rotation_cursor(ctx: &egui::Context, p: Pos2) {
     let tokens = crate::theme::Tokens::get(ctx);
     let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Tooltip, egui::Id::new("type-rotate-cursor")));
     let first = -std::f32::consts::FRAC_PI_4;

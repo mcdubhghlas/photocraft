@@ -236,9 +236,9 @@ static pc_status rgb(pc_profile *p, pc_builtin b, const double prim[3][2], const
     return s;
 }
 
-static pc_status gray(pc_profile *p, pc_builtin b, pc_cms_curve trc, pc_error *err)
+static pc_status gray(pc_profile *p, const char *description, pc_cms_curve trc, pc_error *err)
 {
-    pc_status s = base_profile(p, DESCRIPTIONS[b], PC_CLASS_DISPLAY, PC_CS_GRAY, PC_PCS_XYZ, err);
+    pc_status s = base_profile(p, description, PC_CLASS_DISPLAY, PC_CS_GRAY, PC_PCS_XYZ, err);
     if (s != PC_OK) {
         return s;
     }
@@ -316,8 +316,10 @@ static pc_status build(pc_builtin b, pc_profile *p, pc_error *err)
         const double prm[7] = {1.0 / 0.45, 1.0 / a, (a - 1.0) / a, 1.0 / 4.5, 0.081, 0.0, 0.0};
         return rgb(p, b, bt2020, d65, pc_cms_curve_parametric(3, prm), err);
     }
-    case PC_BUILTIN_GRAY_GAMMA22: return gray(p, b, pc_cms_curve_gamma(2.2), err);
-    case PC_BUILTIN_SGRAY: return gray(p, b, pc_cms_srgb_trc(), err);
+    case PC_BUILTIN_GRAY_GAMMA22:
+        return gray(p, DESCRIPTIONS[b], pc_cms_curve_gamma(2.2), err);
+    case PC_BUILTIN_SGRAY:
+        return gray(p, DESCRIPTIONS[b], pc_cms_srgb_trc(), err);
     case PC_BUILTIN_LAB_D50: return lab(p, err);
     case PC_BUILTIN_COATED_CMYK:
         /* The shipped bytes are synth's output (checked by tests); rebuild them rather than
@@ -360,4 +362,22 @@ const pc_profile *pc_builtin_default_for(uint32_t space)
     case PC_CS_LAB: return pc_builtin_profile(PC_BUILTIN_LAB_D50);
     default: return NULL;
     }
+}
+
+static pc_profile linear_gray_profile;
+static bool linear_gray_built;
+static pthread_once_t linear_gray_once = PTHREAD_ONCE_INIT;
+
+static void build_linear_gray(void)
+{
+    pc_status s = gray(&linear_gray_profile, "Linear Gray (Photocraft)", pc_cms_curve_gamma(1.0), NULL);
+    linear_gray_built = s == PC_OK;
+}
+
+const pc_profile *pc_builtin_linear_gray(void)
+{
+    if (pthread_once(&linear_gray_once, build_linear_gray) != 0) {
+        return NULL;
+    }
+    return linear_gray_built ? &linear_gray_profile : NULL;
 }

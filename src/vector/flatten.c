@@ -370,3 +370,84 @@ pc_status pc_vec_flatten_path(const pc_path *p, double tol, pc_vec_polyline **ou
     *n = p->nsubpaths;
     return PC_OK;
 }
+
+/* ---- validation ---- */
+
+static size_t size_add_sat(size_t a, size_t b)
+{
+    return a > SIZE_MAX - b ? SIZE_MAX : a + b;
+}
+
+pc_status pc_vec_validate_shape(const pc_path *path, const pc_shape_stroke *stroke, pc_error *err)
+{
+    size_t knots = 0;
+    size_t points = 0;
+    double length = 0.0;
+    size_t i;
+    size_t k;
+    for (i = 0; i < path->nsubpaths; i++) {
+        if (knots > SIZE_MAX - path->subpaths[i].nknots) {
+            return pc_fail(err, PC_ERR_INVALID, "too many path knots");
+        }
+        knots += path->subpaths[i].nknots;
+    }
+    if (knots > 4096 || path->nsubpaths > 4096) {
+        return pc_fail(err, PC_ERR_INVALID, "shape path exceeds 4096 knots/subpaths");
+    }
+    for (i = 0; i < path->nsubpaths; i++) {
+        const pc_subpath *sub = &path->subpaths[i];
+        size_t nseg;
+        for (k = 0; k < sub->nknots; k++) {
+            const pc_knot *kn = &sub->knots[k];
+            const pc_point *ps[3];
+            size_t j;
+            ps[0] = &kn->anchor;
+            ps[1] = &kn->in_ctrl;
+            ps[2] = &kn->out_ctrl;
+            for (j = 0; j < 3; j++) {
+                if (!isfinite(ps[j]->x) || !isfinite(ps[j]->y) || fabs(ps[j]->x) > 1000000.0 ||
+                    fabs(ps[j]->y) > 1000000.0) {
+                    return pc_fail(err, PC_ERR_INVALID,
+                                   "shape coordinates must be finite and within ±1000000 px");
+                }
+            }
+        }
+        points = size_add_sat(points, 1);
+        nseg = pc_subpath_segment_count(sub);
+        for (k = 0; k < nseg; k++) {
+            pc_point seg[4];
+            double sum = -0.0;
+            size_t j;
+            pc_subpath_segment(sub, k, seg);
+            points = size_add_sat(points, is_line(seg) ? 1 : pieces(seg, PC_VEC_DEFAULT_TOLERANCE));
+            for (j = 0; j < 3; j++) {
+                sum += hypot(seg[j + 1].x - seg[j].x, seg[j + 1].y - seg[j].y);
+            }
+            length += sum;
+        }
+    }
+    if (points > 100000) {
+        return pc_fail(err, PC_ERR_INVALID, "shape tessellation exceeds 100000 points");
+    }
+    if (stroke != NULL) {
+        pc_status st = pc_shape_stroke_validate(stroke, err);
+        if (st != PC_OK) {
+            return st;
+        }
+        if (stroke->width > 0.0f && stroke->ndashes > 0) {
+            double sum = -0.0;
+            double period;
+            double transitions;
+            for (k = 0; k < stroke->ndashes; k++) {
+                sum += (double)stroke->dashes[k];
+            }
+            period = sum * (double)stroke->width;
+            transitions = (length / period + 2.0) * (double)stroke->ndashes + (double)points;
+            if (!isfinite(transitions) || transitions > 100000.0) {
+                return pc_fail(err, PC_ERR_INVALID,
+                               "dash pattern is too dense for this path (100000 step budget)");
+            }
+        }
+    }
+    return PC_OK;
+}

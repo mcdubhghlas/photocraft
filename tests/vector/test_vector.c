@@ -283,6 +283,83 @@ static void test_closed_rect_stroke_and_alignment(void)
     pc_path_fini(&sq);
 }
 
+static float (*shape_rgba(const pc_shape_layer *sh, pc_rect clip))[4]
+{
+    pc_vec_compiled_shape c;
+    float (*rgba)[4] = NULL;
+    size_t n = 0;
+    if (pc_vec_compiled_shape_new(sh, PC_VEC_DEFAULT_TOLERANCE, clip, &c, NULL) != PC_OK) {
+        return NULL;
+    }
+    if (pc_vec_compiled_shape_render_rgba(&c, clip, &rgba, &n, NULL) != PC_OK) {
+        rgba = NULL;
+    }
+    pc_vec_compiled_shape_fini(&c);
+    return rgba;
+}
+
+static void test_aligned_dashes_keep_width_units_and_open_paths_stay_centered(void)
+{
+    pc_rect clip = pc_rect_make(0, 0, 100, 100);
+    pc_path sq = vh_rect(10.0, 10.0, 80.0, 80.0);
+    static const double lp[2][2] = {{10.0, 50.0}, {90.0, 50.0}};
+    pc_path open = vh_poly_path(lp, 2, false);
+    const pc_stroke_align al[3] = {PC_STROKE_ALIGN_INSIDE, PC_STROKE_ALIGN_CENTER, PC_STROKE_ALIGN_OUTSIDE};
+    const int ys[3] = {11, 9, 7};
+    const int other[3] = {7, 6, 11};
+    float (*ref)[4] = NULL;
+    size_t i;
+    for (i = 0; i < 3; i++) {
+        pc_shape_layer sh;
+        float (*rgba)[4];
+        float *dashes = malloc(2 * sizeof *dashes);
+        memset(&sh, 0, sizeof sh);
+        sh.path = vh_clone(&sq);
+        sh.has_stroke = true;
+        pc_shape_stroke_default(&sh.stroke);
+        sh.stroke.width = 4.0f;
+        sh.stroke.align = al[i];
+        if (dashes != NULL) {
+            dashes[0] = 2.0f;
+            dashes[1] = 2.0f;
+            sh.stroke.dashes = dashes;
+            sh.stroke.ndashes = 2;
+        }
+        rgba = shape_rgba(&sh, clip);
+        CHECK(rgba != NULL);
+        if (rgba != NULL) {
+            CHECK(rgba[ys[i] * 100 + 13][3] > 0.99f);
+            CHECK(rgba[ys[i] * 100 + 21][3] < 0.01f);
+            CHECK(rgba[other[i] * 100 + 13][3] < 0.01f);
+        }
+        free(rgba);
+        pc_shape_layer_fini(&sh);
+    }
+    for (i = 0; i < 3; i++) {
+        pc_shape_layer sh;
+        float (*rgba)[4];
+        memset(&sh, 0, sizeof sh);
+        sh.path = vh_clone(&open);
+        sh.has_stroke = true;
+        pc_shape_stroke_default(&sh.stroke);
+        sh.stroke.width = 4.0f;
+        sh.stroke.align = al[(i + 1) % 3]; /* centre first */
+        sh.stroke.cap = PC_LINE_CAP_ROUND;
+        rgba = shape_rgba(&sh, clip);
+        CHECK(rgba != NULL);
+        if (i == 0) {
+            ref = rgba;
+        } else {
+            CHECK(rgba != NULL && ref != NULL && memcmp(rgba, ref, 100 * 100 * sizeof *rgba) == 0);
+            free(rgba);
+        }
+        pc_shape_layer_fini(&sh);
+    }
+    free(ref);
+    pc_path_fini(&sq);
+    pc_path_fini(&open);
+}
+
 static void test_dashes_cover_expected_fraction(void)
 {
     static const double lp[2][2] = {{0.0, 50.0}, {120.0, 50.0}};
@@ -573,6 +650,181 @@ static void test_coverage_surface_and_vector_mask_values(void)
     pc_vector_mask_fini(&vm);
 }
 
+static bool same_values(const pc_vec_compiled_mask *c, pc_rect r)
+{
+    float *a = NULL;
+    float *b = NULL;
+    size_t na = 0;
+    size_t nb = 0;
+    bool ok = pc_vec_compiled_mask_render_sequential(c, r, &a, &na, NULL) == PC_OK &&
+              pc_vec_compiled_mask_render(c, r, &b, &nb, NULL) == PC_OK && na == nb &&
+              (na == 0 || memcmp(a, b, na * sizeof *a) == 0);
+    free(a);
+    free(b);
+    return ok;
+}
+
+static void test_sequential_vector_masks_match_parallel_rendering(void)
+{
+    pc_rect rect = pc_rect_make(-3, -7, 510, 250);
+    pc_path path = vh_ellipse(10.25, 8.75, 470.0, 220.0);
+    pc_path hole = vh_rect(200.5, 90.25, 45.0, 50.0);
+    const pc_rect empties[3] = {PC_RECT_EMPTY, {1, 1, 1, 10}, {1, 1, 10, 1}};
+    const float densities[3] = {0.0f, 0.25f, 1.0f};
+    pc_vec_compiled_mask c;
+    pc_vector_mask m;
+    pc_path tmp;
+    size_t i;
+    size_t d;
+    vh_push(&path, vh_take0(&hole, PC_PATH_SUBTRACT));
+    for (i = 0; i < 2; i++) {
+        for (d = 0; d < 3; d++) {
+            tmp = vh_clone(&path);
+            tmp.inverted = i == 1;
+            pc_vector_mask_init(&m, &tmp);
+            m.density = densities[d];
+            CHECK(pc_vec_compiled_mask_new(&m, &c, NULL) == PC_OK);
+            CHECK(same_values(&c, rect));
+            pc_vec_compiled_mask_fini(&c);
+            pc_vector_mask_fini(&m);
+        }
+    }
+    tmp = vh_clone(&path);
+    pc_vector_mask_init(&m, &tmp);
+    CHECK(pc_vec_compiled_mask_new(&m, &c, NULL) == PC_OK);
+    for (i = 0; i < 3; i++) {
+        CHECK(same_values(&c, empties[i]));
+    }
+    pc_vec_compiled_mask_fini(&c);
+    pc_vector_mask_fini(&m);
+    for (i = 0; i < 2; i++) {
+        memset(&tmp, 0, sizeof tmp);
+        pc_vector_mask_init(&m, &tmp);
+        m.path.inverted = i == 1;
+        CHECK(pc_vec_compiled_mask_new(&m, &c, NULL) == PC_OK);
+        CHECK(same_values(&c, rect));
+        pc_vec_compiled_mask_fini(&c);
+        pc_vector_mask_fini(&m);
+    }
+    pc_vector_mask_init(&m, &path);
+    m.enabled = false;
+    CHECK(pc_vec_compiled_mask_new(&m, &c, NULL) == PC_OK);
+    CHECK(same_values(&c, rect));
+    CHECK(same_values(&c, PC_RECT_EMPTY));
+    pc_vec_compiled_mask_fini(&c);
+    pc_vector_mask_fini(&m);
+}
+
+/* Content bounds of a filled shape rendered as a layer (every depth) and as a selection (every
+ * depth); they must all equal want. */
+static void check_rendered_bounds(const pc_path *path, pc_rect want, const char *what)
+{
+    pc_rect canvas = pc_rect_make(0, 0, 1920, 1080);
+    pc_shape_layer sh;
+    pc_vec_rasterizer r;
+    size_t si;
+    memset(&sh, 0, sizeof sh);
+    sh.path = vh_clone(path);
+    sh.has_fill = true;
+    sh.fill = pc_fill_solid(pc_color_rgb(0.0f, 0.0f, 1.0f));
+    CHECK(pc_vec_fill_rasterizer(path, PC_VEC_DEFAULT_TOLERANCE, &r, NULL) == PC_OK);
+    for (si = 0; si < PC_SAMPLE_TYPE_COUNT; si++) {
+        pc_pixel_format fmt;
+        pc_surface s;
+        fmt.mode = PC_COLOR_MODE_RGB;
+        fmt.sample = (pc_sample_type)si;
+        fmt.alpha = true;
+        CHECK(pc_vec_render_shape(&sh, fmt, canvas, &s, NULL) == PC_OK);
+        if (!pc_rect_eq(pc_surface_content_bounds(&s), want)) {
+            pc_rect b = pc_surface_content_bounds(&s);
+            fprintf(stderr, "%s: layer sample %zu: %d,%d,%d,%d\n", what, si, b.x0, b.y0, b.x1, b.y1);
+            CHECK(false);
+        }
+        pc_surface_fini(&s);
+        fmt.mode = PC_COLOR_MODE_GRAYSCALE;
+        fmt.alpha = false;
+        CHECK(pc_vec_coverage_surface(&r, fmt, canvas, &s, NULL) == PC_OK);
+        if (!pc_rect_eq(pc_surface_content_bounds(&s), want)) {
+            pc_rect b = pc_surface_content_bounds(&s);
+            fprintf(stderr, "%s: selection sample %zu: %d,%d,%d,%d\n", what, si, b.x0, b.y0, b.x1, b.y1);
+            CHECK(false);
+        }
+        pc_surface_fini(&s);
+    }
+    pc_vec_rasterizer_fini(&r);
+    pc_shape_layer_fini(&sh);
+}
+
+static void test_curved_shape_bounds_are_exact(void)
+{
+    /* f32 round-off left ~1e-7 coverage just right of curved edges, so curved shapes reported
+     * bounds one pixel too wide. Rectangles never showed it. */
+    pc_subpath blob;
+    pc_knot kn[4];
+    pc_path p;
+    static const double radii[4] = {20.0, 20.0, 20.0, 20.0};
+    memset(&blob, 0, sizeof blob);
+    /* An asymmetric Bezier blob whose extremes lie on its anchors (axis-parallel handles). */
+    kn[0] = pc_knot_smooth(pc_point_make(60.0, 0.0), pc_point_make(30.0, 0.0), pc_point_make(80.0, 0.0));
+    kn[1] =
+        pc_knot_smooth(pc_point_make(100.0, 45.0), pc_point_make(100.0, 20.0), pc_point_make(100.0, 70.0));
+    kn[2] =
+        pc_knot_smooth(pc_point_make(40.0, 100.0), pc_point_make(75.0, 100.0), pc_point_make(15.0, 100.0));
+    kn[3] = pc_knot_smooth(pc_point_make(0.0, 55.0), pc_point_make(0.0, 85.0), pc_point_make(0.0, 25.0));
+    blob.closed = true;
+    blob.knots = malloc(sizeof kn);
+    if (blob.knots != NULL) {
+        memcpy(blob.knots, kn, sizeof kn);
+        blob.nknots = 4;
+    }
+    p = vh_ellipse(0.0, 0.0, 100.0, 100.0);
+    check_rendered_bounds(&p, pc_rect_make(0, 0, 100, 100), "ellipse");
+    pc_path_fini(&p);
+    p = vh_ellipse(660.0, 240.0, 600.0, 600.0);
+    check_rendered_bounds(&p, pc_rect_make(660, 240, 1260, 840), "ellipse 600");
+    pc_path_fini(&p);
+    p = vh_ellipse(10.5, 10.0, 100.0, 100.0);
+    check_rendered_bounds(&p, pc_rect_make(10, 10, 111, 110), "ellipse at x.5");
+    pc_path_fini(&p);
+    memset(&p, 0, sizeof p);
+    CHECK(pc_vec_shape_rounded_rect(0.0, 0.0, 100.0, 100.0, radii, &p, NULL) == PC_OK);
+    check_rendered_bounds(&p, pc_rect_make(0, 0, 100, 100), "rounded rect");
+    pc_path_fini(&p);
+    /* Outer vertices at x = 50 +- 50 cos 18 deg (2.45, 97.55), lowest at y = 50 + 50 sin 54 deg
+     * (90.45). */
+    memset(&p, 0, sizeof p);
+    CHECK(pc_vec_shape_polygon(0.0, 0.0, 100.0, 100.0, 5, 0.5, &p, NULL) == PC_OK);
+    check_rendered_bounds(&p, pc_rect_make(2, 0, 98, 91), "star");
+    pc_path_fini(&p);
+    p = vh_path(&blob, 1);
+    check_rendered_bounds(&p, pc_rect_make(0, 0, 100, 100), "custom path");
+    pc_path_fini(&p);
+    p = vh_rect(0.0, 0.0, 100.0, 100.0);
+    check_rendered_bounds(&p, pc_rect_make(0, 0, 100, 100), "rect");
+    pc_path_fini(&p);
+}
+
+static void test_thin_antialiased_edges_still_count_toward_bounds(void)
+{
+    /* A quarter-pixel overhang and a 1-px bar straddling two columns are real coverage. */
+    pc_path p = vh_rect(0.0, 0.0, 100.25, 100.0);
+    float *c;
+    check_rendered_bounds(&p, pc_rect_make(0, 0, 101, 100), "quarter overhang");
+    pc_path_fini(&p);
+    p = vh_rect(10.5, 0.0, 1.0, 50.0);
+    check_rendered_bounds(&p, pc_rect_make(10, 0, 12, 50), "1-px bar");
+    pc_path_fini(&p);
+    p = vh_rect(0.0, 0.0, 100.01, 10.0);
+    check_rendered_bounds(&p, pc_rect_make(0, 0, 101, 10), "1% sliver");
+    pc_path_fini(&p);
+    /* At 32-bit even a 1e-4 sliver is kept: only round-off is dropped. */
+    p = vh_rect(0.0, 0.0, 100.0001, 10.0);
+    c = cov(&p, pc_rect_make(0, 0, 102, 10));
+    CHECK(c != NULL && c[100] > 5e-5f && c[101] == 0.0f);
+    free(c);
+    pc_path_fini(&p);
+}
+
 static double iou(const float *a, const float *b, size_t n)
 {
     double in = 0.0;
@@ -798,6 +1050,7 @@ int main(int argc, char **argv)
     RUN(test_boolean_ops_areas);
     RUN(test_stroke_widths_caps_and_joins);
     RUN(test_closed_rect_stroke_and_alignment);
+    RUN(test_aligned_dashes_keep_width_units_and_open_paths_stay_centered);
     RUN(test_dashes_cover_expected_fraction);
     RUN(test_render_shape_formats_and_paint);
     RUN(test_gradient_fill_spans_bounds);
@@ -805,6 +1058,9 @@ int main(int argc, char **argv)
     RUN(test_gradient_without_align_with_layer_uses_the_canvas_frame);
     RUN(test_gradient_dither_is_deterministic_and_one_level);
     RUN(test_coverage_surface_and_vector_mask_values);
+    RUN(test_sequential_vector_masks_match_parallel_rendering);
+    RUN(test_curved_shape_bounds_are_exact);
+    RUN(test_thin_antialiased_edges_still_count_toward_bounds);
     RUN(test_trace_roundtrip_iou);
     RUN(test_joined_subpaths_fill_as_one_component);
     RUN(test_perf_6016);

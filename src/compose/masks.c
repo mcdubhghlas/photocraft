@@ -1,5 +1,9 @@
 /* A layer's effective mask (pixel mask x vector mask, each feathered) as one surface, cached per
- * mask state (port of crates/compose/src/masks.rs). */
+ * mask state (port of crates/compose/src/masks.rs). Retention is bounded by entry count and by
+ * accounted pixel bytes (PC_COMPOSE_MASK_CACHE_BUDGET); a purge also stops builds that started
+ * before it from refilling the cache (a generation count). Concurrent builds of one cold mask are
+ * not shared while running (nothing waits for another thread's build, as in fx_cache.c), but the
+ * first finished build is kept and every later finisher returns its tiles. */
 #include <math.h>
 #include <pthread.h>
 #include <stdlib.h>
@@ -14,12 +18,15 @@
 #define MAX_FEATHER_SIGMA (1000.0f * FEATHER_SIGMA) /* Photoshop's feather tops out at 1000 px */
 #define CAPACITY 64
 
-static const pc_pixel_format FORMAT = {PC_COLOR_MODE_GRAYSCALE, PC_SAMPLE_TYPE_F32, false};
+/* A U16 mask keeps much smaller cached tiles than F32 while adding at most 1/65535 quantisation
+ * error, finer than the final 8-bit composite precision. */
+static const pc_pixel_format FORMAT = {PC_COLOR_MODE_GRAYSCALE, PC_SAMPLE_TYPE_U16, false};
 
 typedef struct entry {
     bool used;
     uint64_t key;
     uint64_t tick;
+    size_t bytes;
     pc_surface surface;
     /* The key contains input tile addresses: keep those tiles alive until eviction. */
     bool has_input;
@@ -29,6 +36,8 @@ typedef struct entry {
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 static entry cache[CAPACITY];
 static uint64_t ticks;
+static size_t cache_bytes;
+static uint64_t generation;
 
 static void entry_clear(entry *e)
 {
@@ -41,14 +50,50 @@ static void entry_clear(entry *e)
     memset(e, 0, sizeof *e);
 }
 
-void pc_compose_purge_mask_cache(void)
+size_t pc_compose_purge_mask_cache(void)
 {
     size_t i;
+    size_t bytes;
     pthread_mutex_lock(&lock);
+    bytes = cache_bytes;
     for (i = 0; i < CAPACITY; i++) {
         entry_clear(&cache[i]);
     }
+    cache_bytes = 0;
+    ticks = 0;
+    generation++;
     pthread_mutex_unlock(&lock);
+    return bytes;
+}
+
+size_t pc_compose_mask_cache_bytes(void)
+{
+    size_t b;
+    pthread_mutex_lock(&lock);
+    b = cache_bytes;
+    pthread_mutex_unlock(&lock);
+    return b;
+}
+
+size_t pc_compose_mask_surface_bytes(const pc_surface *s)
+{
+    pc_pixel_format f = pc_surface_format(s);
+    size_t px = pc_pixel_format_channels(f) * pc_sample_type_bytes(f.sample);
+    size_t tile = (size_t)PC_TILE_SIZE * PC_TILE_SIZE * px;
+    size_t n = pc_surface_tile_count(s);
+    size_t total;
+    if (!pc_size_mul(n, tile, &total) || !pc_size_add(total, px, &total)) {
+        return SIZE_MAX;
+    }
+    return total;
+}
+
+/* Charges the whole source as well as the result; shared tiles are charged per entry. */
+static size_t entry_bytes(const pc_surface *surface, const pc_surface *pixel_input)
+{
+    size_t a = pc_compose_mask_surface_bytes(surface);
+    size_t b = pixel_input != NULL ? pc_compose_mask_surface_bytes(pixel_input) : 0;
+    return a > SIZE_MAX - b ? SIZE_MAX : a + b;
 }
 
 float pc_compose_feather_sigma(float px)
@@ -184,13 +229,20 @@ static pc_status build(const pc_layer *layer, pc_rect canvas, const pc_vector_ma
     float *pm = NULL;
     size_t n = 0;
     size_t len = 0;
+    pc_vec_compiled_mask compiled;
     (void)layer;
-    /* Far outside the path the vector mask is constant. */
+    /* Far outside the path the vector mask is constant. The mask is rendered without entering the
+     * thread pool (render_sequential): another tile may be waiting on this build. */
     if (vm != NULL) {
         pc_rect far = pc_rect_from_xywh(pc_i32_wrapping_sub(canvas.x0, 1000000),
                                         pc_i32_wrapping_sub(canvas.y0, 1000000), 1, 1);
-        st = pc_vec_mask_values(vm, far, &v, &len, err);
+        st = pc_vec_compiled_mask_new(vm, &compiled, err);
         if (st != PC_OK) {
+            return st;
+        }
+        st = pc_vec_compiled_mask_render_sequential(&compiled, far, &v, &len, err);
+        if (st != PC_OK) {
+            pc_vec_compiled_mask_fini(&compiled);
             return st;
         }
         v_out = len > 0 ? v[0] : 0.0f;
@@ -233,7 +285,7 @@ static pc_status build(const pc_layer *layer, pc_rect canvas, const pc_vector_ma
         size_t i;
         st = pc_cmp_rect_pixels(area, &n, err);
         if (st == PC_OK && vm != NULL) {
-            st = pc_vec_mask_values(vm, area, &v, &len, err);
+            st = pc_vec_compiled_mask_render_sequential(&compiled, area, &v, &len, err);
             if (st == PC_OK && len != n) {
                 st = pc_fail(err, PC_ERR_INVALID, "compose: vector mask size mismatch");
             }
@@ -270,12 +322,64 @@ static pc_status build(const pc_layer *layer, pc_rect canvas, const pc_vector_ma
     }
     free(v);
     free(pm);
+    if (vm != NULL) {
+        pc_vec_compiled_mask_fini(&compiled);
+    }
     if (st != PC_OK) {
         pc_surface_fini(&s);
         return st;
     }
     *out = s;
     return PC_OK;
+}
+
+/* Cache::insert (under the lock): keeps e unless it is over budget or a purge happened since its
+ * build started (gen); evicts least recently used entries for room. Takes e over either way. */
+static void insert(entry *e, size_t budget, uint64_t gen)
+{
+    entry *slot = NULL;
+    size_t used = 0;
+    size_t i;
+    if (e->bytes > budget || gen != generation) {
+        entry_clear(e);
+        return;
+    }
+    for (i = 0; i < CAPACITY; i++) {
+        if (cache[i].used && cache[i].key == e->key) {
+            cache_bytes -= cache[i].bytes < cache_bytes ? cache[i].bytes : cache_bytes;
+            entry_clear(&cache[i]);
+        }
+    }
+    for (;;) {
+        entry *oldest = NULL;
+        used = 0;
+        for (i = 0; i < CAPACITY; i++) {
+            if (cache[i].used) {
+                used++;
+                if (oldest == NULL || cache[i].tick < oldest->tick) {
+                    oldest = &cache[i];
+                }
+            }
+        }
+        if (oldest == NULL || (used < CAPACITY && cache_bytes <= budget - e->bytes)) {
+            break;
+        }
+        cache_bytes -= oldest->bytes < cache_bytes ? oldest->bytes : cache_bytes;
+        entry_clear(oldest);
+    }
+    for (i = 0; i < CAPACITY && slot == NULL; i++) {
+        if (!cache[i].used) {
+            slot = &cache[i];
+        }
+    }
+    if (slot == NULL) {
+        entry_clear(e); /* unreachable: eviction leaves a free slot */
+        return;
+    }
+    cache_bytes += e->bytes;
+    ticks++;
+    e->tick = ticks;
+    *slot = *e;
 }
 
 pc_status pc_compose_combined_mask(const pc_layer *layer, pc_rect canvas, bool *found, pc_surface *out,
@@ -290,16 +394,16 @@ pc_status pc_compose_combined_mask(const pc_layer *layer, pc_rect canvas, bool *
     size_t i;
     pc_surface s;
     pc_status st;
-    entry *slot = NULL;
-    if (vm == NULL && sp <= 0.0f) {
+    uint64_t gen;
+    if (vm == NULL && !pc_compose_has_feather(layer)) {
         *found = false;
         return PC_OK;
     }
     k = key_of(layer, canvas);
     pthread_mutex_lock(&lock);
-    ticks++;
     for (i = 0; i < CAPACITY; i++) {
         if (cache[i].used && cache[i].key == k) {
+            ticks++;
             cache[i].tick = ticks;
             st = pc_surface_clone(&cache[i].surface, out, err);
             pthread_mutex_unlock(&lock);
@@ -309,25 +413,28 @@ pc_status pc_compose_combined_mask(const pc_layer *layer, pc_rect canvas, bool *
             return st;
         }
     }
+    gen = generation;
     pthread_mutex_unlock(&lock);
+    /* Never hold the cache lock while rasterising or feathering. */
     st = build(layer, canvas, vm, pixel, sv, sp, &s, err);
     if (st != PC_OK) {
         return st;
     }
     pthread_mutex_lock(&lock);
     for (i = 0; i < CAPACITY; i++) {
-        if (!cache[i].used || cache[i].key == k) {
-            slot = &cache[i];
-            break;
-        }
-    }
-    if (slot == NULL) {
-        /* Full: drop the least recently used entry. */
-        slot = &cache[0];
-        for (i = 1; i < CAPACITY; i++) {
-            if (cache[i].tick < slot->tick) {
-                slot = &cache[i];
+        if (cache[i].used && cache[i].key == k && gen == generation) {
+            /* A concurrent build finished first: share its tiles. */
+            pc_surface shared;
+            if (pc_surface_clone(&cache[i].surface, &shared, NULL) == PC_OK) {
+                ticks++;
+                cache[i].tick = ticks;
+                pthread_mutex_unlock(&lock);
+                pc_surface_fini(&s);
+                *out = shared;
+                *found = true;
+                return PC_OK;
             }
+            break;
         }
     }
     {
@@ -336,16 +443,15 @@ pc_status pc_compose_combined_mask(const pc_layer *layer, pc_rect canvas, bool *
         if (pc_surface_clone(&s, &e.surface, NULL) == PC_OK) {
             e.used = true;
             e.key = k;
-            e.tick = ticks;
             if (layer->has_mask && pc_surface_clone(&layer->mask.surface, &e.pixel_input, NULL) == PC_OK) {
                 e.has_input = true;
             }
             if (layer->has_mask && !e.has_input) {
                 /* Without the pinned input the key could alias a future tile: don't cache. */
-                pc_surface_fini(&e.surface);
+                entry_clear(&e);
             } else {
-                entry_clear(slot);
-                *slot = e;
+                e.bytes = entry_bytes(&e.surface, e.has_input ? &e.pixel_input : NULL);
+                insert(&e, PC_COMPOSE_MASK_CACHE_BUDGET, gen);
             }
         }
     }

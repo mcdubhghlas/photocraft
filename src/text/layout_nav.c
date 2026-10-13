@@ -37,15 +37,12 @@ static int total_cmp(float a, float b)
     return ia < ib ? -1 : ia > ib;
 }
 
-size_t pc_text_layout_hit_test_line(const pc_text_layout *l, float x, float y)
+/* closest_line: the visual line nearest to a line-space ordinate, including its ascent and
+ * descent (first one on ties); SIZE_MAX without lines. */
+static size_t closest_line(const pc_text_layout *l, float y)
 {
-    size_t li = 0, i;
-    float bestd = 0.0f, bestx = 3.40282347e+38f; /* f32::MAX */
-    size_t off;
-    const pc_line_info *line;
-    if (l->nlines == 0) {
-        return 0;
-    }
+    size_t li = SIZE_MAX, i;
+    float bestd = 0.0f;
     for (i = 0; i < l->nlines; i++) {
         const pc_line_info *ln = &l->lines[i];
         float top = ln->baseline - ln->ascent, bottom = ln->baseline + ln->descent;
@@ -55,24 +52,32 @@ size_t pc_text_layout_hit_test_line(const pc_text_layout *l, float x, float y)
             li = i;
         }
     }
-    line = &l->lines[li];
-    off = line->end;
+    return li;
+}
+
+/* hit_test_x_on_line: the caret offset nearest to x on line `li`. */
+static size_t hit_test_x_on_line(const pc_text_layout *l, size_t li, float x)
+{
+    float bestx = 3.40282347e+38f; /* f32::MAX */
+    size_t off, i;
+    if (li >= l->nlines) {
+        return 0;
+    }
+    off = l->lines[li].end;
     for (i = 0; i < l->nclusters; i++) {
         const pc_cluster_info *c = &l->clusters[i];
         float mid, dist;
-        size_t before, after, o;
+        size_t o;
         if (c->line != li) {
             continue;
         }
         mid = c->x + c->advance / 2.0f;
-        before = c->rtl ? c->end : c->start;
-        after = c->rtl ? c->start : c->end;
         if (x < mid) {
             dist = fabsf(x - c->x);
-            o = before;
+            o = c->rtl ? c->end : c->start;
         } else {
             dist = fabsf(x - c->x - c->advance);
-            o = after;
+            o = c->rtl ? c->start : c->end;
         }
         if (dist < bestx) {
             bestx = dist;
@@ -80,6 +85,12 @@ size_t pc_text_layout_hit_test_line(const pc_text_layout *l, float x, float y)
         }
     }
     return off;
+}
+
+size_t pc_text_layout_hit_test_line(const pc_text_layout *l, float x, float y)
+{
+    size_t li = closest_line(l, y);
+    return li == SIZE_MAX ? 0 : hit_test_x_on_line(l, li, x);
 }
 
 size_t pc_text_layout_hit_test(const pc_text_layout *l, float x, float y)
@@ -168,9 +179,10 @@ size_t pc_text_char_index(const char *text, size_t len, size_t byte)
 size_t pc_text_line_index(const pc_text_layout *l, size_t byte)
 {
     size_t i;
-    for (i = 0; i < l->nlines; i++) {
-        if (byte >= l->lines[i].start && byte <= l->lines[i].end) {
-            return i;
+    /* rposition: at a shared wrap boundary the caret belongs to the following line. */
+    for (i = l->nlines; i > 0; i--) {
+        if (byte >= l->lines[i - 1].start && byte <= l->lines[i - 1].end) {
+            return i - 1;
         }
     }
     return l->nlines > 0 ? l->nlines - 1 : 0;
@@ -179,9 +191,14 @@ size_t pc_text_line_index(const pc_text_layout *l, size_t byte)
 void pc_text_hit_char(const pc_text_layout *l, const char *text, size_t len, float x, float y, size_t *index,
                       size_t *line)
 {
-    size_t byte = pc_text_layout_hit_test(l, x, y);
+    size_t byte = pc_text_layout_hit_test(l, x, y), li;
+    float lx, ly;
     *index = pc_text_char_index(text, len, byte);
-    *line = pc_text_line_index(l, byte);
+    /* At a soft-wrap boundary either visual line can share this byte offset: the pointer's line,
+     * not the caret's preferred (following) line, is authoritative. */
+    pc_text_layout_to_line(l, x, y, &lx, &ly);
+    li = closest_line(l, ly);
+    *line = li != SIZE_MAX ? li : pc_text_line_index(l, byte);
 }
 
 bool pc_text_point_inside(const pc_text_layout *l, float x, float y, float slop)
@@ -244,38 +261,33 @@ size_t pc_text_word_boundary(const char *text, size_t len, size_t idx, bool forw
 
 size_t pc_text_line_step(const pc_text_layout *l, const char *text, size_t len, size_t idx, float x, int dir)
 {
-    size_t n = char_count(text, len);
-    float cx, top, bottom, h, y, b[4];
+    size_t n = char_count(text, len), cur, target;
     idx = idx < n ? idx : n;
-    pc_text_layout_caret(l, pc_text_byte_index(text, len, idx), &cx, &top, &bottom);
-    h = pc_rs_maxf_k(bottom - top, 1.0f);
-    y = dir < 0 ? top - h * 0.5f : bottom + h * 0.5f;
-    if (!pc_text_layout_line_bounds(l, b)) {
+    if (l->nlines == 0) {
         return idx;
     }
-    if (y < b[1]) {
-        return 0;
+    cur = pc_text_line_index(l, pc_text_byte_index(text, len, idx));
+    if (dir < 0) {
+        if (cur == 0) {
+            return 0;
+        }
+        target = cur - 1;
+    } else {
+        if (cur + 1 >= l->nlines) {
+            return n;
+        }
+        target = cur + 1;
     }
-    if (y > b[3]) {
-        return n;
-    }
-    return pc_text_char_index(text, len, pc_text_layout_hit_test_line(l, x, y));
+    return pc_text_char_index(text, len, hit_test_x_on_line(l, target, x));
 }
 
 size_t pc_text_line_edge(const pc_text_layout *l, const char *text, size_t len, size_t idx, bool end)
 {
-    size_t n = char_count(text, len), byte, i;
-    const pc_line_info *ln = NULL;
+    size_t n = char_count(text, len), byte, li;
+    const pc_line_info *ln;
     idx = idx < n ? idx : n;
     byte = pc_text_byte_index(text, len, idx);
-    for (i = 0; i < l->nlines; i++) {
-        if (byte >= l->lines[i].start && byte <= l->lines[i].end) {
-            ln = &l->lines[i];
-            break;
-        }
-    }
-    if (ln == NULL && l->nlines > 0) {
-        ln = &l->lines[l->nlines - 1];
-    }
+    li = pc_text_line_index(l, byte);
+    ln = li < l->nlines ? &l->lines[li] : NULL;
     return ln == NULL ? idx : pc_text_char_index(text, len, end ? ln->end : ln->start);
 }

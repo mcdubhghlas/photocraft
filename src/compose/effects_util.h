@@ -28,6 +28,12 @@ pc_status pc_compose_fx_contour_lut(const pc_contour *c, float **out, pc_error *
 /* A contour over a Range: contour(min(v / range, 1)); *out = NULL means identity. Tables have
  * PC_COMPOSE_FX_LUT_SIZE entries. */
 pc_status pc_compose_fx_ranged_lut(const pc_contour *c, float range, float **out, pc_error *err);
+/* Satin's coverage transfer: the contour read from its far end, |c(1 - v) - c(1)| (Photoshop
+ * 27.11: Cone and Cone - Inverted Satins are identical); *out = NULL means identity. */
+pc_status pc_compose_fx_satin_lut(const pc_contour *c, float **out, pc_error *err);
+/* The bevel Contour element's height transfer: the contour alone (its Range is not a v / range
+ * stretch); always a table (identity for Linear). */
+pc_status pc_compose_fx_bevel_contour_lut(const pc_bevel_contour *c, float **out, pc_error *err);
 /* A glow's coverage transfer (its contour over its Range); *out = NULL means identity. */
 pc_status pc_compose_fx_glow_lut(const pc_glow *g, float **out, pc_error *err);
 /* Interpolated lookup in a 0..=1 table of n >= 1 entries (as the GPU's lut()). */
@@ -62,14 +68,20 @@ typedef enum pc_compose_bevel_paint {
 typedef struct pc_compose_bevel_geom {
     pc_compose_bevel_paint paint;
     float width;       /* box width of the smooth height blur */
-    float depth;       /* height-map gradient scale, signed by direction */
+    float depth;       /* height-map gradient scale, signed by direction: a bevel rises
+                        * depth x width / 2 px (Smooth: width = the tent; chisel: size / 2) */
     bool pillow;       /* pillow emboss: the outside slopes face the other way */
     float chisel_soft; /* Chisel Soft: extra tent width over the chiselled height map */
 } pc_compose_bevel_geom;
 
 pc_compose_bevel_geom pc_compose_fx_bevel_geom(const pc_bevel *b);
-/* Chiselled height from the inside / outside distances. */
-float pc_compose_fx_bevel_chisel_h(pc_compose_bevel_paint paint, float size, float din, float dout);
+/* Chiselled height from the inside / outside distances (soft: Chisel Soft). A facet has the
+ * constant slope depth x size / (2 (size + 1)) (Photoshop 27.11); Inner Hard's ramp runs from half
+ * a pixel beyond the edge to size + 1/2, Inner Soft starts a pixel further out, Outer Hard ends a
+ * pixel further out. A non-finite size (the reference panics on its NaN clamp bound for Outer Hard
+ * and Inner Soft) gives a well-defined value: an invalid upper bound counts as 0. */
+float pc_compose_fx_bevel_chisel_h(pc_compose_bevel_paint paint, float size, float din, float dout,
+                                   bool soft);
 
 /* Coverage of an outside stroke beneath a filled shape's edge pixel the outline covers cov of,
  * where the layer ends at alpha l. */
@@ -79,17 +91,20 @@ void pc_compose_fx_stroke_widths(const pc_stroke_fx *st, float *in_w, float *out
 
 /* A distance field of an effect shape, as the map builders compute it (effects::FieldKind). */
 typedef enum pc_compose_fx_field_kind {
-    PC_COMPOSE_FIELD_OUTSIDE,              /* exact distance outside the shape */
-    PC_COMPOSE_FIELD_INSIDE,               /* exact distance inside the shape */
+    PC_COMPOSE_FIELD_OUTSIDE,              /* exact distance outside the shape (precise outer glows) */
+    PC_COMPOSE_FIELD_INSIDE,               /* exact distance inside the shape (precise inner glows) */
+    PC_COMPOSE_FIELD_BEVEL_OUTSIDE,        /* chiselled bevels: outside, edges placed by coverage */
+    PC_COMPOSE_FIELD_BEVEL_INSIDE,         /* chiselled bevels: inside, edges placed by coverage */
     PC_COMPOSE_FIELD_STROKE_OUTSIDE,       /* chamfer distance outside the shape */
     PC_COMPOSE_FIELD_CHOKE_INSIDE,         /* chamfer distance outside 1 - alpha */
     PC_COMPOSE_FIELD_STROKE_INSIDE,        /* chamfer distance inside the shape */
     PC_COMPOSE_FIELD_STROKE_OUTSIDE_VECTOR /* chamfer distance outside the local coverage */
 } pc_compose_fx_field_kind;
 
-/* The kind field of alpha (row-major w x h); *out has w * h values (NULL when that is 0).
- * PC_ERR_LIMIT past PC_COMPOSE_MAX_PIXELS. */
+/* The kind field of alpha (row-major w x h); *out has w * h values (NULL when that is 0). Values
+ * past reach pixels from the shape's edge are only meant to be large (the bevel fields skip
+ * refining them). PC_ERR_LIMIT past PC_COMPOSE_MAX_PIXELS. */
 pc_status pc_compose_fx_distance_field(pc_compose_fx_field_kind kind, const float *alpha, size_t w, size_t h,
-                                       float **out, pc_error *err);
+                                       float reach, float **out, pc_error *err);
 
 #endif

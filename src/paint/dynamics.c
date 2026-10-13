@@ -11,8 +11,11 @@
 #include "base/num.h"
 #include "base/rmath.h"
 #include "paint/pmath.h"
+#include "paint/render.h"
 #include "paint/rng.h"
 
+/* Longest pixel-grid segment (in pixels) before falling back to distance spacing. */
+#define MAX_GRID_STEPS 1e7
 /* Densest speed spacing, in pixels between dabs. */
 #define MIN_SPEED_STEP 0.5
 /* Maximum airbrush catch-up dabs for one input segment. */
@@ -78,7 +81,7 @@ pc_status pc_paint_smoother_push(pc_paint_smoother *s, pc_paint_point p, pc_pain
 {
     bool had_prev = s->has_last;
     pc_paint_point prev = s->last_input, cur;
-    double amount, a;
+    double amount, a, dt, step;
     size_t iters = 1;
     s->last_input = p;
     s->has_last = true;
@@ -107,16 +110,28 @@ pc_status pc_paint_smoother_push(pc_paint_smoother *s, pc_paint_point p, pc_pain
         }
         return PC_OK;
     }
-    /* Exponential: each iteration moves `a` of the way towards the pointer. */
+    /* Exponential: every SMOOTHING_STEP_MS of stroke time moves `a` of the way towards the
+     * pointer, so the feel doesn't depend on how often the device reports. Input without
+     * timestamps takes one step per point. */
     a = 1.0 - pc_paint_min_k(amount, 0.95);
-    if (had_prev && s->cfg.catch_up && p.time > prev.time) {
-        iters = pc_f64_to_size(pc_clampd(round((p.time - prev.time) / 16.0), 1.0, 64.0));
+    dt = had_prev ? p.time - prev.time : 0.0;
+    if (had_prev && prev.x == p.x && prev.y == p.y && !s->cfg.catch_up) {
+        /* Without Stroke Catch-Up the brush stops while the pointer pauses (Photoshop). */
+        return PC_OK;
+    }
+    if (dt > 0.0 && isfinite(dt)) {
+        double steps = dt / PC_PAINT_SMOOTHING_STEP_MS, it = pc_clampd(ceil(steps), 1.0, 64.0);
+        /* Each of `iters` moves covers `steps / iters` steps' worth of pull. */
+        iters = pc_f64_to_size(it);
+        step = 1.0 - pow(1.0 - a, pc_paint_min_k(steps, 64.0) / it);
+    } else {
+        step = a;
     }
     cur = s->pos;
     for (size_t i = 0; i < iters; i++) {
         pc_paint_point n = p;
-        n.x = cur.x + (p.x - cur.x) * a;
-        n.y = cur.y + (p.y - cur.y) * a;
+        n.x = cur.x + (p.x - cur.x) * step;
+        n.y = cur.y + (p.y - cur.y) * step;
         cur = n;
         if (pc_paint_point_vec_push(out, &cur, err) != PC_OK) {
             return PC_ERR_NOMEM;
@@ -124,6 +139,27 @@ pc_status pc_paint_smoother_push(pc_paint_smoother *s, pc_paint_point p, pc_pain
     }
     s->pos = cur;
     return PC_OK;
+}
+
+bool pc_paint_smoother_lagging(const pc_paint_smoother *s)
+{
+    if (!(smoother_active(s) && s->cfg.catch_up && !s->cfg.pulled_string) || !s->has_pos || !s->has_last) {
+        return false;
+    }
+    return fabs(s->pos.x - s->last_input.x) + fabs(s->pos.y - s->last_input.y) > 0.01;
+}
+
+bool pc_paint_smoother_string(const pc_paint_smoother *s, double brush[2], double pointer[2])
+{
+    if (!s->has_pos || !s->has_last || !smoother_active(s) ||
+        (s->pos.x == s->last_input.x && s->pos.y == s->last_input.y)) {
+        return false;
+    }
+    brush[0] = s->pos.x;
+    brush[1] = s->pos.y;
+    pointer[0] = s->last_input.x;
+    pointer[1] = s->last_input.y;
+    return true;
 }
 
 pc_status pc_paint_smoother_finish(pc_paint_smoother *s, pc_paint_point_vec *out, pc_error *err)
@@ -167,6 +203,12 @@ void pc_paint_walker_speed_spacing(pc_paint_walker *w, double interval_ms)
     w->speed = pc_paint_max_k(interval_ms, 0.1);
 }
 
+void pc_paint_walker_pixel_grid(pc_paint_walker *w, double offset)
+{
+    w->has_grid = true;
+    w->grid = offset;
+}
+
 static pc_status walker_emit(pc_paint_walker *w, const pc_paint_point *point, pc_paint_step_fn emit,
                              void *ctx, pc_error *err)
 {
@@ -190,6 +232,36 @@ static pc_status walker_emit(pc_paint_walker *w, const pc_paint_point *point, pc
             return st_;                                                                                      \
         }                                                                                                    \
     } while (0)
+
+static double grid_cell(double v, double offset)
+{
+    return offset > 0.0 ? floor(v) : round(v);
+}
+
+/* Emits the pixel steps from a to p (see pc_paint_walker_pixel_grid). *done = false, emitting
+ * nothing, when the span is not finite or implausibly long: distance spacing takes over. */
+static pc_status grid_steps(pc_paint_walker *w, const pc_paint_point *a, const pc_paint_point *p,
+                            pc_paint_step_fn emit, void *ctx, bool *done, pc_error *err)
+{
+    double off = w->grid, x0 = grid_cell(a->x, off), y0 = grid_cell(a->y, off);
+    double dx = grid_cell(p->x, off) - x0, dy = grid_cell(p->y, off) - y0;
+    double n = pc_rs_max(fabs(dx), fabs(dy));
+    uint64_t steps;
+    *done = false;
+    if (!isfinite(n) || n > MAX_GRID_STEPS) {
+        return PC_OK;
+    }
+    *done = true;
+    steps = (uint64_t)n;
+    for (uint64_t i = 1; i <= steps; i++) {
+        double fi = (double)i;
+        pc_paint_point q = lerp_pt(a, p, fi / n);
+        q.x = x0 + round(dx * fi / n) + off;
+        q.y = y0 + round(dy * fi / n) + off;
+        TRY(walker_emit(w, &q, emit, ctx, err));
+    }
+    return PC_OK;
+}
 
 pc_status pc_paint_walker_push(pc_paint_walker *w, pc_paint_point p, pc_paint_step_len_fn len_fn,
                                void *len_ctx, pc_paint_step_fn emit, void *emit_ctx, pc_error *err)
@@ -225,12 +297,18 @@ pc_status pc_paint_walker_push(pc_paint_walker *w, pc_paint_point p, pc_paint_st
          * line, or input that carries no times) the segment is spaced by distance instead. */
         double dt = p.time - a.time;
         if (!(w->has_speed && dt > 0.0 && isfinite(dt))) {
-            while (w->next_at <= len + 1e-9) {
-                pc_paint_point q = lerp_pt(&a, &p, pc_paint_min_k(w->next_at / len, 1.0));
-                TRY(walker_emit(w, &q, emit, emit_ctx, err));
-                w->next_at += pc_paint_max_k(len_fn(len_ctx, &q), 0.25);
+            bool gridded = false;
+            if (w->has_grid) {
+                TRY(grid_steps(w, &a, &p, emit, emit_ctx, &gridded, err));
             }
-            w->next_at -= len;
+            if (!gridded) {
+                while (w->next_at <= len + 1e-9) {
+                    pc_paint_point q = lerp_pt(&a, &p, pc_paint_min_k(w->next_at / len, 1.0));
+                    TRY(walker_emit(w, &q, emit, emit_ctx, err));
+                    w->next_at += pc_paint_max_k(len_fn(len_ctx, &q), 0.25);
+                }
+                w->next_at -= len;
+            }
         } else {
             double iv = w->speed;
             size_t max_n = pc_f64_to_size(pc_paint_max_k(ceil(len / MIN_SPEED_STEP), 1.0)), n = 0;
@@ -661,6 +739,12 @@ void pc_paint_dab_generator_init(pc_paint_dab_generator *g, const pc_paint_brush
     if (!g->brush.spacing_enabled) {
         pc_paint_walker_speed_spacing(&g->walker, PC_PAINT_SPEED_SPACING_MS);
     }
+    /* A small aliased tip whose dabs are at most a pixel apart steps pixel by pixel. */
+    if (g->brush.aliased && g->brush.size * pc_paint_maxf_k(g->brush.spacing, 0.01f) <= 1.0f) {
+        float cx, cy;
+        pc_paint_grid_center(0.0, 0.0, g->brush.size, &cx, &cy);
+        pc_paint_walker_pixel_grid(&g->walker, (double)cx);
+    }
     g->dual_on = g->brush.dual_brush.enabled;
     pc_paint_walker_init(&g->dual_walker, false, 0.0);
     pc_paint_dab_builder_init(&g->builder, &g->brush);
@@ -721,6 +805,17 @@ static pc_status walk(pc_paint_dab_generator *g, const pc_paint_point *pts, size
         }
     }
     return PC_OK;
+}
+
+bool pc_paint_dab_generator_wants_time(const pc_paint_dab_generator *g)
+{
+    return g->walker.has_interval || pc_paint_smoother_lagging(&g->smoother);
+}
+
+bool pc_paint_dab_generator_smoothing_string(const pc_paint_dab_generator *g, double brush[2],
+                                             double pointer[2])
+{
+    return pc_paint_smoother_string(&g->smoother, brush, pointer);
 }
 
 pc_status pc_paint_dab_generator_push(pc_paint_dab_generator *g, const pc_paint_point *pts, size_t n,

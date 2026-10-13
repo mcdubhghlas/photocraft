@@ -169,7 +169,8 @@ bool pc_algo_camera_raw_eq(const pc_algo_camera_raw *a, const pc_algo_camera_raw
                         a->vignette_roundness,
                         a->vignette_feather,
                         a->vignette_highlights,
-                        a->pixel_scale};
+                        a->pixel_scale,
+                        a->encoding_gamma};
     const float sb[] = {b->temperature,
                         b->tint,
                         b->exposure,
@@ -205,7 +206,8 @@ bool pc_algo_camera_raw_eq(const pc_algo_camera_raw *a, const pc_algo_camera_raw
                         b->vignette_roundness,
                         b->vignette_feather,
                         b->vignette_highlights,
-                        b->pixel_scale};
+                        b->pixel_scale,
+                        b->encoding_gamma};
     return floats_eq(sa, sb, sizeof sa / sizeof sa[0]) && floats_eq(a->curve_splits, b->curve_splits, 3) &&
            points_eq(&a->point_curve, &b->point_curve) &&
            points_eq(&a->point_curve_red, &b->point_curve_red) &&
@@ -341,6 +343,7 @@ static const pc_algo_jfield CR_F[] = {
      style_fini, style_copy},
     PC_ALGO_JFD("seed", CR, seed, PC_ALGO_JF_U32),
     F("pixelScale", pixel_scale),
+    F("encodingGamma", encoding_gamma),
 };
 #undef F
 #undef WHEEL

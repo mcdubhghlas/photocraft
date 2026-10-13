@@ -6,6 +6,7 @@
 
 #include "base/mem.h"
 #include "base/num.h"
+#include "color/convert.h"
 
 #define TS PC_TILE_SIZE
 #define TILE_PIXELS ((size_t)TS * (size_t)TS)
@@ -906,6 +907,29 @@ pc_status pc_surface_read_rgba_into(const pc_surface *s, pc_rect r, float (*out)
                     dst[i][2] = g;
                     dst[i][3] = (float)src[2 * i + 1] / 255.0f;
                 }
+            } else if (f.mode == PC_COLOR_MODE_CMYK && f.sample == PC_SAMPLE_TYPE_U8 && n >= 4) {
+                /* Identical ink bytes share the exact ICC result; alpha is independent. */
+                const uint8_t *src = t->data + base;
+                uint8_t key[4] = {0, 0, 0, 0};
+                float rgb[3] = {0.0f, 0.0f, 0.0f};
+                bool have = false;
+                for (i = 0; i < w; i++) {
+                    const uint8_t *ink = src + i * n;
+                    if (!have || memcmp(ink, key, 4) != 0) {
+                        float c4[4];
+                        size_t c;
+                        for (c = 0; c < 4; c++) {
+                            c4[c] = (float)ink[c] / 255.0f;
+                        }
+                        pc_cmyk_to_rgb(c4, rgb);
+                        memcpy(key, ink, 4);
+                        have = true;
+                    }
+                    dst[i][0] = rgb[0];
+                    dst[i][1] = rgb[1];
+                    dst[i][2] = rgb[2];
+                    dst[i][3] = n > 4 ? (float)ink[4] / 255.0f : 1.0f;
+                }
             } else {
                 for (i = 0; i < w; i++) {
                     float px[PC_RASTER_MAX_CHANNELS];
@@ -1424,5 +1448,59 @@ pc_status pc_surface_convert(const pc_surface *s, pc_pixel_format to, pc_surface
         return st;
     }
     *out = o;
+    return PC_OK;
+}
+
+pc_status pc_surface_default_tile(const pc_surface *s, pc_raster_tile **out, pc_error *err)
+{
+    pc_raster_tile *t = tile_filled(s->bpp, s->default_pixel);
+    if (t == NULL) {
+        return pc_fail(err, PC_ERR_NOMEM, "out of memory for a tile");
+    }
+    *out = t;
+    return PC_OK;
+}
+
+pc_status pc_surface_map_color(pc_surface *s, float (*f)(void *ctx, float v), void *ctx, pc_error *err)
+{
+    pc_pixel_format fmt = s->format;
+    size_t color = pc_color_mode_channels(fmt.mode);
+    size_t n = pc_pixel_format_channels(fmt);
+    float dp[PC_RASTER_MAX_CHANNELS];
+    pc_surface o;
+    size_t i;
+    size_t k;
+    /* Work on a copy (tiles shared, copied on write) so a failure leaves s as it was. */
+    pc_status st = pc_surface_clone(s, &o, err);
+    if (st != PC_OK) {
+        return st;
+    }
+    pc_decode_pixel(fmt, o.default_pixel, dp);
+    for (k = 0; k < color && k < n; k++) {
+        dp[k] = f(ctx, dp[k]);
+    }
+    pc_encode_pixel(fmt, dp, n, o.default_pixel);
+    for (i = 0; i < o.cap; i++) {
+        size_t slot;
+        uint8_t *data;
+        size_t p;
+        if (o.slots[i].tile == NULL) {
+            continue;
+        }
+        st = tile_mut_slot(&o, o.slots[i].coord, &slot, err);
+        if (st != PC_OK) {
+            pc_surface_fini(&o);
+            return st;
+        }
+        data = o.slots[slot].tile->data;
+        for (p = 0; p < TILE_PIXELS; p++) {
+            for (k = 0; k < color && k < n; k++) {
+                size_t at = p * n + k;
+                wr(data, fmt.sample, at, f(ctx, rd(data, fmt.sample, at)));
+            }
+        }
+    }
+    pc_surface_fini(s);
+    *s = o;
     return PC_OK;
 }

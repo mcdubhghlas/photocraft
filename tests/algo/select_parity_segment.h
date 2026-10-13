@@ -250,7 +250,7 @@ static void segment_core_cases(void)
         float (*samples)[3] = malloc(4000 * sizeof *samples), flat[10][3];
         size_t ns = 0, t, *labels;
         pc_algo_gmm g, r2;
-        bool ok = false, ok2 = false, yes = true;
+        bool ok = false, ok2 = false;
         static const size_t ks[3] = {1, 3, 5};
         static const size_t kk[4] = {1, 2, 7, 40};
         char key[64];
@@ -288,7 +288,7 @@ static void segment_core_cases(void)
                  &g);
         (void)pc_algo_gmm_fit(NULL, 0, 3, 0.0f, &g, &ok, NULL);
         line("seg.gmm.empty %s", ok ? "false" : "true");
-        gmm_line("seg.gmm.broad", pc_algo_quick_broad_model(&g, NULL), &yes, &g);
+        /* R5: seg.gmm.broad dropped (quick::broad_model removed upstream). */
         labels = malloc(ns * sizeof(size_t));
         for (i = 0; i < ns; i++) {
             labels[i] = i % 4;
@@ -428,41 +428,27 @@ static void segment_algo_cases(void)
         static const float st2[2][2] = {{20.0f, 50.0f}, {35.0f, 50.0f}};
         static const float off[1][2] = {{3e9f, 0.0f}};
         static const float dn[2][2] = {{130.0f, 125.0f}, {170.0f, 125.0f}};
-        bool *seeds = malloc(14000 * sizeof(bool)), sm2[40 * 50], *low = malloc(14000 * sizeof(bool));
-        float *geo = NULL;
-        pc_algo_gmm qf, qb;
+        bool *seeds = malloc(14000 * sizeof(bool)), sm2[40 * 50];
         pc_algo_image_sampler ht = {&tr, 0, 0}, hq;
         pc_algo_sampler st;
         pc_algo_quick_stroke_mask(p1, 1, 4.0f, 140, 100, seeds);
         line("seg.stroke_mask %016llx", X(ob(seeds, 14000)));
         pc_algo_quick_stroke_mask(p3, 3, 2.5f, 40, 50, sm2);
         line("seg.stroke_mask2 %016llx", X(ob(sm2, 2000)));
-        (void)pc_algo_quick_geodesic(&tr, seeds, &geo, NULL);
-        line("seg.geodesic %016llx", X(of(geo, 14000)));
-        free(geo);
-        (void)pc_algo_quick_segment(&tr, seeds, &qf, &qb, low, NULL);
-        line("seg.quick_segment %016llx %016llx %016llx", X(ogmm(&qf)), X(ogmm(&qb)), X(ob(low, 14000)));
-        pc_algo_gmm_fini(&qf);
-        pc_algo_gmm_fini(&qb);
+        /* R5: seg.geodesic and seg.quick_segment dropped (removed upstream by the min-cut rewrite). */
         st = pc_algo_image_sampler_make(&ht);
         region_line("seg.quick.grow",
-                    pc_algo_quick_select(&st, pc_rect_make(0, 0, 140, 100), st2, 2, 8.0f,
-                                         PC_ALGO_QUICK_WORK_PX, &r, NULL),
-                    &r);
+                    pc_algo_quick_select(&st, pc_rect_make(0, 0, 140, 100), st2, 2, 8.0f, &r, NULL), &r);
         region_line("seg.quick.off",
-                    pc_algo_quick_select(&st, pc_rect_make(0, 0, 140, 100), off, 1, 8.0f,
-                                         PC_ALGO_QUICK_WORK_PX, &r, NULL),
-                    &r);
+                    pc_algo_quick_select(&st, pc_rect_make(0, 0, 140, 100), off, 1, 8.0f, &r, NULL), &r);
         disc_scene(300, 250, 150.0f, 125.0f, 90.0f, 4, &qs);
         hq.img = &qs;
         hq.ox = 0;
         hq.oy = 0;
         st = pc_algo_image_sampler_make(&hq);
         region_line("seg.quick.down",
-                    pc_algo_quick_select(&st, pc_rect_make(0, 0, 300, 250), dn, 2, 20.0f, 5000, &r, NULL),
-                    &r);
+                    pc_algo_quick_select(&st, pc_rect_make(0, 0, 300, 250), dn, 2, 20.0f, &r, NULL), &r);
         free(seeds);
-        free(low);
     }
     /* Sky. */
     h = H0;

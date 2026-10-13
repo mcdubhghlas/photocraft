@@ -259,6 +259,48 @@ static float bicubic(const win_t *w, size_t c, const double p[2])
     return acc;
 }
 
+/* All n channels sampled at p together (lens::sample_channels): the 16 tap addresses and weights
+ * once, each channel keeping bicubic()'s summation order. False when not applicable. */
+static bool bicubic_all(const win_t *w, const double p[2], float out[8])
+{
+    size_t n = w->n_in, c;
+    double x, y, xi, yi;
+    float wx[4], wy[4];
+    int i, j;
+    if (n == 0 || n > 8 || n == 6 || n == 7 || pc_rect_is_empty(w->r) || w->fx0 >= w->fx1 ||
+        w->fy0 >= w->fy1 || !isfinite(p[0]) || !isfinite(p[1])) {
+        return false;
+    }
+    x = pc_clampd(p[0] - 0.5, w->fx0, w->fx1 - 1.0);
+    y = pc_clampd(p[1] - 0.5, w->fy0, w->fy1 - 1.0);
+    xi = floor(x);
+    yi = floor(y);
+    pc_algo_photo_catmull_rom(pc_f64_to_f32(x - xi), wx);
+    pc_algo_photo_catmull_rom(pc_f64_to_f32(y - yi), wy);
+    for (c = 0; c < 8; c++) {
+        out[c] = 0.0f;
+    }
+    for (j = 0; j < 4; j++) {
+        int32_t yy =
+            pc_clamp_i32(pc_i32_wrapping_add(pc_f64_to_i32(yi), j - 1), w->r.y0, w->r.y1 - 1) - w->r.y0;
+        for (i = 0; i < 4; i++) {
+            int32_t xx =
+                pc_clamp_i32(pc_i32_wrapping_add(pc_f64_to_i32(xi), i - 1), w->r.x0, w->r.x1 - 1) - w->r.x0;
+            const float *px = w->buf + ((size_t)yy * w->ww + (size_t)xx) * n;
+            float weight = wx[i] * wy[j];
+            for (c = 0; c < n; c++) {
+                out[c] += weight * px[c];
+            }
+        }
+    }
+    return true;
+}
+
+static bool same_point(const double a[2], const double b[2])
+{
+    return a[0] == b[0] && a[1] == b[1];
+}
+
 static pc_status remap_tile(remap_ctx *rc, size_t k, pc_error *err)
 {
     pc_rect t = tile_rect(rc->area, rc->tiles_x, k);
@@ -325,7 +367,8 @@ static pc_status remap_tile(remap_ctx *rc, size_t k, pc_error *err)
     w.fx1 = rc->frame.x1;
     w.fy1 = rc->frame.y1;
     for (i = 0; i < n; i++) {
-        float *o = data + i * rc->n_out, alpha, inside, col[8] = {0}, a_out;
+        float *o = data + i * rc->n_out, alpha, inside, col[8] = {0}, a_out, center[8];
+        bool have_center;
         const pc_algo_lens_sample *s = &samples[i];
         if (!ok[i] || pc_rect_is_empty(w.r)) {
             memcpy(o, rc->edge_px, rc->n_out * sizeof *o);
@@ -339,10 +382,17 @@ static pc_status remap_tile(remap_ctx *rc, size_t k, pc_error *err)
             double fy = pc_clampd(pc_rs_min(s->p[1] - w.fy0, w.fy1 - s->p[1]) + 0.5, 0.0, 1.0);
             inside = pc_f64_to_f32(fx * fy);
         }
-        alpha = rc->sfmt.alpha ? pc_clampf(bicubic(&w, rc->n_in - 1, s->p), 0.0f, 1.0f) : 1.0f;
+        /* Colour and coverage usually sample the same location: prepare the taps once. */
+        have_center = (!rc->rgb || (same_point(s->pr, s->p) && same_point(s->pb, s->p))) &&
+                      bicubic_all(&w, s->p, center);
+        alpha = rc->sfmt.alpha ? pc_clampf(have_center && rc->n_in - 1 < 8 && same_point(s->p, s->p)
+                                               ? center[rc->n_in - 1]
+                                               : bicubic(&w, rc->n_in - 1, s->p),
+                                           0.0f, 1.0f)
+                               : 1.0f;
         for (c = 0; c < rc->cc && c < 8; c++) {
             const double *p = rc->rgb && c == 0 ? s->pr : (rc->rgb && c == 2 ? s->pb : s->p);
-            float pm = bicubic(&w, c, p), straight, v;
+            float pm = have_center && same_point(p, s->p) ? center[c] : bicubic(&w, c, p), straight, v;
             straight = rc->sfmt.alpha ? (alpha > 1e-6f ? pm / alpha : 0.0f) : pm;
             if (rc->subtractive) {
                 v = 1.0f - (1.0f - straight) * s->gain;
