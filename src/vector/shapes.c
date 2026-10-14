@@ -119,8 +119,14 @@ pc_status pc_vec_shape_rounded_rect(double x, double y, double w, double h, cons
     size_t n = 0;
     size_t no = 0;
     size_t i;
-    w = fabs(w);
-    h = fabs(h);
+    if (w < 0.0) {
+        x += w;
+        w = -w;
+    }
+    if (h < 0.0) {
+        y += h;
+        h = -h;
+    }
     pc_vec_clamp_radii(w, h, radii, cr);
     tl = cr[0];
     tr = cr[1];

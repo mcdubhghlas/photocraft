@@ -836,8 +836,11 @@ static pc_status composite_maps(const pc_paint_context *ctx, cov_map *cov, bool 
     cov_tile **keys = NULL;
     size_t nkeys = 0, sc = selection != NULL ? pc_surface_channels(selection) : 0;
     pc_paint_fbuf region = {0}, sel = {0};
-    /* 8-bit targets: the pixels the stroke changes are dithered as they are quantised. */
-    bool dither = fmt.sample == PC_SAMPLE_TYPE_U8;
+    /* 8-bit targets: the pixels the stroke changes are dithered as they are quantised. Aliased
+     * strokes (the Pencil, the Eraser's Pencil and Block modes) paint every pixel by the same
+     * amount, so they have no gradient to band and are not dithered: a Pencil line at partial
+     * opacity is one flat colour, not grain a tolerance-0 Magic Wand or Paint Bucket trips on. */
+    bool dither = fmt.sample == PC_SAMPLE_TYPE_U8 && !b->aliased;
     pc_status st;
     if (pc_surface_channels(pre) != n) {
         return pc_fail(err, PC_ERR_INVALID, "pre-stroke surface format differs from the target");
@@ -850,6 +853,11 @@ static pc_status composite_maps(const pc_paint_context *ctx, cov_map *cov, bool 
         map_clear_dirty(dual);
     }
     (void)pc_from_rgba(fmt, b->color, src);
+    /* A colour picked as CMYK paints its inks as they are in a CMYK target (#4344). */
+    if (fmt.mode == PC_COLOR_MODE_CMYK && b->color_cmyk_set && b->color_cmyk_rgb[0] == b->color[0] &&
+        b->color_cmyk_rgb[1] == b->color[1] && b->color_cmyk_rgb[2] == b->color[2]) {
+        memcpy(src, b->color_cmyk_inks, 4 * sizeof *src);
+    }
     if (has_a) {
         src[a_idx] = b->color[3];
     }

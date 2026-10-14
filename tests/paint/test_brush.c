@@ -38,17 +38,22 @@ static void test_hardness_profile_is_monotonic(void)
         pc_paint_brush b = tb_brush();
         pc_paint_dab d = pc_paint_dab_round(pc_point_make(50.0, 50.0), 20.0f, 1.0f);
         tb_raster r;
-        float prof[22], mid;
+        float prof[64], mid;
+        /* A soft tip paints past its 20 px radius, as Photoshop's does, out to its reach. */
+        int n = (int)ceilf(pc_paint_tip_reach(20.0f, hs[k])) + 1;
         b.hardness = hs[k];
+        if (n > 64) {
+            n = 64;
+        }
         r = tb_rast(&b, &d, false);
-        for (int i = 0; i < 22; i++) {
+        for (int i = 0; i < n; i++) {
             prof[i] = tb_at(&r, 50 + i, 50);
         }
-        for (int i = 1; i < 22; i++) {
+        for (int i = 1; i < n; i++) {
             CHECK(prof[i] <= prof[i - 1] + 1e-6f);
         }
         CHECK(prof[0] > 0.99f);
-        CHECK(prof[21] == 0.0f);
+        CHECK(prof[n - 1] < 0.002f);
         mid = tb_at(&r, 60, 50);
         if (hs[k] == 1.0f) {
             CHECK(mid > 0.99f);
@@ -73,7 +78,7 @@ static void test_hard_edge_is_sharp(void)
     }
     CHECK(band <= 3);
     CHECK(prof[17] > 0.99f);
-    CHECK(prof[21] == 0.0f);
+    CHECK(prof[21] < 0.01f);
     /* A soft tip spreads the same crossing over many pixels instead. */
     soft.hardness = 0.0f;
     rs = tb_rast(&soft, &d, false);

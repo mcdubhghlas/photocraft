@@ -204,6 +204,41 @@ static void test_smoothing_string_runs_from_the_lagging_brush_to_the_pointer(voi
     pc_paint_point_vec_fini(&out);
 }
 
+/* Switching smoothing off leaves its amount and mode intact and paints unsmoothed; re-enabling the
+ * same settings smooths again, so disabling is not an amount=0 rewrite. */
+static void test_disabled_smoothing_keeps_its_settings_and_paints_unsmoothed(void)
+{
+    static const double xy[3][2] = {{10, 20}, {30, 8}, {50, 20}};
+    static const float pr[3] = {1.0f, 0.5f, 0.8f};
+    pc_paint_point pts[3];
+    for (int i = 0; i < 3; i++) {
+        pts[i] = pc_paint_point_make(xy[i][0], xy[i][1], pr[i]);
+    }
+    for (int ps = 0; ps < 2; ps++) {
+        pc_paint_smoothing cfg;
+        pc_paint_point_vec out = {0};
+        bool moved = false;
+        pc_paint_smoothing_default(&cfg);
+        cfg.enabled = false;
+        cfg.amount = 0.8f;
+        cfg.pulled_string = ps == 1;
+        CHECK(pc_paint_smooth_points(&cfg, 1.0f, pts, 3, &out, NULL) == PC_OK);
+        CHECK(out.len == 3);
+        for (size_t i = 0; i < out.len && i < 3; i++) {
+            CHECK(out.v[i].x == pts[i].x && out.v[i].y == pts[i].y && out.v[i].pressure == pts[i].pressure);
+        }
+        pc_paint_point_vec_fini(&out);
+        cfg.enabled = true;
+        out = (pc_paint_point_vec){0};
+        CHECK(pc_paint_smooth_points(&cfg, 1.0f, pts, 3, &out, NULL) == PC_OK);
+        for (size_t i = 0; i < out.len && i < 3; i++) {
+            moved = moved || out.v[i].x != pts[i].x || out.v[i].y != pts[i].y;
+        }
+        CHECK(moved);
+        pc_paint_point_vec_fini(&out);
+    }
+}
+
 static double held_jump(const pc_paint_smoothing *cfg, double interval)
 {
     pc_paint_smoother s;
@@ -476,18 +511,41 @@ static void test_a_tiny_dabs_coverage_does_not_depend_on_where_it_lands_in_a_pix
     CHECK(hi - lo < 0.03f * hi);
 }
 
-static void test_the_tip_falls_off_from_the_hard_core_to_zero_at_the_edge(void)
+static void test_the_tip_matches_photoshops_measured_dabs(void)
 {
+    /* Photoshop 27.11, single 40 px dabs (R = 20): mean alpha over rings 0.1 R wide starting at
+     * the given fraction of the radius (area-weighted, as measured). */
+    static const struct {
+        float h;
+        float ring[4][2];
+    } measured[3] = {
+        {0.0f, {{0.2f, 0.861f}, {0.5f, 0.509f}, {0.9f, 0.129f}, {1.2f, 0.027f}}},
+        {0.5f, {{0.6f, 0.97f}, {0.8f, 0.561f}, {1.0f, 0.135f}, {1.2f, 0.012f}}},
+        {1.0f, {{0.8f, 1.0f}, {0.9f, 0.821f}, {1.2f, 0.0f}, {1.3f, 0.0f}}},
+    };
     float prev = 2.0f;
+    for (int m = 0; m < 3; m++) {
+        float h = measured[m].h;
+        for (int ri = 0; ri < 4; ri++) {
+            float lo = measured[m].ring[ri][0], want = measured[m].ring[ri][1];
+            float sum = 0.0f, area = 0.0f, got;
+            for (int k = 0; k < 64; k++) {
+                float r = (lo + 0.1f * ((float)k + 0.5f) / 64.0f) * 20.0f;
+                sum += pc_paint_tip_falloff(r, 20.0f, h) * r;
+                area += r;
+            }
+            got = sum / area;
+            CHECK(fabsf(got - want) < 0.05f);
+        }
+    }
     CHECK(pc_paint_tip_falloff(0.0f, 10.0f, 0.0f) == 1.0f);
-    CHECK(pc_paint_tip_falloff(10.0f, 10.0f, 0.0f) == 0.0f);
     CHECK(pc_paint_tip_falloff(4.0f, 10.0f, 0.5f) == 1.0f); /* inside the hard core */
-    for (int i = 0; i <= 20; i++) {
+    for (int i = 0; i <= 40; i++) {
         float v = pc_paint_tip_falloff((float)i * 0.5f, 10.0f, 0.0f);
         CHECK(v <= prev);
         prev = v;
     }
-    CHECK_NEAR(pc_paint_tip_falloff(5.0f, 10.0f, 0.0f), pow(0.75, 4.0), 1e-6);
+    CHECK(pc_paint_tip_falloff(pc_paint_tip_reach(10.0f, 0.0f) * 4.0f, 10.0f, 0.0f) == 0.0f);
 }
 
 static void test_half_coverage_radius_is_the_tips_50_percent_contour(void)
@@ -497,7 +555,8 @@ static void test_half_coverage_radius_is_the_tips_50_percent_contour(void)
         float d = pc_paint_half_coverage_radius(10.5f, hs[i]);
         CHECK_NEAR(pc_paint_tip_falloff(d, 10.5f, hs[i]), 0.5, 1e-3);
     }
-    CHECK(pc_paint_half_coverage_radius(10.5f, 1.0f) == 10.5f);
+    /* A hard tip's ring is its edge. */
+    CHECK(fabsf(pc_paint_half_coverage_radius(10.5f, 1.0f) - 10.5f) < 0.5f);
     CHECK(isfinite(pc_paint_half_coverage_radius(10.5f, NAN)));
 }
 
@@ -819,12 +878,13 @@ int main(int argc, char **argv)
     RUN(test_low_depth_height_texture_paints);
     RUN(test_wet_edges_shape_the_stroke_not_each_dab);
     RUN(test_smoothing_string_runs_from_the_lagging_brush_to_the_pointer);
+    RUN(test_disabled_smoothing_keeps_its_settings_and_paints_unsmoothed);
     RUN(test_smoothing_pulls_by_time_not_by_how_often_the_device_reports);
     RUN(test_smoothing_without_catch_up_stops_while_the_pointer_pauses);
     RUN(test_live_union_of_passes_matches_merging_the_finished_passes_after_every_chunk);
     RUN(test_a_soft_stroke_keeps_most_of_its_tips_softness);
     RUN(test_a_tiny_dabs_coverage_does_not_depend_on_where_it_lands_in_a_pixel);
-    RUN(test_the_tip_falls_off_from_the_hard_core_to_zero_at_the_edge);
+    RUN(test_the_tip_matches_photoshops_measured_dabs);
     RUN(test_half_coverage_radius_is_the_tips_50_percent_contour);
     RUN(test_an_8bit_soft_stroke_is_dithered_instead_of_banded);
     RUN(test_dithering_never_moves_an_exact_colour_or_an_untouched_pixel);

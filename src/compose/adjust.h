@@ -56,9 +56,9 @@ pc_status pc_compose_adjust_apply_depth(const pc_adjustment *adj, struct pc_comp
                                         pc_compose_transfer transfer, bool has_depth, pc_sample_type depth,
                                         pc_error *err);
 
-/* adjust::apply_in: pc_compose_adjust_apply_depth in a document of colour mode, except that in
- * Lab documents the adjustments Photoshop evaluates on the L, a and b channels do so
- * (pc_compose_lab_channel_adjustment). */
+/* adjust::apply_in: pc_compose_adjust_apply_depth in a document of colour mode, except that in Lab
+ * and CMYK documents the adjustments Photoshop evaluates on the document's own channels do so
+ * (pc_compose_lab_channel_adjustment and pc_compose_cmyk_channel_adjustment). */
 pc_status pc_compose_adjust_apply_in(const pc_adjustment *adj, struct pc_compose_buffer *buf,
                                      pc_compose_transfer transfer, bool has_depth, pc_sample_type depth,
                                      pc_color_mode mode, pc_error *err);
@@ -66,6 +66,9 @@ pc_status pc_compose_adjust_apply_in(const pc_adjustment *adj, struct pc_compose
  * Invert and Posterize (L, a and b alike), Brightness/Contrast (L only), Threshold (split on L,
  * neutral result) and Gradient Map (driven by L). */
 bool pc_compose_lab_channel_adjustment(const pc_adjustment *adj);
+/* Whether a CMYK document evaluates adj on its inks rather than the screen colour: Invert and
+ * Posterize (each ink, black included) and Threshold (paper or 100% black ink alone). */
+bool pc_compose_cmyk_channel_adjustment(const pc_adjustment *adj);
 /* Float RGB curve channels with no edit keep samples outside the LUT domain: per channel, whether
  * the Curves adjustment leaves it alone in a 32-bit RGB document. */
 void pc_compose_float_tone_identity(const pc_adjustment *adj, bool has_depth, pc_sample_type depth,

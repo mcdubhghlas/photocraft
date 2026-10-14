@@ -433,6 +433,16 @@ static pc_status paint_bevels(const fxc *c, pc_compose_buffer *dst, pc_compose_b
     return st;
 }
 
+/* Blend Interior Effects as Group off (Photoshop's default): the layer's mode applies to its own
+ * pixels only, and the interior effects paint over the blended result. The layer is merged into
+ * the backdrop before they paint, so an Overlay colour overlay on a black Color-mode layer tints
+ * the grey beneath it (#3996). Normal-like modes give the same result either way. */
+static bool premerges_layer(const pc_layer *layer)
+{
+    return !layer->advanced.blend_interior && layer->blend != PC_BLEND_NORMAL &&
+           layer->blend != PC_BLEND_PASS_THROUGH && layer->blend != PC_BLEND_DISSOLVE;
+}
+
 /* The layer plus its interior effects (straight RGBA over big), then its outside strokes and
  * outer bevel on work, the layer composited onto work in its mode, and emboss shading on top. */
 static pc_status layer_and_strokes(fxc *c, pc_compose_buffer *work, pc_error *err)
@@ -476,6 +486,14 @@ static pc_status layer_and_strokes(fxc *c, pc_compose_buffer *work, pc_error *er
         lay.px[i][1] = p[1];
         lay.px[i][2] = p[2];
         lay.px[i][3] = la;
+    }
+    gamma = pc_compose_text_gamma(layer);
+    if (premerges_layer(layer)) {
+        /* The layer blends into the backdrop (exterior result) before the interior effects paint
+         * over it; the final composite then lays the group down with Normal. */
+        for (i = 0; i < c->n; i++) {
+            pc_psblend_composite_gamma(layer->blend, work->px[i], lay.px[i], 1.0f, gamma, lay.px[i]);
+        }
     }
     st = interior(c, &lay, err);
     if (st == PC_OK && interior_group) {
@@ -539,8 +557,8 @@ static pc_status layer_and_strokes(fxc *c, pc_compose_buffer *work, pc_error *er
     }
     if (st == PC_OK) {
         /* Layer (with interior effects) onto the exterior result, in the layer's mode. */
-        mode = layer->blend == PC_BLEND_PASS_THROUGH ? PC_BLEND_NORMAL : layer->blend;
-        gamma = pc_compose_text_gamma(layer);
+        mode = (premerges_layer(layer) || layer->blend == PC_BLEND_PASS_THROUGH) ? PC_BLEND_NORMAL
+                                                                                 : layer->blend;
         for (i = 0; i < c->n; i++) {
             if (lay.px[i][3] > 0.0f) {
                 pc_psblend_composite_gamma(mode, work->px[i], lay.px[i], 1.0f, gamma, work->px[i]);

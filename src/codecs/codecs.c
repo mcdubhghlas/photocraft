@@ -148,6 +148,7 @@ pc_cencode_opts pc_cencode_opts_default(void)
     o.tiff_compression = PC_TIFF_DEFLATE;
     o.tiff_bigtiff = false;
     o.exr_compression = PC_EXR_ZIP16;
+    o.dpx_bits = PC_DPX_BITS_AUTO;
     o.embed_icc = true;
     o.embed_metadata = true;
     return o;
@@ -227,11 +228,15 @@ cx_plan cx_plan_for(const pc_cimage *img, pc_cformat f, const pc_cencode_opts *o
     static const pc_clayout PFM[] = {PC_CL_GRAY, PC_CL_RGB};
     pc_ccaps c = pc_cformat_caps(f);
     cx_plan p;
-    (void)o;
     if (f == PC_CF_PNM && pc_csample_is_float(img->sample)) {
         /* PNM: integer data can use any layout (PAM); float goes to PFM (gray and RGB only). */
         p.layout = pick_layout(img->layout, PFM, 2, false);
         p.sample = PC_CS_F32;
+    } else if (f == PC_CF_DPX) {
+        /* DPX has no luma + alpha descriptor: gray with alpha is written as luma, alpha dropped.
+         * The sample type follows the chosen bits (U8 for 8, U16 for 10, 12 and 16). */
+        p.layout = img->layout == PC_CL_GRAYA ? PC_CL_GRAY : pick_layout(img->layout, c.layouts, c.nlayouts, c.alpha);
+        p.sample = cx_dpx_plan_sample(o->dpx_bits, img->sample);
     } else {
         p.layout = pick_layout(img->layout, c.layouts, c.nlayouts, c.alpha);
         p.sample = pick_sample(img->sample, &c);
@@ -452,7 +457,13 @@ size_t pc_cfidelity_warnings_with(const pc_cimage *img, pc_cformat f, const pc_c
         if (m->has_dpi && !c.dpi) {
             push(&l, W(PC_FW_DPI_DROPPED));
         }
-        if (m->ntext > 0 && !c.text) {
+        /* DPX keeps its own header fields, not free-form text. */
+        bool any_dropped = false;
+        for (size_t i = 0; i < m->ntext; i++) {
+            bool kept = c.text && (f != PC_CF_DPX || cx_dpx_is_header_key(m->text[i].key));
+            any_dropped = any_dropped || !kept;
+        }
+        if (any_dropped) {
             push(&l, W(PC_FW_TEXT_DROPPED));
         }
     }
@@ -560,6 +571,9 @@ pc_status pc_cdecode_as_with(pc_cformat f, const uint8_t *b, size_t n, const pc_
     case PC_CF_HDR:
         st = cx_hdr_decode(b, n, l, &img, err);
         break;
+    case PC_CF_DPX:
+        st = cx_dpx_decode(b, n, l, &img, err);
+        break;
     default:
         st = cx_unsupported(err, f, "decoding is not available for this format");
     }
@@ -579,6 +593,8 @@ pc_status pc_cdecode_as_with(pc_cformat f, const uint8_t *b, size_t n, const pc_
         orient = cx_tiff_orientation(b, n, false, 0);
     } else if (f == PC_CF_HEIF) {
         orient = 1;
+    } else if (f == PC_CF_DPX) {
+        orient = cx_dpx_orientation(b, n);
     } else {
         orient = img.meta.exif.has ? pc_exif_orientation(img.meta.exif.data, img.meta.exif.len) : 1;
     }
@@ -695,6 +711,9 @@ pc_status pc_cencode(const pc_cimage *img, pc_cformat f, const pc_cencode_opts *
         break;
     case PC_CF_HDR:
         st = cx_hdr_encode(img, p, &b, err);
+        break;
+    case PC_CF_DPX:
+        st = cx_dpx_encode(img, p, o, &b, err);
         break;
     default:
         st = cx_unsupported(err, f, "encoding is not available in this build");

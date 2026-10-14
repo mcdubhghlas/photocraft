@@ -94,11 +94,28 @@ static bool color_eq(const pc_color *a, const pc_color *b)
 static const double BOLD_OFFSETS[8][2] = {{-1.0, 0.0}, {1.0, 0.0},   {0.0, -1.0}, {0.0, 1.0},
                                           {0.7, 0.7},  {-0.7, -0.7}, {0.7, -0.7}, {-0.7, 0.7}};
 
+/* Which part of the layout `draw` emits. Faux bold draws each glyph at several offsets; summing
+ * those into one coverage buffer saturates the antialiased edge pixels (hard, pixelated stems),
+ * so the rasteriser draws every offset into its own buffer and merges them with max. */
+typedef enum pass_kind {
+    PASS_ALL,  /* everything, all offsets (bounds, outlines) */
+    PASS_PLAIN, /* non-bold glyphs and decorations */
+    PASS_BOLD  /* bold glyphs at one offset (`bold_k`) */
+} pass_kind;
+
+static bool glyph_is_bold(const pc_text_layout *l, const pc_placed_glyph *g)
+{
+    bool face_bold = g->face < l->nfaces && l->faces[g->face].embolden;
+    return (g->style < l->nstyles && l->styles[g->style].faux_bold) || face_bold;
+}
+
 /* Draws every glyph and decoration whose style colour is `only` (all when NULL) into `sink`
- * through `transform`, bending outlines with `warp` first (in text space). Font errors skip
+ * through `transform`, bending outlines with `warp` first (in text space). `pass` selects which
+ * glyphs and offsets are emitted; `bold_k` is the offset index for PASS_BOLD. Font errors skip
  * the glyph as in the reference; only running out of memory fails. */
-static pc_status draw(const pc_text_layout *l, const pc_xform *transform, const pc_line_sink *sink,
-                      const pc_color *only, const pc_style_warp *warp, pc_error *err)
+static pc_status draw_pass(const pc_text_layout *l, const pc_xform *transform, const pc_line_sink *sink,
+                           const pc_color *only, const pc_style_warp *warp, pass_kind pass, size_t bold_k,
+                           pc_error *err)
 {
     size_t i;
     warp_sink ws;
@@ -130,10 +147,17 @@ static pc_status draw(const pc_text_layout *l, const pc_xform *transform, const 
         }
         glyph = pc_text_glyph_xform(l, g, face->skew_deg);
         bold = st->faux_bold || face->embolden;
+        if ((pass == PASS_PLAIN && bold) || (pass == PASS_BOLD && !bold)) {
+            continue;
+        }
+        if (pass == PASS_BOLD && bold_k >= 8) {
+            continue;
+        }
         r = (double)(face->size_px * PC_TEXT_FAUX_BOLD_RADIUS);
-        noff = bold ? 8 : 1;
+        noff = (pass == PASS_BOLD) ? 1 : (bold ? 8 : 1);
         for (k = 0; k < noff; k++) {
-            double ox = bold ? BOLD_OFFSETS[k][0] : 0.0, oy = bold ? BOLD_OFFSETS[k][1] : 0.0;
+            size_t oi = (pass == PASS_BOLD) ? bold_k : k;
+            double ox = bold ? BOLD_OFFSETS[oi][0] : 0.0, oy = bold ? BOLD_OFFSETS[oi][1] : 0.0;
             pc_xform off = {{1.0, 0.0, 0.0, 1.0, ox * r, oy * r}};
             pc_xform local = pc_xform_mul(&glyph, &off); /* offsets in glyph space (#3705) */
             pc_flatten_pen pen;
@@ -158,6 +182,9 @@ static pc_status draw(const pc_text_layout *l, const pc_xform *transform, const 
             }
         }
     }
+    if (pass == PASS_BOLD) {
+        return PC_OK; /* bold offset passes carry no decorations */
+    }
     for (i = 0; i < l->ndecorations; i++) {
         const pc_decoration_rect *d = &l->decorations[i];
         if (d->style >= l->nstyles) {
@@ -174,6 +201,13 @@ static pc_status draw(const pc_text_layout *l, const pc_xform *transform, const 
         }
     }
     return PC_OK;
+}
+
+/* Everything, all offsets: used for the ink rectangle (bounds). */
+static pc_status draw(const pc_text_layout *l, const pc_xform *transform, const pc_line_sink *sink,
+                      const pc_color *only, const pc_style_warp *warp, pc_error *err)
+{
+    return draw_pass(l, transform, sink, only, warp, PASS_ALL, 0, err);
 }
 
 static double clampd(double v, double lo, double hi)
@@ -253,8 +287,9 @@ pc_status pc_text_rasterize(const pc_text_layout *l, const pc_affine *transform,
 {
     pc_rect rect;
     size_t w, h, n, stride, npx, i, k, ncolors = 0, len;
-    float *acc = NULL, *cov = NULL;
+    float *acc = NULL, *cov = NULL, *bc = NULL;
     const pc_color **colors = NULL;
+    bool any_bold = false;
     pc_xform xf, tm, shift;
     pc_status st;
     pc_surface surface;
@@ -283,8 +318,9 @@ pc_status pc_text_rasterize(const pc_text_layout *l, const pc_affine *transform,
     }
     acc = pc_calloc_array(len, sizeof(float));
     cov = pc_malloc_array(npx, sizeof(float));
+    bc = pc_malloc_array(npx, sizeof(float));
     colors = pc_malloc_array(l->nstyles > 0 ? l->nstyles : 1, sizeof *colors);
-    if (acc == NULL || cov == NULL || colors == NULL) {
+    if (acc == NULL || cov == NULL || bc == NULL || colors == NULL) {
         st = pc_fail(err, PC_ERR_NOMEM, "out of memory for a %zux%zu text raster", w, h);
         goto cleanup;
     }
@@ -300,23 +336,55 @@ pc_status pc_text_rasterize(const pc_text_layout *l, const pc_affine *transform,
             colors[ncolors++] = &l->styles[i].color;
         }
     }
+    for (i = 0; i < l->nglyphs; i++) {
+        if (glyph_is_bold(l, &l->glyphs[i])) {
+            any_bold = true;
+            break;
+        }
+    }
     for (k = 0; k < ncolors; k++) {
         const pc_color *c = colors[k];
         pc_coverage cv;
         pc_line_sink sink;
         float comps[PC_RASTER_MAX_CHANNELS] = {0}, a;
+        size_t bo;
+        /* Non-bold glyphs and decorations. */
         st = pc_coverage_init(&cv, w, h, err);
         if (st != PC_OK) {
             goto cleanup;
         }
         sink = pc_coverage_sink(&cv);
-        st = draw(l, &xf, &sink, c, warp, err);
+        st = draw_pass(l, &xf, &sink, c, warp, PASS_PLAIN, 0, err);
         if (st != PC_OK) {
             pc_coverage_fini(&cv);
             goto cleanup;
         }
         pc_coverage_finish(&cv, cov);
         pc_coverage_fini(&cv);
+        /* Each faux-bold offset into its own buffer, merged into cov with max (#not-summed). */
+        if (any_bold) {
+            for (bo = 0; bo < 8; bo++) {
+                pc_coverage bcv;
+                pc_line_sink bsink;
+                st = pc_coverage_init(&bcv, w, h, err);
+                if (st != PC_OK) {
+                    goto cleanup;
+                }
+                bsink = pc_coverage_sink(&bcv);
+                st = draw_pass(l, &xf, &bsink, c, warp, PASS_BOLD, bo, err);
+                if (st != PC_OK) {
+                    pc_coverage_fini(&bcv);
+                    goto cleanup;
+                }
+                pc_coverage_finish(&bcv, bc);
+                pc_coverage_fini(&bcv);
+                for (i = 0; i < npx; i++) {
+                    if (bc[i] > cov[i]) {
+                        cov[i] = bc[i];
+                    }
+                }
+            }
+        }
         (void)color_in(format, c, comps);
         a = c->alpha;
         if (a < 0.0f) { /* f32::clamp(0, 1): NaN stays NaN */
@@ -343,7 +411,8 @@ pc_status pc_text_rasterize(const pc_text_layout *l, const pc_affine *transform,
             px[n] = s + px[n] * keep;
         }
     }
-    /* Unpremultiply. */
+    /* Unpremultiply. Float text can carry HDR and signed colours, so keep a finite straight
+       value unclamped for F32 output; integer output and non-finite values stay bounded. */
     for (i = 0; i < npx; i++) {
         float *px = acc + i * stride;
         float a = px[n];
@@ -351,11 +420,13 @@ pc_status pc_text_rasterize(const pc_text_layout *l, const pc_affine *transform,
             size_t j;
             for (j = 0; j < n; j++) {
                 float v = px[j] / a;
-                if (v < 0.0f) {
-                    v = 0.0f;
-                }
-                if (v > 1.0f) {
-                    v = 1.0f;
+                if (!(format.sample == PC_SAMPLE_TYPE_F32 && isfinite(v))) {
+                    if (v < 0.0f) {
+                        v = 0.0f;
+                    }
+                    if (v > 1.0f) {
+                        v = 1.0f;
+                    }
                 }
                 px[j] = v;
             }
@@ -370,12 +441,14 @@ pc_status pc_text_rasterize(const pc_text_layout *l, const pc_affine *transform,
     out->rect = rect;
     free(acc);
     free(cov);
+    free(bc);
     free(colors);
     return PC_OK;
 cleanup:
     pc_surface_fini(&surface);
     free(acc);
     free(cov);
+    free(bc);
     free(colors);
     return st;
 }

@@ -44,7 +44,20 @@ void pc_algo_adapt_fit(pc_algo_adapt a, float n, float st, float stt, float ss, 
     float vt = pc_rs_maxf_k(stt / n - mt * mt, 0.0f);
     float vs = pc_rs_maxf_k(sss / n - ms * ms, 0.0f);
     float g = vs > 1e-10f ? sqrtf(vt / vs) : 1.0f;
-    g = pc_clampf(g, a.gain_lo, a.gain_hi);
+    float lo = a.gain_lo, hi = a.gain_hi;
+    /* Nearly flat patches of about the same colour (their means within the bias of each other):
+     * the ratio of their deviations is noise, so match the mean first, keeping the gain where the
+     * bias can still bring the source's mean to the target's. A limit gain would otherwise move a
+     * bright mean further than the bias could bring back, per channel: a tinted blotch in a smooth
+     * gradient. FLAT is about 5 levels of 255. Textured patches are fitted as before. */
+    if (pc_rs_maxf(vt, vs) < 0.02f * 0.02f && fabsf(mt - ms) <= a.bias && ms > 1e-6f) {
+        float glo = (mt - a.bias) / ms, ghi = (mt + a.bias) / ms;
+        if (pc_rs_maxf(glo, lo) <= pc_rs_minf(ghi, hi)) {
+            lo = pc_rs_maxf(glo, lo);
+            hi = pc_rs_minf(ghi, hi);
+        }
+    }
+    g = pc_clampf(g, lo, hi);
     *gain = g;
     *bias = pc_clampf(mt - g * ms, -a.bias, a.bias);
 }

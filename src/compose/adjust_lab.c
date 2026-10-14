@@ -116,6 +116,76 @@ bool pc_compose_lab_channel_adjustment(const pc_adjustment *adj)
     }
 }
 
+/* Whether stored_channels evaluates adj: Invert, Posterize and Threshold. */
+static bool stored_channel_adjustment(const pc_adjustment *adj)
+{
+    switch (adj->kind) {
+    case PC_ADJ_INVERT:
+    case PC_ADJ_POSTERIZE:
+    case PC_ADJ_THRESHOLD:
+        return true;
+    default:
+        return false;
+    }
+}
+
+/* Whether a CMYK document evaluates adj on its inks rather than on the screen colour: Invert and
+ * Posterize (each ink, black included, so paper inverts to 400% ink) and Threshold (paper or 100%
+ * black ink alone). */
+bool pc_compose_cmyk_channel_adjustment(const pc_adjustment *adj)
+{
+    return stored_channel_adjustment(adj);
+}
+
+/* Invert, Posterize or Threshold on one pixel's own channels in a Lab or CMYK document of depth
+ * (has_depth false: unknown, treated as 8-bit): ch holds L, a, b normalised as lab_norm gives
+ * them, or the C, M, Y, K inks (0: none); gray is the pixel's luma, which CMYK Threshold compares.
+ * Lab Invert turns 8-bit bytes v into 255 - v (a becomes -1 - a) and mirrors a and b around
+ * neutral at 16 bits (photoshop corpus lab16 invert.psd: neutral stays neutral). */
+static void stored_channels(const pc_adjustment *adj, pc_color_mode mode, bool has_depth,
+                            pc_sample_type depth, float *ch, size_t nch, float gray)
+{
+    bool lab = mode == PC_COLOR_MODE_LAB;
+    size_t i;
+    switch (adj->kind) {
+    case PC_ADJ_INVERT: {
+        float mirror = (lab && has_depth && depth != PC_SAMPLE_TYPE_U8) ? 256.0f / 255.0f : 1.0f;
+        for (i = 0; i < nch; i++) {
+            ch[i] = (i > 0 ? mirror : 1.0f) - pc_clampf(ch[i], 0.0f, 1.0f);
+        }
+        break;
+    }
+    case PC_ADJ_POSTERIZE:
+        for (i = 0; i < nch; i++) {
+            ch[i] = pc_compose_posterize(ch[i], adj->u.posterize.levels);
+        }
+        break;
+    case PC_ADJ_THRESHOLD: {
+        /* On the 8-bit grid, like the RGB threshold. */
+        float t = roundf(adj->u.threshold.level * 255.0f);
+        float out[4];
+        if (lab) {
+            bool white = nch >= 1 && roundf(pc_clampf(ch[0], 0.0f, 1.0f) * 255.0f) >= t;
+            out[0] = white ? 1.0f : 0.0f;
+            out[1] = 128.0f / 255.0f;
+            out[2] = 128.0f / 255.0f;
+            out[3] = 0.0f;
+        } else {
+            out[0] = 0.0f;
+            out[1] = 0.0f;
+            out[2] = 0.0f;
+            out[3] = roundf(gray * 255.0f) < t ? 1.0f : 0.0f;
+        }
+        for (i = 0; i < nch && i < 4; i++) {
+            ch[i] = out[i];
+        }
+        break;
+    }
+    default:
+        break;
+    }
+}
+
 /* Encoded sRGB -> Lab normalised the way Photoshop's channels hold it: L/100, (a+128)/255,
  * (b+128)/255. */
 static void lab_norm(const float c[3], float out[3])
@@ -133,7 +203,7 @@ static void lab_denorm(const float n[3], float out[3])
     pc_lab_to_srgb(lab, out);
 }
 
-static void apply_lab(const pc_adjustment *adj, pc_compose_buffer *buf)
+static void apply_lab(const pc_adjustment *adj, pc_compose_buffer *buf, bool has_depth, pc_sample_type depth)
 {
     uint32_t bw = pc_rect_width(buf->rect);
     size_t w = bw > 1 ? bw : 1;
@@ -157,16 +227,10 @@ static void apply_lab(const pc_adjustment *adj, pc_compose_buffer *buf)
         lab_norm(p, n);
         switch (adj->kind) {
         case PC_ADJ_INVERT:
-            /* n -> 1 - n on every channel: L -> 100 - L and a, b mirrored about neutral. */
-            for (c = 0; c < 3; c++) {
-                n[c] = 1.0f - pc_clampf(n[c], 0.0f, 1.0f);
-            }
-            lab_denorm(n, o);
-            break;
         case PC_ADJ_POSTERIZE:
-            for (c = 0; c < 3; c++) {
-                n[c] = pc_compose_posterize(n[c], adj->u.posterize.levels);
-            }
+            /* L -> 100 - L and a, b mirrored about neutral; each channel posterized (see
+             * stored_channels). */
+            stored_channels(adj, PC_COLOR_MODE_LAB, has_depth, depth, n, 3, 0.0f);
             lab_denorm(n, o);
             break;
         case PC_ADJ_THRESHOLD:
@@ -228,7 +292,27 @@ pc_status pc_compose_adjust_apply_in(const pc_adjustment *adj, pc_compose_buffer
                                      pc_color_mode mode, pc_error *err)
 {
     if (mode == PC_COLOR_MODE_LAB && pc_compose_lab_channel_adjustment(adj)) {
-        apply_lab(adj, buf);
+        apply_lab(adj, buf, has_depth, depth);
+        return PC_OK;
+    }
+    if (mode == PC_COLOR_MODE_CMYK && pc_compose_cmyk_channel_adjustment(adj)) {
+        /* The inks are the screen colour separated through the document's CMYK profile, so
+         * neutrals carry the black that profile generates rather than the file's. */
+        size_t i;
+        for (i = 0; i < buf->len; i++) {
+            float *p = buf->px[i];
+            float ink[4];
+            float rgb[3];
+            if (p[3] <= 0.0f) {
+                continue;
+            }
+            pc_rgb_to_cmyk(p, ink);
+            stored_channels(adj, PC_COLOR_MODE_CMYK, has_depth, depth, ink, 4, pc_rgb_to_gray(p));
+            pc_cmyk_to_rgb(ink, rgb);
+            p[0] = rgb[0];
+            p[1] = rgb[1];
+            p[2] = rgb[2];
+        }
         return PC_OK;
     }
     return pc_compose_adjust_apply_depth(adj, buf, transfer, has_depth, depth, err);

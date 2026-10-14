@@ -662,7 +662,7 @@ int32_t pc_algo_gallery_effect_reach(const pc_algo_gallery_effect *e)
     case PC_ALGO_GAL_INK_OUTLINES:
         return pc_i32_wrapping_add(f2i(G("strokeLength") / 2.0f), 3);
     case PC_ALGO_GAL_SPATTER:
-        return pc_i32_wrapping_add(f2i(ceilf(G("sprayRadius"))), 2);
+        return pc_i32_wrapping_add(f2i(ceilf(G("sprayRadius") * 1.5f)), 2);
     case PC_ALGO_GAL_SPRAYED_STROKES:
         return add3(f2i(ceilf(G("sprayRadius"))), f2i(G("strokeLength") / 2.0f), 3);
     case PC_ALGO_GAL_SUMI_E:
@@ -1213,10 +1213,35 @@ pc_status pc_gfx_apply1(const pc_algo_gallery_effect *e, gwin *w, const pc_algo_
         }
         break;
     }
-    case PC_ALGO_GAL_SPATTER:
+    case PC_ALGO_GAL_SPATTER: {
+        /* Smoothness smooths the random displacement: a larger feature size and, as with any
+         * averaged noise, a smaller reach. Low smoothness sprays specks out to the full radius;
+         * high smoothness leaves a torn but attached, hard edge. */
+        float rad = G("sprayRadius");
+        float feature = 1.0f + G("smoothness") * 0.35f;
+        float reach = pc_rs_minf(rad * 1.2f / feature, rad);
+        gwin src;
+        tmp = pc_gfx_clone(w);
+        if (tmp == NULL) {
+            TRY(NOMEM());
+        }
+        src = *w;
+        src.c = tmp;
+        for (i = 0; i < N; i++) {
+            float fx, fy, dx, dy;
+            pc_gfx_xy(w, i, &x, &y);
+            fx = (float)x / feature;
+            fy = (float)y / feature;
+            dx = (pc_gfx_fbm(fx, fy, 91) - 0.5f) * 3.0f * reach;
+            dy = (pc_gfx_fbm(fx, fy, 92) - 0.5f) * 3.0f * reach;
+            w->c[i] = pc_gfx_sample(&src, (float)x + 0.5f + dx, (float)y + 0.5f + dy);
+        }
+        break;
+    }
     case PC_ALGO_GAL_SPRAYED_STROKES: {
         float rad = G("sprayRadius");
-        float sc = e->filter == PC_ALGO_GAL_SPATTER ? 0.6f + G("smoothness") * 0.25f : 1.2f;
+        float sc = 1.2f;
+        int32_t ddx, ddy;
         gwin src;
         tmp = pc_gfx_clone(w);
         if (tmp == NULL) {
@@ -1233,11 +1258,8 @@ pc_status pc_gfx_apply1(const pc_algo_gallery_effect *e, gwin *w, const pc_algo_
             dy = (pc_gfx_vnoise(fx, fy, 92) - 0.5f) * 2.0f * rad;
             w->c[i] = pc_gfx_sample(&src, (float)x + 0.5f + dx, (float)y + 0.5f + dy);
         }
-        if (e->filter == PC_ALGO_GAL_SPRAYED_STROKES) {
-            int32_t ddx, ddy;
-            pc_gfx_direction(pc_algo_gallery_effect_choice(e, "strokeDirection", cb), &ddx, &ddy);
-            TRY(pc_gfx_line_blur3(w->c, W, H, ddx, ddy, pc_f32_to_size(G("strokeLength") / 2.0f), err));
-        }
+        pc_gfx_direction(pc_algo_gallery_effect_choice(e, "strokeDirection", cb), &ddx, &ddy);
+        TRY(pc_gfx_line_blur3(w->c, W, H, ddx, ddy, pc_f32_to_size(G("strokeLength") / 2.0f), err));
         break;
     }
     case PC_ALGO_GAL_SUMI_E: {

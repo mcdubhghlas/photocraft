@@ -190,13 +190,21 @@ pc_algo_interp pc_algo_interp_parse(const char *s)
     return PC_ALGO_INTERP_BICUBIC;
 }
 
-static void catmull_rom(double t, double out[4])
+/* Photoshop's Bicubic: the Keys cubic at a = -0.75 (Catmull-Rom is -0.5), the weights of the four
+ * source pixels around a sample `t` (0..1) past the second. */
+void pc_algo_transform_bicubic(double t, double out[4])
 {
-    double t2 = t * t, t3 = t2 * t;
-    out[0] = -0.5 * t3 + t2 - 0.5 * t;
-    out[1] = 1.5 * t3 - 2.5 * t2 + 1.0;
-    out[2] = -1.5 * t3 + 2.0 * t2 + 0.5 * t;
-    out[3] = 0.5 * t3 - 0.5 * t2;
+    const double A = -0.75;
+    /* near(x) = (A+2)x^3 - (A+3)x^2 + 1;  far(x) = A(x^3 - 5x^2 + 8x - 4). */
+    double x;
+    x = 1.0 + t;
+    out[0] = A * (x * x * x - 5.0 * x * x + 8.0 * x - 4.0);
+    x = t;
+    out[1] = (A + 2.0) * x * x * x - (A + 3.0) * x * x + 1.0;
+    x = 1.0 - t;
+    out[2] = (A + 2.0) * x * x * x - (A + 3.0) * x * x + 1.0;
+    x = 2.0 - t;
+    out[3] = A * (x * x * x - 5.0 * x * x + 8.0 * x - 4.0);
 }
 
 typedef struct warp_ctx {
@@ -360,8 +368,8 @@ static pc_status warp_tile(const warp_ctx *w, pc_rect t, float **out, pc_error *
                 int32_t ix = pc_f64_to_i32(floor(u)), iy = pc_f64_to_i32(floor(v));
                 double wx[4], wy[4];
                 int i, j;
-                catmull_rom(u - (double)ix, wx);
-                catmull_rom(v - (double)iy, wy);
+                pc_algo_transform_bicubic(u - (double)ix, wx);
+                pc_algo_transform_bicubic(v - (double)iy, wy);
                 for (j = 0; j < 4; j++) {
                     for (i = 0; i < 4; i++) {
                         double k = wx[i] * wy[j];
@@ -438,8 +446,8 @@ static pc_status warp(const pc_surface *src, pc_rect src_rect, const pc_algo_hom
     if (pc_rect_is_empty(src_rect) || (clip != NULL && pc_rect_is_empty(*clip))) {
         goto finish;
     }
-    /* Pre-reduce for large downscales (bicubic alone aliases below ~50%). With a clip, the scale
-     * that matters is the one at the source point landing in the clip's centre. */
+    /* Pre-reduce for downscales (a plain 4x4 Bicubic kernel aliases below 1:1). With a clip, the
+     * scale that matters is the one at the source point landing in the clip's centre. */
     if (clip != NULL && pc_algo_homography_inverse(&hh, &inv)) {
         pc_algo_homography_apply(&inv, ((double)clip->x0 + (double)clip->x1) / 2.0,
                                  ((double)clip->y0 + (double)clip->y1) / 2.0, &cx, &cy);
@@ -448,9 +456,11 @@ static pc_status warp(const pc_surface *src, pc_rect src_rect, const pc_algo_hom
         cy = (double)pc_i32_wrapping_add(src_rect.y0, src_rect.y1) / 2.0;
     }
     scale = pc_algo_homography_local_scale(&hh, cx, cy);
-    if (interp != PC_ALGO_INTERP_NEAREST && scale < 0.5 && scale > 0.0) {
-        /* 2f64.powf(x) is exp2(x) after LLVM; the remaining scale lands in [0.5, 1). */
-        double f = pc_rs_min_k(exp2(ceil(log2(scale))), 1.0);
+    /* Photoshop reduces with its Bicubic widened by 1 / scale (as Image Size does), so the source
+     * is brought down by the whole local scale first and the warp samples it at about 1:1.
+     * Bilinear samples the source directly, as Photoshop's does. */
+    if (interp == PC_ALGO_INTERP_BICUBIC && scale < 0.999 && scale > 0.0) {
+        double f = pc_rs_max_k(scale, 1.0 / 64.0);
         pc_algo_homography d = {{1.0 / f, 0.0, 0.0, 0.0, 1.0 / f, 0.0, 0.0, 0.0, 1.0}};
         st = pc_algo_resize_surface(s, f, f, PC_ALGO_RESAMPLE_BICUBIC, &reduced, err);
         if (st != PC_OK) {

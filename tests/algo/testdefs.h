@@ -235,12 +235,13 @@ static pc_status td_solarize_k(const void *p, const void *prep, const pc_algo_im
 {
     size_t n = src->ch, cc = pc_algo_ncol(ctx, n), i, c,
            npx = (size_t)pc_rect_width(out) * pc_rect_height(out);
+    bool sub = pc_algo_subtractive(ctx);
     (void)p, (void)prep, (void)err;
     pc_algo_image_crop_into(src, out, dst);
     for (i = 0; i < npx; i++) {
         for (c = 0; c < cc; c++) {
             float v = dst[i * n + c];
-            dst[i * n + c] = v > 0.5f ? 1.0f - v : v;
+            dst[i * n + c] = sub ? (v < 0.5f ? 1.0f - v : v) : (v > 0.5f ? 1.0f - v : v);
         }
     }
     return PC_OK;
@@ -251,6 +252,7 @@ static pc_status td_find_edges_k(const void *p, const void *prep, const pc_algo_
 {
     size_t n = src->ch, cc = pc_algo_ncol(ctx, n), i, c,
            npx = (size_t)pc_rect_width(out) * pc_rect_height(out);
+    bool sub = pc_algo_subtractive(ctx);
     (void)p, (void)prep, (void)err;
     pc_algo_image_crop_into(src, out, dst);
     for (i = 0; i < npx; i++) {
@@ -261,7 +263,8 @@ static pc_status td_find_edges_k(const void *p, const void *prep, const pc_algo_
             float gx = (G(1, -1) + 2.0f * G(1, 0) + G(1, 1)) - (G(-1, -1) + 2.0f * G(-1, 0) + G(-1, 1));
             float gy = (G(-1, 1) + 2.0f * G(0, 1) + G(1, 1)) - (G(-1, -1) + 2.0f * G(0, -1) + G(1, -1));
 #undef G
-            dst[i * n + c] = pc_clampf(1.0f - sqrtf(gx * gx + gy * gy) / 4.0f, 0.0f, 1.0f);
+            float e = pc_clampf(sqrtf(gx * gx + gy * gy) / 4.0f, 0.0f, 1.0f);
+            dst[i * n + c] = sub ? e : 1.0f - e;
         }
     }
     return PC_OK;

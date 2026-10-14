@@ -30,7 +30,7 @@
 
 /* Writer identification: the reference writes `photocraft-format {CARGO_PKG_VERSION}`; the C
  * writer keeps the reference's version so both writers produce identical manifests. */
-#define PC_FORMAT_GENERATOR "photocraft-format 0.8.0"
+#define PC_FORMAT_GENERATOR "photocraft-format 0.8.2"
 
 typedef struct pc_mf_tile {
     int32_t tx;

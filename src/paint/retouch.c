@@ -166,7 +166,8 @@ pc_rect pc_paint_dab_rect(const pc_paint_dab *d)
 pc_status pc_paint_footprint_round(const pc_paint_dab *d, size_t index, float hardness,
                                    pc_paint_footprint *out, pc_error *err)
 {
-    pc_rect rect = pc_paint_dab_rect(d);
+    /* A soft tip paints past its nominal radius. */
+    pc_rect rect = pc_paint_rect_around(d, pc_rs_maxf(pc_paint_tip_reach(d->radius, hardness), d->radius));
     float cx = (float)d->center.x, cy = (float)d->center.y;
     size_t n = 0, k = 0;
     float *cov = NULL;

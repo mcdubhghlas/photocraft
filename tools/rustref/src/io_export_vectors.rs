@@ -827,7 +827,7 @@ fn export_lines(name: &str, d: &Document) {
     for (variant, opts) in [
         ("d", PsdExportOptions::default()),
         ("b", PsdExportOptions { force_psb: true, ..Default::default() }),
-        ("t", PsdExportOptions { force_psb: false, merged_matte: false, merged_compression: Compression::Raw }),
+        ("t", PsdExportOptions { force_psb: false, merged_matte: false, merged_compression: Compression::Raw, maximize_compatibility: true }),
     ] {
         let (f, w) = document_to_psd_with(d, &opts);
         let (r, o) = psd_result(&f, &w);

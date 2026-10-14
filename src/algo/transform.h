@@ -47,6 +47,10 @@ bool pc_algo_quad_to_rect(const double q[4][2], double w, double h, pc_algo_homo
 /* Interp::parse: "nearest"/"nearestNeighbor", "bilinear", anything else bicubic. */
 pc_algo_interp pc_algo_interp_parse(const char *s);
 
+/* Photoshop's Bicubic weights (Keys cubic, a = -0.75) of the four source pixels around a sample
+ * `t` (0..1) past the second. */
+void pc_algo_transform_bicubic(double t, double out[4]);
+
 /* Warps src (its content inside src_rect) by h (source -> document space). The result has src's
  * format with alpha added if it had none; pixels outside the warped quad are transparent; float
  * colours keep their signed / HDR range (integer formats clip on write). `out` is initialised on

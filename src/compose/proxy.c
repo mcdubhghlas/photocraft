@@ -202,6 +202,9 @@ pc_status pc_compose_proxy_document(const pc_document *doc, uint32_t k, pc_docum
     if (st == PC_OK && p.has_selection) {
         st = shrink_surface(&p.selection, k, err);
     }
+    if (st == PC_OK && p.has_quick_mask) {
+        st = shrink_surface(&p.quick_mask.surface, k, err);
+    }
     if (st != PC_OK) {
         pc_document_fini(&p);
         return st;

@@ -8,6 +8,7 @@
 
 #include "algo/fxutil.h"
 #include "algo/resample.h"
+#include "algo/transform.h"
 #include "base/mem.h"
 #include "base/num.h"
 #include "base/rmath.h"
@@ -19,15 +20,6 @@
 /* Most subsamples per axis when a warp shrinks the source; also the longest source step per
  * destination pixel the filter follows (bounds the footprint each tile reads). */
 #define MAX_SS 8.0
-
-static void catmull_rom(double t, double w[4])
-{
-    double t2 = t * t, t3 = t2 * t;
-    w[0] = -0.5 * t3 + t2 - 0.5 * t;
-    w[1] = 1.5 * t3 - 2.5 * t2 + 1.0;
-    w[2] = -1.5 * t3 + 2.0 * t2 + 0.5 * t;
-    w[3] = 0.5 * t3 - 0.5 * t2;
-}
 
 static int32_t f2i(double v)
 {
@@ -132,8 +124,8 @@ static void point_sample(const foot_src *f, pc_algo_interp interp, double u, dou
         }
         ix = f2i(floor(u));
         iy = f2i(floor(v));
-        catmull_rom(u - (double)ix, wx);
-        catmull_rom(v - (double)iy, wy);
+        pc_algo_transform_bicubic(u - (double)ix, wx);
+        pc_algo_transform_bicubic(v - (double)iy, wy);
         for (jj = 0; jj < 4; jj++) {
             for (ii = 0; ii < 4; ii++) {
                 double kk = wx[ii] * wy[jj];

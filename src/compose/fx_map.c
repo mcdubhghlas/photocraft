@@ -22,12 +22,6 @@ static pc_status nomem(pc_error *err)
     return pc_fail(err, PC_ERR_NOMEM, "compose: out of memory");
 }
 
-/* Rust's wrapping i64 subtraction (release build). */
-static int64_t wsub64(int64_t a, int64_t b)
-{
-    return (int64_t)((uint64_t)a - (uint64_t)b);
-}
-
 static float rad_f32(float deg)
 {
     const float k = PI_F32 / 180.0f;
@@ -110,14 +104,22 @@ static float get_or(const pc_fxm *m, int64_t x, int64_t y, float outside)
     return m->v[(size_t)y * m->w + (size_t)x];
 }
 
-/* Map::shifted: a bilinear shifted copy; reads outside the map give `outside`. Coordinates wrap
- * like the reference's release build when a hostile distance saturates the shift. */
+/* reach: a hostile distance (+-1e30, inf, NaN) would overflow the i64 offsets below; no shift
+ * beyond 2^30 px can land inside a map, so clamp (non-finite shifts read as none). */
+static float reach(float d)
+{
+    return isfinite(d) ? pc_clampf(d, -1.0e9f, 1.0e9f) : 0.0f;
+}
+
+/* Map::shifted: a bilinear shifted copy; reads outside the map give `outside`. */
 static pc_status shifted(const pc_fxm *m, float dx, float dy, float outside, pc_fxm *out, pc_error *err)
 {
-    float fx = floorf(dx);
-    float fy = floorf(dy);
-    float ax = dx - fx;
-    float ay = dy - fy;
+    float cdx = reach(dx);
+    float cdy = reach(dy);
+    float fx = floorf(cdx);
+    float fy = floorf(cdy);
+    float ax = cdx - fx;
+    float ay = cdy - fy;
     int64_t ifx = pc_f32_to_i64(fx);
     int64_t ify = pc_f32_to_i64(fy);
     pc_fxm o;
@@ -129,12 +131,12 @@ static pc_status shifted(const pc_fxm *m, float dx, float dy, float outside, pc_
     }
     for (y = 0; y < m->h; y++) {
         for (x = 0; x < m->w; x++) {
-            int64_t sx = wsub64((int64_t)x, ifx);
-            int64_t sy = wsub64((int64_t)y, ify);
+            int64_t sx = (int64_t)x - ifx;
+            int64_t sy = (int64_t)y - ify;
             float v00 = get_or(m, sx, sy, outside);
-            float v10 = get_or(m, wsub64(sx, 1), sy, outside);
-            float v01 = get_or(m, sx, wsub64(sy, 1), outside);
-            float v11 = get_or(m, wsub64(sx, 1), wsub64(sy, 1), outside);
+            float v10 = get_or(m, sx - 1, sy, outside);
+            float v01 = get_or(m, sx, sy - 1, outside);
+            float v11 = get_or(m, sx - 1, sy - 1, outside);
             float top = v00 * (1.0f - ax) + v10 * ax;
             float bot = v01 * (1.0f - ax) + v11 * ax;
             o.v[y * m->w + x] = top * (1.0f - ay) + bot * ay;

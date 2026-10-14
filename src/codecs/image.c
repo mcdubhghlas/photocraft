@@ -233,8 +233,48 @@ bool pc_cwarning_eq(const pc_cwarning *a, const pc_cwarning *b)
         return a->has_total == b->has_total && (!a->has_total || a->total == b->total);
     case PC_CW_TRUNCATED:
         return a->format == b->format;
+    case PC_CW_MORE_ELEMENTS:
+    case PC_CW_DPX_ENCODING:
+        return a->total == b->total;
     default:
         return a->format == b->format && a->max_samples == b->max_samples;
+    }
+}
+
+/* The SMPTE 268M name of a DPX transfer characteristic or colorimetric code. */
+static const char *dpx_code_name(uint8_t code)
+{
+    switch (code) {
+    case 0:
+        return "user-defined";
+    case 1:
+        return "printing density";
+    case 2:
+        return "linear";
+    case 3:
+        return "logarithmic";
+    case 4:
+        return "unspecified video";
+    case 5:
+        return "SMPTE 274M";
+    case 6:
+        return "ITU-R BT.709";
+    case 7:
+        return "ITU-R BT.601 625-line";
+    case 8:
+        return "ITU-R BT.601 525-line";
+    case 9:
+        return "NTSC composite video";
+    case 10:
+        return "PAL composite video";
+    case 11:
+        return "Z linear";
+    case 12:
+        return "Z homogeneous";
+    case 255:
+        return "undefined";
+    default:
+        return "unknown";
     }
 }
 
@@ -270,6 +310,19 @@ void pc_cwarning_text(const pc_cwarning *w, char *out, size_t cap)
                        "%s data ends early (the file is truncated or damaged); part of the image is missing",
                        pc_cformat_name((pc_cformat)w->format));
         break;
+    case PC_CW_MORE_ELEMENTS:
+        (void)snprintf(out, cap, "only the first of %u image elements was imported", (unsigned)w->total);
+        break;
+    case PC_CW_DPX_ENCODING: {
+        uint8_t transfer = (uint8_t)(w->total & 0xFF);
+        uint8_t colorimetric = (uint8_t)((w->total >> 8) & 0xFF);
+        (void)snprintf(out, cap,
+                       "DPX transfer characteristic: %s (%u), colorimetric: %s (%u); the code values were "
+                       "imported as stored, without a colour transform",
+                       dpx_code_name(transfer), (unsigned)transfer, dpx_code_name(colorimetric),
+                       (unsigned)colorimetric);
+        break;
+    }
     default:
         (void)snprintf(out, cap,
                        "%s deep data was composited into a flat image (up to %u samples per pixel); per-pixel depth "

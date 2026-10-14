@@ -433,9 +433,26 @@ static size_t trim_end_matches(const char *s, size_t len, const char *suffix)
     return len;
 }
 
+/* Whether [w, w+len) is exactly a weight keyword (case-insensitive ASCII), so a compound
+   face suffix like Bold-It keeps its weight component (matches!(.., "thin" | .. | "black")). */
+static bool is_weight_word(const char *w, size_t len)
+{
+    static const char *const WORDS[] = {
+        "thin",   "hairline",   "extralight", "ultralight", "light", "regular",
+        "roman",  "book",       "medium",     "semibold",   "demibold", "demi",
+        "bold",   "extrabold",  "ultrabold",  "heavy",      "black",
+    };
+    size_t i;
+    for (i = 0; i < sizeof WORDS / sizeof WORDS[0]; i++) {
+        if (pc_text_eq_ignore_ascii_case(w, len, WORDS[i], strlen(WORDS[i]))) {
+            return true;
+        }
+    }
+    return false;
+}
+
 pc_status pc_text_guess_from_postscript(const char *ps, size_t len, pc_resolved_font *out, pc_error *err)
 {
-    const char *dash;
     size_t famlen, stlen, plen, i = 0, nch = 0, k, start, tl;
     const char *sty;
     const char *suffix = "";
@@ -449,10 +466,37 @@ pc_status pc_text_guess_from_postscript(const char *ps, size_t len, pc_resolved_
     if (ps == NULL) {
         ps = "";
     }
-    dash = memchr(ps, '-', len);
-    plen = dash != NULL ? (size_t)(dash - ps) : len;
-    sty = dash != NULL ? dash + 1 : ps + len;
-    stlen = dash != NULL ? len - plen - 1 : 0;
+    /* Split on the final '-': a vendor or family name may contain hyphens (ps.rsplit_once('-')). */
+    {
+        size_t d = len;
+        while (d > 0 && ps[d - 1] != '-') {
+            d--;
+        }
+        if (d > 0) {
+            plen = d - 1;  /* family part [ps, d-1), dash at d-1 */
+            sty = ps + d;
+            stlen = len - d;
+        } else {
+            plen = len;
+            sty = ps + len;
+            stlen = 0;
+        }
+    }
+    /* Keep compound style suffixes the old heuristic understood, such as Bold-It: if the final
+       suffix is an italic marker and the component before it is a weight word, back up one. */
+    if (pc_text_eq_ignore_ascii_case(sty, stlen, "it", 2) ||
+        pc_text_eq_ignore_ascii_case(sty, stlen, "italic", 6) ||
+        pc_text_eq_ignore_ascii_case(sty, stlen, "oblique", 7)) {
+        size_t d2 = plen;
+        while (d2 > 0 && ps[d2 - 1] != '-') {
+            d2--;
+        }
+        if (d2 > 0 && is_weight_word(ps + d2, plen - d2)) {
+            plen = d2 - 1;  /* family (before the weight component) */
+            sty = ps + d2;  /* "weight-style", e.g. Bold-It */
+            stlen = len - d2;
+        }
+    }
     famlen = trim_end_matches(ps, plen, "MT");
     famlen = trim_end_matches(ps, famlen, "PS");
     famlen = trim_end_matches(ps, famlen, "Std");

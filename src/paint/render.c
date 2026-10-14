@@ -294,7 +294,18 @@ float pc_paint_context_texture_at(const pc_paint_context *ctx, int32_t x, int32_
 pc_rect pc_paint_context_dab_rect(const pc_paint_context *ctx, const pc_paint_dab *d, bool dual)
 {
     bool sampled = dual ? ctx->dual_tip != NULL : ctx->tip != NULL;
-    return pc_paint_rect_around(d, sampled ? d->radius * SQRT_2_F : d->radius);
+    float hardness = dual ? ctx->brush.dual_brush.hardness : ctx->brush.hardness;
+    bool aliased = ctx->brush.aliased && !dual;
+    float reach;
+    /* A computed soft tip paints past its nominal radius (see pc_paint_tip_shape). */
+    if (sampled) {
+        reach = d->radius * SQRT_2_F;
+    } else if (aliased) {
+        reach = d->radius;
+    } else {
+        reach = pc_rs_maxf(pc_paint_tip_reach(d->radius, hardness), d->radius);
+    }
+    return pc_paint_rect_around(d, reach);
 }
 
 /* The zero-angle computed round tip without features (the common case), kept apart from the
@@ -302,7 +313,7 @@ pc_rect pc_paint_context_dab_rect(const pc_paint_context *ctx, const pc_paint_da
 static void rasterize_round(const pc_paint_dab *d, pc_rect rect, float *out, size_t w, size_t h,
                             float hardness, bool aliased)
 {
-    float cx, cy, ro, rm, reach2, inner;
+    float cx, cy, ro, rm, reach, reach2;
     if (aliased) {
         pc_paint_grid_center(d->center.x, d->center.y, 2.0f * d->radius, &cx, &cy);
     } else {
@@ -311,25 +322,20 @@ static void rasterize_round(const pc_paint_dab *d, pc_rect rect, float *out, siz
     }
     ro = pc_paint_minf_k(pc_rs_maxf(d->roundness, 0.5f / d->radius), 1.0f);
     rm = pc_paint_maxf_k(d->radius * ro, 0.5f);
-    reach2 = (rm + 0.5f) * (rm + 0.5f);
-    inner = rm * pc_clampf(hardness, 0.0f, 1.0f);
+    /* A computed soft tip paints past its nominal radius (see pc_paint_tip_shape). */
+    reach = aliased ? rm : pc_rs_maxf(pc_paint_tip_reach(rm, hardness), rm);
+    reach2 = (reach + 0.5f) * (reach + 0.5f);
     for (size_t yy = 0; yy < h; yy++) {
         float dy = (float)(int32_t)((int64_t)rect.y0 + (int64_t)yy) + 0.5f - cy;
         float *row = out + yy * w;
         for (size_t xx = 0; xx < w; xx++) {
             float dx = (float)(int32_t)((int64_t)rect.x0 + (int64_t)xx) + 0.5f - cx;
-            float dr = dx * ro, d2 = dr * dr + dy * dy, dd = sqrtf(d2), edge, val;
+            float dr = dx * ro, d2 = dr * dr + dy * dy;
             if (aliased) {
-                row[xx] = d2 < reach2 && dd <= rm ? d->alpha : 0.0f;
-                continue;
-            }
-            edge = pc_clampf(rm + 0.5f - dd, 0.0f, 1.0f);
-            if (rm - inner < 1e-3f) {
-                row[xx] = d2 >= reach2 || edge <= 0.0f ? 0.0f : edge * d->alpha;
+                row[xx] = d2 < reach2 && sqrtf(d2) <= rm ? d->alpha : 0.0f;
             } else {
-                float t = pc_clampf((dd - inner) / (rm - inner), 0.0f, 1.0f), s = 1.0f - t * t, s2 = s * s;
-                val = edge * (dd <= inner ? 1.0f : s2 * s2);
-                row[xx] = d2 >= reach2 || val <= 0.0f ? 0.0f : val * d->alpha;
+                float val = d2 >= reach2 ? 0.0f : pc_paint_tip_falloff(sqrtf(d2), rm, hardness);
+                row[xx] = val <= 0.0f ? 0.0f : val * d->alpha;
             }
         }
     }
@@ -364,7 +370,7 @@ pc_status pc_paint_rasterize_into(const pc_paint_context *ctx, const pc_paint_da
          noise = b->noise && !dual;
     bool tex_tip = !dual && b->texture.enabled && b->texture.each_tip && ctx->texture != NULL;
     bool square = aliased && b->square, small;
-    float cx, cy, r, ro, rm, reach2, small_reach2, inv_scale = 1.0f, tw = 1.0f, th = 1.0f;
+    float cx, cy, r, ro, rm, reach, reach2, small_reach2, inv_scale = 1.0f, tw = 1.0f, th = 1.0f;
     tip_xf xf;
     size_t level = 0;
     pc_status st;
@@ -400,7 +406,9 @@ pc_status pc_paint_rasterize_into(const pc_paint_context *ctx, const pc_paint_da
     r = d->radius;
     ro = pc_paint_minf_k(pc_rs_maxf(d->roundness, 0.5f / r), 1.0f);
     rm = pc_paint_maxf_k(r * ro, 0.5f);
-    reach2 = (rm + 0.5f) * (rm + 0.5f);
+    /* A computed soft tip paints past its nominal radius (see pc_paint_tip_shape). */
+    reach = (aliased || mips != NULL) ? rm : pc_rs_maxf(pc_paint_tip_reach(rm, hardness), rm);
+    reach2 = (reach + 0.5f) * (reach + 0.5f);
     if (mips != NULL) {
         size_t w0 = mips->levels[0].width, h0 = mips->levels[0].height;
         float big = (float)(w0 > h0 ? w0 : h0);
@@ -412,7 +420,7 @@ pc_status pc_paint_rasterize_into(const pc_paint_context *ctx, const pc_paint_da
     /* A tip a few pixels across takes each pixel's covered area (a 4x4 grid inside it): sampling
      * only the pixel centre made a tiny dab's total coverage swing with its sub-pixel position. */
     small = mips == NULL && !aliased && rm < SMALL_TIP_RADIUS;
-    small_reach2 = (rm + 0.75f) * (rm + 0.75f);
+    small_reach2 = (reach + 0.75f) * (reach + 0.75f);
     if (fast && !(mips != NULL || small || square || noise || tex_tip || wet) && depth == NULL && !xf.proj &&
         d->angle == 0.0f && isfinite(d->radius) && isfinite(d->roundness) && isfinite(rm) && isfinite(cx) &&
         isfinite(cy) && isfinite(hardness) && isfinite(d->alpha)) {
@@ -440,16 +448,13 @@ pc_status pc_paint_rasterize_into(const pc_paint_context *ctx, const pc_paint_da
                 }
                 for (int sy = 0; sy < 4; sy++) {
                     for (int sx = 0; sx < 4; sx++) {
-                        float su, sv, sur, sd, inside;
+                        float su, sv, sur, sd;
                         to_tip(&xf, dx + SUBPIXEL[sx], dy + SUBPIXEL[sy], &su, &sv);
                         sur = su * ro;
                         sd = sqrtf(sur * sur + sv * sv);
-                        /* Each sample anti-aliases over its own quarter pixel, so the covered area
-                         * changes smoothly with the dab's position. */
-                        inside = pc_clampf((rm - sd) * 4.0f + 0.5f, 0.0f, 1.0f);
-                        if (inside > 0.0f) {
-                            sum += inside * pc_paint_tip_falloff(pc_rs_minf(sd, rm), rm, hardness);
-                        }
+                        /* Each sample takes the tip's own edge, so the covered area changes
+                         * smoothly with the dab's position. */
+                        sum += pc_paint_tip_falloff(sd, rm, hardness);
                     }
                 }
                 val = sum / 16.0f;

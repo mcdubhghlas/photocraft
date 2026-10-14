@@ -49,6 +49,10 @@ typedef struct bg_ctx {
     /* Sampling Once: has_once = sampled already; once_ok = it found a colour. */
     bool has_once, once_ok;
     float once[MAXC];
+    /* The pixels before the stroke, taken at the first dab. Sampling and matching read these, so a
+     * dab landing on pixels earlier dabs already erased still samples and matches (#1280). */
+    pc_paint_region orig;
+    bool has_orig;
 } bg_ctx;
 
 /* Largest per-channel difference over the colour channels. */
@@ -73,10 +77,10 @@ static float match_w(const bg_ctx *c, float d)
     return 1.0f;
 }
 
-/* The hotspot's colour: false where it is already transparent or off the working area. */
-static bool hotspot(const bg_ctx *c, const pc_paint_region *work, int32_t cx, int32_t cy, float out[MAXC])
+/* The hotspot's colour: false where it was transparent before the stroke or off the working area. */
+static bool hotspot(const bg_ctx *c, const pc_paint_region *orig, int32_t cx, int32_t cy, float out[MAXC])
 {
-    const float *p = pc_paint_region_cpx(work, cx, cy);
+    const float *p = pc_paint_region_cpx(orig, cx, cy);
     if (p == NULL || !(p[c->a] > 0.0f)) {
         return false;
     }
@@ -88,6 +92,7 @@ static pc_status bg_dab(void *vctx, pc_paint_region *work, const pc_paint_footpr
 {
     bg_ctx *c = vctx;
     pc_rect r = pc_rect_intersect(fp->rect, work->rect);
+    const pc_paint_region *orig;
     int32_t cx, cy, sx, sy;
     float sampled[MAXC];
     bool ok;
@@ -97,12 +102,20 @@ static pc_status bg_dab(void *vctx, pc_paint_region *work, const pc_paint_footpr
     if (pc_rect_is_empty(r)) {
         return PC_OK;
     }
+    /* Snapshot the pre-stroke pixels at the first (non-empty) dab. */
+    if (!c->has_orig) {
+        if (pc_paint_region_clone(work, &c->orig, err) != PC_OK) {
+            return pc_fail(err, PC_ERR_NOMEM, "out of memory for the background eraser");
+        }
+        c->has_orig = true;
+    }
+    orig = &c->orig;
     cx = pc_f64_to_i32(floor(fp->dab.center.x));
     cy = pc_f64_to_i32(floor(fp->dab.center.y));
     switch (c->bs->sampling) {
     case PC_PAINT_SAMPLING_ONCE:
         if (!c->has_once) {
-            c->once_ok = hotspot(c, work, cx, cy, c->once);
+            c->once_ok = hotspot(c, orig, cx, cy, c->once);
             c->has_once = true;
         }
         ok = c->once_ok;
@@ -113,7 +126,7 @@ static pc_status bg_dab(void *vctx, pc_paint_region *work, const pc_paint_footpr
         memcpy(sampled, c->swatch, sizeof sampled);
         break;
     default:
-        ok = hotspot(c, work, cx, cy, sampled);
+        ok = hotspot(c, orig, cx, cy, sampled);
         break;
     }
     if (!ok) {
@@ -126,12 +139,12 @@ static pc_status bg_dab(void *vctx, pc_paint_region *work, const pc_paint_footpr
     if (weight == NULL) {
         return pc_fail(err, PC_ERR_NOMEM, "out of memory for the background eraser");
     }
-    /* Per-pixel match weight. Erasing only lowers alpha, so the working copy still holds the
-     * pre-stroke colours. */
+    /* Per-pixel match weight from the pre-stroke colours: the contiguous fill passes through
+     * pixels this stroke already erased. */
     for (int32_t y = r.y0; y < r.y1; y++) {
         for (int32_t x = r.x0; x < r.x1; x++) {
             const float *p;
-            if (pc_paint_footprint_at(fp, x, y) <= 0.0f || (p = pc_paint_region_cpx(work, x, y)) == NULL) {
+            if (pc_paint_footprint_at(fp, x, y) <= 0.0f || (p = pc_paint_region_cpx(orig, x, y)) == NULL) {
                 continue;
             }
             if (p[a] <= 0.0f) {
@@ -199,5 +212,9 @@ pc_status pc_paint_apply_background_eraser(pc_surface *target, const pc_paint_st
     native(fmt, bs->foreground, c.fg);
     st.brush.opacity = 1.0f;
     st.brush.erase = false;
-    return pc_paint_apply_dab_stroke(target, &st, selection, false, 0, bg_dab, &c, damage, err);
+    {
+        pc_status res = pc_paint_apply_dab_stroke(target, &st, selection, false, 0, bg_dab, &c, damage, err);
+        pc_paint_region_fini(&c.orig);
+        return res;
+    }
 }

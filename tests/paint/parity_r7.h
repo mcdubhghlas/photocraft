@@ -239,6 +239,7 @@ static bool r7_cfg(const char *s, pc_paint_smoothing *cfg)
     if (k != 5) {
         return false;
     }
+    cfg->enabled = true; /* the reference builds every config from Default, so smoothing is on */
     cfg->amount = hf32(t[0]);
     cfg->pulled_string = t[1][0] == '1';
     cfg->catch_up = t[2][0] == '1';

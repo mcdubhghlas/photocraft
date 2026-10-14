@@ -100,6 +100,16 @@ pc_status cx_fits_encode(const pc_cimage *img, cx_plan p, const pc_cencode_opts 
                          pc_error *err);
 pc_status cx_hdr_decode(const uint8_t *b, size_t n, const pc_climits *l, pc_cimage *out, pc_error *err);
 pc_status cx_hdr_encode(const pc_cimage *img, cx_plan p, pc_buf *out, pc_error *err);
+pc_status cx_dpx_decode(const uint8_t *b, size_t n, const pc_climits *l, pc_cimage *out, pc_error *err);
+pc_status cx_dpx_encode(const pc_cimage *img, cx_plan p, const pc_cencode_opts *o, pc_buf *out, pc_error *err);
+/* The plan sample type DPX writes for the chosen bits (U8 for 8, U16 for 10/12/16; AUTO follows
+ * the source: U8 stays U8, everything else becomes U16). */
+pc_csample cx_dpx_plan_sample(pc_dpx_bits bits, pc_csample src);
+/* The EXIF orientation (1-8) that turns a DPX file's stored lines upright (1 when not DPX). */
+uint16_t cx_dpx_orientation(const uint8_t *b, size_t n);
+/* Whether `key` (NUL-terminated) is one of the DPX header-field metadata keys kept through a
+ * round trip (so fidelity does not report it as dropped free-form text). */
+bool cx_dpx_is_header_key(const char *key);
 
 /* The PNG zlib stream of a non-interlaced image (filtered rows deflated in bands of about
  * 512 KiB of filtered bytes when the image has at least 4 MB, so the bytes never depend on the

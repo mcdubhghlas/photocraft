@@ -864,7 +864,9 @@ static void test_huge_scatter_is_capped_and_renders_at_every_depth(void)
         CHECK(pc_paint_context_init(&ctx, &b, NULL) == PC_OK);
         for (size_t i = 0; i < cd.len; i++) {
             pc_rect r = pc_paint_context_dab_rect(&ctx, &cd.v[i], false);
-            CHECK(!pc_rect_is_empty(r) && pc_rect_width(r) <= 24 && pc_rect_height(r) <= 24);
+            /* A 20 px soft tip reaches about 1.6 radii (see pc_paint_tip_reach). */
+            uint32_t side = 2 * ((uint32_t)ceilf(pc_paint_tip_reach(10.0f, b.hardness)) + 1) + 2;
+            CHECK(!pc_rect_is_empty(r) && pc_rect_width(r) <= side && pc_rect_height(r) <= side);
         }
         pc_paint_context_fini(&ctx);
         for (int s = 0; s < 3; s++) {

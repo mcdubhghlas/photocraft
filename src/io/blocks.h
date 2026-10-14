@@ -64,6 +64,34 @@ pc_status pc_io_parse_placed_warp(const uint8_t key[4], const uint8_t *data, siz
  * non-finite box falls back to the source rect. `warp` may be NULL. out = {x0, y0, x1, y1}. */
 void pc_io_placed_frame(const pc_warp *warp, double w, double h, double out[4]);
 
+/* The affine that takes source-space box frame {x0,y0,x1,y1} onto placed corners p (top-left,
+ * top-right, bottom-right, bottom-left as x,y pairs). false (and *out untouched) for an empty or
+ * non-finite frame, non-finite corners, or a non-finite result. */
+bool pc_io_corners_affine(const double p[8], const double frame[4], pc_affine *out);
+
+/* The projective placement of a w x h source onto corners q that aren't a parallelogram, row-major
+ * 3x3; *found false for affine corners or an empty size. */
+pc_status pc_io_corners_perspective(const double q[4][2], double w, double h, bool *found, double out[9],
+                                    pc_error *err);
+
+/* The source identifier and 8 placed corners (x,y x 4) of a PlLd record (Photoshop CS2, #2465).
+ * *found false for a non-plcL, truncated or non-finite record. When *found, *warp_at is the offset
+ * just past the corners where the warp starts. idnt is reset on entry. */
+pc_status pc_io_parse_plld(const uint8_t *data, size_t len, bool *found, pc_str *idnt, double corners[8],
+                           size_t *warp_at, pc_error *err);
+
+/* The warp of a PlLd record. kind: 0 = none, 1 = a warp (in *out), 2 = unreadable (re-rendering
+ * would drop it; keep the warped pixels). */
+typedef enum pc_io_plld_warp_kind { PC_IO_PLLD_WARP_NONE, PC_IO_PLLD_WARP_SOME, PC_IO_PLLD_WARP_UNREADABLE } pc_io_plld_warp_kind;
+pc_status pc_io_parse_plld_warp(const uint8_t *data, size_t len, pc_io_plld_warp_kind *kind, pc_warp *out,
+                                pc_error *err);
+
+/* The transform and projective placement of a PlLd record's corners p for a source of (w,h) warped
+ * by warp (may be NULL). has_size false means the source file is unavailable: edge lengths are then
+ * the size. *has_persp set for a Distort/Perspective placement (then persp is filled). */
+void pc_io_plld_transform(const double p[8], bool has_size, double w, double h, const pc_warp *warp,
+                          pc_affine *transform, bool *has_persp, double persp[9]);
+
 /* ---- the rest of blocks.rs (I2; also used by I3's psd_export and I2's effects_map) ---- */
 
 /* brst data -> bit mask (bit i = channel i; ids above 31 ignored). */

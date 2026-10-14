@@ -631,6 +631,47 @@ static pc_status push_opt(lvec *out, bool some, pc_layer *l, pc_error *err)
     return some ? lvec_push(out, l, err) : PC_OK;
 }
 
+/* The vector mask for group n clipped by cp, when the clip is one visible path with no clip of its
+ * own: what resvg draws for the clip (the group's transform, then the clip's, then the path), in
+ * canvas pixels, with the clip rule as its fill rule. *found false otherwise (#4266). */
+static pc_status clip_mask(conv *c, sv_arena *a, const sv_unode *n, const sv_clip *cp, bool *found,
+                           pc_vector_mask *out, pc_error *err)
+{
+    sv_ts ts;
+    const sv_unode *p;
+    const sv_path *data;
+    spv sp;
+    pc_path path;
+    *found = false;
+    if (cp->clip != NULL || cp->root == NULL || cp->root->nchildren != 1) {
+        return PC_OK;
+    }
+    p = cp->root->children[0];
+    if (p->kind != UN_PATH || !p->visible || p->data == NULL) {
+        return PC_OK;
+    }
+    ts = ts_post_concat(ts_pre_concat(n->abs_transform, cp->transform), c->global);
+    data = path_transform(a, p->data, ts);
+    if (data == NULL) {
+        return a->nomem ? pc_io_nomem(err, "importing an SVG clip path") : PC_OK;
+    }
+    if (!knots(data, &sp)) {
+        return pc_io_nomem(err, "importing an SVG clip path");
+    }
+    if (sp.n == 0) {
+        spv_fini(&sp);
+        return PC_OK;
+    }
+    memset(&path, 0, sizeof path);
+    path.subpaths = sp.v;
+    path.nsubpaths = sp.n;
+    path.fill_rule = p->fill != NULL && p->fill->evenodd ? PC_FILL_RULE_EVENODD : PC_FILL_RULE_NONZERO;
+    path.inverted = false;
+    pc_vector_mask_init(out, &path); /* takes over the subpaths */
+    *found = true;
+    return PC_OK;
+}
+
 static pc_status convert_node(conv *c, sv_arena *a, const sv_unode *n, lvec *out, size_t depth, size_t rec,
                               sv_ts parent, pc_error *err)
 {
@@ -647,11 +688,27 @@ static pc_status convert_node(conv *c, sv_arena *a, const sv_unode *n, lvec *out
         bool only_id;
         lvec children = {NULL, 0, 0};
         pc_layer_content content;
+        bool has_clipmask = false;
+        pc_vector_mask clipmask;
         int i;
+        /* A clip-path of one plain path becomes the group's vector mask (#4266); others are
+         * rasterised with the group. */
+        memset(&clipmask, 0, sizeof clipmask);
+        if (n->clip != NULL) {
+            st = clip_mask(c, a, n, n->clip, &has_clipmask, &clipmask, err);
+            if (st != PC_OK) {
+                return st;
+            }
+        }
         dropped[0] = n->nfilters > 0;
-        dropped[1] = n->clip != NULL;
+        dropped[1] = n->clip != NULL && !has_clipmask;
         dropped[2] = n->mask != NULL;
         if (dropped[0] || dropped[1] || dropped[2] || too_deep) {
+            /* The clip is rasterised along with the group (a filter, mask or depth limit). */
+            if (has_clipmask) {
+                pc_vector_mask_fini(&clipmask);
+                has_clipmask = false;
+            }
             for (i = 0; i < 3; i++) {
                 if (dropped[i]) {
                     char msg[128];
@@ -675,14 +732,21 @@ static pc_status convert_node(conv *c, sv_arena *a, const sv_unode *n, lvec *out
             return st == PC_OK ? push_opt(out, some, &l, err) : st;
         }
         /* A group that only carries a transform (baked into its paths) or that the parser
-         * inserted for its own bookkeeping adds nothing to the layer tree. */
-        plain = n->id[0] == '\0' && n->opacity >= 1.0f && n->blend == BM_NORMAL;
+         * inserted for its own bookkeeping adds nothing to the layer tree. A group carrying a clip
+         * as a vector mask is kept. */
+        plain = !has_clipmask && n->id[0] == '\0' && n->opacity >= 1.0f && n->blend == BM_NORMAL;
         st = convert_children(c, a, n, plain ? depth : depth + 1, rec + 1, n->abs_transform, &children, err);
         if (st != PC_OK) {
+            if (has_clipmask) {
+                pc_vector_mask_fini(&clipmask);
+            }
             lvec_fini(&children);
             return st;
         }
         if (children.n == 0) {
+            if (has_clipmask) {
+                pc_vector_mask_fini(&clipmask);
+            }
             lvec_fini(&children);
             return PC_OK;
         }
@@ -695,14 +759,29 @@ static pc_status convert_node(conv *c, sv_arena *a, const sv_unode *n, lvec *out
             return st;
         }
         only_id = n->opacity >= 1.0f && n->blend == BM_NORMAL;
-        if (only_id && children.n == 1) {
+        /* A lone child takes the group's name (and its clip, when it has no vector mask of its
+         * own). */
+        if (only_id && children.n == 1 && (!has_clipmask || !children.v[0].has_vector_mask)) {
             pc_layer child = children.v[0];
             children.n = 0;
             lvec_fini(&children);
-            st = pc_str_set_c(&child.name, n->id, err);
-            if (st != PC_OK) {
-                pc_layer_fini(&child);
-                return st;
+            if (n->id[0] != '\0') {
+                st = pc_str_set_c(&child.name, n->id, err);
+                if (st != PC_OK) {
+                    if (has_clipmask) {
+                        pc_vector_mask_fini(&clipmask);
+                    }
+                    pc_layer_fini(&child);
+                    return st;
+                }
+            }
+            if (has_clipmask && !child.has_vector_mask) {
+                child.vector_mask = clipmask;
+                child.has_vector_mask = true;
+                has_clipmask = false;
+            } else if (has_clipmask) {
+                pc_vector_mask_fini(&clipmask);
+                has_clipmask = false;
             }
             return lvec_push(out, &child, err);
         }
@@ -714,11 +793,19 @@ static pc_status convert_node(conv *c, sv_arena *a, const sv_unode *n, lvec *out
         content.u.group.expanded = false;
         st = pc_layer_init(&l, name, &content, err);
         if (st != PC_OK) {
+            if (has_clipmask) {
+                pc_vector_mask_fini(&clipmask);
+            }
             pc_layer_content_fini(&content);
             return st;
         }
         l.opacity = n->opacity;
         l.blend = blend(n->blend);
+        if (has_clipmask) {
+            l.vector_mask = clipmask;
+            l.has_vector_mask = true;
+            has_clipmask = false;
+        }
         return lvec_push(out, &l, err);
     }
     case UN_PATH:

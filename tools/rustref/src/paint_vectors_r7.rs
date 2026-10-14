@@ -517,7 +517,7 @@ fn r7(sets: &[Vec<StrokePoint>]) {
     l!(
         "ser",
         "BrushPreset",
-        serde_json::to_string(&BrushPreset { name: "f".into(), brush: b(), builtin: false, group: "G".into(), folder: vec!["a".into(), "b c".into()] }).unwrap()
+        serde_json::to_string(&BrushPreset { name: "f".into(), brush: b(), builtin: false, group: "G".into(), folder: vec!["a".into(), "b c".into()], captures: Default::default() }).unwrap()
     );
     for (ty, s) in r7_json_cases() {
         r7_de_line(ty, &s);

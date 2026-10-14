@@ -178,8 +178,15 @@ pc_status pc_raw_decode(const uint8_t *b, size_t n, const pc_raw_limits *limits,
         return rx_notraw(err);
     }
     switch (f) {
-    case PC_RAW_DNG:
-        return rx_dng_decode(&t, limits, out, err);
+    case PC_RAW_DNG: {
+        /* DNG writers can state a white level the sensor never reaches; lift samples stuck at the
+         * real saturation point so development clips them together (saturation.rs). */
+        pc_status st = rx_dng_decode(&t, limits, out, err);
+        if (st == PC_OK) {
+            rx_sensor_lift_clipped_samples(out);
+        }
+        return st;
+    }
     case PC_RAW_CR2:
         return rx_cr2_decode(&t, limits, out, err);
     case PC_RAW_RW2:

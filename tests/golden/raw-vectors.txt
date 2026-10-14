@@ -520,24 +520,24 @@ develop orient_long6 ahd 97c458c63dad0d45
 file lossy_cfa 1878 9138dd1fd44ad80c l
 file lossy_rgb 3048 b01df40250e413d7 l
 file big 120526 c034e0a66188794d e
-decode big 4b22fd80134e1c4a
-develop big bilinear 63ea886323da1cbc
-develop big mhc 5fecff0dab8b47a2
-develop big ahd 962ce2076515a149
+decode big f9ac41105374816e
+develop big bilinear ac22226fb77960df
+develop big mhc 68e5cab2946e0584
+develop big ahd d8c783307ce05036
 option mono_levels auto e827cdac87903a2c
 option mono_levels mult e827cdac87903a2c
 option mono_levels exposure 23ce6b4a08c39b8c
-tone big sh+100 a1309a32590c5684
-tone big sh-60 7cc0de44b988b8db
-tone big hi-100 452171db939932b4
-tone big hi+50 29defc2652b2ad01
-tone big cl+100 d7cca33f6ecb8dd7
-tone big cl-100 e1cc84ae8fc57ba9
-tone big tx+100 83e7012fa0268e3b
-tone big tx-100 78668b53ff1c80c3
-tone big dh+100 8492f8b57c8b71ce
-tone big dh-100 032c206b9b9244a9
-tone big mix c9ab4d78690cb3f1
+tone big sh+100 e11ef9036606bd1f
+tone big sh-60 d07df6179d941902
+tone big hi-100 acaf76dffa92bba4
+tone big hi+50 bb7fbc915acaa2dc
+tone big cl+100 468b05f728475359
+tone big cl-100 6cb2021e9fcbe653
+tone big tx+100 fcaca49c33b350fb
+tone big tx-100 8f1c7de5f2b78ecd
+tone big dh+100 8c0f2e7355bafe8b
+tone big dh-100 c5416ac9661326af
+tone big mix 752cd8c4b7b86de3
 tone h_raf_u16 sh+100 48a13236be75aa44
 tone h_raf_u16 sh-60 4040026edffe46fc
 tone h_raf_u16 hi-100 465ae7354f851aa4
@@ -582,9 +582,9 @@ tone h_mono_lj92 tx-100 6cd7267b1dbb419b
 tone h_mono_lj92 dh+100 f439c37bec6540c7
 tone h_mono_lj92 dh-100 1c0f46357abf136b
 tone h_mono_lj92 mix 0241d1c5ef2d1b67
-blackpoint none f529a7b962739e3b
-blackpoint sh+100 67de9bc519dab213
-blackpoint dh+100 71c58f73aecf57b4
+blackpoint none 1823a2a1e4c54c7d
+blackpoint sh+100 96e46ac92b3d62d6
+blackpoint dh+100 61a5c04a6a1c2a89
 retone neutral 7b86b32ec5530eab
 retone sh+100 9bdf21ea0dfde017
 retone sh-60 0e44b82e93ec2ba2

@@ -721,17 +721,16 @@ static void f_hue_sat(void *ctx, const float c[3], float out[3])
     float ds = 0.0f;
     float dl = 0.0f;
     if (x->table != NULL) {
-        /* Range edits follow the pixel's original hue, faded out towards grey. */
+        /* Range edits follow the pixel's original hue, in full however dull the colour (Photoshop's
+         * merged images, #4089). Greys stay grey: no hue to shift, no saturation to scale, and range
+         * Lightness moves towards a channel they share. */
         float h0;
         float s0;
         float l0;
-        float chroma = pc_rs_minf_k(
-            (pc_rs_maxf(pc_rs_maxf(c[0], c[1]), c[2]) - pc_rs_minf(pc_rs_minf(c[0], c[1]), c[2])) * 4.0f,
-            1.0f);
         pc_compose_rgb_to_hsl(c, &h0, &s0, &l0);
-        dh = pc_cmp_lut(x->table, LUT, h0) * chroma;
-        ds = pc_cmp_lut(x->table + LUT, LUT, h0) * chroma;
-        dl = pc_cmp_lut(x->table + 2 * LUT, LUT, h0) * chroma;
+        dh = pc_cmp_lut(x->table, LUT, h0);
+        ds = pc_cmp_lut(x->table + LUT, LUT, h0);
+        dl = pc_cmp_lut(x->table + 2 * LUT, LUT, h0);
     }
     {
         float o[3];

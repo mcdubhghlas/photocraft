@@ -81,9 +81,9 @@ static void test_never_write_only_without_exception(void)
 
 static void test_default_build_formats_all_symmetric(void)
 {
-    static const pc_cformat EXPECTED[] = {PC_CF_PNG, PC_CF_TGA,  PC_CF_JPEG, PC_CF_ICO, PC_CF_TIFF,
-                                          PC_CF_PNM, PC_CF_WEBP, PC_CF_QOI,  PC_CF_GIF, PC_CF_EXR,
-                                          PC_CF_BMP, PC_CF_HDR,  PC_CF_FITS};
+    static const pc_cformat EXPECTED[] = {PC_CF_PNG, PC_CF_TGA,  PC_CF_JPEG, PC_CF_ICO,  PC_CF_TIFF,
+                                          PC_CF_PNM, PC_CF_WEBP, PC_CF_QOI,  PC_CF_GIF,  PC_CF_EXR,
+                                          PC_CF_BMP, PC_CF_HDR,  PC_CF_FITS, PC_CF_DPX};
     size_t i;
     for (i = 0; i < sizeof EXPECTED / sizeof EXPECTED[0]; i++) {
         pc_ccaps c = pc_cformat_caps(EXPECTED[i]);

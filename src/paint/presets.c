@@ -12,10 +12,28 @@
 const char *const PC_PAINT_GROUPS[PC_PAINT_GROUP_COUNT] = {"General", "Dry Media", "Wet Media",
                                                            "Special Effects"};
 
+void pc_paint_preset_captures_default(pc_paint_preset_captures *c)
+{
+    c->size = true;
+    c->tool_settings = true;
+    c->color = false;
+}
+
+bool pc_paint_preset_captures_is_default(const pc_paint_preset_captures *c)
+{
+    return c->size && c->tool_settings && !c->color;
+}
+
+bool pc_paint_preset_captures_eq(const pc_paint_preset_captures *a, const pc_paint_preset_captures *b)
+{
+    return a->size == b->size && a->tool_settings == b->tool_settings && a->color == b->color;
+}
+
 void pc_paint_preset_init(pc_paint_preset *p)
 {
     memset(p, 0, sizeof *p);
     pc_paint_brush_default(&p->brush);
+    pc_paint_preset_captures_default(&p->captures);
 }
 
 void pc_paint_preset_fini(pc_paint_preset *p)
@@ -87,6 +105,7 @@ pc_status pc_paint_preset_clone(const pc_paint_preset *src, pc_paint_preset *out
     }
     pc_paint_brush_copy(&p.brush, &src->brush);
     p.builtin = src->builtin;
+    p.captures = src->captures;
     *out = p;
     return PC_OK;
 }
@@ -95,7 +114,8 @@ bool pc_paint_preset_eq(const pc_paint_preset *a, const pc_paint_preset *b)
 {
     return pc_str_eq(&a->name, &b->name) && pc_paint_brush_eq(&a->brush, &b->brush) &&
            a->builtin == b->builtin && pc_str_eq(&a->group, &b->group) &&
-           pc_paint_str_list_eq(&a->folder, &b->folder);
+           pc_paint_str_list_eq(&a->folder, &b->folder) &&
+           pc_paint_preset_captures_eq(&a->captures, &b->captures);
 }
 
 void pc_paint_preset_list_fini(pc_paint_preset_list *l)
@@ -241,6 +261,7 @@ static void add(builder *bd, const char *name, pc_paint_brush *b)
     }
     p->brush = *b;
     p->builtin = true;
+    pc_paint_preset_captures_default(&p->captures);
     bd->l->len++;
 }
 

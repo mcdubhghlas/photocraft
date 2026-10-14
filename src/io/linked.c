@@ -8,8 +8,12 @@
 #include "base/bytes.h"
 #include "base/mem.h"
 #include "base/num.h"
+#include "base/str.h"
 #include "base/utf8.h"
+#include "codecs/codecs.h"
+#include "io/io.h"
 #include "psd/descriptor.h"
+#include "psd/tagged.h"
 
 void pc_io_linked_file_fini(pc_io_linked_file *f)
 {
@@ -267,6 +271,137 @@ pc_status pc_io_find_linked_file(const pc_metadata *meta, const char *uuid, size
                 pc_io_linked_files_fini(&l);
                 *found = true;
                 return PC_OK;
+            }
+        }
+        pc_io_linked_files_fini(&l);
+    }
+    return PC_OK;
+}
+
+/* A JPEG's size from its first start-of-frame marker (ITU-T T.81 B.2.2), walking the marker
+ * segments without decoding. Each step moves forward, so a malformed file ends the walk. */
+static bool jpeg_size(const uint8_t *b, size_t n, double size[2])
+{
+    size_t at = 2;
+    for (;;) {
+        uint8_t code;
+        while (at + 1 < n && b[at] == 0xFF && b[at + 1] == 0xFF) {
+            at++;
+        }
+        if (at >= n || b[at] != 0xFF || at + 1 >= n) {
+            return false;
+        }
+        code = b[at + 1];
+        if (code >= 0xC0 && code <= 0xCF && code != 0xC4 && code != 0xC8 && code != 0xCC) {
+            if (at + 9 > n) {
+                return false;
+            }
+            size[1] = (double)((uint16_t)((b[at + 5] << 8) | b[at + 6]));
+            size[0] = (double)((uint16_t)((b[at + 7] << 8) | b[at + 8]));
+            return true;
+        }
+        if (code == 0x01 || (code >= 0xD0 && code <= 0xD7)) {
+            if (at > SIZE_MAX - 2) {
+                return false;
+            }
+            at += 2;
+        } else if (code == 0xDA || code == 0xD9) {
+            return false;
+        } else {
+            size_t seg;
+            if (at + 4 > n) {
+                return false;
+            }
+            seg = (size_t)((b[at + 2] << 8) | b[at + 3]);
+            if (seg < 2 || at > SIZE_MAX - 2 - seg) {
+                return false;
+            }
+            at += 2 + seg;
+        }
+    }
+}
+
+/* Pixel size of an embedded source file from its header: PSD/PSB, TIFF (default page), PNG and
+ * JPEG; any other image is decoded flat. It never imports a document (a layered TIFF could nest
+ * without bound, #2465). *found set with a non-empty size. */
+static pc_status source_size_probe(const uint8_t *b, size_t n, bool *found, double size[2], pc_error *err)
+{
+    *found = false;
+    if (pc_io_is_psd(b, n)) {
+        if (n >= 22) {
+            size[0] = (double)pc_load_be32(b + 18);
+            size[1] = (double)pc_load_be32(b + 14);
+            *found = true;
+        }
+        return PC_OK;
+    }
+    if (n >= 4 && (memcmp(b, "II\x2a\x00", 4) == 0 || memcmp(b, "MM\x00\x2a", 4) == 0 ||
+                   memcmp(b, "II\x2b\x00", 4) == 0 || memcmp(b, "MM\x00\x2b", 4) == 0)) {
+        pc_tiff_info info;
+        size_t page;
+        pc_status st = pc_ctiff_info(b, n, &info, err);
+        if (st != PC_OK) {
+            return st == PC_ERR_NOMEM ? st : PC_OK;
+        }
+        if (pc_tiff_info_default_page(&info, &page) && page < info.npages) {
+            size[0] = (double)info.pages[page].width;
+            size[1] = (double)info.pages[page].height;
+            *found = true;
+        }
+        pc_tiff_info_fini(&info);
+        return PC_OK;
+    }
+    if (n >= 24 && b[0] == 0x89 && memcmp(b + 1, "PNG", 3) == 0 && b[4] == 0x0D && b[5] == 0x0A &&
+        b[6] == 0x1A && b[7] == 0x0A) {
+        size[0] = (double)pc_load_be32(b + 16);
+        size[1] = (double)pc_load_be32(b + 20);
+        *found = true;
+        return PC_OK;
+    }
+    if (n >= 2 && b[0] == 0xFF && b[1] == 0xD8) {
+        *found = jpeg_size(b, n, size);
+        return PC_OK;
+    }
+    {
+        pc_cimage img;
+        pc_status st = pc_cdecode(b, n, &img, err);
+        if (st != PC_OK) {
+            return st == PC_ERR_NOMEM ? st : PC_OK;
+        }
+        size[0] = (double)img.width;
+        size[1] = (double)img.height;
+        *found = true;
+        pc_cimage_fini(&img);
+        return PC_OK;
+    }
+}
+
+pc_status pc_io_source_size_in_blocks(const pc_psd_block *blocks, size_t n, const char *uuid, size_t uuid_len,
+                                      bool *found, double size[2], pc_error *err)
+{
+    *found = false;
+    if (uuid_len == 0) {
+        return PC_OK;
+    }
+    for (size_t bi = 0; bi < n; bi++) {
+        const pc_psd_block *g = &blocks[bi];
+        pc_io_linked_files l;
+        pc_status st;
+        if (!is_link_key(g->key)) {
+            continue;
+        }
+        st = pc_io_parse_linked_files(g->data.data, g->data.len, &l, err);
+        if (st != PC_OK) {
+            return st;
+        }
+        for (size_t i = 0; i < l.n; i++) {
+            if (pc_str_eq_mem(&l.v[i].uuid, uuid, uuid_len)) {
+                bool ok = false;
+                st = source_size_probe(l.v[i].bytes, l.v[i].len, &ok, size, err);
+                pc_io_linked_files_fini(&l);
+                /* A zero or empty size is treated as unavailable. */
+                *found = st == PC_OK && ok && size[0] > 0.0 && size[1] > 0.0;
+                return st;
             }
         }
         pc_io_linked_files_fini(&l);

@@ -266,6 +266,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "fax"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f05de7d48f37cd6730705cbca900770cab77a89f413d23e100ad7fad7795a0ab"
+dependencies = [
+ "fax_derive",
+]
+
+[[package]]
+name = "fax_derive"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0aca10fb742cb43f9e7bb8467c91aa9bcb8e3ffbc6a6f7389bb93ffc920577d"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
 name = "fdeflate"
 version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -950,7 +970,7 @@ checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 
 [[package]]
 name = "photocraft-affinity"
-version = "0.8.0"
+version = "0.8.2"
 dependencies = [
  "crc32fast",
  "flate2",
@@ -959,7 +979,7 @@ dependencies = [
 
 [[package]]
 name = "photocraft-algo"
-version = "0.8.0"
+version = "0.8.2"
 dependencies = [
  "photocraft-color",
  "photocraft-geom",
@@ -971,14 +991,14 @@ dependencies = [
 
 [[package]]
 name = "photocraft-cms"
-version = "0.8.0"
+version = "0.8.2"
 dependencies = [
  "rayon",
 ]
 
 [[package]]
 name = "photocraft-codecs"
-version = "0.8.0"
+version = "0.8.2"
 dependencies = [
  "exr",
  "flate2",
@@ -997,7 +1017,7 @@ dependencies = [
 
 [[package]]
 name = "photocraft-color"
-version = "0.8.0"
+version = "0.8.2"
 dependencies = [
  "photocraft-cms",
  "serde",
@@ -1005,7 +1025,7 @@ dependencies = [
 
 [[package]]
 name = "photocraft-compose"
-version = "0.8.0"
+version = "0.8.2"
 dependencies = [
  "photocraft-color",
  "photocraft-doc",
@@ -1017,7 +1037,7 @@ dependencies = [
 
 [[package]]
 name = "photocraft-doc"
-version = "0.8.0"
+version = "0.8.2"
 dependencies = [
  "photocraft-color",
  "photocraft-geom",
@@ -1028,11 +1048,12 @@ dependencies = [
 
 [[package]]
 name = "photocraft-format"
-version = "0.8.0"
+version = "0.8.2"
 dependencies = [
  "blake3",
  "crc32fast",
  "flate2",
+ "libc",
  "photocraft-codecs",
  "photocraft-color",
  "photocraft-doc",
@@ -1047,14 +1068,14 @@ dependencies = [
 
 [[package]]
 name = "photocraft-geom"
-version = "0.8.0"
+version = "0.8.2"
 dependencies = [
  "serde",
 ]
 
 [[package]]
 name = "photocraft-io"
-version = "0.8.0"
+version = "0.8.2"
 dependencies = [
  "blake3",
  "flate2",
@@ -1081,14 +1102,14 @@ dependencies = [
 
 [[package]]
 name = "photocraft-ops"
-version = "0.8.0"
+version = "0.8.2"
 dependencies = [
  "photocraft-doc",
 ]
 
 [[package]]
 name = "photocraft-paint"
-version = "0.8.0"
+version = "0.8.2"
 dependencies = [
  "photocraft-color",
  "photocraft-geom",
@@ -1098,7 +1119,7 @@ dependencies = [
 
 [[package]]
 name = "photocraft-plugins"
-version = "0.8.0"
+version = "0.8.2"
 dependencies = [
  "photocraft-color",
  "photocraft-geom",
@@ -1112,7 +1133,7 @@ dependencies = [
 
 [[package]]
 name = "photocraft-psd"
-version = "0.8.0"
+version = "0.8.2"
 dependencies = [
  "flate2",
  "thiserror",
@@ -1120,7 +1141,7 @@ dependencies = [
 
 [[package]]
 name = "photocraft-raster"
-version = "0.8.0"
+version = "0.8.2"
 dependencies = [
  "photocraft-color",
  "photocraft-geom",
@@ -1129,7 +1150,7 @@ dependencies = [
 
 [[package]]
 name = "photocraft-raw"
-version = "0.8.0"
+version = "0.8.2"
 dependencies = [
  "flate2",
  "image",
@@ -1141,7 +1162,7 @@ dependencies = [
 
 [[package]]
 name = "photocraft-text"
-version = "0.8.0"
+version = "0.8.2"
 dependencies = [
  "flate2",
  "parley",
@@ -1155,7 +1176,7 @@ dependencies = [
 
 [[package]]
 name = "photocraft-vector"
-version = "0.8.0"
+version = "0.8.2"
 dependencies = [
  "photocraft-color",
  "photocraft-doc",
@@ -1648,10 +1669,12 @@ version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b63feaf3343d35b6ca4d50483f94843803b0f51634937cc2ec519fc32232bc52"
 dependencies = [
+ "fax",
  "flate2",
  "half",
  "quick-error",
  "weezl",
+ "zune-jpeg 0.5.15",
 ]
 
 [[package]]

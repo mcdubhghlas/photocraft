@@ -27,6 +27,7 @@ static const pc_clayout L_JPEG[] = {PC_CL_GRAY, PC_CL_RGB, PC_CL_CMYK};
 static const pc_clayout L_RGBA[] = {PC_CL_RGBA};
 static const pc_clayout L_RGB[] = {PC_CL_RGB};
 static const pc_clayout L_GRAY_RGB[] = {PC_CL_GRAY, PC_CL_RGB};
+static const pc_clayout L_GRAY_RGB_RGBA[] = {PC_CL_GRAY, PC_CL_RGB, PC_CL_RGBA};
 
 #define ARR(a) (a), (sizeof(a) / sizeof((a)[0]))
 
@@ -116,6 +117,14 @@ pc_ccaps pc_cformat_caps(pc_cformat f)
         c.alpha = false;
         c.text = true;
         break;
+    case PC_CF_DPX:
+        c.depths = D_U8_U16;
+        c.ndepths = 2;
+        c.layouts = L_GRAY_RGB_RGBA;
+        c.nlayouts = 3;
+        c.alpha = true;
+        c.text = true; /* the DPX header fields only (see pc_cfidelity_warnings_with) */
+        break;
     case PC_CF_AVIF:
         c.read = false;
         c.write = false;
@@ -139,17 +148,17 @@ bool pc_cformat_is_enabled(pc_cformat f)
 
 const char *pc_cformat_name(pc_cformat f)
 {
-    static const char *const N[PC_CF_COUNT] = {"PNG",          "JPEG", "TIFF",   "WebP", "GIF", "BMP",
-                                               "TGA",          "ICO",  "Netpbm", "PCX",  "QOI", "OpenEXR",
-                                               "Radiance HDR", "AVIF", "HEIF",   "FITS"};
+    static const char *const N[PC_CF_COUNT] = {"PNG",          "JPEG", "TIFF",   "WebP", "GIF",  "BMP",
+                                               "TGA",          "ICO",  "Netpbm", "PCX",  "QOI",  "OpenEXR",
+                                               "Radiance HDR", "AVIF", "HEIF",   "FITS", "DPX"};
     return (unsigned)f < PC_CF_COUNT ? N[f] : "?";
 }
 
 const char *pc_cformat_debug(pc_cformat f)
 {
-    static const char *const N[PC_CF_COUNT] = {"Png", "Jpeg", "Tiff", "WebP", "Gif", "Bmp",
-                                               "Tga", "Ico",  "Pnm",  "Pcx",  "Qoi", "OpenExr",
-                                               "Hdr", "Avif", "Heif", "Fits"};
+    static const char *const N[PC_CF_COUNT] = {"Png", "Jpeg", "Tiff", "WebP", "Gif",  "Bmp",
+                                               "Tga", "Ico",  "Pnm",  "Pcx",  "Qoi",  "OpenExr",
+                                               "Hdr", "Avif", "Heif", "Fits", "Dpx"};
     return (unsigned)f < PC_CF_COUNT ? N[f] : "?";
 }
 
@@ -171,8 +180,9 @@ const char *const *pc_cformat_extensions(pc_cformat f)
     static const char *const HEIF[] = {"heic", "heif", "hif", NULL};
     static const char *const PCX[] = {"pcx", NULL};
     static const char *const FITS[] = {"fits", "fit", "fts", NULL};
-    static const char *const *const ALL[PC_CF_COUNT] = {PNG, JPEG, TIFF, WEBP, GIF, BMP,  TGA,  ICO,
-                                                        PNM, PCX,  QOI,  EXR,  HDR, AVIF, HEIF, FITS};
+    static const char *const DPX[] = {"dpx", NULL};
+    static const char *const *const ALL[PC_CF_COUNT] = {PNG, JPEG, TIFF, WEBP, GIF,  BMP,  TGA, ICO, PNM,
+                                                        PCX, QOI,  EXR,  HDR,  AVIF, HEIF, FITS, DPX};
     return (unsigned)f < PC_CF_COUNT ? ALL[f] : HEIF + 3;
 }
 
@@ -184,7 +194,7 @@ const char *pc_cformat_mime(pc_cformat f)
         "image/x-tga",        "image/x-icon", "image/x-portable-anymap",
         "image/x-pcx",        "image/qoi",    "image/x-exr",
         "image/vnd.radiance", "image/avif",   "image/heif",
-        "image/fits"};
+        "image/fits",         "image/x-dpx"};
     return (unsigned)f < PC_CF_COUNT ? N[f] : "image/unknown";
 }
 
@@ -317,6 +327,8 @@ bool pc_cformat_detect(const uint8_t *b, size_t n, pc_cformat *out)
     } else if (n >= 3 && b[0] == 'P' && ((b[1] >= '1' && b[1] <= '7') || b[1] == 'F' || b[1] == 'f') &&
                is_space(b[2])) {
         f = PC_CF_PNM;
+    } else if (starts(b, n, "SDPX", 4) || starts(b, n, "XPDS", 4)) {
+        f = PC_CF_DPX;
     } else if (starts(b, n, "SIMPLE  =", 9)) {
         f = PC_CF_FITS;
     } else if (cx_pcx_looks_like(b, n)) {

@@ -54,6 +54,8 @@ pc_cdecode_opts pc_cdecode_opts_default(void);
 typedef enum pc_png_compression { PC_PNG_NONE, PC_PNG_FAST, PC_PNG_DEFAULT, PC_PNG_BEST } pc_png_compression;
 typedef enum pc_tiff_compression { PC_TIFF_NONE, PC_TIFF_LZW, PC_TIFF_DEFLATE, PC_TIFF_PACKBITS } pc_tiff_compression;
 typedef enum pc_exr_compression { PC_EXR_NONE, PC_EXR_RLE, PC_EXR_ZIP1, PC_EXR_ZIP16, PC_EXR_PIZ } pc_exr_compression;
+/* DPX code-value bit depth to write (AUTO: 8 for U8 images, 16 otherwise). */
+typedef enum pc_dpx_bits { PC_DPX_BITS_AUTO, PC_DPX_BITS_8, PC_DPX_BITS_10, PC_DPX_BITS_12, PC_DPX_BITS_16 } pc_dpx_bits;
 
 typedef struct pc_cencode_opts {
     uint8_t jpeg_quality;          /* 1..=100 */
@@ -65,6 +67,7 @@ typedef struct pc_cencode_opts {
     pc_tiff_compression tiff_compression;
     bool tiff_bigtiff; /* always BigTIFF (else only when the file could pass 4 GiB) */
     pc_exr_compression exr_compression;
+    pc_dpx_bits dpx_bits; /* DPX code-value bit depth */
     bool embed_icc;
     bool embed_metadata; /* EXIF/XMP/DPI/text */
 } pc_cencode_opts;

@@ -149,6 +149,9 @@ typedef struct pc_io_export_opts {
     bool tiff_layers;       /* TIFF: keep the layers (tag 37724); off = Discard Layers */
     pc_io_xmp_embed xmp;
     bool image_previews;    /* PSD/PSB: write the 1036 thumbnail (Preferences default: on) */
+    /* PSD/PSB: write the real merged image, Preferences > File Handling > Maximize PSD and PSB
+     * File Compatibility (see pc_io_psd_export_opts::maximize_compatibility). On by default. */
+    bool psd_maximize_compatibility;
 } pc_io_export_opts;
 
 pc_io_export_opts pc_io_export_opts_default(void); /* codec defaults, false, false, All */
@@ -158,9 +161,15 @@ typedef struct pc_io_psd_export_opts {
     bool force_psb;
     bool merged_matte;           /* matte the merged image against white (false: straight) */
     uint16_t merged_compression; /* PC_PSD_RAW / PC_PSD_RLE / ... (32-bit always raw) */
+    /* Write the real merged image (Preferences > File Handling > Maximize PSD and PSB File
+     * Compatibility). false writes Photoshop's white placeholder instead and records
+     * has_real_merged_data = false in resource 1057: smaller file, faster save, but readers
+     * that only show the merged image see white. A document without layer records always gets
+     * the real image, since its pixels live nowhere else. */
+    bool maximize_compatibility;
 } pc_io_psd_export_opts;
 
-pc_io_psd_export_opts pc_io_psd_export_opts_default(void); /* false, true, RLE */
+pc_io_psd_export_opts pc_io_psd_export_opts_default(void); /* false, true, RLE, max-compat true */
 
 /* ---- small containers ---- */
 

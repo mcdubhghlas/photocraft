@@ -1202,7 +1202,7 @@ q	297	0	bounds=-3,-1,-2,19	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	cw=none	bi=0	f
 q	297	1	bounds=6,9,16,43	comp=6,9,10,34	change=6,9,10,34	to=1	occ=0	cw=none	bi=0	frame=0,0,10,34	gamma=3f800000	feather=0	shape=987800bbf530a293
 q	297	2	bounds=-2,-3,15,48	comp=0,0,10,34	change=0,0,10,34	to=1	occ=0	cw=none	bi=0	frame=0,11,6,30	gamma=3f800000	feather=1	mask=1ada53555d4e9055	shape=07287bfa69fbeac9
 q	297	3	bounds=-2,-3,13,50	comp=0,0,10,34	change=0,0,10,34	to=1	occ=0	cw=none	bi=0	frame=0,0,10,34	gamma=3f800000	feather=0	mask=83804d2839802c4b	shape=e1fce4fccdc59a97
-doc	298	flat=f80c9e795edfc109	tiled=f80c9e795edfc109	sub=ed05a468ada6739d	reduced=292b2da73271d498	damage=ba5af2ff9d159cf5	area=4e0a85a7679555c4	thumb=3649eb1b9f12f190	surface=7fa5376c15b4fae3	proxy=00426dfd4cccb40b	faithful=0	layers=280d21ab96b1734f
+doc	298	flat=f80c9e795edfc109	tiled=f80c9e795edfc109	sub=ed05a468ada6739d	reduced=292b2da73271d498	damage=ba5af2ff9d159cf5	area=4e0a85a7679555c4	thumb=3649eb1b9f12f190	surface=7fa5376c15b4fae3	proxy=00426dfd4cccb40b	faithful=0	layers=aff2494e0ac4fdbc
 q	298	0	bounds=-1,0,62,45	comp=0,0,40,33	change=0,0,40,33	to=1	occ=0	cw=none	bi=0	frame=22,20,35,33	gamma=3f800000	feather=1	mask=a7585ce057694633	shape=ba85d41a0ca415d4
 doc	299	flat=68112bf494eca97e	tiled=68112bf494eca97e	sub=96930a8a5d0e91b7	reduced=343bd5d4a445f823	damage=0f3bdc491a5a6093	area=74faf587372dd012	thumb=fa1559c564a48591	surface=4355212c54f484bf	proxy=3c697cc7f65e3b77	faithful=1	layers=87f4eb98e3671850	inks=68112bf494eca97e
 q	299	0	bounds=3,2,47,14	comp=3,2,43,8	change=3,2,43,8	to=1	occ=0	cw=none	bi=0	frame=0,0,43,8	gamma=3f800000	feather=0	shape=9794ffb6e0331398

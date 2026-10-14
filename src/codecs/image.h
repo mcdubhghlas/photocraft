@@ -81,20 +81,35 @@ pc_status pc_cmeta_add_text(pc_cmeta *m, const char *key, size_t key_len, const 
 
 /* What a decoder noticed that the pixels don't show. */
 typedef enum pc_cwarning_kind {
-    PC_CW_MORE_FRAMES,   /* only the first frame of an animation was decoded */
-    PC_CW_MORE_PAGES,    /* only the first page of a multi-page file was decoded */
-    PC_CW_MORE_PARTS,    /* only one part of a multi-part (EXR) file was decoded */
-    PC_CW_TRUNCATED,     /* the image data ends early; the decoder filled in the rest */
-    PC_CW_DEEP_FLATTENED /* deep data was composited into the flat image */
+    PC_CW_MORE_FRAMES,    /* only the first frame of an animation was decoded */
+    PC_CW_MORE_PAGES,     /* only the first page of a multi-page file was decoded */
+    PC_CW_MORE_PARTS,     /* only one part of a multi-part (EXR) file was decoded */
+    PC_CW_TRUNCATED,      /* the image data ends early; the decoder filled in the rest */
+    PC_CW_DEEP_FLATTENED, /* deep data was composited into the flat image */
+    PC_CW_MORE_ELEMENTS,  /* only the first image element of a DPX file was decoded */
+    PC_CW_DPX_ENCODING    /* a DPX element's transfer / colorimetric codes (imported as stored) */
 } pc_cwarning_kind;
 
 typedef struct pc_cwarning {
     pc_cwarning_kind kind;
     bool has_total;              /* MORE_FRAMES / MORE_PAGES / MORE_PARTS: total is known */
-    uint32_t total;              /* frames, pages or parts */
+    uint32_t total;              /* frames, pages, parts, (MORE_ELEMENTS) image elements, or
+                                  * (DPX_ENCODING) transfer | colorimetric << 8 (see pc_cwarning_dpx) */
     int format;                  /* TRUNCATED / DEEP_FLATTENED: a pc_cformat */
     uint32_t max_samples;        /* DEEP_FLATTENED */
 } pc_cwarning;
+
+/* A DPX_ENCODING warning from its transfer / colorimetric codes (255 = undefined). */
+static inline pc_cwarning pc_cwarning_dpx(uint8_t transfer, uint8_t colorimetric)
+{
+    pc_cwarning w;
+    w.kind = PC_CW_DPX_ENCODING;
+    w.has_total = false;
+    w.total = (uint32_t)transfer | ((uint32_t)colorimetric << 8);
+    w.format = 0;
+    w.max_samples = 0;
+    return w;
+}
 
 bool pc_cwarning_eq(const pc_cwarning *a, const pc_cwarning *b);
 /* The reference's Display text, e.g. "only the first of 3 pages was imported". */

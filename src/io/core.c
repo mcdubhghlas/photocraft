@@ -276,6 +276,7 @@ pc_io_export_opts pc_io_export_opts_default(void)
     o.tiff_layers = false;
     o.xmp = PC_IO_XMP_ALL;
     o.image_previews = true;
+    o.psd_maximize_compatibility = true;
     return o;
 }
 
@@ -285,6 +286,7 @@ pc_io_psd_export_opts pc_io_psd_export_opts_default(void)
     o.force_psb = false;
     o.merged_matte = true;
     o.merged_compression = PC_PSD_RLE;
+    o.maximize_compatibility = true;
     return o;
 }
 

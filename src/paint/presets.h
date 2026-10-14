@@ -28,6 +28,19 @@ void pc_paint_str_list_fini(pc_paint_str_list *l); /* NULL-safe */
 pc_status pc_paint_str_list_clone(const pc_paint_str_list *src, pc_paint_str_list *out, pc_error *err);
 bool pc_paint_str_list_eq(const pc_paint_str_list *a, const pc_paint_str_list *b);
 
+/* The New Brush Preset dialog's boxes, kept with the preset. The default is a preset made without
+ * the dialog (a built-in, an import, an older save): picking it brings its size and tool settings
+ * and leaves the foreground colour alone. Serialised only when non-default. */
+typedef struct pc_paint_preset_captures {
+    bool size;          /* Capture Brush Size in Preset. Off: picking keeps the tool's size. */
+    bool tool_settings; /* Include Tool Settings: mode, opacity, flow and the pressure buttons. */
+    bool color;         /* Include Color: picking sets the foreground colour to the brush's color. */
+} pc_paint_preset_captures;
+
+void pc_paint_preset_captures_default(pc_paint_preset_captures *c); /* {true, true, false} */
+bool pc_paint_preset_captures_is_default(const pc_paint_preset_captures *c);
+bool pc_paint_preset_captures_eq(const pc_paint_preset_captures *a, const pc_paint_preset_captures *b);
+
 typedef struct pc_paint_preset {
     pc_str name;
     pc_paint_brush brush;
@@ -36,6 +49,7 @@ typedef struct pc_paint_preset {
     /* Folders inside `group`, outermost first (empty = directly in the group; not serialised
      * when empty), like an imported .abr file's own folders. */
     pc_paint_str_list folder;
+    pc_paint_preset_captures captures;
 } pc_paint_preset;
 
 /* An empty preset with a default brush. */

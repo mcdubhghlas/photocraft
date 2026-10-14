@@ -47,6 +47,12 @@ pc_status pc_io_parse_linked_files(const uint8_t *data, size_t len, pc_io_linked
  * empty. */
 pc_status pc_io_find_linked_file(const pc_metadata *meta, const char *uuid, size_t uuid_len, bool *found,
                                  pc_io_linked_file *out, pc_error *err);
+/* The pixel size of embedded source uuid among PSD global blocks (a pc_psd_block array), when it
+ * is there and readable with a non-empty size (the source size a PlLd record leaves out, #2465).
+ * Read from the file header where possible, never by importing a document. */
+struct pc_psd_block;
+pc_status pc_io_source_size_in_blocks(const struct pc_psd_block *blocks, size_t n, const char *uuid,
+                                      size_t uuid_len, bool *found, double size[2], pc_error *err);
 /* The four-character file type Photoshop records for an embedded file, from its contents. */
 void pc_io_linked_file_type(const uint8_t *bytes, size_t len, uint8_t out[4]);
 /* One liFD item (version 7, no open descriptor, empty child id, no modification time,

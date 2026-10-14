@@ -624,7 +624,13 @@ static void test_lab_document_adjustment_layers_render_at_every_depth(void)
         ch_push(&doc, l);
         ch_px(&doc, 1, 1, p);
         pc_srgb_to_lab(p, o);
-        CHECK(near3(o, (const float[3]){70, -13, 17}, 1.0f));
+        /* 8-bit mirrors a, b on the byte grid (a 12 -> -13, b -18 -> 17); 16- and 32-bit mirror
+         * them around true neutral (a -> -12, b -> 18), so neutral stays neutral (stored_channels). */
+        if (ds[d] == PC_SAMPLE_TYPE_U8) {
+            CHECK(near3(o, (const float[3]){70, -13, 17}, 1.0f));
+        } else {
+            CHECK(near3(o, (const float[3]){70, -12, 18}, 1.0f));
+        }
         pc_document_fini(&doc);
     }
 }

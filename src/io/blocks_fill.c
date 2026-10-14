@@ -6,9 +6,12 @@
 #include <string.h>
 
 #include "algo/transform.h"
+#include "base/bytes.h"
 #include "base/mem.h"
 #include "base/num.h"
 #include "base/rmath.h"
+#include "base/str.h"
+#include "base/utf8.h"
 #include "io/blocks.h"
 #include "io/desc_util.h"
 #include "io/gradient_bake.h"
@@ -920,6 +923,38 @@ void pc_io_placed_frame(const pc_warp *warp, double w, double h, double out[4])
     }
 }
 
+bool pc_io_corners_affine(const double p[8], const double frame[4], pc_affine *out)
+{
+    double x0 = frame[0];
+    double y0 = frame[1];
+    double bw = frame[2] - frame[0];
+    double bh = frame[3] - frame[1];
+    double a;
+    double b;
+    double c;
+    double d;
+    pc_affine m;
+    bool finite = isfinite(frame[0]) && isfinite(frame[1]) && isfinite(frame[2]) && isfinite(frame[3]);
+    for (size_t i = 0; i < 8; i++) {
+        finite = finite && isfinite(p[i]);
+    }
+    if (!(finite && bw > 0.0 && bh > 0.0)) {
+        return false;
+    }
+    a = (p[2] - p[0]) / bw;
+    b = (p[3] - p[1]) / bw;
+    c = (p[6] - p[0]) / bh;
+    d = (p[7] - p[1]) / bh;
+    m = (pc_affine){{a, b, c, d, p[0] - a * x0 - c * y0, p[1] - b * x0 - d * y0}};
+    for (size_t i = 0; i < 6; i++) {
+        if (!isfinite(m.m[i])) {
+            return false;
+        }
+    }
+    *out = m;
+    return true;
+}
+
 pc_status pc_io_parse_smart(const uint8_t key[4], const uint8_t *data, size_t len, pc_str *idnt,
                             pc_affine *transform, pc_error *err)
 {
@@ -948,8 +983,6 @@ pc_status pc_io_parse_smart(const uint8_t key[4], const uint8_t *data, size_t le
                 pc_warp warp;
                 bool has_warp = false;
                 double frame[4];
-                double bw;
-                double bh;
                 pc_status ws = pc_io_parse_placed_warp(key, data, len, &has_warp, &warp, err);
                 if (ws != PC_OK) {
                     free(p);
@@ -961,12 +994,8 @@ pc_status pc_io_parse_smart(const uint8_t key[4], const uint8_t *data, size_t le
                 if (has_warp) {
                     pc_warp_fini(&warp);
                 }
-                bw = frame[2] - frame[0];
-                bh = frame[3] - frame[1];
-                a = (pc_affine){{(p[2] - p[0]) / bw, (p[3] - p[1]) / bw, (p[6] - p[0]) / bh,
-                                 (p[7] - p[1]) / bh, 0.0, 0.0}};
-                a.m[4] = p[0] - a.m[0] * frame[0] - a.m[2] * frame[1];
-                a.m[5] = p[1] - a.m[1] * frame[0] - a.m[3] * frame[1];
+                /* A non-finite or empty result leaves the identity transform. */
+                (void)pc_io_corners_affine(p, frame, &a);
             }
             free(p);
         }
@@ -1042,28 +1071,34 @@ pc_status pc_io_parse_smart_perspective(const uint8_t key[4], const uint8_t *dat
     if (st != PC_OK || !ok) {
         return st;
     }
-    {
-        /* A parallelogram (top-left + bottom-right = top-right + bottom-left) is affine. */
-        double m = 0.0;
-        double tol;
-        bool affine = true;
-        pc_algo_homography hm;
-        double r[4] = {0.0, 0.0, w, h};
-        for (size_t i = 0; i < 4; i++) {
-            m = pc_rs_max(m, fabs(q[i][0]));
-            m = pc_rs_max(m, fabs(q[i][1]));
-        }
-        tol = 1e-6 * (1.0 + m);
-        for (size_t i = 0; i < 2; i++) {
-            affine = affine && fabs(q[0][i] + q[2][i] - q[1][i] - q[3][i]) <= tol;
-        }
-        if (affine || w <= 0.0 || h <= 0.0) {
-            return PC_OK;
-        }
-        if (pc_algo_homography_rect_to_quad(r, (const double (*)[2])q, &hm)) {
-            memcpy(out, hm.m, sizeof hm.m);
-            *found = true;
-        }
+    return pc_io_corners_perspective((const double (*)[2])q, w, h, found, out, err);
+}
+
+pc_status pc_io_corners_perspective(const double q[4][2], double w, double h, bool *found, double out[9],
+                                    pc_error *err)
+{
+    /* A parallelogram (top-left + bottom-right = top-right + bottom-left) is affine. */
+    double m = 0.0;
+    double tol;
+    bool affine = true;
+    pc_algo_homography hm;
+    double r[4] = {0.0, 0.0, w, h};
+    (void)err;
+    *found = false;
+    for (size_t i = 0; i < 4; i++) {
+        m = pc_rs_max(m, fabs(q[i][0]));
+        m = pc_rs_max(m, fabs(q[i][1]));
+    }
+    tol = 1e-6 * (1.0 + m);
+    for (size_t i = 0; i < 2; i++) {
+        affine = affine && fabs(q[0][i] + q[2][i] - q[1][i] - q[3][i]) <= tol;
+    }
+    if (affine || w <= 0.0 || h <= 0.0) {
+        return PC_OK;
+    }
+    if (pc_algo_homography_rect_to_quad(r, q, &hm)) {
+        memcpy(out, hm.m, sizeof hm.m);
+        *found = true;
     }
     return PC_OK;
 }
@@ -1119,33 +1154,33 @@ static pc_status custom_mesh(const pc_psd_desc *w, bool *ok, pc_mesh *out, pc_er
     return PC_OK;
 }
 
-pc_status pc_io_parse_placed_warp(const uint8_t key[4], const uint8_t *data, size_t len, bool *found,
-                                  pc_warp *out, pc_error *err)
+/* A `warp` descriptor as a warp. kind: NONE for no warp (warpNone, or one that moves nothing),
+ * SOME for a warp (in *out), UNREADABLE when it can't be read (an unknown style, missing bounds,
+ * a mesh that isn't 4x4). Mirrors crates/io blocks::warp_of. */
+static pc_status warp_of_desc(const pc_psd_desc *w, pc_io_plld_warp_kind *kind, pc_warp *out, pc_error *err)
 {
-    pc_psd_desc d;
-    bool ok = false;
-    const pc_psd_desc *w;
-    const pc_psd_desc *b;
     const uint8_t *e;
+    const pc_psd_desc *b;
     size_t en = 0;
     pc_warp_style style;
     double bounds[4];
     double v;
     pc_warp warp;
-    pc_status st = sold_desc(key, data, len, &ok, &d, err);
-    *found = false;
-    if (st != PC_OK || !ok) {
-        return st;
-    }
-    w = pc_io_desc_get(&d, "warp");
+    pc_status st;
+    *kind = PC_IO_PLLD_WARP_UNREADABLE;
     e = w != NULL ? pc_io_desc_enum(w, "warpStyle", &en) : NULL;
-    b = w != NULL ? pc_io_desc_get(w, "bounds") : NULL;
-    if (e == NULL || !pc_warp_style_parse((const char *)e, en, &style) || b == NULL ||
-        !pc_io_desc_num(pc_psd_desc_get(b, "Left"), &bounds[0]) ||
+    if (e == NULL || !pc_warp_style_parse((const char *)e, en, &style)) {
+        return PC_OK;
+    }
+    if (style == PC_WARP_NONE) {
+        *kind = PC_IO_PLLD_WARP_NONE;
+        return PC_OK;
+    }
+    b = pc_io_desc_get(w, "bounds");
+    if (b == NULL || !pc_io_desc_num(pc_psd_desc_get(b, "Left"), &bounds[0]) ||
         !pc_io_desc_num(pc_psd_desc_get(b, "Top "), &bounds[1]) ||
         !pc_io_desc_num(pc_psd_desc_get(b, "Rght"), &bounds[2]) ||
         !pc_io_desc_num(pc_psd_desc_get(b, "Btom"), &bounds[3])) {
-        pc_psd_desc_fini(&d);
         return PC_OK;
     }
     v = 0.0;
@@ -1160,21 +1195,164 @@ pc_status pc_io_parse_placed_warp(const uint8_t key[4], const uint8_t *data, siz
     e = pc_io_desc_enum(w, "warpRotate", &en);
     warp.vertical = enum_is(e, en, "Vrtc");
     if (style == PC_WARP_CUSTOM) {
+        bool ok = false;
         pc_mesh m;
         st = custom_mesh(w, &ok, &m, err);
-        if (st != PC_OK || !ok) {
-            pc_psd_desc_fini(&d);
+        if (st != PC_OK) {
+            pc_warp_fini(&warp);
             return st;
+        }
+        if (!ok) {
+            pc_warp_fini(&warp); /* a mesh that isn't 4x4: unreadable */
+            return PC_OK;
         }
         warp.has_mesh = true;
         warp.mesh = m;
     }
-    pc_psd_desc_fini(&d);
     if (pc_warp_is_identity(&warp)) {
         pc_warp_fini(&warp);
+        *kind = PC_IO_PLLD_WARP_NONE;
         return PC_OK;
     }
     *out = warp;
+    *kind = PC_IO_PLLD_WARP_SOME;
+    return PC_OK;
+}
+
+pc_status pc_io_parse_placed_warp(const uint8_t key[4], const uint8_t *data, size_t len, bool *found,
+                                  pc_warp *out, pc_error *err)
+{
+    pc_psd_desc d;
+    bool ok = false;
+    pc_io_plld_warp_kind kind;
+    pc_status st = sold_desc(key, data, len, &ok, &d, err);
+    *found = false;
+    if (st != PC_OK || !ok) {
+        return st;
+    }
+    st = warp_of_desc(pc_io_desc_get(&d, "warp"), &kind, out, err);
+    pc_psd_desc_fini(&d);
+    *found = st == PC_OK && kind == PC_IO_PLLD_WARP_SOME;
+    return st;
+}
+
+/* The record layout of a PlLd block: magic 'plcL', version, Pascal id (unpadded), 4 x u32 (page,
+ * total pages, anti-alias policy, layer type), then 8 doubles (the corners). *found false for a
+ * non-plcL, truncated or non-finite record. */
+static pc_status plld_record(const uint8_t *data, size_t len, bool *found, pc_str *idnt, double corners[8],
+                             size_t *warp_at, pc_error *err)
+{
+    size_t n;
+    size_t at;
+    pc_buf id = PC_BUF_INIT;
+    pc_status st;
+    *found = false;
+    if (data == NULL || len < 9 || memcmp(data, "plcL", 4) != 0) {
+        return PC_OK;
+    }
+    n = data[8];
+    if (n > len - 9) {
+        return PC_OK;
+    }
+    at = 9 + n + 16;
+    if (at > len || 64 > len - at) {
+        return PC_OK;
+    }
+    for (size_t i = 0; i < 8; i++) {
+        uint64_t bits = pc_load_be64(data + at + i * 8);
+        memcpy(&corners[i], &bits, 8);
+        if (!isfinite(corners[i])) {
+            return PC_OK;
+        }
+    }
+    st = pc_utf8_lossy(data + 9, n, &id, err);
+    if (st != PC_OK) {
+        pc_buf_fini(&id);
+        return st;
+    }
+    pc_str_fini(idnt);
+    st = pc_str_set(idnt, (const char *)id.data, id.len, err);
+    pc_buf_fini(&id);
+    if (st != PC_OK) {
+        return st;
+    }
+    *warp_at = at + 64;
     *found = true;
     return PC_OK;
+}
+
+pc_status pc_io_parse_plld(const uint8_t *data, size_t len, bool *found, pc_str *idnt, double corners[8],
+                           size_t *warp_at, pc_error *err)
+{
+    return plld_record(data, len, found, idnt, corners, warp_at, err);
+}
+
+pc_status pc_io_parse_plld_warp(const uint8_t *data, size_t len, pc_io_plld_warp_kind *kind, pc_warp *out,
+                                pc_error *err)
+{
+    pc_str id = PC_STR_INIT;
+    double corners[8];
+    size_t end = 0;
+    bool found = false;
+    bool all_zero = true;
+    bool ok = false;
+    pc_psd_desc d;
+    pc_status st = plld_record(data, len, &found, &id, corners, &end, err);
+    pc_str_fini(&id);
+    *kind = PC_IO_PLLD_WARP_UNREADABLE;
+    if (st != PC_OK) {
+        return st;
+    }
+    if (!found || end > len) {
+        return PC_OK; /* the record itself can't be read */
+    }
+    for (size_t i = end; i < len; i++) {
+        all_zero = all_zero && data[i] == 0;
+    }
+    if (all_zero) {
+        *kind = PC_IO_PLLD_WARP_NONE; /* only padding after the corners */
+        return PC_OK;
+    }
+    /* A u32 warp version, then a versioned warp descriptor. */
+    if (len - end < 4) {
+        return PC_OK;
+    }
+    st = pc_io_parse_prefix_versioned(data + end + 4, len - end - 4, &ok, &d, err);
+    if (st != PC_OK) {
+        return st;
+    }
+    if (!ok) {
+        return PC_OK; /* unreadable */
+    }
+    st = warp_of_desc(&d, kind, out, err);
+    pc_psd_desc_fini(&d);
+    return st;
+}
+
+void pc_io_plld_transform(const double p[8], bool has_size, double w, double h, const pc_warp *warp,
+                          pc_affine *transform, bool *has_persp, double persp[9])
+{
+    double q[4][2];
+    bool found = false;
+    double frame[4];
+    if (!has_size) {
+        w = hypot(p[2] - p[0], p[3] - p[1]);
+        h = hypot(p[6] - p[0], p[7] - p[1]);
+    }
+    for (size_t i = 0; i < 4; i++) {
+        q[i][0] = p[2 * i];
+        q[i][1] = p[2 * i + 1];
+    }
+    (void)pc_io_corners_perspective((const double (*)[2])q, w, h, &found, persp, NULL);
+    *has_persp = found;
+    if (found) {
+        frame[0] = 0.0;
+        frame[1] = 0.0;
+        frame[2] = w;
+        frame[3] = h;
+    } else {
+        pc_io_placed_frame(warp, w, h, frame);
+    }
+    *transform = (pc_affine){{1.0, 0.0, 0.0, 1.0, 0.0, 0.0}};
+    (void)pc_io_corners_affine(p, frame, transform);
 }

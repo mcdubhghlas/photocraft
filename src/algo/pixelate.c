@@ -331,6 +331,20 @@ static pc_status crystallize_k(const void *p, const void *prep, const pc_algo_im
             continue;
         }
         o = pc_rect_contains(win, x, y) ? owners[i] : crystal_owner(x, y, cell, cp->seed, ox, oy);
+        {
+            /* The colour at the cell's point, as Photoshop's cells are (solid, hard edges). */
+            float spx, spy;
+            int32_t sx, sy;
+            pc_algo_cell_point(o.x, o.y, cell, cp->seed, ox, oy, &spx, &spy);
+            sx = pc_f32_to_i32(floorf(spx));
+            sy = pc_f32_to_i32(floorf(spy));
+            if (pc_rect_contains(src->rect, sx, sy) && pc_rect_contains(b, sx, sy)) {
+                for (c = 0; c < n; c++) {
+                    px[c] = pc_algo_image_get(src, sx, sy, c);
+                }
+                continue;
+            }
+        }
         if (o.x < c0x || o.y < c0y || o.x > c1x || o.y > c1y) {
             continue;
         }

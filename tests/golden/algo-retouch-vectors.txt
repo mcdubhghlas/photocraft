@@ -636,15 +636,15 @@ inpaint owned/1 94a423a2f61164b1
 inpaint masked/3/0 f757a2fb52e736cd
 inpaint masked/3/1 746d9a4691157269
 inpaint masked/3/2 c7f9afc469bbe31a
-inpaint owned/3 218e3273ae61e065
+inpaint owned/3 9a04fffb7d144efe
 inpaint masked/4/0 9ff705910f1c2211
-inpaint masked/4/1 c5b62cfd46feebfc
-inpaint masked/4/2 679299615b3b2b7f
-inpaint owned/4 cf40ce39b7d6460e
+inpaint masked/4/1 7aef5321239d7568
+inpaint masked/4/2 c8d2fba1f859d45d
+inpaint owned/4 748d60f907cbda2e
 inpaint masked/known none
 inpaint owned/known back 8ac08bd5ccc19400
 inpaint busy/3 34e5e67992694f33
-inpaint busy/4 b875425dd799d5c7
+inpaint busy/4 f34ae89e2c42c91c
 inpaint proximity/1/8 390b53a0711e3600
 inpaint proximity/1/16 390b53a0711e3600
 inpaint proximity/1/32 390b53a0711e3600

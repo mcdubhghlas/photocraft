@@ -373,6 +373,7 @@ static pc_status export_psd(const pc_document *doc, bool psb, const pc_io_export
     pc_psd_bytes bytes = {NULL, 0};
     pc_status st;
     o.force_psb = opts->force_psb || psb;
+    o.maximize_compatibility = opts->psd_maximize_compatibility;
     memset(&r, 0, sizeof r);
     pc_io_warnings_init(&r.warnings);
     st = pc_io_document_to_psd_with(doc, &o, &file, &r.warnings, err);

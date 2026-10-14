@@ -201,7 +201,10 @@ static void test_rasterised_fallbacks(void)
     float p[4];
     CHECK_EQ_UINT(d->nlayers, 2u);
     if (d->nlayers == 2) {
-        CHECK(d->layers[0].content.kind == PC_LAYER_RASTER);
+        /* A single-path clip becomes the layer's vector mask (#4266): the clipped rect stays an
+         * editable shape; the pattern-filled rect is still rasterised. */
+        CHECK(d->layers[0].content.kind == PC_LAYER_SHAPE);
+        CHECK(d->layers[0].has_vector_mask);
         CHECK(d->layers[1].content.kind == PC_LAYER_RASTER);
     }
     px(d, 5, 15, p);
@@ -212,7 +215,7 @@ static void test_rasterised_fallbacks(void)
     CHECK(p[3] > 0.99f);
     px(d, 34, 15, p);
     CHECK(p[3] < 0.01f);
-    CHECK(any_warning(&r, "clip-path") && any_warning(&r, "pattern"));
+    CHECK(!any_warning(&r, "clip-path") && any_warning(&r, "pattern"));
     pc_io_import_result_fini(&r);
 }
 
@@ -733,11 +736,13 @@ static void test_markers(void)
                  "height=\"4\" fill=\"red\"/></marker></defs><path id=\"p\" d=\"M5 10 L20 10 L35 10\" "
                  "stroke=\"blue\" marker-start=\"url(#m)\" marker-mid=\"url(#m)\" marker-end=\"url(#m)\"/>"
                  "</svg>");
-    /* the path, then three clipped marker groups rasterised as pixel layers */
+    /* the path, then three marker instances; each marker's viewport clip is one rect, so it
+     * becomes the shape's vector mask (#4266) rather than a rasterised pixel layer. */
     CHECK_EQ_UINT(r.document.nlayers, 4u);
     if (r.document.nlayers == 4) {
         CHECK_EQ_STR(pc_str_c(&r.document.layers[0].name), "p");
-        CHECK(r.document.layers[1].content.kind == PC_LAYER_RASTER);
+        CHECK(r.document.layers[1].content.kind == PC_LAYER_SHAPE);
+        CHECK(r.document.layers[1].has_vector_mask);
     }
     px(&r.document, 20, 9, p);
     CHECK(close4(p, 1, 0, 0, 1));

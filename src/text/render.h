@@ -21,8 +21,9 @@
 
 /* Faux-italic slant in degrees (Photoshop-like). */
 #define PC_TEXT_FAUX_ITALIC_DEG 12.0f
-/* Faux-bold dilation radius as a fraction of the font size. */
-#define PC_TEXT_FAUX_BOLD_RADIUS 0.018f
+/* Faux-bold ring radius as a fraction of the font size (tuned so stem weight stays close to the
+   old summed-coverage look). */
+#define PC_TEXT_FAUX_BOLD_RADIUS 0.036f
 /* Largest raster produced (pixels), a guard against absurd sizes. */
 #define PC_TEXT_MAX_PIXELS ((uint64_t)256 * 1024 * 1024)
 

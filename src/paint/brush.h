@@ -207,6 +207,7 @@ typedef struct pc_paint_pose {
 } pc_paint_pose;
 
 typedef struct pc_paint_smoothing {
+    bool enabled;       /* off: smoothing is suppressed without discarding amount or mode */
     float amount;       /* 0..1 */
     bool pulled_string; /* lazy mouse: paint only when a string of amount * 100 px is taut */
     bool catch_up;      /* keep catching up while the pointer pauses (timestamps) */
@@ -231,6 +232,12 @@ typedef struct pc_paint_brush {
     bool pressure_size;
     bool pressure_opacity;
     float color[4];      /* straight RGBA */
+    /* The inks `color` was picked as (its sRGB colour, the CMYK values), for a CMYK target: the
+     * stroke paints exactly these, since an sRGB round trip does not give them back (#4344). Only
+     * valid while `color` is that sRGB colour; ignored with Color Dynamics. Not serialised. */
+    bool color_cmyk_set;
+    float color_cmyk_rgb[3];
+    float color_cmyk_inks[4];
     float background[4]; /* for fg/bg jitter */
     bool erase;
     pc_blend_mode mode;
@@ -383,13 +390,17 @@ void pc_paint_dab_vec_fini(pc_paint_dab_vec *a);
 pc_status pc_paint_point_vec_push(pc_paint_point_vec *a, const pc_paint_point *p, pc_error *err);
 void pc_paint_point_vec_fini(pc_paint_point_vec *a);
 
-/* Opacity of a round tip at distance d from its centre without edge anti-aliasing: 1 in the hard
- * core (hardness of the radius), then (1 - t^2)^4 down to exactly 0 at the radius. */
+/* The core radius and shoulder width (both in pixels) of a round tip of `radius` and `hardness`
+ * (Photoshop's measured round tip: a solid core, then a Gaussian shoulder). */
+void pc_paint_tip_shape(float radius, float hardness, float *r0, float *s);
+/* Opacity of a round tip at distance d from its centre, edge included (see pc_paint_tip_shape). */
 float pc_paint_tip_falloff(float d, float radius, float hardness);
+/* How far from its centre a round tip still paints (where pc_paint_tip_falloff drops below ~0.1 %). */
+float pc_paint_tip_reach(float radius, float hardness);
 /* Distance from the centre where pc_paint_tip_falloff drops to 50 % (the Normal Brush Tip
  * cursor); a NaN hardness counts as 0. */
 float pc_paint_half_coverage_radius(float radius, float hardness);
-/* Coverage of a round dab at distance d from its centre (anti-aliased edge, hardness falloff). */
+/* Coverage of a round dab at distance d from its centre. */
 float pc_paint_dab_coverage(float d, float radius, float hardness);
 
 /* Exponential moving-average smoothing (the simplified lib.rs `smooth`); appends n points to

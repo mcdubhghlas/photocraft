@@ -786,7 +786,8 @@ static void tool_options(mapper *m, const pc_psd_desc *to, pc_paint_brush *b)
     }
     b->pressure_size = bool_or(to, "usePressureOverridesSize", false);
     b->pressure_opacity = bool_or(to, "usePressureOverridesOpacity", false);
-    if (bool_or(to, "smoothing", true) && pct(to, "smoothingValue", &f)) {
+    b->smoothing.enabled = bool_or(to, "smoothing", true);
+    if (pct(to, "smoothingValue", &f)) {
         b->smoothing.amount = pc_clampf(f, 0.0f, 1.0f);
     }
     if (boolean(to, "smoothingRadiusMode", &v)) {

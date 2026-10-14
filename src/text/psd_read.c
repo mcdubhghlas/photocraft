@@ -115,7 +115,7 @@ pc_status psd_names_index(psd_names *l, const pc_str *s, size_t *out, pc_error *
 
 float psd_k_of(float dpi)
 {
-    return 72.0f / (dpi > 0.0f ? dpi : 72.0f);
+    return 72.0f / (isfinite(dpi) && dpi > 0.0f ? dpi : 72.0f);
 }
 
 pc_status psd_arr_f(const pc_ed_value *v, double **out, size_t *n, pc_error *err)

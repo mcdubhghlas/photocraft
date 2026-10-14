@@ -303,7 +303,9 @@ static pc_status parse_entries(const uint8_t *data, size_t len, bool *found, ent
         uint32_t elen;
         size_t end;
         const uint8_t *kind;
-        if (!u32_(&r, &elen) || elen > len || start > len - elen) {
+        /* The length counts itself and the type: anything shorter (< 8) would put the cursor
+         * back on this entry, and a hostile count would then loop until memory runs out. */
+        if (!u32_(&r, &elen) || elen < 8 || elen > len || start > len - elen) {
             entries_free(v, n);
             return PC_OK;
         }

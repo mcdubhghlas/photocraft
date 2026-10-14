@@ -344,6 +344,18 @@ static void blend_into_fill(pc_compose_buffer *backdrop, const pc_compose_buffer
     }
 }
 
+/* A channel value on Blend If's 0..=255 scale. Compositing can leave an 8- or 16-bit level a few
+ * millionths off (a level-20 backdrop composited at partial alpha reads 19.999998), which would
+ * put it on the wrong side of a hard point at that level: a value that close to a level is that
+ * level. Values of those depths that aren't on a level are at least 1/257 away from one. The GPU
+ * compositor (compose.wgsl blend_if_weight) snaps alike. */
+static float blend_if_level(float x)
+{
+    float v = pc_clampf(x, 0.0f, 1.0f) * 255.0f;
+    float r = roundf(v);
+    return fabsf(v - r) < 1e-4f ? r : v;
+}
+
 /* Blend If: how much of a pixel shows, from the layer's own colour (NULL = no content there) and
  * the colour beneath (NULL = nothing beneath). */
 static float blend_if_weight(const pc_layer *layer, pc_color_mode mode, const float *this_px,
@@ -362,7 +374,7 @@ static float blend_if_weight(const pc_layer *layer, pc_color_mode mode, const fl
             continue;
         }
         for (c = 0; c < 3; c++) {
-            v[c] = pc_clampf(p[c], 0.0f, 1.0f) * 255.0f;
+            v[c] = blend_if_level(p[c]);
         }
         pc_blend_if_get(bi, 0, r0);
         if (mode == PC_COLOR_MODE_RGB) {

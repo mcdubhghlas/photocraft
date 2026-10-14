@@ -154,6 +154,54 @@ static pc_status merged_planes(const pc_document *doc, pc_pixel_format fmt, bool
     return PC_OK;
 }
 
+/* The merged image of a file saved without Maximize Compatibility: Photoshop's white placeholder
+ * in the document's colour channels, with no alpha. Encoded like merged_planes, so CMYK white is
+ * no ink and Lab white is L 100 with neutral a and b. */
+static pc_status placeholder_planes(const pc_document *doc, pc_pixel_format fmt, uint8_t **out,
+                                    size_t *len, pc_error *err)
+{
+    size_t cc = pc_color_mode_channels(fmt.mode);
+    size_t bps = pc_sample_type_bytes(fmt.sample);
+    bool cmyk = fmt.mode == PC_COLOR_MODE_CMYK;
+    bool lab16 = fmt.mode == PC_COLOR_MODE_LAB && fmt.sample == PC_SAMPLE_TYPE_U16;
+    const float opaque_white[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+    float white[PC_RASTER_MAX_CHANNELS];
+    pc_cmyk_space *space = pc_compose_cmyk_space(doc);
+    pc_cmyk_space *prev = pc_cmyk_space_enter(space);
+    size_t n;
+    size_t plane;
+    size_t total;
+    uint8_t *planes;
+    (void)pc_from_rgba(fmt, opaque_white, white);
+    pc_cmyk_space_leave(prev);
+    pc_cmyk_space_release(space);
+    if (!pc_size_mul(doc->size.width, doc->size.height, &n) || !pc_size_mul(n, bps, &plane) ||
+        !pc_size_mul(plane, cc, &total) || total > PC_MAX_ALLOC) {
+        return pc_fail(err, PC_ERR_LIMIT, "limit exceeded: a %ux%u merged image", (unsigned)doc->size.width,
+                       (unsigned)doc->size.height);
+    }
+    planes = pc_calloc_array(total > 0 ? total : 1, 1);
+    if (planes == NULL) {
+        return pc_io_nomem(err, "writing the merged image");
+    }
+    for (size_t c = 0; c < cc; c++) {
+        uint8_t sample[4];
+        size_t sl;
+        float v = c < PC_RASTER_MAX_CHANNELS ? white[c] : 1.0f;
+        float x = cmyk ? 1.0f - v : v;
+        if (lab16 && (c == 1 || c == 2)) {
+            x = x * (PC_IO_LAB16_CHROMA_MAX / 65535.0f);
+        }
+        sl = pc_io_encode_be(x, fmt.sample, sample);
+        for (size_t i = 0; i < n; i++) {
+            memcpy(planes + c * plane + i * sl, sample, sl);
+        }
+    }
+    *out = planes;
+    *len = total;
+    return PC_OK;
+}
+
 /* ---- resources ---- */
 
 pc_status pc_io_res_add(pc_io_res_list *r, uint16_t id, const void *data, size_t len, pc_error *err)
@@ -870,18 +918,27 @@ pc_status pc_io_document_to_psd_nested(const pc_document *doc, const pc_io_psd_e
         pc_cmyk_space_leave(prev);
         pc_cmyk_space_release(space);
     }
+    /* Without Maximize Compatibility the merged image is a white placeholder and the composite
+     * isn't rendered at all. A document without layer records keeps the real image: its pixels
+     * live nowhere else. */
+    bool real_merged = opts->maximize_compatibility || ex.nrecords == 0;
     /* Merged composite, rendered and encoded in bands. Matting against white only changes pixels
      * with alpha < 1; if some are slightly translucent but all round to opaque (so no alpha
      * channel is written), encode once more without the matte. */
-    if (st == PC_OK) {
+    if (st == PC_OK && real_merged) {
         st = merged_planes(doc, fmt, opts->merged_matte, &planes, &plen, &has_alpha, &translucent, err);
     }
-    if (st == PC_OK && !has_alpha && translucent && opts->merged_matte) {
+    if (st == PC_OK && real_merged && !has_alpha && translucent && opts->merged_matte) {
         bool a2;
         bool t2;
         free(planes);
         planes = NULL;
         st = merged_planes(doc, fmt, false, &planes, &plen, &a2, &t2, err);
+    }
+    if (st == PC_OK && !real_merged) {
+        has_alpha = false;
+        translucent = false;
+        st = placeholder_planes(doc, fmt, &planes, &plen, err);
     }
     n = (size_t)doc->size.width * doc->size.height;
     if (st == PC_OK && !has_alpha) {
@@ -1082,7 +1139,7 @@ pc_status pc_io_document_to_psd_nested(const pc_document *doc, const pc_io_psd_e
             st = pc_io_nomem(err, "adding a resource");
         } else {
             res.v = v;
-            st = pc_psd_version_info_resource(true, &res.v[res.n], err);
+            st = pc_psd_version_info_resource(real_merged, &res.v[res.n], err);
             res.n += st == PC_OK ? 1 : 0;
         }
     }
@@ -1110,8 +1167,13 @@ pc_status pc_io_document_to_psd_nested(const pc_document *doc, const pc_io_psd_e
             ex.nrecords = 0;
             /* Photoshop pads the layer info to 4 bytes (an even pad misaligns readers after a
              * global Lr16 / Lr32 block, #200). A length that can't be computed keeps the even
-             * default. */
-            if (pc_psd_layer_info_pad_to(&f.layer_info, ex.version, 4, &pe) != PC_OK) {
+             * default. A global block's length is the exact data length and its padding to 4
+             * follows the block: readers that check that length exactly (Unity's PSD Importer)
+             * reject it otherwise (#4654), so the layer info itself carries no padding there. */
+            if (f.placement.where == PC_PSD_LI_GLOBAL_BLOCK) {
+                pc_psd_opt_bytes_fini(&f.layer_info.padding);
+                f.layer_info.padding.has = true; /* empty: block-level padding aligns it */
+            } else if (pc_psd_layer_info_pad_to(&f.layer_info, ex.version, 4, &pe) != PC_OK) {
                 if (pe.code == PC_ERR_NOMEM) {
                     st = pc_fail(err, PC_ERR_NOMEM, "%s", pe.msg);
                 }

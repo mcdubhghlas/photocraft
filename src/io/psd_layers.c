@@ -12,6 +12,7 @@
 #include "base/utf8.h"
 #include "io/adjust_map.h"
 #include "io/blocks.h"
+#include "io/linked.h"
 #include "io/comps_map.h"
 #include "io/effects_map.h"
 #include "io/pixels.h"
@@ -551,6 +552,90 @@ static pc_status text_content(pc_io_imp *cx, const pc_psd_layer *rec, const char
     return PC_OK;
 }
 
+/* Source id, transform, projective placement and warp of a placed layer. A PlLd-only record
+ * (Photoshop CS2, #2465) stores the placed corners but not the source size, which comes from the
+ * embedded file. An empty id leaves the contents unavailable (the stored pixels stay). */
+static pc_status read_placement(pc_io_imp *cx, const char *name, const char *k, const pc_psd_block *b,
+                                pc_str *id, pc_affine *transform, bool *has_warp, pc_warp *warp,
+                                bool *has_persp, double persp[9], pc_error *err)
+{
+    pc_status st;
+    *has_warp = false;
+    *has_persp = false;
+    *transform = (pc_affine){{1.0, 0.0, 0.0, 1.0, 0.0, 0.0}};
+    if (memcmp(k, "PlLd", 4) == 0) {
+        bool found = false;
+        double corners[8];
+        size_t warp_at = 0;
+        pc_io_plld_warp_kind kind = PC_IO_PLLD_WARP_NONE;
+        bool has_size = false;
+        double size[2] = {0.0, 0.0};
+        st = pc_io_parse_plld(b->data.data, b->data.len, &found, id, corners, &warp_at, err);
+        if (st != PC_OK) {
+            return st;
+        }
+        if (!found) {
+            pc_str_fini(id);
+            *id = (pc_str)PC_STR_INIT;
+            return pc_io_warn(cx->warnings, err,
+                              "layer \"%s\": its placed-layer data (PlLd) could not be read; the smart "
+                              "object's contents are unavailable",
+                              name);
+        }
+        st = pc_io_parse_plld_warp(b->data.data, b->data.len, &kind, warp, err);
+        if (st != PC_OK) {
+            pc_str_fini(id);
+            *id = (pc_str)PC_STR_INIT;
+            return st;
+        }
+        if (kind == PC_IO_PLLD_WARP_UNREADABLE) {
+            /* Re-rendering from the source would unwarp the layer: keep it as saved. */
+            pc_str_fini(id);
+            *id = (pc_str)PC_STR_INIT;
+            return pc_io_warn(cx->warnings, err,
+                              "layer \"%s\": its smart object warp (PlLd) could not be read; the layer "
+                              "keeps its warped pixels but its contents are unavailable",
+                              name);
+        }
+        *has_warp = kind == PC_IO_PLLD_WARP_SOME;
+        st = pc_io_source_size_in_blocks(cx->file->global_blocks, cx->file->nglobal, pc_str_c(id), id->len,
+                                         &has_size, size, err);
+        if (st != PC_OK) {
+            if (*has_warp) {
+                pc_warp_fini(warp);
+                *has_warp = false;
+            }
+            pc_str_fini(id);
+            *id = (pc_str)PC_STR_INIT;
+            return st;
+        }
+        pc_io_plld_transform(corners, has_size, size[0], size[1], *has_warp ? warp : NULL, transform,
+                             has_persp, persp);
+        return PC_OK;
+    }
+    st = pc_io_parse_smart((const uint8_t *)k, b->data.data, b->data.len, id, transform, err);
+    if (st != PC_OK) {
+        return st;
+    }
+    st = pc_io_parse_placed_warp((const uint8_t *)k, b->data.data, b->data.len, has_warp, warp, err);
+    if (st != PC_OK) {
+        pc_str_fini(id);
+        *id = (pc_str)PC_STR_INIT;
+        return st;
+    }
+    /* Distort / Perspective: the fourth corner (the affine transform drops it). */
+    st = pc_io_parse_smart_perspective((const uint8_t *)k, b->data.data, b->data.len, has_persp, persp, err);
+    if (st != PC_OK) {
+        if (*has_warp) {
+            pc_warp_fini(warp);
+            *has_warp = false;
+        }
+        pc_str_fini(id);
+        *id = (pc_str)PC_STR_INIT;
+    }
+    return st;
+}
+
 static pc_status smart_content(pc_io_imp *cx, const pc_psd_layer *rec, const char *name, const char *k,
                                const pc_doc_psd_block *blocks, size_t nb, pc_layer_content *c, pc_error *err)
 {
@@ -564,20 +649,32 @@ static pc_status smart_content(pc_io_imp *cx, const pc_psd_layer *rec, const cha
     pc_surface cache;
     pc_smart_contents_id cid;
     bool has_placed = false;
-    bool found = false;
+    bool pl_has_warp = false;
+    bool pl_has_persp = false;
+    pc_warp pl_warp;
+    double pl_persp[9];
     pc_status st;
     memset(&src, 0, sizeof src);
     memset(&placed, 0, sizeof placed);
+    memset(&pl_warp, 0, sizeof pl_warp);
     pc_io_filter_stack_init(&stack);
     src.linked = true;
-    st = pc_io_parse_smart((const uint8_t *)k, b->data.data, b->data.len, &src.path, &transform, err);
+    st = read_placement(cx, name, k, b, &src.path, &transform, &pl_has_warp, &pl_warp, &pl_has_persp, pl_persp,
+                         err);
     if (st != PC_OK) {
+        if (pl_has_warp) {
+            pc_warp_fini(&pl_warp);
+        }
+        pc_str_fini(&src.path);
         return st;
     }
     /* Placed layers that name the same source identity share one contents id (as crates/io does),
      * so a re-export embeds the shared source once instead of once per layer. */
     st = pc_io_imp_contents_id(cx, pc_str_c(&src.path), src.path.len, &cid, err);
     if (st != PC_OK) {
+        if (pl_has_warp) {
+            pc_warp_fini(&pl_warp);
+        }
         pc_str_fini(&src.path);
         return st;
     }
@@ -585,6 +682,9 @@ static pc_status smart_content(pc_io_imp *cx, const pc_psd_layer *rec, const cha
     if (pb != NULL) {
         st = pc_io_parse_sold(pb->data.data, pb->data.len, &has_placed, &placed, err);
         if (st != PC_OK) {
+            if (pl_has_warp) {
+                pc_warp_fini(&pl_warp);
+            }
             pc_str_fini(&src.path);
             return st;
         }
@@ -615,17 +715,19 @@ static pc_status smart_content(pc_io_imp *cx, const pc_psd_layer *rec, const cha
         }
     }
     so.psd_raw = principal(blocks, nb, k);
-    if (st == PC_OK) {
-        st = pc_io_parse_placed_warp((const uint8_t *)k, b->data.data, b->data.len, &found, &so.warp, err);
-        so.has_warp = st == PC_OK && found;
+    if (pl_has_warp) {
+        so.warp = pl_warp;
+        so.has_warp = true;
+        pl_has_warp = false;
     }
-    if (st == PC_OK) {
-        /* Distort / Perspective: the fourth corner (the affine transform drops it). */
-        st = pc_io_parse_smart_perspective((const uint8_t *)k, b->data.data, b->data.len, &found,
-                                           so.perspective, err);
-        so.has_perspective = st == PC_OK && found;
+    if (pl_has_persp) {
+        memcpy(so.perspective, pl_persp, sizeof so.perspective);
+        so.has_perspective = true;
     }
     if (st != PC_OK) {
+        if (pl_has_warp) {
+            pc_warp_fini(&pl_warp);
+        }
         pc_smart_object_fini(&so);
         return st;
     }
@@ -781,7 +883,8 @@ static pc_status init_named(pc_layer *l, const pc_psd_layer *rec, pc_layer_conte
 
 static const char *const FILL_KEYS[3] = {"SoCo", "GdFl", "PtFl"};
 static const char *const VECTOR_KEYS[2] = {"vsms", "vmsk"};
-static const char *const SMART_KEYS[3] = {"SoLd", "PlLd", "SoLE"};
+/* SoLE (a linked smart object) before PlLd: a PlLd alone is Photoshop CS2's record. */
+static const char *const SMART_KEYS[3] = {"SoLd", "SoLE", "PlLd"};
 
 static pc_status layer_from_record(pc_io_imp *cx, const pc_psd_layer *rec, pc_layer *out, pc_error *err)
 {

@@ -1015,7 +1015,10 @@ static yyjson_mut_val *write_field(const field *f, yyjson_mut_doc *d, const void
     }
 }
 
-/* skip_serializing_if: an empty string or list, or a false bool. */
+static void struct_init(const sdesc *s, void *base);
+
+/* skip_serializing_if: an empty string or list, a false bool, or (K_STRUCT) a struct equal to its
+ * default (serde `skip_serializing_if = "T::is_default"`). */
 static bool skipped(const field *f, const void *slot)
 {
     if (!f->skip_empty) {
@@ -1026,6 +1029,18 @@ static bool skipped(const field *f, const void *slot)
         return !*(const bool *)slot;
     case K_STRS:
         return ((const pc_paint_str_list *)slot)->len == 0;
+    case K_STRUCT: {
+        const sdesc *sub = f->aux;
+        void *def = calloc(1, sub->size);
+        bool eq;
+        if (def == NULL) {
+            return false; /* can't prove it is default: serialise it */
+        }
+        struct_init(sub, def);
+        eq = memcmp(def, slot, sub->size) == 0;
+        free(def);
+        return eq;
+    }
     default:
         return ((const pc_str *)slot)->len == 0;
     }
@@ -1316,13 +1331,14 @@ static const sdesc POSE_S = {"struct Pose", "Pose", POSE_F, 8, sizeof(PO), def_p
 
 typedef pc_paint_smoothing SM;
 static const field SMOOTH_F[] = {
+    F("enabled", SM, enabled, K_BOOL, NULL),
     F("amount", SM, amount, K_F32, NULL),
     F("pulledString", SM, pulled_string, K_BOOL, NULL),
     F("catchUp", SM, catch_up, K_BOOL, NULL),
     F("catchUpOnEnd", SM, catch_up_on_end, K_BOOL, NULL),
     F("adjustForZoom", SM, adjust_for_zoom, K_BOOL, NULL),
 };
-static const sdesc SMOOTH_S = {"struct Smoothing", "Smoothing", SMOOTH_F, 5, sizeof(SM), def_smoothing};
+static const sdesc SMOOTH_S = {"struct Smoothing", "Smoothing", SMOOTH_F, 6, sizeof(SM), def_smoothing};
 
 typedef pc_paint_mixer_settings MX;
 static const field MIXER_F[] = {
@@ -1406,15 +1422,34 @@ static const field STROKE_F[] = {
 };
 static const sdesc STROKE_S = {"struct Stroke", "Stroke", STROKE_F, 2, sizeof(ST), NULL};
 
+typedef pc_paint_preset_captures PC;
+static void def_captures(void *p)
+{
+    pc_paint_preset_captures_default(p);
+}
+static const field CAPTURES_F[] = {
+    F("size", PC, size, K_BOOL, NULL),
+    F("toolSettings", PC, tool_settings, K_BOOL, NULL),
+    F("color", PC, color, K_BOOL, NULL),
+};
+static const sdesc CAPTURES_S = {"struct PresetCaptures", "PresetCaptures", CAPTURES_F, 3, sizeof(PC),
+                                 def_captures};
+
 typedef pc_paint_preset PR;
+static void def_preset(void *p)
+{
+    /* BrushPreset is not container-default; only its `captures` field has a non-zero default. */
+    pc_paint_preset_captures_default(&((PR *)p)->captures);
+}
 static const field PRESET_F[] = {
     {"name", NULL, K_STR, D_REQ, 0, offsetof(PR, name), NULL},
     {"brush", NULL, K_STRUCT, D_REQ, 0, offsetof(PR, brush), &BRUSH_S},
     {"builtin", NULL, K_BOOL, D_FIELD, 0, offsetof(PR, builtin), NULL},
     {"group", NULL, K_STR, D_FIELD, 1, offsetof(PR, group), NULL},
     {"folder", NULL, K_STRS, D_FIELD, 1, offsetof(PR, folder), NULL},
+    {"captures", NULL, K_STRUCT, D_FIELD, 1, offsetof(PR, captures), &CAPTURES_S},
 };
-static const sdesc PRESET_S = {"struct BrushPreset", "BrushPreset", PRESET_F, 5, sizeof(PR), NULL};
+static const sdesc PRESET_S = {"struct BrushPreset", "BrushPreset", PRESET_F, 6, sizeof(PR), def_preset};
 
 /* ---- public entry points ---- */
 

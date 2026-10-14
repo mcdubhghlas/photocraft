@@ -33,6 +33,12 @@ pc_status pc_io_import_tiff_page(const char *name, const uint8_t *bytes, size_t 
 pc_status pc_io_document_to_image(const pc_document *doc, pc_io_warnings *warnings, pc_cimage *out,
                                   pc_error *err);
 
+/* As pc_io_document_to_image, but a CMYK document is reseparated to a 4-channel CMYK image (kept,
+ * tagged with the document profile or built-in coated CMYK) only when cmyk_target; otherwise its
+ * sRGB composite is written. The public entry above passes cmyk_target = true. */
+pc_status pc_io_document_to_image_for(const pc_document *doc, pc_io_warnings *warnings, bool cmyk_target,
+                                      pc_cimage *out, pc_error *err);
+
 /* ---- internal to io (used by lib, raw, tiff_layers and I5's affinity) ---- */
 
 /* Decodes a flat image into a one-layer document (TIFFs through pc_io_import_tiff_page). OpenEXR

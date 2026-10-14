@@ -127,6 +127,9 @@ typedef struct q_ctx {
     const float (*px)[4];
     uint8_t *out; /* the band's first pixel in the output */
     bool gray;
+    bool cmyk;
+    pc_pixel_format fmt;
+    pc_cmyk_space *space;
     pc_csample cs;
     size_t stride; /* output bytes per pixel */
 } q_ctx;
@@ -150,10 +153,20 @@ static size_t put(uint8_t *o, float v, pc_csample cs)
 static pc_status q_chunk(void *vctx, size_t chunk, size_t begin, size_t end)
 {
     const q_ctx *c = vctx;
+    /* A CMYK target reseparates through the document's CMYK profile, like the compositor. */
+    pc_cmyk_space *prev = c->cmyk ? pc_cmyk_space_enter(c->space) : NULL;
     (void)chunk;
     for (size_t i = begin; i < end; i++) {
         const float *p = c->px[i];
         uint8_t *o = c->out + i * c->stride;
+        if (c->cmyk) {
+            float conv[PC_RASTER_MAX_CHANNELS];
+            size_t channels = pc_from_rgba(c->fmt, p, conv);
+            for (size_t ch = 0; ch < channels; ch++) {
+                o += put(o, conv[ch], c->cs);
+            }
+            continue;
+        }
         if (c->gray) {
             float rgb[3] = {p[0], p[1], p[2]};
             o += put(o, pc_rgb_to_gray(rgb), c->cs);
@@ -164,6 +177,9 @@ static pc_status q_chunk(void *vctx, size_t chunk, size_t begin, size_t end)
         }
         (void)put(o, p[3], c->cs);
     }
+    if (c->cmyk) {
+        pc_cmyk_space_leave(prev);
+    }
     return PC_OK;
 }
 
@@ -172,6 +188,9 @@ typedef struct band_ctx {
     size_t len;
     size_t stride;
     bool gray;
+    bool cmyk;
+    pc_pixel_format fmt;
+    pc_cmyk_space *space;
     pc_csample cs;
     bool opaque;
     pc_rect canvas;
@@ -191,6 +210,9 @@ static pc_status band_sink(void *vctx, pc_compose_buffer *band, pc_error *err)
     q.px = (const float (*)[4])band->px;
     q.out = b->data + start * b->stride;
     q.gray = b->gray;
+    q.cmyk = b->cmyk;
+    q.fmt = b->fmt;
+    q.space = b->space;
     q.cs = b->cs;
     q.stride = b->stride;
     return pc_pool_for(pc_pool_global(), band->len, 65536, q_chunk, &q);
@@ -244,14 +266,71 @@ static pc_status native_image(const pc_document *doc, const pc_surface *s, pc_ci
     return st == PC_OK ? PC_OK : pc_io_err_prefix(st, err, "codec: ");
 }
 
+/* Validates that the CMYK composite can round-trip through `profile` and sRGB (the reference
+ * builds both transforms and discards them), and tags `icc` with the profile when the document
+ * had none. On entry `*cmyk_out` says a CMYK target was requested. */
+static pc_status cmyk_composite_profile(const pc_document *doc, pc_meta_blob *icc, pc_cmyk_space **space_out,
+                                        pc_error *err)
+{
+    const pc_profile *srgb = pc_builtin_profile(PC_BUILTIN_SRGB);
+    pc_profile parsed;
+    const pc_profile *profile;
+    pc_transform *t = NULL;
+    pc_status st = PC_OK;
+    bool have_parsed = false;
+    if (doc->icc_profile != NULL) {
+        st = pc_profile_parse(pc_blob_data(doc->icc_profile), pc_blob_len(doc->icc_profile), &parsed, err);
+        if (st != PC_OK) {
+            return pc_io_err_prefix(st, err, "invalid CMYK composite profile: ");
+        }
+        profile = &parsed;
+        have_parsed = true;
+    } else {
+        profile = pc_builtin_profile(PC_BUILTIN_COATED_CMYK);
+    }
+    if (st == PC_OK && (profile == NULL || profile->space != PC_CS_CMYK)) {
+        st = pc_fail(err, PC_ERR_UNSUPPORTED, "CMYK composite requires a CMYK ICC profile");
+    }
+    if (st == PC_OK) {
+        st = pc_transform_new(profile, srgb, PC_INTENT_RELATIVE, true, &t, err);
+    }
+    if (st == PC_OK) {
+        pc_transform_release(t);
+        t = NULL;
+        st = pc_transform_new(srgb, profile, PC_INTENT_RELATIVE, true, &t, err);
+    }
+    if (st == PC_OK) {
+        pc_transform_release(t);
+        t = NULL;
+    }
+    if (st == PC_OK && !icc->has) {
+        pc_buf bytes = PC_BUF_INIT;
+        st = pc_profile_to_bytes(profile, &bytes, err);
+        if (st == PC_OK) {
+            st = pc_meta_blob_set(icc, bytes.data, bytes.len, err);
+        }
+        pc_buf_fini(&bytes);
+    }
+    if (st == PC_OK) {
+        *space_out = pc_compose_cmyk_space(doc);
+    }
+    if (have_parsed) {
+        pc_profile_fini(&parsed);
+    }
+    return st;
+}
+
 static pc_status composite_image(const pc_document *doc, pc_io_warnings *warnings, pc_meta_blob *icc,
-                                 pc_cimage *out, pc_error *err)
+                                 bool cmyk_target, pc_cimage *out, pc_error *err)
 {
     pc_pixel_format fmt = pc_document_pixel_format(doc);
     size_t count = 0;
     band_ctx b;
     size_t colors;
+    bool cmyk = fmt.mode == PC_COLOR_MODE_CMYK && cmyk_target;
+    pc_color_mode out_mode;
     pc_status st = pc_document_layer_count(doc, &count, err);
+    memset(&b, 0, sizeof b);
     if (st == PC_OK) {
         st = pc_io_warn(warnings, err, "%zu layer(s) flattened; layers, masks and blend modes are not kept",
                         count);
@@ -259,11 +338,19 @@ static pc_status composite_image(const pc_document *doc, pc_io_warnings *warning
     if (st != PC_OK) {
         return st;
     }
-    /* The compositor works in RGB; write RGB/gray. */
+    /* The compositor works in RGB; write RGB/gray, or reseparate to CMYK for a CMYK target. */
     b.gray = fmt.mode == PC_COLOR_MODE_GRAYSCALE;
-    if (fmt.mode == PC_COLOR_MODE_CMYK || fmt.mode == PC_COLOR_MODE_LAB) {
-        /* The compositor renders CMYK/Lab documents in sRGB (CMYK through the built-in profile),
-         * so the file is tagged sRGB. */
+    b.cmyk = cmyk;
+    b.fmt = fmt;
+    if (cmyk) {
+        /* Only a CMYK target needs the document's profile; RGB-only targets keep the compositor's
+         * own handling (built-in coated CMYK when the embedded profile is unusable). */
+        st = cmyk_composite_profile(doc, icc, &b.space, err);
+        if (st != PC_OK) {
+            return st;
+        }
+    } else if (fmt.mode == PC_COLOR_MODE_CMYK || fmt.mode == PC_COLOR_MODE_LAB) {
+        /* RGB-only targets use the sRGB composite directly, without reseparating CMYK. */
         const pc_profile *srgb = pc_builtin_profile(PC_BUILTIN_SRGB);
         pc_buf bytes = PC_BUF_INIT;
         st = pc_io_warn(warnings, err, "%s composite written as sRGB RGB (colour-managed conversion)",
@@ -280,17 +367,23 @@ static pc_status composite_image(const pc_document *doc, pc_io_warnings *warning
         }
     }
     b.cs = pc_io_csample(fmt.sample);
-    colors = b.gray ? 1 : 3;
+    colors = cmyk ? 4 : b.gray ? 1 : 3;
     b.stride = (colors + 1) * pc_csample_bytes(b.cs);
     b.opaque = true;
     b.canvas = pc_document_bounds(doc);
     st = pc_io_try_buffer((size_t)doc->size.width * doc->size.height, b.stride, &b.data, &b.len, err);
     if (st != PC_OK) {
+        if (b.space != NULL) {
+            pc_cmyk_space_release(b.space);
+        }
         return st;
     }
     /* The reference ignores a failed render and then fails on the short buffer; the render's own
      * error is clearer. */
     st = pc_compose_render_bands(doc, b.canvas, 0, NULL, band_sink, &b, err);
+    if (b.space != NULL) {
+        pc_cmyk_space_release(b.space);
+    }
     if (st != PC_OK) {
         free(b.data);
         return st;
@@ -298,14 +391,14 @@ static pc_status composite_image(const pc_document *doc, pc_io_warnings *warning
     if (b.opaque) {
         b.len = drop_alpha(b.data, b.len, colors * pc_csample_bytes(b.cs), pc_csample_bytes(b.cs));
     }
-    st = pc_cimage_from_raw(doc->size.width, doc->size.height,
-                            pc_io_layout_for(b.gray ? PC_COLOR_MODE_GRAYSCALE : PC_COLOR_MODE_RGB, !b.opaque),
-                            b.cs, b.data, b.len, out, err);
+    out_mode = cmyk ? PC_COLOR_MODE_CMYK : b.gray ? PC_COLOR_MODE_GRAYSCALE : PC_COLOR_MODE_RGB;
+    st = pc_cimage_from_raw(doc->size.width, doc->size.height, pc_io_layout_for(out_mode, !b.opaque), b.cs,
+                            b.data, b.len, out, err);
     return st == PC_OK ? PC_OK : pc_io_err_prefix(st, err, "codec: ");
 }
 
-pc_status pc_io_document_to_image(const pc_document *doc, pc_io_warnings *warnings, pc_cimage *out,
-                                  pc_error *err)
+pc_status pc_io_document_to_image_for(const pc_document *doc, pc_io_warnings *warnings, bool cmyk_target,
+                                      pc_cimage *out, pc_error *err)
 {
     pc_pixel_format fmt = pc_document_pixel_format(doc);
     const pc_surface *native = fmt.mode != PC_COLOR_MODE_LAB ? pc_io_single_layer(doc) : NULL;
@@ -317,7 +410,7 @@ pc_status pc_io_document_to_image(const pc_document *doc, pc_io_warnings *warnin
     }
     if (st == PC_OK) {
         st = native != NULL ? native_image(doc, native, &img, err)
-                            : composite_image(doc, warnings, &icc, &img, err);
+                            : composite_image(doc, warnings, &icc, cmyk_target, &img, err);
     }
     if (st != PC_OK) {
         pc_meta_blob_fini(&icc);
@@ -342,6 +435,12 @@ pc_status pc_io_document_to_image(const pc_document *doc, pc_io_warnings *warnin
     }
     *out = img;
     return PC_OK;
+}
+
+pc_status pc_io_document_to_image(const pc_document *doc, pc_io_warnings *warnings, pc_cimage *out,
+                                  pc_error *err)
+{
+    return pc_io_document_to_image_for(doc, warnings, true, out, err);
 }
 
 pc_status pc_io_encode_image(const pc_cimage *img, pc_cformat format, const pc_io_export_opts *opts,
@@ -864,11 +963,15 @@ pc_status pc_io_export_flat(const pc_document *doc, pc_cformat format, const pc_
     pc_cimage next;
     bool done = false;
     bool converted = false;
+    bool cmyk_target = false;
     pc_status st = export_mode_specific(doc, format, opts, &done, out, err);
     if (st != PC_OK || done) {
         return st;
     }
-    st = pc_io_document_to_image(doc, &warnings, &img, err);
+    for (size_t i = 0; i < caps.nlayouts; i++) {
+        cmyk_target = cmyk_target || pc_clayout_is_cmyk(caps.layouts[i]);
+    }
+    st = pc_io_document_to_image_for(doc, &warnings, cmyk_target, &img, err);
     if (st != PC_OK) {
         pc_io_warnings_fini(&warnings);
         return st;
@@ -916,8 +1019,8 @@ pc_status pc_io_export_flat(const pc_document *doc, pc_cformat format, const pc_
             }
         }
     } else if (st == PC_OK && !caps.icc) {
-        /* Untagged files read back as sRGB: convert to it (as Quick Export does) rather than write
-         * values that only mean something under the dropped profile. */
+        /* Untagged files read back as sRGB/sGray: convert to it (as Quick Export does) rather than
+         * write values that only mean something under the dropped profile. */
         st = convert_rgb(&img, pc_builtin_profile(PC_BUILTIN_SRGB), PC_INTENT_PERCEPTUAL, true, img.sample,
                          &converted, &next, err);
         if (st == PC_OK && converted) {
@@ -925,6 +1028,14 @@ pc_status pc_io_export_flat(const pc_document *doc, pc_cformat format, const pc_
             st = pc_io_warn(&warnings, err,
                             "colours converted to sRGB; %s can't embed the document's colour profile",
                             pc_cformat_debug(format));
+        } else if (st == PC_OK) {
+            st = convert_gray(&img, pc_builtin_profile(PC_BUILTIN_SGRAY), img.sample, &converted, &next, err);
+            if (st == PC_OK && converted) {
+                replace(&img, &next);
+                st = pc_io_warn(&warnings, err,
+                                "colours converted to sGray; %s can't embed the document's colour profile",
+                                pc_cformat_debug(format));
+            }
         }
     }
     if (st == PC_OK) {

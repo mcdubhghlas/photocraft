@@ -282,13 +282,18 @@ static inline size_t rt_strict_block_errors(const uint8_t *bytes, size_t len)
     if (f.has_layer_info) {
         uint64_t body = 1;
         uint64_t pad;
+        uint64_t after = 0;
         if (pc_psd_layer_info_unpadded_len(&f.layer_info, v, &body, NULL) != PC_OK) {
             body = 1;
         }
         pad = f.layer_info.padding.has ? f.layer_info.padding.v.len : body % 2;
-        if ((body + pad) % 4 != 0) {
-            (void)fprintf(stderr, "layer info: %llu + %llu not a multiple of 4\n", (unsigned long long)body,
-                          (unsigned long long)pad);
+        /* In a global Lr16/Lr32 block the padding to 4 follows the block, outside its length. */
+        if (f.placement.where == PC_PSD_LI_GLOBAL_BLOCK) {
+            after = f.placement.padding.has ? f.placement.padding.v.len : (4 - (body + pad) % 4) % 4;
+        }
+        if ((body + pad + after) % 4 != 0) {
+            (void)fprintf(stderr, "layer info: %llu + %llu + %llu not a multiple of 4\n",
+                          (unsigned long long)body, (unsigned long long)pad, (unsigned long long)after);
             errs++;
         }
     }

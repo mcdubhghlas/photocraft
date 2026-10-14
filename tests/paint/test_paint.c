@@ -37,7 +37,9 @@ static void test_coverage_profile(void)
     CHECK(pc_paint_dab_coverage(0.0f, 10.0f, 1.0f) == 1.0f);
     CHECK(pc_paint_dab_coverage(20.0f, 10.0f, 1.0f) == 0.0f);
     CHECK(soft_mid > 0.2f && soft_mid < 0.8f);
-    CHECK(pc_paint_dab_coverage(9.9f, 10.0f, 1.0f) > 0.5f);
+    /* A hard tip is opaque to just inside its radius and gone 1 px outside it. */
+    CHECK(pc_paint_dab_coverage(8.5f, 10.0f, 1.0f) > 0.99f && pc_paint_dab_coverage(9.5f, 10.0f, 1.0f) > 0.5f);
+    CHECK(pc_paint_dab_coverage(11.0f, 10.0f, 1.0f) < 0.05f);
 }
 
 static void apply(pc_surface *s, const pc_paint_brush *b, const pc_paint_point *pts, size_t n,

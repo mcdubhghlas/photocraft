@@ -115,6 +115,7 @@ void pc_paint_pose_default(pc_paint_pose *p)
 void pc_paint_smoothing_default(pc_paint_smoothing *s)
 {
     memset(s, 0, sizeof *s);
+    s->enabled = true;
     s->catch_up = true;
     s->catch_up_on_end = true;
     s->adjust_for_zoom = true;
@@ -423,8 +424,9 @@ bool pc_paint_pose_eq(const pc_paint_pose *a, const pc_paint_pose *b)
 
 bool pc_paint_smoothing_eq(const pc_paint_smoothing *a, const pc_paint_smoothing *b)
 {
-    return a->amount == b->amount && a->pulled_string == b->pulled_string && a->catch_up == b->catch_up &&
-           a->catch_up_on_end == b->catch_up_on_end && a->adjust_for_zoom == b->adjust_for_zoom;
+    return a->enabled == b->enabled && a->amount == b->amount && a->pulled_string == b->pulled_string &&
+           a->catch_up == b->catch_up && a->catch_up_on_end == b->catch_up_on_end &&
+           a->adjust_for_zoom == b->adjust_for_zoom;
 }
 
 bool pc_paint_mixer_eq(const pc_paint_mixer_settings *a, const pc_paint_mixer_settings *b)
@@ -438,7 +440,11 @@ bool pc_paint_brush_eq(const pc_paint_brush *a, const pc_paint_brush *b)
     return a->size == b->size && a->hardness == b->hardness && a->spacing == b->spacing &&
            a->spacing_enabled == b->spacing_enabled && a->opacity == b->opacity && a->flow == b->flow &&
            a->pressure_size == b->pressure_size && a->pressure_opacity == b->pressure_opacity &&
-           f4_eq(a->color, b->color) && f4_eq(a->background, b->background) && a->erase == b->erase &&
+           f4_eq(a->color, b->color) && a->color_cmyk_set == b->color_cmyk_set &&
+           (!a->color_cmyk_set ||
+            (a->color_cmyk_rgb[0] == b->color_cmyk_rgb[0] && a->color_cmyk_rgb[1] == b->color_cmyk_rgb[1] &&
+             a->color_cmyk_rgb[2] == b->color_cmyk_rgb[2] && f4_eq(a->color_cmyk_inks, b->color_cmyk_inks))) &&
+           f4_eq(a->background, b->background) && a->erase == b->erase &&
            a->mode == b->mode && pc_paint_tip_eq(&a->tip, &b->tip) && a->angle == b->angle &&
            a->roundness == b->roundness && a->flip_x == b->flip_x && a->flip_y == b->flip_y &&
            a->aliased == b->aliased && a->square == b->square &&
@@ -642,36 +648,76 @@ void pc_paint_point_vec_fini(pc_paint_point_vec *a)
     a->cap = 0;
 }
 
+/* Photoshop's round tip, measured (single dabs at Spacing 1000 %, hardness 0..100): a solid core
+ * of radius r0*R, then a Gaussian shoulder exp(-((d - r0)/s)^2) of width s*R, both by hardness. */
+static const float TIP_SHAPE[11][2] = {
+    {0.00f, 0.664f}, {0.14f, 0.58f}, {0.28f, 0.50f}, {0.40f, 0.44f}, {0.52f, 0.36f}, {0.63f, 0.29f},
+    {0.70f, 0.24f},  {0.78f, 0.19f}, {0.84f, 0.15f}, {0.89f, 0.11f}, {1.00f, 0.0f}};
+
+/* The shoulder never narrows below this many pixels, and the core stays this far inside the radius. */
+#define TIP_EDGE_PX 1.2f
+
+void pc_paint_tip_shape(float radius, float hardness, float *r0_out, float *s_out)
+{
+    float h = (isnan(hardness) ? 0.0f : pc_clampf(hardness, 0.0f, 1.0f)) * 10.0f;
+    size_t i = pc_f32_to_size(floorf(h));
+    float t, r0, s, edge;
+    if (i > 9) {
+        i = 9;
+    }
+    t = h - (float)i;
+    r0 = TIP_SHAPE[i][0] + (TIP_SHAPE[i + 1][0] - TIP_SHAPE[i][0]) * t;
+    s = TIP_SHAPE[i][1] + (TIP_SHAPE[i + 1][1] - TIP_SHAPE[i][1]) * t;
+    radius = isfinite(radius) ? pc_rs_maxf_k(radius, 0.0f) : 0.0f;
+    /* A tip of a few pixels keeps a narrower edge; never sharper than a quarter pixel. */
+    edge = pc_rs_maxf_k(pc_rs_minf(TIP_EDGE_PX, 0.3f * radius), 0.25f);
+    *r0_out = pc_rs_maxf_k(pc_rs_minf(r0 * radius, radius - edge), 0.0f);
+    *s_out = pc_rs_maxf_k(pc_rs_maxf(s * radius, edge), 1e-3f);
+}
+
+/* exp(-u) as (1 - u/64)^64 by six squarings: within 1/255 of exp where it matters, exact
+ * arithmetic (the same on every platform) and exactly 0 from u = 64. */
+static float soft_exp(float u)
+{
+    float g = pc_clampf(1.0f - u / 64.0f, 0.0f, 1.0f);
+    for (int i = 0; i < 6; i++) {
+        g *= g;
+    }
+    return g;
+}
+
 float pc_paint_tip_falloff(float d, float radius, float hardness)
 {
-    float inner = radius * pc_clampf(hardness, 0.0f, 1.0f), t, s, s2;
-    if (d <= inner || radius - inner < 1e-3f) {
+    float r0, s, x;
+    pc_paint_tip_shape(radius, hardness, &r0, &s);
+    if (d <= r0) {
         return 1.0f;
     }
-    t = pc_clampf((d - inner) / (radius - inner), 0.0f, 1.0f);
-    s = 1.0f - t * t;
-    s2 = s * s;
-    return s2 * s2;
+    x = (d - r0) / s;
+    return soft_exp(x * x);
+}
+
+float pc_paint_tip_reach(float radius, float hardness)
+{
+    float r0, s;
+    pc_paint_tip_shape(radius, hardness, &r0, &s);
+    return r0 + 2.6f * s;
 }
 
 float pc_paint_half_coverage_radius(float radius, float hardness)
 {
-    float h = isnan(hardness) ? 0.0f : pc_clampf(hardness, 0.0f, 1.0f);
-    float t = sqrtf(1.0f - sqrtf(sqrtf(0.5f)));
-    return radius * (h + t * (1.0f - h));
+    float r0, s, u;
+    pc_paint_tip_shape(radius, hardness, &r0, &s);
+    u = 64.0f * (1.0f - powf(0.5f, 1.0f / 64.0f));
+    return r0 + s * sqrtf(u);
 }
 
 float pc_paint_dab_coverage(float d, float radius, float hardness)
 {
-    float edge;
-    if (d >= radius + 0.5f) {
+    if (isnan(d) || d >= pc_paint_tip_reach(radius, hardness) + 0.5f) {
         return 0.0f;
     }
-    /* The reference's `clamp(0, 1).min(1.0)`: NaN gives 1. Tested on the input because clang 23
-     * folds a literal min over a clamp into a NaN-propagating minss. */
-    edge = radius + 0.5f - d;
-    edge = isnan(edge) ? 1.0f : pc_clampf(edge, 0.0f, 1.0f);
-    return edge * pc_paint_tip_falloff(d, radius, hardness);
+    return pc_paint_tip_falloff(d, radius, hardness);
 }
 
 pc_status pc_paint_smooth(const pc_paint_point *pts, size_t n, float amount, pc_paint_point_vec *out,

@@ -73,7 +73,7 @@ void pc_paint_smoother_init(pc_paint_smoother *s, const pc_paint_smoothing *cfg,
 
 static bool smoother_active(const pc_paint_smoother *s)
 {
-    return s->cfg.amount > 0.0f;
+    return s->cfg.enabled && s->cfg.amount > 0.0f;
 }
 
 pc_status pc_paint_smoother_push(pc_paint_smoother *s, pc_paint_point p, pc_paint_point_vec *out,

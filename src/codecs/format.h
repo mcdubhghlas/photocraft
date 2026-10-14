@@ -26,9 +26,10 @@ typedef enum pc_cformat {
     PC_CF_HDR,  /* Radiance RGBE */
     PC_CF_AVIF, /* neither read nor written in this build */
     PC_CF_HEIF, /* read-only (libheif) when built with it */
-    PC_CF_FITS  /* Flexible Image Transport System (astronomy): gray or RGB */
+    PC_CF_FITS, /* Flexible Image Transport System (astronomy): gray or RGB */
+    PC_CF_DPX   /* SMPTE 268M Digital Picture Exchange: luma, RGB or RGBA film and video frames */
 } pc_cformat;
-#define PC_CF_COUNT 16
+#define PC_CF_COUNT 17
 
 /* What a format can hold and what this build reads/writes for it. */
 typedef struct pc_ccaps {

@@ -37,6 +37,17 @@ void pc_psd_style_sheets_fini(pc_psd_style_sheets *s)
     memset(s, 0, sizeof *s);
 }
 
+/* A sheet index from EngineData. A negative or overflowing index is not a slot (#4429):
+   usize::try_from(v).ok(). */
+static bool sheet_index(int64_t v, size_t *out)
+{
+    if (v < 0 || (uint64_t)v > (uint64_t)SIZE_MAX) {
+        return false;
+    }
+    *out = (size_t)v;
+    return true;
+}
+
 /* Index a run's sheet dictionary refers to (`Parent` index, else `Name`), skipping `normal`. */
 static pc_opt_index reference(const pc_ed_value *sheet, const psd_names *set_names, size_t normal)
 {
@@ -46,9 +57,8 @@ static pc_opt_index reference(const pc_ed_value *sheet, const psd_names *set_nam
     if (sheet == NULL) {
         return r;
     }
-    if (pc_ed_as_i64(pc_ed_get(sheet, "Parent"), &i)) {
-        idx = (size_t)i;
-    } else {
+    /* Parent (when a non-negative slot), else a Name lookup. */
+    if (!(pc_ed_as_i64(pc_ed_get(sheet, "Parent"), &i) && sheet_index(i, &idx))) {
         const pc_str *n = pc_ed_as_str(pc_ed_get(sheet, "Name"));
         if (n == NULL) {
             return r;
@@ -68,7 +78,8 @@ static pc_opt_index reference(const pc_ed_value *sheet, const psd_names *set_nam
 static size_t normal_index(const pc_ed_value *res, const char *key)
 {
     int64_t i;
-    return pc_ed_as_i64(pc_ed_get(res, key), &i) ? (size_t)i : 0;
+    size_t idx;
+    return (pc_ed_as_i64(pc_ed_get(res, key), &i) && sheet_index(i, &idx)) ? idx : 0;
 }
 
 static pc_status run_refs(const pc_ed_value *e, const char *run_key, const char *sheet_key,
@@ -167,6 +178,7 @@ static pc_status read_sheets(const pc_ed_value *e, const pc_ed_value *res, float
         const pc_str *name;
         const pc_ed_value *props;
         int64_t d;
+        size_t di;
         if (i == normal_p) {
             continue;
         }
@@ -177,8 +189,8 @@ static pc_status read_sheets(const pc_ed_value *e, const pc_ed_value *res, float
         p->style = psd_para_style(base_props, props != NULL ? props : &empty, k);
         st = pc_str_set(&p->name, name != NULL ? pc_str_c(name) : "", name != NULL ? name->len : 0, err);
         if (st == PC_OK && pc_ed_as_i64(pc_ed_get(&pset[i], "DefaultStyleSheet"), &d) &&
-            (size_t)d != normal_c && (size_t)d < ns) {
-            const pc_ed_value *data = pc_ed_get(&sset[(size_t)d], "StyleSheetData");
+            sheet_index(d, &di) && di != normal_c && di < ns) {
+            const pc_ed_value *data = pc_ed_get(&sset[di], "StyleSheetData");
             st = psd_char_style(base_data, data != NULL ? data : &empty, &fonts, k, &p->chr, err);
             p->has_char = st == PC_OK;
         }

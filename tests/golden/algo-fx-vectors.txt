@@ -603,7 +603,7 @@ fx rgba32 {"filter":"findEdges"} 240d4b68563e7f9c
 fx rgb8 {"filter":"findEdges"} 0541e33a3194a67c
 fx gray8 {"filter":"findEdges"} 5128a96e7c89472d
 fx graya16 {"filter":"findEdges"} f6ff3003f92d1038
-fx cmyka8 {"filter":"findEdges"} b29b78266391612f
+fx cmyka8 {"filter":"findEdges"} b068ecd2d2a0f7a2
 fx laba16 {"filter":"findEdges"} 9778139273d7a914
 fx laba32 {"filter":"findEdges"} 240d4b68563e7f9c
 label {"filter":"findEdges"} Find Edges
@@ -614,7 +614,7 @@ fx rgba32 {"filter":"solarize"} 5782724d8c8b2bfa
 fx rgb8 {"filter":"solarize"} de2d8cb788559000
 fx gray8 {"filter":"solarize"} fdfee75a8eafd98a
 fx graya16 {"filter":"solarize"} 30da5700e9b176fb
-fx cmyka8 {"filter":"solarize"} 6c341efb0c5d9fef
+fx cmyka8 {"filter":"solarize"} 46d5b450b60efdce
 fx laba16 {"filter":"solarize"} 86420a593a2e2f15
 fx laba32 {"filter":"solarize"} 5782724d8c8b2bfa
 label {"filter":"solarize"} Solarize
@@ -1081,59 +1081,59 @@ fx laba16 {"filter":"colorHalftone","maxRadius":0.5,"angles":[-30.0,400.0,90.0,4
 fx laba32 {"filter":"colorHalftone","maxRadius":0.5,"angles":[-30.0,400.0,90.0,45.0]} 37a8f1ab122fe52f
 label {"filter":"colorHalftone","maxRadius":0.5,"angles":[-30.0,400.0,90.0,45.0]} Color Halftone
 halo {"filter":"colorHalftone","maxRadius":0.5,"angles":[-30.0,400.0,90.0,45.0]} r3
-fx rgba8 {"filter":"crystallize","cellSize":6.0,"seed":1} 79fc72b6241181ac
-fx rgba16 {"filter":"crystallize","cellSize":6.0,"seed":1} bbb7d1262e4011cc
-fx rgba32 {"filter":"crystallize","cellSize":6.0,"seed":1} 3737d2f364193b3b
-fx rgb8 {"filter":"crystallize","cellSize":6.0,"seed":1} fb833c0c4d6dc8a4
-fx gray8 {"filter":"crystallize","cellSize":6.0,"seed":1} 21c8b63e8ef79906
-fx graya16 {"filter":"crystallize","cellSize":6.0,"seed":1} 31284850183b74c2
-fx cmyka8 {"filter":"crystallize","cellSize":6.0,"seed":1} faae94429f52ea15
-fx laba16 {"filter":"crystallize","cellSize":6.0,"seed":1} bbb7d1262e4011cc
-fx laba32 {"filter":"crystallize","cellSize":6.0,"seed":1} 3737d2f364193b3b
+fx rgba8 {"filter":"crystallize","cellSize":6.0,"seed":1} c3effdeecfa13a0b
+fx rgba16 {"filter":"crystallize","cellSize":6.0,"seed":1} 9baf5b122a9fe726
+fx rgba32 {"filter":"crystallize","cellSize":6.0,"seed":1} e46d9ac4eacc323c
+fx rgb8 {"filter":"crystallize","cellSize":6.0,"seed":1} 26257183202a45bf
+fx gray8 {"filter":"crystallize","cellSize":6.0,"seed":1} c0885f650a42d69d
+fx graya16 {"filter":"crystallize","cellSize":6.0,"seed":1} 0cc99d1dfab0b42e
+fx cmyka8 {"filter":"crystallize","cellSize":6.0,"seed":1} 621e71a3bc15952a
+fx laba16 {"filter":"crystallize","cellSize":6.0,"seed":1} 9baf5b122a9fe726
+fx laba32 {"filter":"crystallize","cellSize":6.0,"seed":1} e46d9ac4eacc323c
 label {"filter":"crystallize","cellSize":6.0,"seed":1} Crystallize
 halo {"filter":"crystallize","cellSize":6.0,"seed":1} r19
-fx rgba8 {"filter":"crystallize","cellSize":3.0,"seed":2} 1e909a7ba3930d64
-fx rgba16 {"filter":"crystallize","cellSize":3.0,"seed":2} 3bcf111b04b617ff
-fx rgba32 {"filter":"crystallize","cellSize":3.0,"seed":2} 1e5e73d778758add
-fx rgb8 {"filter":"crystallize","cellSize":3.0,"seed":2} ae607a05b5a58f64
-fx gray8 {"filter":"crystallize","cellSize":3.0,"seed":2} 4209b70091992260
-fx graya16 {"filter":"crystallize","cellSize":3.0,"seed":2} 1e0619d82e245ec1
-fx cmyka8 {"filter":"crystallize","cellSize":3.0,"seed":2} 0d5454ff66c4ceed
-fx laba16 {"filter":"crystallize","cellSize":3.0,"seed":2} 3bcf111b04b617ff
-fx laba32 {"filter":"crystallize","cellSize":3.0,"seed":2} 1e5e73d778758add
+fx rgba8 {"filter":"crystallize","cellSize":3.0,"seed":2} b9e873122ab08277
+fx rgba16 {"filter":"crystallize","cellSize":3.0,"seed":2} eff9243ff607bb0e
+fx rgba32 {"filter":"crystallize","cellSize":3.0,"seed":2} b3678471e5bff057
+fx rgb8 {"filter":"crystallize","cellSize":3.0,"seed":2} bd9bfb37d86f590f
+fx gray8 {"filter":"crystallize","cellSize":3.0,"seed":2} b12cfdd6db732e8d
+fx graya16 {"filter":"crystallize","cellSize":3.0,"seed":2} 75f05e80cf7007d1
+fx cmyka8 {"filter":"crystallize","cellSize":3.0,"seed":2} d1f6be8446b8b46d
+fx laba16 {"filter":"crystallize","cellSize":3.0,"seed":2} eff9243ff607bb0e
+fx laba32 {"filter":"crystallize","cellSize":3.0,"seed":2} b3678471e5bff057
 label {"filter":"crystallize","cellSize":3.0,"seed":2} Crystallize
 halo {"filter":"crystallize","cellSize":3.0,"seed":2} r10
-fx rgba8 {"filter":"crystallize","cellSize":20.0,"seed":3} e037103f302cac74
-fx rgba16 {"filter":"crystallize","cellSize":20.0,"seed":3} d8a3d7e820d394c6
-fx rgba32 {"filter":"crystallize","cellSize":20.0,"seed":3} cb8813eb162b76ef
-fx rgb8 {"filter":"crystallize","cellSize":20.0,"seed":3} 01e9d08f1ffc036e
-fx gray8 {"filter":"crystallize","cellSize":20.0,"seed":3} 57b428c458321d38
-fx graya16 {"filter":"crystallize","cellSize":20.0,"seed":3} d6b76726b67b1346
-fx cmyka8 {"filter":"crystallize","cellSize":20.0,"seed":3} bbf2298d00617419
-fx laba16 {"filter":"crystallize","cellSize":20.0,"seed":3} d8a3d7e820d394c6
-fx laba32 {"filter":"crystallize","cellSize":20.0,"seed":3} cb8813eb162b76ef
+fx rgba8 {"filter":"crystallize","cellSize":20.0,"seed":3} 4e511521bf22734c
+fx rgba16 {"filter":"crystallize","cellSize":20.0,"seed":3} 621759add3f6b17d
+fx rgba32 {"filter":"crystallize","cellSize":20.0,"seed":3} adb34b51974a31d4
+fx rgb8 {"filter":"crystallize","cellSize":20.0,"seed":3} d24f19d1f6eb8962
+fx gray8 {"filter":"crystallize","cellSize":20.0,"seed":3} d831fa0f287b1187
+fx graya16 {"filter":"crystallize","cellSize":20.0,"seed":3} 639ba7d37f9ba902
+fx cmyka8 {"filter":"crystallize","cellSize":20.0,"seed":3} e2d58b047512f8af
+fx laba16 {"filter":"crystallize","cellSize":20.0,"seed":3} 621759add3f6b17d
+fx laba32 {"filter":"crystallize","cellSize":20.0,"seed":3} adb34b51974a31d4
 label {"filter":"crystallize","cellSize":20.0,"seed":3} Crystallize
 halo {"filter":"crystallize","cellSize":20.0,"seed":3} r61
-fx rgba8 {"filter":"crystallize","cellSize":1.0,"seed":4} f40afafe52782537
-fx rgba16 {"filter":"crystallize","cellSize":1.0,"seed":4} 871efef9228f3685
-fx rgba32 {"filter":"crystallize","cellSize":1.0,"seed":4} 2100054aaa3056a3
-fx rgb8 {"filter":"crystallize","cellSize":1.0,"seed":4} 31461d6fb220e19b
-fx gray8 {"filter":"crystallize","cellSize":1.0,"seed":4} 770f51fa31e0ad4c
-fx graya16 {"filter":"crystallize","cellSize":1.0,"seed":4} 7fdd230a070ab3a7
-fx cmyka8 {"filter":"crystallize","cellSize":1.0,"seed":4} a74a17cc679ef604
-fx laba16 {"filter":"crystallize","cellSize":1.0,"seed":4} 871efef9228f3685
-fx laba32 {"filter":"crystallize","cellSize":1.0,"seed":4} 2100054aaa3056a3
+fx rgba8 {"filter":"crystallize","cellSize":1.0,"seed":4} 647d615e762bc757
+fx rgba16 {"filter":"crystallize","cellSize":1.0,"seed":4} 3b7fbf9783375a8d
+fx rgba32 {"filter":"crystallize","cellSize":1.0,"seed":4} 1cab374dd51887fc
+fx rgb8 {"filter":"crystallize","cellSize":1.0,"seed":4} 3f77139f95d2ca6b
+fx gray8 {"filter":"crystallize","cellSize":1.0,"seed":4} a4397797092d9ad5
+fx graya16 {"filter":"crystallize","cellSize":1.0,"seed":4} d8d9741ed7481bdb
+fx cmyka8 {"filter":"crystallize","cellSize":1.0,"seed":4} b8a9ca4f82151548
+fx laba16 {"filter":"crystallize","cellSize":1.0,"seed":4} 3b7fbf9783375a8d
+fx laba32 {"filter":"crystallize","cellSize":1.0,"seed":4} 1cab374dd51887fc
 label {"filter":"crystallize","cellSize":1.0,"seed":4} Crystallize
 halo {"filter":"crystallize","cellSize":1.0,"seed":4} r4
-fx rgba8 {"filter":"crystallize","cellSize":9.5,"seed":0} 1f61eaac2e145f1d
-fx rgba16 {"filter":"crystallize","cellSize":9.5,"seed":0} 4698dbdc16ae4911
-fx rgba32 {"filter":"crystallize","cellSize":9.5,"seed":0} 7616b58ff102c79f
-fx rgb8 {"filter":"crystallize","cellSize":9.5,"seed":0} b46e70c09daf5545
-fx gray8 {"filter":"crystallize","cellSize":9.5,"seed":0} 5bb2a26fa85f5eb9
-fx graya16 {"filter":"crystallize","cellSize":9.5,"seed":0} 4ff5e82195e42451
-fx cmyka8 {"filter":"crystallize","cellSize":9.5,"seed":0} e3cf27167dbab6d1
-fx laba16 {"filter":"crystallize","cellSize":9.5,"seed":0} 4698dbdc16ae4911
-fx laba32 {"filter":"crystallize","cellSize":9.5,"seed":0} 7616b58ff102c79f
+fx rgba8 {"filter":"crystallize","cellSize":9.5,"seed":0} 12857ca2078069fe
+fx rgba16 {"filter":"crystallize","cellSize":9.5,"seed":0} c25dd57532bd556c
+fx rgba32 {"filter":"crystallize","cellSize":9.5,"seed":0} 08b4631e330c07ce
+fx rgb8 {"filter":"crystallize","cellSize":9.5,"seed":0} 854eaa0929aa4028
+fx gray8 {"filter":"crystallize","cellSize":9.5,"seed":0} 7837c4b1b707bdfc
+fx graya16 {"filter":"crystallize","cellSize":9.5,"seed":0} 064fb9730ca736b9
+fx cmyka8 {"filter":"crystallize","cellSize":9.5,"seed":0} 97bdfa413c3cd517
+fx laba16 {"filter":"crystallize","cellSize":9.5,"seed":0} c25dd57532bd556c
+fx laba32 {"filter":"crystallize","cellSize":9.5,"seed":0} 08b4631e330c07ce
 label {"filter":"crystallize","cellSize":9.5,"seed":0} Crystallize
 halo {"filter":"crystallize","cellSize":9.5,"seed":0} r30
 fx rgba8 {"filter":"facet"} 7c9977116d53241c
@@ -2482,8 +2482,8 @@ fxk rgba8 maxRadius nan {"angles":[0.0,10.0,20.0,30.0],"filter":"colorHalftone",
 fxk cmyka8 maxRadius nan {"angles":[0.0,10.0,20.0,30.0],"filter":"colorHalftone","maxRadius":1.0} ce9d35820290e0f6
 fxk rgba8 maxRadius inf {"angles":[0.0,10.0,20.0,30.0],"filter":"colorHalftone","maxRadius":1.0} 881d31e11537e39a
 fxk cmyka8 maxRadius inf {"angles":[0.0,10.0,20.0,30.0],"filter":"colorHalftone","maxRadius":1.0} a78ff39df4709e61
-fxk rgba8 cellSize nan {"cellSize":1.0,"filter":"crystallize","seed":1} b8c0429bc5f84147
-fxk cmyka8 cellSize nan {"cellSize":1.0,"filter":"crystallize","seed":1} 8f325f38a80016ee
+fxk rgba8 cellSize nan {"cellSize":1.0,"filter":"crystallize","seed":1} d2f04ae7ca697c28
+fxk cmyka8 cellSize nan {"cellSize":1.0,"filter":"crystallize","seed":1} d73640db1b82fb53
 fxk rgba8 cellSize inf {"cellSize":1.0,"filter":"crystallize","seed":1} 881d31e11537e39a
 fxk cmyka8 cellSize inf {"cellSize":1.0,"filter":"crystallize","seed":1} a78ff39df4709e61
 fxk rgba8 cellSize nan {"background":[1.0,1.0,1.0,1.0],"cellSize":1.0,"filter":"pointillize","seed":1} 7996135cc52309f5
@@ -2884,11 +2884,11 @@ fx rgba32 {"filter":"filterGallery","effects":[{"filter":"inkOutlines","values":
 fx cmyka8 {"filter":"filterGallery","effects":[{"filter":"inkOutlines","values":{"darkIntensity":20.0,"lightIntensity":10.0,"strokeLength":4.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} 2d1ca360e4423e07
 fx laba16 {"filter":"filterGallery","effects":[{"filter":"inkOutlines","values":{"darkIntensity":20.0,"lightIntensity":10.0,"strokeLength":4.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} a48c6dc4e4625073
 label {"filter":"filterGallery","effects":[{"filter":"inkOutlines","values":{"darkIntensity":20.0,"lightIntensity":10.0,"strokeLength":4.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} Ink Outlines
-fx rgba8 {"filter":"filterGallery","effects":[{"filter":"spatter","values":{"smoothness":5.0,"sprayRadius":10.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} 4aa816a063fab97d
-fx rgb8 {"filter":"filterGallery","effects":[{"filter":"spatter","values":{"smoothness":5.0,"sprayRadius":10.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} 4e6d6f1c8dd262d3
-fx rgba32 {"filter":"filterGallery","effects":[{"filter":"spatter","values":{"smoothness":5.0,"sprayRadius":10.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} 9ff9bdea1891997b
-fx cmyka8 {"filter":"filterGallery","effects":[{"filter":"spatter","values":{"smoothness":5.0,"sprayRadius":10.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} e4b90d6b0b2d4b0e
-fx laba16 {"filter":"filterGallery","effects":[{"filter":"spatter","values":{"smoothness":5.0,"sprayRadius":10.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} 8b152f40ba85b94b
+fx rgba8 {"filter":"filterGallery","effects":[{"filter":"spatter","values":{"smoothness":5.0,"sprayRadius":10.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} 329cbc6dc1a0970b
+fx rgb8 {"filter":"filterGallery","effects":[{"filter":"spatter","values":{"smoothness":5.0,"sprayRadius":10.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} 630d1ea2ea9182cc
+fx rgba32 {"filter":"filterGallery","effects":[{"filter":"spatter","values":{"smoothness":5.0,"sprayRadius":10.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} ecf62dda4ac98fc3
+fx cmyka8 {"filter":"filterGallery","effects":[{"filter":"spatter","values":{"smoothness":5.0,"sprayRadius":10.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} f07ee2912ef6d8ee
+fx laba16 {"filter":"filterGallery","effects":[{"filter":"spatter","values":{"smoothness":5.0,"sprayRadius":10.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} a7f1f5ca9a3502fb
 label {"filter":"filterGallery","effects":[{"filter":"spatter","values":{"smoothness":5.0,"sprayRadius":10.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} Spatter
 fx rgba8 {"filter":"filterGallery","effects":[{"filter":"sprayedStrokes","values":{"sprayRadius":7.0,"strokeDirection":0.0,"strokeLength":12.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} 80b92405e937d9ce
 fx rgb8 {"filter":"filterGallery","effects":[{"filter":"sprayedStrokes","values":{"sprayRadius":7.0,"strokeDirection":0.0,"strokeLength":12.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} 8abad404216429f4
@@ -3259,11 +3259,11 @@ fxg {"filter":"filterGallery","effects":[{"filter":"inkOutlines","values":{"dark
 fxg {"filter":"filterGallery","effects":[{"filter":"inkOutlines","values":{"darkIntensity":20.0,"lightIntensity":50.0,"strokeLength":4.0},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} 81c4f9e3ee9e0921
 fxg {"filter":"filterGallery","effects":[{"filter":"inkOutlines","values":{"darkIntensity":20.0,"lightIntensity":25.3,"strokeLength":4.0},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} e52cd0088f141381
 fxg {"filter":"filterGallery","effects":[{"filter":"spatter","values":{"smoothness":5.0,"sprayRadius":0.0},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} 7b5c81cfa6db124f
-fxg {"filter":"filterGallery","effects":[{"filter":"spatter","values":{"smoothness":5.0,"sprayRadius":25.0},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} 5c80db58a7e31e3c
-fxg {"filter":"filterGallery","effects":[{"filter":"spatter","values":{"smoothness":5.0,"sprayRadius":12.8},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} 2f3fbd61547b0db3
-fxg {"filter":"filterGallery","effects":[{"filter":"spatter","values":{"smoothness":1.0,"sprayRadius":10.0},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} e1c2b1ca92d0e4de
-fxg {"filter":"filterGallery","effects":[{"filter":"spatter","values":{"smoothness":15.0,"sprayRadius":10.0},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} 58995f524a2bc0a1
-fxg {"filter":"filterGallery","effects":[{"filter":"spatter","values":{"smoothness":8.3,"sprayRadius":10.0},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} 43139496608d40c0
+fxg {"filter":"filterGallery","effects":[{"filter":"spatter","values":{"smoothness":5.0,"sprayRadius":25.0},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} c460836e61ac17cb
+fxg {"filter":"filterGallery","effects":[{"filter":"spatter","values":{"smoothness":5.0,"sprayRadius":12.8},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} c9ba2302f582c8ad
+fxg {"filter":"filterGallery","effects":[{"filter":"spatter","values":{"smoothness":1.0,"sprayRadius":10.0},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} 05ba0c35fbbcd555
+fxg {"filter":"filterGallery","effects":[{"filter":"spatter","values":{"smoothness":15.0,"sprayRadius":10.0},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} d4f4fa81c8ddf465
+fxg {"filter":"filterGallery","effects":[{"filter":"spatter","values":{"smoothness":8.3,"sprayRadius":10.0},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} 62efba633d35ef2d
 fxg {"filter":"filterGallery","effects":[{"filter":"sprayedStrokes","values":{"sprayRadius":7.0,"strokeDirection":0.0,"strokeLength":0.0},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} 2d56c0fa0b076e3a
 fxg {"filter":"filterGallery","effects":[{"filter":"sprayedStrokes","values":{"sprayRadius":7.0,"strokeDirection":0.0,"strokeLength":20.0},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} b4279c8cdcbf3473
 fxg {"filter":"filterGallery","effects":[{"filter":"sprayedStrokes","values":{"sprayRadius":7.0,"strokeDirection":0.0,"strokeLength":10.3},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} 5c4436a1b9e4d852
@@ -3561,9 +3561,9 @@ fx rgba8 {"filter":"filterGallery","effects":[{"filter":"paintDaubs","values":{"
 fx graya16 {"filter":"filterGallery","effects":[{"filter":"paintDaubs","values":{"brushSize":8.0,"brushType":4.0,"sharpness":7.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} 9d2c4e7afae6f340
 halo {"filter":"filterGallery","effects":[{"filter":"paintDaubs","values":{"brushSize":8.0,"brushType":4.0,"sharpness":7.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} r12
 label {"filter":"filterGallery","effects":[{"filter":"paintDaubs","values":{"brushSize":8.0,"brushType":4.0,"sharpness":7.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} Paint Daubs
-fx rgba8 {"filter":"filterGallery","effects":[{"filter":"spatter","values":{"smoothness":5.0,"sprayRadius":30.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} cdaf1984dcd96cfb
-fx graya16 {"filter":"filterGallery","effects":[{"filter":"spatter","values":{"smoothness":5.0,"sprayRadius":30.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} 6a699f46fa313669
-halo {"filter":"filterGallery","effects":[{"filter":"spatter","values":{"smoothness":5.0,"sprayRadius":30.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} r32
+fx rgba8 {"filter":"filterGallery","effects":[{"filter":"spatter","values":{"smoothness":5.0,"sprayRadius":30.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} 794d1795e177e1eb
+fx graya16 {"filter":"filterGallery","effects":[{"filter":"spatter","values":{"smoothness":5.0,"sprayRadius":30.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} 35a5b2c403b5f3ad
+halo {"filter":"filterGallery","effects":[{"filter":"spatter","values":{"smoothness":5.0,"sprayRadius":30.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} r47
 label {"filter":"filterGallery","effects":[{"filter":"spatter","values":{"smoothness":5.0,"sprayRadius":30.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} Spatter
 fx rgba8 {"filter":"filterGallery","effects":[{"filter":"graphicPen","values":{"lightDarkBalance":50.0,"strokeDirection":0.0,"strokeLength":0.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} 7c8f1fa13017aac2
 fx graya16 {"filter":"filterGallery","effects":[{"filter":"graphicPen","values":{"lightDarkBalance":50.0,"strokeDirection":0.0,"strokeLength":0.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} 3122a05c219b886a
@@ -3867,28 +3867,28 @@ warp shift graya16 bilinear 8d2e6cd26b5292c0
 warp shift graya16 bicubic 8d2e6cd26b5292c0
 warp frac rgba8 nearest 796af062ef8f54df
 warp frac rgba8 bilinear adf58f4e2c75ddcc
-warp frac rgba8 bicubic 11a6552c4f094149
+warp frac rgba8 bicubic 393d3d9dd58c7e38
 warp frac rgb8 nearest 799c8e5cb4c12133
 warp frac rgb8 bilinear 8b2575f67ab89b92
-warp frac rgb8 bicubic 3d9cf51af9e634fa
+warp frac rgb8 bicubic c5e5b4815e8fce4e
 warp frac rgba32 nearest 800fb340765b6235
 warp frac rgba32 bilinear 22ad770e4725ff8d
-warp frac rgba32 bicubic 637888156ec9b583
+warp frac rgba32 bicubic 300dd602541b9123
 warp frac graya16 nearest c24da06101a23d50
 warp frac graya16 bilinear 96f55a82af426d1e
-warp frac graya16 bicubic 04bfba8f505db904
+warp frac graya16 bicubic 4ab0c0b951d8b2a1
 warp rotate rgba8 nearest ffc4f2950ad93174
 warp rotate rgba8 bilinear 3352a23aa4f8a457
-warp rotate rgba8 bicubic cd894da2a5e8aca5
+warp rotate rgba8 bicubic 9c076ec321264f93
 warp rotate rgb8 nearest 22076af3d78056e4
 warp rotate rgb8 bilinear cc2fc3db13321eb1
-warp rotate rgb8 bicubic d4b42cb01b1fb64d
+warp rotate rgb8 bicubic 290926b85753ce3f
 warp rotate rgba32 nearest 91e8223dbdb6e346
 warp rotate rgba32 bilinear 07032168bc725a5e
-warp rotate rgba32 bicubic 0c252508a8549578
+warp rotate rgba32 bicubic a7c4d56993705de3
 warp rotate graya16 nearest b94bd37ccf9f1637
 warp rotate graya16 bilinear b2a75af3fd62b242
-warp rotate graya16 bicubic 0d5f0e8c951f5d18
+warp rotate graya16 bicubic ea809f4a1b26011c
 warp scale rgba8 nearest 8cfa59d559edcd4b
 warp scale rgba8 bilinear b529a1f153d63e98
 warp scale rgba8 bicubic b529a1f153d63e98
@@ -3903,52 +3903,52 @@ warp scale graya16 bilinear a8b459d990afb7b7
 warp scale graya16 bicubic a8b459d990afb7b7
 warp fold rgba8 nearest dfaa393e7e9ce56b
 warp fold rgba8 bilinear d657f0df8506f580
-warp fold rgba8 bicubic b191167a841c5507
+warp fold rgba8 bicubic 760a8ecb04aceea4
 warp fold rgb8 nearest aa2a2317c72bebc1
 warp fold rgb8 bilinear fae716a6124d212b
-warp fold rgb8 bicubic 23f968fd8109f380
+warp fold rgb8 bicubic 08b10f72c723d2d2
 warp fold rgba32 nearest 98f520a327617b3a
 warp fold rgba32 bilinear 0f2f492e9a5f39e6
-warp fold rgba32 bicubic 00b822f48724026a
+warp fold rgba32 bicubic 631f858f5ea6cd01
 warp fold graya16 nearest 16c863fe6a24bb0e
 warp fold graya16 bilinear 9aac030b4a55f170
-warp fold graya16 bicubic 5ca93a7aa816182d
+warp fold graya16 bicubic 03e4e0aa800bf350
 warp arc rgba8 nearest e092e8a797927beb
 warp arc rgba8 bilinear 3e8d14a49a80eb0e
-warp arc rgba8 bicubic b3e7f561e3182300
+warp arc rgba8 bicubic 3d4fb36ac1c5b3e1
 warp arc rgb8 nearest 1e3bec6992a49db8
 warp arc rgb8 bilinear 6e2d0f3d2993c656
-warp arc rgb8 bicubic efa337ba5b579720
+warp arc rgb8 bicubic 0bc4bc8b8a5a25d0
 warp arc rgba32 nearest 55004d8b226e212d
 warp arc rgba32 bilinear d1049d86d0550742
-warp arc rgba32 bicubic 8e5af2924c666dd3
+warp arc rgba32 bicubic a0ebc739076eebf2
 warp arc graya16 nearest 9a9b2684f68c0ba9
 warp arc graya16 bilinear 67113e22dc8b8ba2
-warp arc graya16 bicubic a5b5f952e64ffefa
+warp arc graya16 bicubic 7bd7e06cb09d7151
 warp twist rgba8 nearest 6f0ef90f21d43ed9
 warp twist rgba8 bilinear ee472a03e17ba372
-warp twist rgba8 bicubic cb9ee7abf5f19690
+warp twist rgba8 bicubic 32d686436197df41
 warp twist rgb8 nearest 3a4f054898362e7e
 warp twist rgb8 bilinear 22f287df5661a627
-warp twist rgb8 bicubic 4607f73311c37e34
+warp twist rgb8 bicubic d71b92dff5a2f023
 warp twist rgba32 nearest be02dc3b2d139673
 warp twist rgba32 bilinear e558c64a564e336a
-warp twist rgba32 bicubic 323c8af82884c10a
+warp twist rgba32 bicubic e709e95ad1c859f3
 warp twist graya16 nearest dc46db6bd1e73029
 warp twist graya16 bilinear 654807a637c24658
-warp twist graya16 bicubic 790c6f59611a4b54
+warp twist graya16 bicubic 7457916885fdf443
 warp fisheye rgba8 nearest cc5f0b96b64f96a2
 warp fisheye rgba8 bilinear d7ed8c23e52b9923
-warp fisheye rgba8 bicubic a4d27001323da5c3
+warp fisheye rgba8 bicubic 212c81226f7a58c5
 warp fisheye rgb8 nearest ede85056ff203328
 warp fisheye rgb8 bilinear 4c9b23f326f1a127
-warp fisheye rgb8 bicubic 43dd97dc88d89fb2
+warp fisheye rgb8 bicubic 3d8d2454f4387109
 warp fisheye rgba32 nearest 37b632a5a31b8c2d
 warp fisheye rgba32 bilinear 107f35886fc668ad
-warp fisheye rgba32 bicubic ce303ead81eab9b4
+warp fisheye rgba32 bicubic 3ded624244c57bf5
 warp fisheye graya16 nearest cc09617afa5347c3
 warp fisheye graya16 bilinear c796b5039e0cb5f1
-warp fisheye graya16 bicubic 3c8f8bc9b1955dbb
+warp fisheye graya16 bicubic 7a65c57119f22a85
 warp flat rgba8 nearest b52b3f1c8e59bc78
 warp flat rgba8 bilinear b52b3f1c8e59bc78
 warp flat rgba8 bicubic b52b3f1c8e59bc78
@@ -3988,16 +3988,16 @@ warp far graya16 bicubic 17f5791ca2b62b0a
 warp_empty b52b3f1c8e59bc78
 tris rgba8 nearest 2620603c9b47fb99
 tris rgba8 bilinear 219c928cdc68de33
-tris rgba8 bicubic a0e35130ef02f1ee
+tris rgba8 bicubic ca6afb9f90c11a4d
 tris rgb8 nearest 6bd79b4ac1702270
 tris rgb8 bilinear 10c66a5d1a98875c
-tris rgb8 bicubic 2fabaa4daf8fe4f0
+tris rgb8 bicubic b638c9f29319c00b
 tris rgba32 nearest e66a8257b38d3fb6
 tris rgba32 bilinear cfe50c04da4cb2c0
-tris rgba32 bicubic 4036c6e55c7e2fd2
+tris rgba32 bicubic 24de8c632b7da2c9
 tris graya16 nearest 091db1542707ed9c
 tris graya16 bilinear ba4211d1f7d4a393
-tris graya16 bicubic c208392f24e009de
+tris graya16 bicubic 2b2ba50922615990
 wgray gray8 identity nearest 81a84be02a625a25
 wgray gray8 identity bilinear 81a84be02a625a25
 wgray gray8 identity bicubic 81a84be02a625a25
@@ -4006,25 +4006,25 @@ wgray gray8 shift bilinear 830a3f0014180209
 wgray gray8 shift bicubic 830a3f0014180209
 wgray gray8 frac nearest 68d093cc37e30565
 wgray gray8 frac bilinear 7257104f41103739
-wgray gray8 frac bicubic 39326ccf34cdd779
+wgray gray8 frac bicubic 2f9431c0b03d7730
 wgray gray8 rotate nearest c252ef7f5ebdaf7f
 wgray gray8 rotate bilinear 612e8183084eb0a7
-wgray gray8 rotate bicubic b352de31fbc3b68d
+wgray gray8 rotate bicubic 9ae63a6df696b3f2
 wgray gray8 scale nearest ba5206772a30da3e
 wgray gray8 scale bilinear fc532d17ae46f795
 wgray gray8 scale bicubic fc532d17ae46f795
 wgray gray8 fold nearest b5626fe7109ec5b2
 wgray gray8 fold bilinear 7e5b313ac4c3526b
-wgray gray8 fold bicubic d1e51903a6a9fdce
+wgray gray8 fold bicubic 9fa5b5251407b298
 wgray gray8 arc nearest 30060446782d8439
 wgray gray8 arc bilinear 4818d67d2ee168e3
-wgray gray8 arc bicubic b5151cbd50ddd90d
+wgray gray8 arc bicubic 1ffd46026849b64b
 wgray gray8 twist nearest ed17c6d09e41918a
 wgray gray8 twist bilinear fec1c31b8f4f8dc7
-wgray gray8 twist bicubic 39c77adfd92ad7c7
+wgray gray8 twist bicubic 1e4025c0e8261ee6
 wgray gray8 fisheye nearest 15c58b55f5d321e0
 wgray gray8 fisheye bilinear 49426e9d71777120
-wgray gray8 fisheye bicubic f5c4962a116c6528
+wgray gray8 fisheye bicubic 19dd7f5bb2e7a13f
 wgray gray8 flat nearest 5e80b18f58df014b
 wgray gray8 flat bilinear 5e80b18f58df014b
 wgray gray8 flat bicubic 5e80b18f58df014b
@@ -4043,25 +4043,25 @@ wgray grayf shift bilinear e980ee081f341154
 wgray grayf shift bicubic e980ee081f341154
 wgray grayf frac nearest f3b098a0508b7ab0
 wgray grayf frac bilinear adde293dc4a7d35b
-wgray grayf frac bicubic 0a9ebd27114182ca
+wgray grayf frac bicubic f4fdb722b60e6d4c
 wgray grayf rotate nearest 3cdafdc835c4f665
 wgray grayf rotate bilinear fdd13689115188b3
-wgray grayf rotate bicubic 7d29b0c43dd36fdb
+wgray grayf rotate bicubic b5d7f29cb39b0bfc
 wgray grayf scale nearest b1a88d772548def9
 wgray grayf scale bilinear 931a2c1633c7506c
 wgray grayf scale bicubic 931a2c1633c7506c
 wgray grayf fold nearest 812e66e06c927ab7
 wgray grayf fold bilinear d961551aa6e4092e
-wgray grayf fold bicubic de5f94f551f3a813
+wgray grayf fold bicubic d694290eb921edbc
 wgray grayf arc nearest 1646a1e3745ef4e7
 wgray grayf arc bilinear 8514f525813d345f
-wgray grayf arc bicubic ffcd9b0a5f1a6e62
+wgray grayf arc bicubic fd01eea9d9314c4d
 wgray grayf twist nearest 94f60dff43e1060d
 wgray grayf twist bilinear 33ae52c3a37c9d1d
-wgray grayf twist bicubic 48134d2dc2dcf9d6
+wgray grayf twist bicubic 8682b5cb78943018
 wgray grayf fisheye nearest 0bb8f14c7eb8b06f
 wgray grayf fisheye bilinear 76e926a9304751e3
-wgray grayf fisheye bicubic 8f9ce5bed253e162
+wgray grayf fisheye bicubic 1c603ff579c5b66c
 wgray grayf flat nearest 672a2a8f5dc6fc90
 wgray grayf flat bilinear 672a2a8f5dc6fc90
 wgray grayf flat bicubic 672a2a8f5dc6fc90
@@ -4074,57 +4074,57 @@ wgray grayf far bicubic 672a2a8f5dc6fc90
 wgray_empty grayf 672a2a8f5dc6fc90
 place rgba8 ident none 22cd882f892a3e4d
 place rgba8 ident identity 22cd882f892a3e4d
-place rgba8 ident bulge eee51caa78c211f2
-place rgba8 ident mesh f19fc46498e1db8e
+place rgba8 ident bulge 25cb79d463d493bb
+place rgba8 ident mesh 4892b5235e886269
 place rgba8 intshift none 0a6cc8879c9dd762
 place rgba8 intshift identity 0a6cc8879c9dd762
-place rgba8 intshift bulge fd1b8d29469378ba
-place rgba8 intshift mesh 425a18311cbd34f5
-place rgba8 fracshift none 9e70e8be68cbea33
-place rgba8 fracshift identity 9e70e8be68cbea33
-place rgba8 fracshift bulge 23fa233b520c989a
-place rgba8 fracshift mesh 8bf081f4bf429ac9
-place rgba8 scale none 95fc87827f2ffb23
-place rgba8 scale identity 95fc87827f2ffb23
+place rgba8 intshift bulge 77519322a507d993
+place rgba8 intshift mesh 564b81f89b9a56c6
+place rgba8 fracshift none 007bfecda4de0dc6
+place rgba8 fracshift identity 007bfecda4de0dc6
+place rgba8 fracshift bulge e38287adb383ec1d
+place rgba8 fracshift mesh b43ef3697be69c51
+place rgba8 scale none 761c6c6a9af8694c
+place rgba8 scale identity 761c6c6a9af8694c
 place rgba8 scale bulge f5aa90746c9c6af4
 place rgba8 scale mesh 515f96b7ba9856b7
-place rgba8 rot none b8bbee79ba350650
-place rgba8 rot identity b8bbee79ba350650
-place rgba8 rot bulge 0e989a2d945a3a2e
-place rgba8 rot mesh 09b7fc1305dd84a5
+place rgba8 rot none 62d426f9b3276d9b
+place rgba8 rot identity 62d426f9b3276d9b
+place rgba8 rot bulge 5baf255d6baf4dfa
+place rgba8 rot mesh 402276af41770a11
 placep rgba8 ident none 1424ab14ede0348c
 placep rgba8 ident identity 1424ab14ede0348c
-placep rgba8 ident bulge eee51caa78c211f2
-placep rgba8 ident mesh f19fc46498e1db8e
-placep rgba8 persp none cf5be941a743054c
-placep rgba8 persp identity cf5be941a743054c
-placep rgba8 persp bulge afe223a51928c6b2
-placep rgba8 persp mesh be4fb4ee79c58d2e
+placep rgba8 ident bulge 25cb79d463d493bb
+placep rgba8 ident mesh 4892b5235e886269
+placep rgba8 persp none 3308a759a008d42e
+placep rgba8 persp identity 3308a759a008d42e
+placep rgba8 persp bulge 864584e202868f1a
+placep rgba8 persp mesh 4cad6cc372a0864c
 place rgba32 ident none a3ec4b5a6deb1b11
 place rgba32 ident identity a3ec4b5a6deb1b11
-place rgba32 ident bulge e56d4ee85751a4b6
-place rgba32 ident mesh 082bdc78e6165e2f
+place rgba32 ident bulge ae2caee274f09f11
+place rgba32 ident mesh 39b6712cbdbe4d4e
 place rgba32 intshift none a53c3b7159558f1e
 place rgba32 intshift identity a53c3b7159558f1e
-place rgba32 intshift bulge 079eb10541f1baee
-place rgba32 intshift mesh 00a9d5f5c4a4517c
-place rgba32 fracshift none 227960d4d86a4a5c
-place rgba32 fracshift identity 227960d4d86a4a5c
-place rgba32 fracshift bulge 9c814ff4aebb04ca
-place rgba32 fracshift mesh 0b33ef774a75e304
-place rgba32 scale none 01b65a65bd16355e
-place rgba32 scale identity 01b65a65bd16355e
+place rgba32 intshift bulge e4bea0c860394bb9
+place rgba32 intshift mesh cb4a7286519587ed
+place rgba32 fracshift none 991084baa070b7e6
+place rgba32 fracshift identity 991084baa070b7e6
+place rgba32 fracshift bulge b926b6ec18812bf5
+place rgba32 fracshift mesh 79ceb35b0a2894a4
+place rgba32 scale none 77b8e7d93ab6bc4f
+place rgba32 scale identity 77b8e7d93ab6bc4f
 place rgba32 scale bulge fb2f32016bb6675b
 place rgba32 scale mesh a5edf6afbd826c02
-place rgba32 rot none 63262079e1608886
-place rgba32 rot identity 63262079e1608886
-place rgba32 rot bulge e5409d9d56b0b911
-place rgba32 rot mesh 35b113433a24be0a
+place rgba32 rot none ea4e77557dd5b6fc
+place rgba32 rot identity ea4e77557dd5b6fc
+place rgba32 rot bulge 7b0bd8db2b9f5acf
+place rgba32 rot mesh 9c8f0abcc0bb2543
 placep rgba32 ident none 79edfb8631854570
 placep rgba32 ident identity 79edfb8631854570
-placep rgba32 ident bulge e56d4ee85751a4b6
-placep rgba32 ident mesh 082bdc78e6165e2f
-placep rgba32 persp none 06e25dd51de9f8f1
-placep rgba32 persp identity 06e25dd51de9f8f1
-placep rgba32 persp bulge 63d3cf7ab1e61bcc
-placep rgba32 persp mesh 978d667590fb2881
+placep rgba32 ident bulge ae2caee274f09f11
+placep rgba32 ident mesh 39b6712cbdbe4d4e
+placep rgba32 persp none 32974a2e6c5c7604
+placep rgba32 persp identity 32974a2e6c5c7604
+placep rgba32 persp bulge f248f71e005da37b
+placep rgba32 persp mesh 26f30d2321a547b9

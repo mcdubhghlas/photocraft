@@ -256,6 +256,11 @@ pc_status rx_orf_decode(const rx_tiff *t, const pc_raw_limits *l, pc_raw_sensor 
 pc_status rx_tiffep_decode(const rx_tiff *t, pc_raw_format f, const pc_raw_limits *l, pc_raw_sensor *out,
                            pc_error *err);
 
+/* DNG writers can state a white level the sensor never reaches; samples stuck at the real
+ * saturation point are raised to it so they clip together (port of saturation.rs). Returns how many
+ * samples changed (0: the data is untouched). */
+size_t rx_sensor_lift_clipped_samples(pc_raw_sensor *s);
+
 bool rx_is_sony_non_cfa(const rx_tiff *t, const rx_ifd *ifds, size_t n);
 bool rx_tiffep_cfa(const rx_tiff *t, const rx_ifd *raw, const rx_ifd *ifds, size_t n, pc_raw_cfa *out);
 bool rx_rggb_by_position(const pc_raw_cfa *cfa, const double *v, size_t n, float out[4]);

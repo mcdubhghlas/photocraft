@@ -412,6 +412,33 @@ const char *const PC_TEXT_MYANMAR_FAMILIES[] = {"Myanmar Sangam MN", "Myanmar MN
                                                 "Noto Sans Myanmar", NULL};
 static const char *const *const SEA_FAMILIES[] = {PC_TEXT_THAI_FAMILIES, PC_TEXT_KHMER_FAMILIES,
                                                   PC_TEXT_LAO_FAMILIES, PC_TEXT_MYANMAR_FAMILIES};
+/* Indic-script families for document text (Nirmala UI covers all nine scripts and is listed by
+   each; it is probed once). Matches crate::text::fonts INDIC_FAMILIES, in fallback order. */
+static const char *const DEVANAGARI_FAMILIES[] = {"Nirmala UI",             "Kohinoor Devanagari",
+                                                  "Devanagari Sangam MN",   "Noto Sans Devanagari",
+                                                  "Noto Sans Devanagari UI", NULL};
+static const char *const BENGALI_FAMILIES[] = {"Nirmala UI",           "Kohinoor Bangla",
+                                               "Bangla Sangam MN",     "Noto Sans Bengali",
+                                               "Noto Sans Bengali UI", NULL};
+static const char *const GURMUKHI_FAMILIES[] = {"Nirmala UI", "Gurmukhi Sangam MN", "Noto Sans Gurmukhi",
+                                                "Noto Sans Gurmukhi UI", NULL};
+static const char *const GUJARATI_FAMILIES[] = {"Nirmala UI",            "Kohinoor Gujarati",
+                                                "Gujarati Sangam MN",    "Noto Sans Gujarati",
+                                                "Noto Sans Gujarati UI", NULL};
+static const char *const TAMIL_FAMILIES[] = {"Nirmala UI", "Tamil Sangam MN", "Noto Sans Tamil",
+                                             "Noto Sans Tamil UI", NULL};
+static const char *const TELUGU_FAMILIES[] = {"Nirmala UI",          "Kohinoor Telugu",
+                                              "Telugu Sangam MN",    "Noto Sans Telugu",
+                                              "Noto Sans Telugu UI", NULL};
+static const char *const KANNADA_FAMILIES[] = {"Nirmala UI", "Kannada Sangam MN", "Noto Sans Kannada",
+                                               "Noto Sans Kannada UI", NULL};
+static const char *const MALAYALAM_FAMILIES[] = {"Nirmala UI", "Malayalam Sangam MN", "Noto Sans Malayalam",
+                                                 "Noto Sans Malayalam UI", NULL};
+static const char *const SINHALA_FAMILIES[] = {"Nirmala UI", "Sinhala Sangam MN", "Noto Sans Sinhala",
+                                               "Noto Sans Sinhala UI", NULL};
+static const char *const *const INDIC_FAMILIES[] = {
+    DEVANAGARI_FAMILIES, BENGALI_FAMILIES, GURMUKHI_FAMILIES, GUJARATI_FAMILIES, TAMIL_FAMILIES,
+    TELUGU_FAMILIES,     KANNADA_FAMILIES, MALAYALAM_FAMILIES, SINHALA_FAMILIES};
 static const char *const FALLBACK_LAST[] = {"Arial Unicode MS", "Apple Color Emoji", "Segoe UI Emoji",
                                             "Noto Color Emoji"};
 
@@ -426,7 +453,7 @@ pc_status pc_text_fallback_candidates(const pc_cjk_script order[4], const char *
     if (st != PC_OK) {
         return st;
     }
-    cap = 7 + 4 + ncraft + 4 * 8 + 8 + 4 + 5 + 4;
+    cap = 7 + 4 + ncraft + 4 * 8 + 8 + 4 + 5 + 4 + 40;
     v = pc_malloc_array(cap, sizeof *v);
     if (v == NULL) {
         free(craft);
@@ -440,6 +467,24 @@ pc_status pc_text_fallback_candidates(const pc_cjk_script order[4], const char *
         const char *const *f;
         for (f = SEA_FAMILIES[s]; *f != NULL && m < cap; f++) {
             v[m++] = *f;
+        }
+    }
+    /* The nine Indic scripts, before the CJK families; Nirmala UI is listed by each, so a name
+       already present is not pushed again (!v.contains(f)). */
+    for (s = 0; s < sizeof INDIC_FAMILIES / sizeof INDIC_FAMILIES[0]; s++) {
+        const char *const *f;
+        for (f = INDIC_FAMILIES[s]; *f != NULL && m < cap; f++) {
+            size_t j;
+            bool seen = false;
+            for (j = 0; j < m; j++) {
+                if (strcmp(v[j], *f) == 0) {
+                    seen = true;
+                    break;
+                }
+            }
+            if (!seen) {
+                v[m++] = *f;
+            }
         }
     }
     for (s = 0; s < 4; s++) {
