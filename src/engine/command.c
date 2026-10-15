@@ -23,6 +23,7 @@
 #include "artboard_cmds.h" /* E6: view.clearSelectedArtboardGuides */
 #include "fill_cmds.h"   /* E4: edit.fill + select.rect/float/stamp/fill-key module registries */
 #include "edit_cmds.h"   /* E4: clipboard (cut/copy/paste), clear, layer via copy/cut, merge visible */
+#include "transform_cmds.h" /* E4/ET1: edit.transform Free Transform + frame-based presets */
 #include "extra_cmds.h"  /* E12: Stroke, Reselect, Equalize, rasterize, ungroup, layer-mask toggles, clouds */
 
 /* ---- owned JSON results ------------------------------------------------------------------- */
@@ -717,6 +718,8 @@ static void register_modules(pc_engine_command **arr, size_t *n, size_t *cap)
     (void)append_specs(arr, n, cap, path_edit, m);
     const pc_engine_command *edit = pc_engine_edit_specs(&m); /* E4: clipboard + clear + via/merge */
     (void)append_specs(arr, n, cap, edit, m);
+    const pc_engine_command *transform = pc_engine_transform_specs(&m); /* E4/ET1: Free Transform + presets */
+    (void)append_specs(arr, n, cap, transform, m);
     const pc_engine_command *adjust = pc_engine_adjust_specs(&m); /* E8: Image > Adjustments + adj layers */
     (void)append_specs(arr, n, cap, adjust, m);
     const pc_engine_command *analysis = pc_engine_analysis_specs(&m); /* E8: Image > Analysis */
@@ -771,6 +774,18 @@ static void register_modules(pc_engine_command **arr, size_t *n, size_t *cap)
     (void)append_specs(arr, n, cap, automate, m);
     const pc_engine_command *web = pc_engine_web_specs(&m); /* E12: Save for Web / Export / Image Assets */
     (void)append_specs(arr, n, cap, web, m);
+    const pc_engine_command *tool_colors = pc_engine_tool_colors_specs(&m); /* ET2: fg/bg colours */
+    (void)append_specs(arr, n, cap, tool_colors, m);
+    const pc_engine_command *auto_adjust = pc_engine_auto_adjust_specs(&m); /* ET2: Auto Tone/Contrast/Color */
+    (void)append_specs(arr, n, cap, auto_adjust, m);
+    const pc_engine_command *layer_menu = pc_engine_layer_menu_specs(&m); /* ET2: Flatten/masks/stack mode */
+    (void)append_specs(arr, n, cap, layer_menu, m);
+    const pc_engine_command *edit_menu = pc_engine_edit_menu_specs(&m); /* ET2: Edit > Purge */
+    (void)append_specs(arr, n, cap, edit_menu, m);
+    const pc_engine_command *color_to_alpha = pc_engine_color_to_alpha_specs(&m); /* ET2: Color to Alpha */
+    (void)append_specs(arr, n, cap, color_to_alpha, m);
+    const pc_engine_command *photo_automate = pc_engine_photo_automate_specs(&m); /* ET3: File > Automate */
+    (void)append_specs(arr, n, cap, photo_automate, m);
     /* E3..E12: append your module's specs() here. */
 }
 

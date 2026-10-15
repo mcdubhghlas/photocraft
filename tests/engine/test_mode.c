@@ -212,12 +212,13 @@ static void test_adversarial(void)
     CHECK(pc_engine_command_find("image.mode.colorTable") != NULL);
     CHECK(pc_engine_command_find("image.mode.bitmap") != NULL);
     CHECK(pc_engine_command_find("image.mode.duotone") != NULL);
-    /* image.rotation.arbitrary is deferred to E4 and must NOT be registered. */
-    CHECK(pc_engine_command_find("image.rotation.arbitrary") == NULL);
+    /* image.rotation.arbitrary is now wired (ET3). */
+    CHECK(pc_engine_command_find("image.rotation.arbitrary") != NULL);
     run_adversarial("image.mode.indexedColor", "rgb");
     run_adversarial("image.mode.colorTable", "rgb");
     run_adversarial("image.mode.bitmap", "grayscale");
     run_adversarial("image.mode.duotone", "grayscale");
+    run_adversarial("image.rotation.arbitrary", "rgb");
 }
 
 int main(int argc, char **argv)

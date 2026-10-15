@@ -257,6 +257,57 @@ void pc_engine_transform_geometry(pc_document *doc, const pc_affine *a)
     pc_engine_transform_doc_marks(doc, a);
 }
 
+/* Move one layer's non-pixel geometry (canvas_geom::transform_layer_geometry). `content` chooses
+ * whether the layer's own content geometry (vector mask path, shape path, type/smart transform)
+ * moves too, as against only what Free Transform leaves alone (unlinked masks, fill angles,
+ * artboards). Exposed for Image Rotation › Arbitrary, which moves each layer itself (transform_layer)
+ * and then its leftover geometry with content = false. */
+void pc_engine_transform_layer_geometry(pc_layer *l, const pc_affine *a, bool content, float dpi)
+{
+    transform_layer_geometry(l, a, content, dpi);
+}
+
+/* canvas_geom::refresh: re-render shape caches (always) and, when `all`, type and smart caches too,
+ * from a snapshot of the just-moved document. Best-effort (a clone OOM leaves caches as they are). */
+static void canvas_refresh_rec(const pc_document *snap, pc_layer *layers, size_t n, bool all)
+{
+    for (size_t i = 0; i < n; i++) {
+        pc_layer *l = &layers[i];
+        switch (l->content.kind) {
+        case PC_LAYER_GROUP: {
+            pc_group *g = &l->content.u.group;
+            canvas_refresh_rec(snap, g->children, g->nchildren, all);
+            break;
+        }
+        case PC_LAYER_SHAPE:
+            pc_engine_hook_refresh_shape(snap, l);
+            break;
+        case PC_LAYER_TEXT:
+            if (all) {
+                pc_engine_hook_refresh_text(snap, l);
+            }
+            break;
+        case PC_LAYER_SMART:
+            if (all) {
+                pc_engine_hook_refresh_smart(snap, l);
+            }
+            break;
+        default:
+            break;
+        }
+    }
+}
+
+void pc_engine_canvas_refresh(pc_document *doc, bool all)
+{
+    pc_document snap;
+    if (pc_document_clone(doc, &snap, NULL) != PC_OK) {
+        return;
+    }
+    canvas_refresh_rec(&snap, doc->layers, doc->nlayers, all);
+    pc_document_fini(&snap);
+}
+
 /* ---- right-angle turns -------------------------------------------------------------------- */
 
 pc_affine pc_engine_turn_affine(pc_engine_turn t, double w, double h)

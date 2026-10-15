@@ -72,6 +72,13 @@ uint32_t pc_engine_smart_source_decode_count(const uint8_t *bytes, size_t len, p
 
 /* The Layer > Smart Objects / Layer > Smart Filter command specs (smart_cmds_run.c,
  * register_modules() in command.c). */
+/* Convert to Smart Object: build the smart-object layer that replaces `l` / combines `layers`.
+ * `layers` ownership is moved into pc_engine_layers_to_smart (freed on success and on error); *out
+ * is initialised only on PC_OK (smart_cmds::layer_to_smart / layers_to_smart). */
+pc_status pc_engine_layer_to_smart(const pc_document *doc, const pc_layer *l, pc_layer *out, pc_error *err);
+pc_status pc_engine_layers_to_smart(const pc_document *doc, const char *name, pc_layer *layers,
+                                    size_t n, pc_layer *out, pc_error *err);
+
 const pc_engine_command *pc_engine_smart_specs(size_t *n);
 
 #endif /* PC_ENGINE_SMART_CMDS_H */

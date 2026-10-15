@@ -1794,6 +1794,14 @@ static pc_status run_rasterize_smart(pc_engine_session *s, yyjson_val *p, pc_jso
     return rasterize(s, p, "smart", out, err);
 }
 
+/* The no-`layer` path of layer.rasterize.shape (registered by E11's vector_specs.c): rasterize
+ * every selected shape layer, each dispatching back to layer.rasterize.shape with its own id. */
+pc_status pc_engine_rasterize_selected_shapes(pc_engine_session *s, yyjson_val *p, pc_json_value *out,
+                                              pc_error *err)
+{
+    return rasterize(s, p, "shape", out, err);
+}
+
 static pc_status run_rasterize_all(pc_engine_session *s, yyjson_val *p, pc_json_value *out, pc_error *err)
 {
     (void)p;

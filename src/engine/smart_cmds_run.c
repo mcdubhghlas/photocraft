@@ -770,15 +770,192 @@ static pc_status run_rasterize(pc_engine_session *s, yyjson_val *p, pc_json_valu
 
 /* ============================================================== registry */
 
+/* ---- Convert to Smart Object / Convert for Smart Filters (convert) ------------------------- */
+
+struct convert_ctx {
+    const pc_layer_id *ids;
+    size_t n;
+    pc_layer_id new_id;
+};
+
+static pc_status edit_convert(pc_document *doc, bool *has_active, pc_layer_id *active, void *vctx,
+                              pc_error *err)
+{
+    struct convert_ctx *c = vctx;
+    pc_layer_id *top = NULL;
+    size_t tn = 0;
+    if (pc_engine_top_level(doc, c->ids, c->n, &top, &tn, err) != PC_OK) {
+        return err != NULL ? err->code : PC_ERR_NOMEM;
+    }
+    if (tn == 0) {
+        free(top);
+        return pc_engine_err_other(err, "no layer selected");
+    }
+    pc_layer_id topid = top[tn - 1];
+    const pc_layer *l = pc_document_layer(doc, topid);
+    if (l == NULL) {
+        free(top);
+        return pc_engine_err_no_layer(err, topid);
+    }
+    pc_layer so;
+    pc_status rc;
+    if (tn == 1) {
+        rc = pc_engine_layer_to_smart(doc, l, &so, err);
+    } else {
+        pc_layer *children = pc_malloc_array(tn, sizeof *children);
+        if (children == NULL) {
+            free(top);
+            return pc_fail(err, PC_ERR_NOMEM, "convert to smart object");
+        }
+        size_t built = 0;
+        rc = PC_OK;
+        for (size_t i = 0; i < tn; i++) {
+            const pc_layer *cl = pc_document_layer(doc, top[i]);
+            if (cl == NULL) {
+                rc = pc_engine_err_no_layer(err, top[i]);
+                break;
+            }
+            if (pc_layer_clone(cl, &children[i], err) != PC_OK) {
+                rc = err != NULL ? err->code : PC_ERR_NOMEM;
+                break;
+            }
+            built++;
+        }
+        if (rc != PC_OK) {
+            for (size_t i = 0; i < built; i++) {
+                pc_layer_fini(&children[i]);
+            }
+            free(children);
+            free(top);
+            return rc;
+        }
+        /* The combined smart object takes the top layer's name (children consumed either way). */
+        size_t namelen = l->name.len;
+        char *name = malloc(namelen + 1);
+        if (name == NULL) {
+            for (size_t i = 0; i < tn; i++) {
+                pc_layer_fini(&children[i]);
+            }
+            free(children);
+            free(top);
+            return pc_fail(err, PC_ERR_NOMEM, "convert to smart object");
+        }
+        memcpy(name, pc_str_c(&l->name), namelen);
+        name[namelen] = '\0';
+        rc = pc_engine_layers_to_smart(doc, name, children, tn, &so, err);
+        free(name);
+    }
+    if (rc != PC_OK) {
+        free(top);
+        return rc;
+    }
+    /* Insert before removal so paths shifting in other parents cannot discard unselected content. */
+    pc_layer_id gid = 0;
+    rc = pc_document_insert_above(doc, &topid, &so, &gid, err);
+    if (rc != PC_OK) {
+        pc_layer_fini(&so);
+        free(top);
+        return rc;
+    }
+    for (size_t i = 0; i < tn; i++) {
+        pc_layer removed;
+        if (pc_document_remove(doc, top[i], &removed, err) != PC_OK) {
+            free(top);
+            return err != NULL ? err->code : PC_ERR_INVALID;
+        }
+        pc_layer_fini(&removed);
+    }
+    free(top);
+    *active = gid;
+    *has_active = true;
+    c->new_id = gid;
+    return PC_OK;
+}
+
+static pc_status run_convert(pc_engine_session *s, yyjson_val *p, pc_json_value *out, pc_error *err)
+{
+    struct convert_ctx c = {NULL, 0, 0};
+    pc_layer_id *owned = NULL;
+    yyjson_val *lv = pc_json_get(p, "layer");
+    if (lv != NULL && yyjson_is_uint(lv)) {
+        owned = pc_malloc_array(1, sizeof *owned);
+        if (owned == NULL) {
+            return pc_fail(err, PC_ERR_NOMEM, "convert to smart object");
+        }
+        owned[0] = (pc_layer_id)yyjson_get_uint(lv);
+        c.ids = owned;
+        c.n = 1;
+    } else {
+        if (pc_engine_selected(s, &owned, &c.n, err) != PC_OK) {
+            return err != NULL ? err->code : PC_ERR_NOMEM;
+        }
+        c.ids = owned;
+    }
+    pc_status rc = pc_engine_session_edit(s, "Convert to Smart Object", edit_convert, &c, err);
+    free(owned);
+    if (rc != PC_OK) {
+        return rc;
+    }
+    (void)pc_engine_set_selection(s, &c.new_id, 1, true, c.new_id, true, c.new_id, NULL);
+    yyjson_mut_doc *rd = NULL;
+    if (pc_engine_result_doc(out, &rd, err) != PC_OK) {
+        return PC_ERR_NOMEM;
+    }
+    yyjson_mut_val *root = yyjson_mut_obj(rd);
+    yyjson_mut_obj_add_uint(rd, root, "layer", (uint64_t)c.new_id);
+    yyjson_mut_doc_set_root(rd, root);
+    return PC_OK;
+}
+
+static pc_status convertible(const pc_engine_session *s, pc_error *reason)
+{
+    return pc_engine_has_layer(s, reason);
+}
+
+static pc_status not_smart(const pc_engine_session *s, pc_error *reason)
+{
+    pc_status rc = pc_engine_has_layer(s, reason);
+    if (rc != PC_OK) {
+        return rc;
+    }
+    if (active_smart(s, NULL, NULL) == PC_OK) {
+        return pc_fail(reason, PC_ERR_INVALID, "the layer is already a smart object");
+    }
+    return PC_OK;
+}
+
+/* Layer > Smart Objects contents commands (ET4): Export/Replace/Relink/Update/Convert. */
+#include "smart_contents.inc"
+
 const pc_engine_command *pc_engine_smart_specs(size_t *n)
 {
     static const char *const SO[] = {"Layer", "Smart Objects"};
     static const char *const SF[] = {"Layer", "Smart Filter"};
+    static const char *const FILTER[] = {"Filter"};
     static const pc_engine_command specs[] = {
+        {"layer.smartObjects.convertToSmartObject", "Convert to Smart Object", SO, 2, NULL,
+         "{\"layer\":id?} (default: combine selected layers)", convertible, run_convert, true},
+        {"filter.convertForSmartFilters", "Convert for Smart Filters", FILTER, 1, NULL,
+         "{\"layer\":id?} (default: combine selected layers)", not_smart, run_convert, true},
         {"layer.smartObjects.newSmartObjectViaCopy", "New Smart Object via Copy", SO, 2, NULL,
          "{\"layer\":id?}", has_smart, run_via_copy, true},
         {"layer.smartObjects.rasterize", "Rasterize", SO, 2, NULL, "{\"layer\":id?}", has_smart,
          run_rasterize, true},
+        /* Contents (ET4) */
+        {"layer.smartObjects.replaceContents", "Replace Contents\xE2\x80\xA6", SO, 2, NULL,
+         "{\"layer\":id?,\"path\":str}", has_smart, cn_replace_contents, true},
+        {"layer.smartObjects.exportContents", "Export Contents\xE2\x80\xA6", SO, 2, NULL,
+         "{\"layer\":id?,\"path\":str}", has_smart, cn_export_contents, true},
+        {"layer.smartObjects.relinkToFile", "Relink to File\xE2\x80\xA6", SO, 2, NULL,
+         "{\"layer\":id?,\"path\":str}", has_smart, cn_relink, true},
+        {"layer.smartObjects.updateModifiedContent", "Update Modified Content", SO, 2, NULL,
+         "{\"layer\":id?}", cn_has_linked, cn_update_modified, true},
+        {"layer.smartObjects.updateAllModifiedContent", "Update All Modified Content", SO, 2, NULL, "{}",
+         has_doc, cn_update_all, true},
+        {"layer.smartObjects.convertToEmbedded", "Convert to Embedded", SO, 2, NULL, "{\"layer\":id?}",
+         cn_has_linked, cn_convert_embedded, true},
+        {"layer.smartObjects.convertToLinked", "Convert to Linked\xE2\x80\xA6", SO, 2, NULL,
+         "{\"layer\":id?,\"path\":str} (writes the contents there)", has_smart, cn_convert_linked, true},
         /* Smart filters */
         {"layer.smartFilter.disableSmartFilters", "Disable Smart Filters", SF, 2, NULL,
          "{\"layer\":id?,\"enabled\":bool? (default: toggle)}", has_smart_filters, run_disable_all, true},

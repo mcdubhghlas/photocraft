@@ -97,6 +97,11 @@ static pc_status layer_copy(const pc_document *doc, pc_layer_id id, pc_layer *ou
     return PC_OK;
 }
 
+pc_status pc_engine_layer_copy(const pc_document *doc, pc_layer_id id, pc_layer *out, pc_error *err)
+{
+    return layer_copy(doc, id, out, err);
+}
+
 /* ---- shared selection helpers (layer_multi_cmds::targets / mask_targets / multi) ---------- */
 
 static bool has_layer_param(yyjson_val *p)

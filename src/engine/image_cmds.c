@@ -454,6 +454,12 @@ static pc_status translate_doc(pc_document *doc, const char *cmd, int32_t dx, in
     return PC_OK;
 }
 
+pc_status pc_engine_translate_doc(pc_document *doc, const char *cmd, int32_t dx, int32_t dy,
+                                  pc_error *err)
+{
+    return translate_doc(doc, cmd, dx, dy, err);
+}
+
 /* ---- crop_doc ----------------------------------------------------------------------------- */
 
 typedef struct {
@@ -983,6 +989,102 @@ static pc_status crop_angle(yyjson_val *p, bool *has_angle, double *out, pc_erro
     return PC_OK;
 }
 
+/* ---- rotated crop (Crop tool with an angle; image_cmds::rotated_crop) --------------------- */
+
+static const double CROP_PI = 3.14159265358979323846; /* M_PI is not ISO C */
+
+typedef struct {
+    double angle;         /* clockwise-on-screen crop angle (degrees) */
+    pc_rect target;       /* the upright crop rect in the rotated canvas */
+    bool delete_pixels;
+    float extension[4];   /* background colour for any uncovered area */
+    crop_target target_opts;
+} rotated_crop_ctx;
+
+/* Inside the Crop compound: rotate the whole document upright (Image Rotation › Arbitrary by
+ * `angle` counter-clockwise, so the frame becomes axis-aligned), then crop to the upright frame. */
+static pc_status rotated_crop_body(pc_engine_session *s, void *vctx, pc_error *err)
+{
+    rotated_crop_ctx *c = vctx;
+    char buf[96];
+    (void)snprintf(buf, sizeof buf, "{\"angle\":%.17g,\"direction\":\"ccw\"}", c->angle);
+    pc_json_value tmp = PC_JSON_VALUE_INIT;
+    pc_status rc = pc_engine_session_execute_json(s, "image.rotation.arbitrary", buf, &tmp, err);
+    pc_json_value_fini(&tmp);
+    if (rc != PC_OK) {
+        return rc;
+    }
+    /* Color Sampler points follow the crop's origin shift too (the rotation moved them above). */
+    set_sampler(s, pc_affine_translate(-(double)c->target.x0, -(double)c->target.y0));
+    crop_edit_ctx ectx;
+    ectx.r = c->target;
+    ectx.delete_pixels = c->delete_pixels;
+    memcpy(ectx.extension, c->extension, sizeof(float) * 4);
+    ectx.target = c->target_opts;
+    return pc_engine_session_edit(s, "Crop", crop_edit, &ectx, err);
+}
+
+static pc_status run_rotated_crop(pc_engine_session *s, pc_rect r, double angle, bool delete_pixels,
+                                  const crop_target *tgt, pc_json_value *out, pc_error *err)
+{
+    const char *CMD = "image.crop";
+    const pc_engine_doc_state *d = pc_engine_session_active(s);
+    if (d == NULL) {
+        return pc_engine_err_no_document(err);
+    }
+    pc_size size = pc_doc_arc_get(d->doc)->size;
+    double w = (double)pc_rect_width(r), h = (double)pc_rect_height(r);
+    double cx = (double)r.x0 + w / 2.0, cy = (double)r.y0 + h / 2.0;
+    /* Where the frame's centre lands under the rotation (clockwise by -angle about the centres). */
+    pc_size nw = pc_engine_rotated_size(size, -angle);
+    double rad = (-angle) * (CROP_PI / 180.0);
+    double sn = sin(rad), cs = cos(rad);
+    double dx = cx - (double)size.width / 2.0, dy = cy - (double)size.height / 2.0;
+    double ncx = (double)nw.width / 2.0 + cs * dx - sn * dy;
+    double ncy = (double)nw.height / 2.0 + sn * dx + cs * dy;
+    double xf = round(ncx - w / 2.0), yf = round(ncy - h / 2.0);
+    double limit = (double)(INT32_MAX / 2);
+    if (!isfinite(xf) || !isfinite(yf) || fabs(xf) > limit || fabs(yf) > limit) {
+        return bad(err, CMD, "the rotated frame is outside the 32-bit coordinate range");
+    }
+    int32_t x = (int32_t)xf, y = (int32_t)yf;
+    int64_t x1 = (int64_t)x + (int64_t)pc_rect_width(r);
+    int64_t y1 = (int64_t)y + (int64_t)pc_rect_height(r);
+    if (x1 > INT32_MAX || y1 > INT32_MAX) {
+        return bad(err, CMD, "the rotated frame is outside the 32-bit coordinate range");
+    }
+    rotated_crop_ctx ctx;
+    ctx.angle = angle;
+    ctx.target = pc_rect_make(x, y, (int32_t)x1, (int32_t)y1);
+    ctx.delete_pixels = delete_pixels;
+    const pc_engine_tool_state *t = pc_engine_session_tools(s);
+    memcpy(ctx.extension, t->background, sizeof(float) * 4);
+    ctx.target_opts = *tgt;
+    pc_status rc = pc_engine_compound(s, "Crop", rotated_crop_body, &ctx, err);
+    if (rc != PC_OK) {
+        return rc;
+    }
+    const pc_engine_doc_state *d2 = pc_engine_session_active(s);
+    yyjson_mut_doc *jd = NULL;
+    if (pc_engine_result_doc(out, &jd, err) != PC_OK) {
+        return PC_ERR_NOMEM;
+    }
+    yyjson_mut_val *root = yyjson_mut_obj(jd);
+    yyjson_mut_obj_add_int(jd, root, "x", r.x0);
+    yyjson_mut_obj_add_int(jd, root, "y", r.y0);
+    yyjson_mut_obj_add_uint(jd, root, "width", pc_rect_width(r));
+    yyjson_mut_obj_add_uint(jd, root, "height", pc_rect_height(r));
+    yyjson_mut_obj_add_real(jd, root, "angle", angle);
+    if (d2 != NULL) {
+        const pc_document *doc = pc_doc_arc_get(d2->doc);
+        yyjson_mut_obj_add_uint(jd, root, "documentWidth", doc->size.width);
+        yyjson_mut_obj_add_uint(jd, root, "documentHeight", doc->size.height);
+        yyjson_mut_obj_add_real(jd, root, "resolution", (double)doc->resolution_dpi);
+    }
+    yyjson_mut_doc_set_root(jd, root);
+    return PC_OK;
+}
+
 static pc_status run_crop(pc_engine_session *s, yyjson_val *p, pc_json_value *out, pc_error *err)
 {
     const char *CMD = "image.crop";
@@ -1038,12 +1140,9 @@ static pc_status run_crop(pc_engine_session *s, yyjson_val *p, pc_json_value *ou
         if (!has_explicit) {
             return bad(err, CMD, "an `angle` needs an explicit `x`, `y`, `width` and `height`");
         }
-        /* The rotated-frame crop rotates the whole document (Image Rotation › Arbitrary) and crops
-         * the upright frame in one step. It depends on transform_cmds (warp_gray / composite_over /
-         * transform_layer), owned by the concurrent E4 chunk. Deferred until it lands. */
-        return pc_fail(err, PC_ERR_UNSUPPORTED,
-                       "a rotated crop (`angle`) needs the Free-Transform engine (pending E4 "
-                       "transform_cmds)");
+        /* The rotated-frame crop rotates the whole document upright (Image Rotation › Arbitrary)
+         * and crops the now axis-aligned frame, all in one undo step. */
+        return run_rotated_crop(s, explicit_rect, angle, delete_pixels, &target, out, err);
     }
     pc_rect r;
     if (has_explicit) {

@@ -53,6 +53,23 @@ void pc_engine_clipboard_free(struct pc_engine_clip *c)
     free(c);
 }
 
+/* Bytes held by the clipboard's pixels (sum of its tiles); 0 for an empty/NULL clipboard. Used by
+ * Edit > Purge > Clipboard (edit_menu_cmds.c; edit_menu_cmds::clip_bytes). */
+size_t pc_engine_clipboard_bytes(const struct pc_engine_clip *c)
+{
+    if (c == NULL) {
+        return 0;
+    }
+    size_t total = 0;
+    size_t cursor = 0;
+    pc_tile coord;
+    const pc_raster_tile *tile;
+    while (pc_surface_next_tile(&c->surface, &cursor, &coord, &tile)) {
+        total += pc_raster_tile_len(tile);
+    }
+    return total;
+}
+
 /* Take over *clip (moved; its surface is consumed) as the session clipboard. On OOM *clip is
  * released and the clipboard left unchanged with an error. */
 static pc_status set_clipboard(pc_engine_session *s, struct pc_engine_clip *clip, pc_error *err)

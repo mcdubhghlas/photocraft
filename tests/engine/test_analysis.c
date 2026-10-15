@@ -202,14 +202,19 @@ static void test_deferred_report_errors(void)
 {
     pc_engine_session *s = mk_session();
     pc_json_value out;
-    /* Place Scale Marker and Straighten (needs a ruler) are deferred: graceful errors. */
+    /* Place Scale Marker is still deferred: a graceful error. */
     CHECK(pc_engine_session_execute_json(s, "image.analysis.placeScaleMarker", "{}", &out, NULL) !=
+          PC_OK);
+    /* Straighten needs a ruler: refused until one is set. */
+    CHECK(pc_engine_session_execute_json(s, "image.analysis.straightenLayer", "{}", &out, NULL) !=
           PC_OK);
     pc_json_value r;
     CHECK(run(s, "image.analysis.rulerTool", "{\"start\":[0,0],\"end\":[30,10]}", &r) == PC_OK);
     pc_json_value_fini(&r);
-    CHECK(pc_engine_session_execute_json(s, "image.analysis.straightenLayer", "{}", &out, NULL) !=
-          PC_OK);
+    /* With a ruler, Straighten Layer (ET3) now rotates the document level and clears the ruler. */
+    CHECK(run(s, "image.analysis.straightenLayer", "{}", &out) == PC_OK);
+    pc_json_value_fini(&out);
+    CHECK(!pc_doc_arc_get(pc_engine_session_active(s)->doc)->measurement.has_ruler);
     pc_engine_session_free(s);
 }
 

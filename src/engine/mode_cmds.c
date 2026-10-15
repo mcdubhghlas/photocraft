@@ -6,10 +6,11 @@
  * look; Duotone keeps the gray pixels and the inks. Like Photoshop the conversions flatten
  * (Indexed, Bitmap) and require a grayscale source (Bitmap, Duotone).
  *
- * Image Rotation › Arbitrary (image.rotation.arbitrary) is DEFERRED: it rotates every layer through
- * the Free-Transform engine (transform_cmds: warp_gray / composite_over / transform_layer), owned
- * by the concurrent E4 chunk. It is not registered here until E4 lands (an undefined symbol would
- * break the shared engine link). */
+ * Image Rotation › Arbitrary (image.rotation.arbitrary, ET3) rotates the whole document through the
+ * Free-Transform engine (transform_cmds: warp_gray / composite_over / transform_layer): the canvas
+ * grows to fit, the Background fills what the rotation uncovers with the background colour, and
+ * every other layer (even locked ones, and those inside groups) turns with it, keeping transparency
+ * there. */
 #include <math.h>
 #include <stdarg.h>
 #include <stdlib.h>
@@ -27,8 +28,10 @@
 #include "raster/surface.h"
 
 #include "algo/quantize.h"
+#include "algo/transform.h"
 
 #include "engine_internal.h"
+#include "transform_cmds.h"
 
 /* ---- small param helpers ------------------------------------------------------------------ */
 
@@ -1067,11 +1070,314 @@ static pc_status run_duotone(pc_engine_session *s, yyjson_val *p, pc_json_value 
     return PC_OK;
 }
 
+/* ---------- Image Rotation › Arbitrary ---------- */
+
+static const double ROT_PI = 3.14159265358979323846; /* M_PI is not ISO C */
+
+/* Canvas size after rotating `size` by `deg` (the canvas grows to fit, as in Photoshop). */
+pc_size pc_engine_rotated_size(pc_size size, double deg)
+{
+    double rad = deg * (ROT_PI / 180.0);
+    double sn = fabs(sin(rad)), cs = fabs(cos(rad));
+    double w = (double)size.width, h = (double)size.height;
+    double nw = ceil(w * cs + h * sn - 1e-6);
+    double nh = ceil(w * sn + h * cs - 1e-6);
+    if (nw < 1.0) {
+        nw = 1.0;
+    }
+    if (nh < 1.0) {
+        nh = 1.0;
+    }
+    return pc_size_make((uint32_t)nw, (uint32_t)nh);
+}
+
+static size_t count_layers_rec(const pc_layer *l)
+{
+    size_t n = 1;
+    if (pc_layer_is_group(l)) {
+        size_t nk = 0;
+        const pc_layer *kids = pc_layer_children(l, &nk);
+        for (size_t i = 0; i < nk; i++) {
+            n += count_layers_rec(&kids[i]);
+        }
+    }
+    return n;
+}
+
+/* Temporarily release the movement locks (position, all) on `l` and every descendant so a
+ * canvas-wide rotation moves even locked layers (mode_cmds::with_released_movement_locks). The
+ * second pass restores them. `saved` must hold count_layers_rec(l) entries. */
+static void movement_locks_save_clear(pc_layer *l, pc_locks *saved, size_t *idx)
+{
+    saved[*idx] = l->locks;
+    (*idx)++;
+    l->locks.position = false;
+    l->locks.all = false;
+    if (pc_layer_is_group(l)) {
+        pc_group *g = &l->content.u.group;
+        for (size_t i = 0; i < g->nchildren; i++) {
+            movement_locks_save_clear(&g->children[i], saved, idx);
+        }
+    }
+}
+
+static void movement_locks_restore(pc_layer *l, const pc_locks *saved, size_t *idx)
+{
+    l->locks = saved[*idx];
+    (*idx)++;
+    if (pc_layer_is_group(l)) {
+        pc_group *g = &l->content.u.group;
+        for (size_t i = 0; i < g->nchildren; i++) {
+            movement_locks_restore(&g->children[i], saved, idx);
+        }
+    }
+}
+
+/* Fill `base` (format `fmt`, with alpha) with the background colour over the whole canvas, so the
+ * rotated Background composites onto an opaque field (as the reference's write_region + repeat). */
+static pc_status fill_canvas_bg(pc_surface *base, pc_rect canvas, pc_pixel_format fmt,
+                                const float bg[4], pc_error *err)
+{
+    size_t ch = pc_pixel_format_channels(fmt);
+    if (ch == 0 || pc_rect_is_empty(canvas)) {
+        return PC_OK;
+    }
+    float enc[PC_RASTER_MAX_CHANNELS];
+    size_t m = pc_from_rgba(fmt, bg, enc);
+    uint64_t px = (uint64_t)pc_rect_width(canvas) * (uint64_t)pc_rect_height(canvas);
+    uint64_t total = px * (uint64_t)ch;
+    if (px != 0 && total / px != (uint64_t)ch) {
+        return pc_fail(err, PC_ERR_NOMEM, "rotated canvas fill");
+    }
+    float *raw = pc_malloc_array((size_t)total, sizeof(float));
+    if (raw == NULL) {
+        return pc_fail(err, PC_ERR_NOMEM, "rotated canvas fill");
+    }
+    for (uint64_t i = 0; i < px; i++) {
+        for (size_t c = 0; c < ch; c++) {
+            raw[i * ch + c] = c < m ? enc[c] : 0.0f;
+        }
+    }
+    pc_status rc = pc_surface_write_region(base, canvas, raw, (size_t)total, err);
+    free(raw);
+    return rc;
+}
+
+typedef struct {
+    double deg;
+    pc_algo_interp interp;
+    float bg[4];
+} rotate_ctx;
+
+static pc_status rotate_edit(pc_document *doc, bool *ha, pc_layer_id *a, void *vctx, pc_error *err)
+{
+    (void)ha;
+    (void)a;
+    rotate_ctx *c = vctx;
+    pc_size old = doc->size;
+    pc_size nw = pc_engine_rotated_size(old, c->deg);
+    double rad = c->deg * (ROT_PI / 180.0);
+    double sn = sin(rad), cs = cos(rad);
+    double cx = (double)old.width / 2.0, cy = (double)old.height / 2.0;
+    double nx = (double)nw.width / 2.0, ny = (double)nw.height / 2.0;
+    /* Clockwise on screen (y down): x' = c·x − s·y, y' = s·x + c·y about the old and new centres. */
+    pc_affine af = {{cs, sn, -sn, cs, nx - (cs * cx - sn * cy), ny - (sn * cx + cs * cy)}};
+    pc_algo_homography h = {{af.m[0], af.m[2], af.m[4], af.m[1], af.m[3], af.m[5], 0.0, 0.0, 1.0}};
+
+    doc->size = nw;
+    pc_rect canvas = pc_document_bounds(doc);
+    pc_pixel_format fmt = pc_document_pixel_format(doc);
+    float dpi = doc->resolution_dpi;
+    const pc_layer *bgl = pc_document_background(doc);
+    bool has_bg = bgl != NULL;
+    pc_layer_id bg_id = has_bg ? bgl->id : 0;
+
+    for (size_t i = 0; i < doc->nlayers; i++) {
+        pc_layer *l = &doc->layers[i];
+        pc_surface *surf = NULL;
+        bool is_bg = has_bg && l->id == bg_id;
+        if (is_bg && (surf = pc_layer_surface_mut(l)) != NULL) {
+            /* The Background stays a Background: rotated pixels over the background colour. */
+            pc_rect src = pc_surface_content_bounds(surf);
+            pc_surface rotated;
+            pc_status rc = pc_algo_warp_surface(surf, src, &h, c->interp, &rotated, err);
+            if (rc != PC_OK) {
+                return rc;
+            }
+            if (!pc_pixel_format_eq(pc_surface_format(&rotated), fmt)) {
+                pc_surface conv;
+                rc = pc_surface_convert(&rotated, fmt, &conv, err);
+                pc_surface_fini(&rotated);
+                if (rc != PC_OK) {
+                    return rc;
+                }
+                rotated = conv;
+            }
+            pc_surface base;
+            pc_surface_init(&base, fmt);
+            rc = fill_canvas_bg(&base, canvas, fmt, c->bg, err);
+            if (rc != PC_OK) {
+                pc_surface_fini(&base);
+                pc_surface_fini(&rotated);
+                return rc;
+            }
+            rc = pc_engine_transform_composite_over_native(&base, &rotated, err);
+            pc_surface_fini(&rotated);
+            if (rc != PC_OK) {
+                pc_surface_fini(&base);
+                return rc;
+            }
+            pc_surface_prune(&base);
+            pc_surface_fini(surf);
+            *surf = base;
+            if (l->has_mask) {
+                pc_surface m;
+                rc = pc_engine_transform_warp_gray(&l->mask.surface, &h, c->interp, &m, err);
+                if (rc != PC_OK) {
+                    return rc;
+                }
+                pc_surface_fini(&l->mask.surface);
+                l->mask.surface = m;
+            }
+        } else {
+            /* Rotating the whole image moves locked layers too, including inside groups. */
+            size_t n = count_layers_rec(l);
+            pc_locks *saved = pc_malloc_array(n, sizeof(pc_locks));
+            if (saved == NULL) {
+                return pc_fail(err, PC_ERR_NOMEM, "image.rotation.arbitrary");
+            }
+            size_t idx = 0;
+            movement_locks_save_clear(l, saved, &idx);
+            pc_locks def = {false, false, false, false, false};
+            pc_status rc = pc_engine_transform_layer(NULL, def, l, &h, &af, c->interp, err);
+            idx = 0;
+            movement_locks_restore(l, saved, &idx);
+            free(saved);
+            if (rc != PC_OK) {
+                return rc;
+            }
+        }
+        /* What Free Transform leaves alone: unlinked vector masks, gradient angles, artboards… */
+        pc_engine_transform_layer_geometry(l, &af, false, dpi);
+    }
+    pc_engine_transform_doc_marks(doc, &af);
+    for (size_t i = 0; i < doc->nchannels; i++) {
+        pc_surface m;
+        pc_status rc = pc_engine_transform_warp_gray(&doc->channels[i].surface, &h, c->interp, &m, err);
+        if (rc != PC_OK) {
+            return rc;
+        }
+        pc_surface_fini(&doc->channels[i].surface);
+        doc->channels[i].surface = m;
+    }
+    if (doc->has_quick_mask) {
+        pc_surface m;
+        pc_status rc = pc_engine_transform_warp_gray(&doc->quick_mask.surface, &h, c->interp, &m, err);
+        if (rc != PC_OK) {
+            return rc;
+        }
+        pc_surface_fini(&doc->quick_mask.surface);
+        doc->quick_mask.surface = m;
+    }
+    if (doc->has_selection) {
+        pc_surface w;
+        pc_status rc = pc_engine_transform_warp_gray(&doc->selection, &h, PC_ALGO_INTERP_BILINEAR, &w, err);
+        if (rc != PC_OK) {
+            return rc;
+        }
+        if (pc_rect_is_empty(pc_surface_content_bounds(&w))) {
+            pc_surface_fini(&w);
+            pc_surface_fini(&doc->selection);
+            doc->has_selection = false;
+        } else {
+            pc_surface_fini(&doc->selection);
+            doc->selection = w;
+        }
+    }
+    /* Type, shapes and smart objects re-render from their new geometry. */
+    pc_engine_canvas_refresh(doc, true);
+    pc_guides_fini(&doc->guides);
+    memset(&doc->guides, 0, sizeof doc->guides);
+    return PC_OK;
+}
+
+static pc_status rotate_result(pc_json_value *out, uint32_t w, uint32_t h, pc_error *err)
+{
+    yyjson_mut_doc *d = NULL;
+    if (pc_engine_result_doc(out, &d, err) != PC_OK) {
+        return PC_ERR_NOMEM;
+    }
+    yyjson_mut_val *root = yyjson_mut_obj(d);
+    yyjson_mut_obj_add_uint(d, root, "width", w);
+    yyjson_mut_obj_add_uint(d, root, "height", h);
+    yyjson_mut_doc_set_root(d, root);
+    return PC_OK;
+}
+
+static pc_status run_rotate_arbitrary(pc_engine_session *s, yyjson_val *p, pc_json_value *out,
+                                      pc_error *err)
+{
+    const char *CMD = "image.rotation.arbitrary";
+    const pc_engine_doc_state *d = pc_engine_session_active(s);
+    if (d == NULL) {
+        return pc_engine_err_no_document(err);
+    }
+    double angle = (double)num(p, "angle", 0.0f);
+    if (!isfinite(angle) || fabs(angle) > 3600.0) {
+        return bad(err, CMD, "angle out of range");
+    }
+    const char *dir = str_or(p, "direction", "cw");
+    double deg;
+    if (strcmp(dir, "cw") == 0) {
+        deg = angle;
+    } else if (strcmp(dir, "ccw") == 0) {
+        deg = -angle;
+    } else {
+        return bad(err, CMD, "direction `%s` (cw|ccw)", dir);
+    }
+    double norm = fmod(deg, 360.0);
+    if (norm < 0.0) {
+        norm += 360.0;
+    }
+    if (fabs(norm) < 1e-9) {
+        const pc_document *doc = pc_doc_arc_get(d->doc);
+        return rotate_result(out, doc->size.width, doc->size.height, err);
+    }
+    rotate_ctx c;
+    c.deg = deg;
+    c.interp = pc_algo_interp_parse(str_or(p, "interpolation", "bicubic"));
+    const pc_engine_tool_state *t = pc_engine_session_tools(s);
+    memcpy(c.bg, t->background, sizeof(float) * 4);
+    /* Color Sampler points turn with the canvas (the same map the edit applies to the geometry). */
+    const pc_document *doc0 = pc_doc_arc_get(d->doc);
+    pc_size old = doc0->size;
+    pc_size nw = pc_engine_rotated_size(old, deg);
+    double rad = deg * (ROT_PI / 180.0);
+    double sn = sin(rad), cs = cos(rad);
+    double cx = (double)old.width / 2.0, cy = (double)old.height / 2.0;
+    double nx = (double)nw.width / 2.0, ny = (double)nw.height / 2.0;
+    pc_affine map = {{cs, sn, -sn, cs, nx - (cs * cx - sn * cy), ny - (sn * cx + cs * cy)}};
+    s->has_sampler_map = true;
+    s->sampler_map = map;
+    pc_status rc = pc_engine_session_edit(s, "Rotate Canvas", rotate_edit, &c, err);
+    if (rc != PC_OK) {
+        return rc;
+    }
+    const pc_engine_doc_state *d2 = pc_engine_session_active(s);
+    const pc_document *doc = pc_doc_arc_get(d2->doc);
+    return rotate_result(out, doc->size.width, doc->size.height, err);
+}
+
 /* ---- specs -------------------------------------------------------------------------------- */
 
 static const char *const MENU_MODE[] = {"Image", "Mode"};
+static const char *const MENU_ROT[] = {"Image", "Image Rotation"};
 
 static const pc_engine_command MODE[] = {
+    {"image.rotation.arbitrary", "Arbitrary\xE2\x80\xA6", MENU_ROT, 2, NULL,
+     "{\"angle\":-359.99..359.99=0,\"direction\":\"cw|ccw\"=\"cw\",\"interpolation\":\"bicubic|"
+     "bilinear|nearest\"=\"bicubic\"} -> {width,height}",
+     pc_engine_has_doc, run_rotate_arbitrary, true},
     {"image.mode.indexedColor", "Indexed Color\xE2\x80\xA6", MENU_MODE, 2, NULL,
      "{\"palette\":\"selective|perceptual|adaptive|exact|systemMac|systemWindows|web|uniform\"="
      "\"selective\",\"colors\":2..256=256,\"forced\":\"blackWhite|none|primaries|web\"="

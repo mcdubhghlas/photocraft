@@ -30,6 +30,8 @@
 #include "color/blend.h"
 #include "compose/compose.h"
 #include "doc/doc.h"
+#include "doc/vector.h" /* pc_path_transform (shift_layer vector mask) */
+#include "format/format.h" /* pc_format_save_to_bytes (encode_source) */
 #include "geom/geom.h"
 #include "geom/warp.h"
 #include "io/io.h"
@@ -41,6 +43,7 @@
 #include "allocation.h"
 #include "engine_internal.h"
 #include "smart_cmds.h"
+#include "vector_cmds.h" /* pc_engine_transform_shape (shift_layer shape) */
 
 /* Largest linked file read from disk (as the reference's format::read_file cap, 2 GiB). */
 #define SMART_MAX_FILE (2u * 1024u * 1024u * 1024u)
@@ -747,6 +750,372 @@ uint32_t pc_engine_smart_source_decode_count(const uint8_t *bytes, size_t len, p
     (void)len;
     (void)fmt;
     return 0; /* §7: no decoded-source cache in this build */
+}
+
+/* ============================================= Convert to Smart Object (layer_to_smart / etc.) */
+
+/* Move a surface by whole pixels (translate_surface); best-effort on OOM (leaves it as it was). */
+static void shift_surface(pc_surface *s, int32_t dx, int32_t dy)
+{
+    pc_surface moved;
+    if (pc_algo_translate_surface(s, dx, dy, &moved, NULL) == PC_OK) {
+        pc_surface_fini(s);
+        *s = moved;
+    }
+}
+
+/* Move a layer (any kind) by whole pixels without re-rendering anything (shift_layer). */
+static void shift_layer(pc_layer *l, int32_t dx, int32_t dy)
+{
+    if (dx == 0 && dy == 0) {
+        return;
+    }
+    pc_affine a = pc_affine_translate((double)dx, (double)dy);
+    if (l->has_mask) {
+        shift_surface(&l->mask.surface, dx, dy);
+    }
+    if (l->has_vector_mask) {
+        pc_path np;
+        if (pc_path_transform(&l->vector_mask.path, a, &np, NULL) == PC_OK) {
+            pc_path_fini(&l->vector_mask.path);
+            l->vector_mask.path = np;
+        }
+    }
+    if (l->has_fill_cache) {
+        shift_surface(&l->fill_cache.surface, dx, dy);
+    }
+    switch (l->content.kind) {
+    case PC_LAYER_RASTER:
+        shift_surface(&l->content.u.raster, dx, dy);
+        break;
+    case PC_LAYER_TEXT: {
+        pc_text_layer *t = &l->content.u.text;
+        t->transform = pc_affine_mul(a, t->transform);
+        if (t->has_cache) {
+            shift_surface(&t->cache, dx, dy);
+        }
+        break;
+    }
+    case PC_LAYER_SHAPE: {
+        pc_shape_layer *sh = &l->content.u.shape;
+        pc_engine_transform_shape(sh, &a);
+        if (sh->has_cache) {
+            shift_surface(&sh->cache, dx, dy);
+        }
+        break;
+    }
+    case PC_LAYER_SMART:
+        (void)pc_engine_smart_shift(&l->content.u.smart, dx, dy, NULL);
+        break;
+    case PC_LAYER_GROUP: {
+        pc_group *g = &l->content.u.group;
+        for (size_t i = 0; i < g->nchildren; i++) {
+            shift_layer(&g->children[i], dx, dy);
+        }
+        break;
+    }
+    default: /* adjustment, fill: no pixels to move */
+        break;
+    }
+}
+
+/* layers_to_smart's subtree bounds: a group spans its children, an adjustment/fill spans the
+ * canvas, and any other layer spans its surface. */
+static pc_rect subtree_bounds(const pc_layer *l, pc_rect canvas)
+{
+    if (l->content.kind == PC_LAYER_GROUP) {
+        pc_rect b = PC_RECT_EMPTY;
+        const pc_group *g = &l->content.u.group;
+        for (size_t i = 0; i < g->nchildren; i++) {
+            b = pc_rect_union(b, subtree_bounds(&g->children[i], canvas));
+        }
+        return b;
+    }
+    if (l->content.kind == PC_LAYER_ADJUSTMENT || l->content.kind == PC_LAYER_FILL) {
+        return canvas;
+    }
+    const pc_surface *s = pc_layer_surface(l);
+    return s != NULL ? pc_surface_content_bounds(s) : PC_RECT_EMPTY;
+}
+
+static bool layer_has_fx(const pc_layer *l)
+{
+    if (l->effects.enabled && l->effects.nitems > 0) {
+        return true;
+    }
+    if (l->content.kind == PC_LAYER_GROUP) {
+        const pc_group *g = &l->content.u.group;
+        for (size_t i = 0; i < g->nchildren; i++) {
+            if (layer_has_fx(&g->children[i])) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+static bool layer_has_nested_smart(const pc_layer *l)
+{
+    if (l->content.kind == PC_LAYER_SMART) {
+        return true;
+    }
+    if (l->content.kind == PC_LAYER_GROUP) {
+        const pc_group *g = &l->content.u.group;
+        for (size_t i = 0; i < g->nchildren; i++) {
+            if (layer_has_nested_smart(&g->children[i])) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+/* Build the smart-object layer for `layers` (ownership moved in; freed before return): render them
+ * as a nested .pcraft document cropped to their rendered bounds, with the composite as the cache.
+ * On error the layers are freed and *out is untouched (layers_to_smart). */
+pc_status pc_engine_layers_to_smart(const pc_document *doc, const char *name, pc_layer *layers,
+                                    size_t n, pc_layer *out, pc_error *err)
+{
+    pc_rect canvas = pc_document_bounds(doc);
+    pc_pixel_format fmt = pc_document_pixel_format(doc);
+
+    size_t namelen = strlen(name);
+    char *subname = malloc(namelen + 8);
+    if (subname == NULL) {
+        for (size_t i = 0; i < n; i++) {
+            pc_layer_fini(&layers[i]);
+        }
+        free(layers);
+        return pc_fail(err, PC_ERR_NOMEM, "convert to smart object");
+    }
+    memcpy(subname, name, namelen);
+    memcpy(subname + namelen, ".pcraft", 8);
+
+    pc_document sub;
+    pc_status rc = pc_document_init(&sub, subname, doc->size, doc->mode, doc->depth, err);
+    if (rc != PC_OK) {
+        free(subname);
+        for (size_t i = 0; i < n; i++) {
+            pc_layer_fini(&layers[i]);
+        }
+        free(layers);
+        return rc;
+    }
+    sub.resolution_dpi = doc->resolution_dpi;
+    sub.icc_profile = pc_blob_retain(doc->icc_profile);
+    sub.global_light = doc->global_light;
+
+    bool has_fx = false, nested = false;
+    for (size_t i = 0; i < n; i++) {
+        has_fx = has_fx || layer_has_fx(&layers[i]);
+        nested = nested || layer_has_nested_smart(&layers[i]);
+    }
+    /* Pattern fills and pattern effects reference document patterns by id: keep them. */
+    if (doc->npatterns > 0) {
+        sub.patterns = pc_malloc_array(doc->npatterns, sizeof *sub.patterns);
+        if (sub.patterns == NULL) {
+            rc = pc_fail(err, PC_ERR_NOMEM, "convert to smart object");
+            goto fail_sub;
+        }
+        for (size_t i = 0; i < doc->npatterns; i++) {
+            if (pc_pattern_clone(&doc->patterns[i], &sub.patterns[i], err) != PC_OK) {
+                for (size_t k = 0; k < i; k++) {
+                    pc_pattern_fini(&sub.patterns[k]);
+                }
+                free(sub.patterns);
+                sub.patterns = NULL;
+                rc = err != NULL ? err->code : PC_ERR_NOMEM;
+                goto fail_sub;
+            }
+        }
+        sub.npatterns = doc->npatterns;
+    }
+    /* Nested PSD placed layers find their embedded files in the global blocks. */
+    if (nested && doc->metadata.npsd_global_blocks > 0) {
+        size_t gn = doc->metadata.npsd_global_blocks;
+        sub.metadata.psd_global_blocks = pc_malloc_array(gn, sizeof *sub.metadata.psd_global_blocks);
+        if (sub.metadata.psd_global_blocks == NULL) {
+            rc = pc_fail(err, PC_ERR_NOMEM, "convert to smart object");
+            goto fail_sub;
+        }
+        for (size_t i = 0; i < gn; i++) {
+            sub.metadata.psd_global_blocks[i] = doc->metadata.psd_global_blocks[i];
+            sub.metadata.psd_global_blocks[i].data = pc_blob_retain(doc->metadata.psd_global_blocks[i].data);
+        }
+        sub.metadata.npsd_global_blocks = gn;
+    }
+
+    pc_rect region = canvas;
+    for (size_t i = 0; i < n; i++) {
+        region = pc_rect_union(region, subtree_bounds(&layers[i], canvas));
+    }
+    if (has_fx) {
+        region = pc_rect_make(region.x0 - 256, region.y0 - 256, region.x1 + 256, region.y1 + 256);
+    }
+    /* Ownership of the layer array moves into the sub-document. */
+    free(sub.layers);
+    sub.layers = layers;
+    sub.nlayers = n;
+    layers = NULL;
+
+    pc_compose_buffer buf;
+    memset(&buf, 0, sizeof buf);
+    rc = pc_compose_render(&sub, region, &buf, err);
+    if (rc != PC_OK) {
+        goto fail_sub;
+    }
+    /* The rendered content's tight bounds (opaque pixels). */
+    uint32_t bw = pc_rect_width(buf.rect);
+    pc_rect b = PC_RECT_EMPTY;
+    for (size_t i = 0; i < buf.len; i++) {
+        if (buf.px[i][3] > 0.0f) {
+            int32_t x = buf.rect.x0 + (int32_t)(i % bw);
+            int32_t y = buf.rect.y0 + (int32_t)(i / bw);
+            b = pc_rect_union(b, pc_rect_make(x, y, x + 1, y + 1));
+        }
+    }
+    if (pc_rect_is_empty(b)) {
+        pc_compose_buffer_fini(&buf);
+        rc = pc_engine_err_other(err, "the layer is empty, so there is nothing to convert");
+        goto fail_sub;
+    }
+    pc_surface cache;
+    rc = buffer_to_surface(&buf, fmt, &cache, err);
+    pc_compose_buffer_fini(&buf);
+    if (rc != PC_OK) {
+        goto fail_sub;
+    }
+    pc_surface cropped;
+    if (pc_algo_crop_surface(&cache, b, &cropped, err) != PC_OK) {
+        pc_surface_fini(&cache);
+        rc = err != NULL ? err->code : PC_ERR_NOMEM;
+        goto fail_sub;
+    }
+    pc_surface_fini(&cache);
+    cache = cropped;
+    pc_surface_prune(&cache);
+
+    for (size_t i = 0; i < sub.nlayers; i++) {
+        shift_layer(&sub.layers[i], -b.x0, -b.y0);
+    }
+    sub.size = (pc_size){pc_rect_width(b), pc_rect_height(b)};
+
+    pc_buf bytes = PC_BUF_INIT;
+    pc_format_save_opts opts = {NULL, NULL};
+    rc = pc_format_save_to_bytes(&sub, &opts, &bytes, err);
+    if (rc != PC_OK) {
+        pc_surface_fini(&cache);
+        pc_buf_fini(&bytes);
+        rc = pc_fail(err, PC_ERR_INVALID, "can't encode smart object contents");
+        goto fail_sub;
+    }
+    pc_blob *blob = NULL;
+    rc = pc_blob_new(bytes.data, bytes.len, &blob, err);
+    pc_buf_fini(&bytes);
+    if (rc != PC_OK) {
+        pc_surface_fini(&cache);
+        goto fail_sub;
+    }
+
+    pc_smart_source source;
+    source.linked = false;
+    source.bytes = blob;
+    source.path = (pc_str)PC_STR_INIT;
+    source.file_name = (pc_str)PC_STR_INIT;
+    if (pc_str_set(&source.file_name, subname, strlen(subname), err) != PC_OK) {
+        pc_blob_release(blob);
+        pc_surface_fini(&cache);
+        rc = err != NULL ? err->code : PC_ERR_NOMEM;
+        goto fail_sub;
+    }
+
+    pc_smart_object so;
+    pc_affine placement = pc_affine_translate((double)b.x0, (double)b.y0);
+    pc_smart_object_init(&so, &source, placement, &cache); /* takes over source + cache */
+
+    pc_layer_content content = {0};
+    content.kind = PC_LAYER_SMART;
+    content.u.smart = so;
+    rc = pc_layer_init(out, name, &content, err);
+    if (rc != PC_OK) {
+        pc_layer_content_fini(&content);
+        goto fail_sub;
+    }
+    pc_document_fini(&sub);
+    free(subname);
+    return PC_OK;
+
+fail_sub:
+    if (layers != NULL) {
+        for (size_t i = 0; i < n; i++) {
+            pc_layer_fini(&layers[i]);
+        }
+        free(layers);
+    }
+    pc_document_fini(&sub);
+    free(subname);
+    return rc;
+}
+
+/* The smart-object layer replacing `l` in `doc`: the layer (with its mask, effects and fill
+ * opacity) becomes a nested document; visibility, opacity, blend, clipping and label stay on the
+ * smart layer (layer_to_smart). */
+pc_status pc_engine_layer_to_smart(const pc_document *doc, const pc_layer *l, pc_layer *out, pc_error *err)
+{
+    bool background = pc_document_is_background(doc, l->id);
+    pc_layer inner;
+    if (pc_layer_clone(l, &inner, err) != PC_OK) {
+        return err != NULL ? err->code : PC_ERR_NOMEM;
+    }
+    inner.visible = true;
+    inner.opacity = 1.0f;
+    inner.clipped = false;
+    inner.locks = (pc_locks){0};
+    if (!(pc_layer_is_group(&inner) && inner.blend == PC_BLEND_PASS_THROUGH)) {
+        inner.blend = PC_BLEND_NORMAL;
+    }
+    if (background) {
+        if (pc_str_set(&inner.name, "Layer 0", 7, err) != PC_OK) {
+            pc_layer_fini(&inner);
+            return err != NULL ? err->code : PC_ERR_NOMEM;
+        }
+    }
+    /* Keep the original name for the smart object (and the nested document). */
+    char *keep = NULL;
+    size_t keeplen = l->name.len;
+    keep = malloc(keeplen + 1);
+    if (keep == NULL) {
+        pc_layer_fini(&inner);
+        return pc_fail(err, PC_ERR_NOMEM, "convert to smart object");
+    }
+    memcpy(keep, pc_str_c(&l->name), keeplen);
+    keep[keeplen] = '\0';
+
+    pc_layer *arr = pc_malloc_array(1, sizeof *arr);
+    if (arr == NULL) {
+        pc_layer_fini(&inner);
+        free(keep);
+        return pc_fail(err, PC_ERR_NOMEM, "convert to smart object");
+    }
+    arr[0] = inner;
+    pc_status rc = pc_engine_layers_to_smart(doc, keep, arr, 1, out, err); /* consumes arr */
+    if (rc != PC_OK) {
+        free(keep);
+        return rc;
+    }
+    if (background) {
+        (void)pc_str_set(&out->name, "Layer 0", 7, NULL);
+    }
+    out->visible = l->visible;
+    out->opacity = l->opacity;
+    out->blend = (l->blend == PC_BLEND_PASS_THROUGH) ? PC_BLEND_NORMAL : l->blend;
+    out->clipped = l->clipped;
+    out->label = l->label;
+    if (!background) {
+        out->locks = l->locks;
+    }
+    free(keep);
+    return PC_OK;
 }
 
 /* ============================================================== HOOK SEAM (moved from hooks.c) */

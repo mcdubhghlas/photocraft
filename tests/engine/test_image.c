@@ -385,19 +385,31 @@ static void test_crop_target_resample(void)
     pc_engine_session_free(s);
 }
 
-static void test_crop_angle_deferred(void)
+static void test_crop_angle(void)
 {
-    /* A rotated crop is deferred to E4 transform_cmds: an UNSUPPORTED error, no crash, no change. */
+    /* A rotated crop (ET3) rotates the whole document upright, then crops the now axis-aligned
+     * frame -- all in one undo step. */
     pc_engine_session *s = session();
-    pc_size before = doc_of(s)->size;
     size_t past = past_len(s);
     pc_error err = {0};
     pc_json_value out;
     pc_status rc = pc_engine_session_execute_json(
         s, "image.crop", "{\"x\":10,\"y\":0,\"width\":10,\"height\":20,\"angle\":90}", &out, &err);
-    CHECK(rc != PC_OK);
-    CHECK(doc_of(s)->size.width == before.width && doc_of(s)->size.height == before.height);
-    CHECK_EQ_UINT(past_len(s), past);
+    CHECK(rc == PC_OK);
+    yyjson_mut_val *root = yyjson_mut_doc_get_root(out.doc);
+    CHECK_EQ_UINT(yyjson_mut_get_uint(yyjson_mut_obj_get(root, "documentWidth")), 10);
+    CHECK_EQ_UINT(yyjson_mut_get_uint(yyjson_mut_obj_get(root, "documentHeight")), 20);
+    pc_json_value_fini(&out);
+    CHECK_EQ_UINT(doc_of(s)->size.width, 10);
+    CHECK_EQ_UINT(doc_of(s)->size.height, 20);
+    CHECK_EQ_UINT(past_len(s), past + 1); /* one undo step for the whole compound */
+    /* Undo restores the original canvas. */
+    CHECK(pc_engine_session_undo(s));
+    CHECK_EQ_UINT(doc_of(s)->size.width, 40);
+    CHECK_EQ_UINT(doc_of(s)->size.height, 20);
+    /* A rotated crop without an explicit frame is refused (needs x/y/width/height). */
+    pc_json_value o2;
+    CHECK(pc_engine_session_execute_json(s, "image.crop", "{\"angle\":30}", &o2, NULL) != PC_OK);
     pc_engine_session_free(s);
 }
 
@@ -609,7 +621,7 @@ int main(int argc, char **argv)
     RUN(test_crop_explicit_and_selection);
     RUN(test_crop_rejects_bad_rects);
     RUN(test_crop_target_resample);
-    RUN(test_crop_angle_deferred);
+    RUN(test_crop_angle);
     RUN(test_trim);
     RUN(test_mode_and_depth);
     RUN(test_bit_depth_linear_roundtrip);

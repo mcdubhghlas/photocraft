@@ -26,6 +26,11 @@ void pc_engine_background_to_layer(pc_document *doc, pc_layer_id id);
 /* Alias used before a layer gains a mask (extra_cmds::background_to_layer_for_mask). */
 void pc_engine_background_to_layer_for_mask(pc_document *doc, pc_layer_id id);
 
+/* The no-`layer` path of layer.rasterize.shape: rasterize every selected shape layer. Called from
+ * vector_specs.c (E11 owns the layer.rasterize.shape spec; extra_cmds owns the Rasterize loop). */
+pc_status pc_engine_rasterize_selected_shapes(pc_engine_session *s, yyjson_val *p, pc_json_value *out,
+                                              pc_error *err);
+
 /* The registry module (register_modules() in command.c). */
 const pc_engine_command *pc_engine_extra_specs(size_t *n);
 

@@ -827,6 +827,8 @@ static pc_status history_brush(pc_engine_session *s, yyjson_val *p, pc_json_valu
 #include "retouch_dab.inc"
 #include "retouch_spot.inc"
 #include "retouch_pattern.inc"
+/* Patch / Content-Aware Move / Remove (job-based in the reference; run synchronously here, §7). */
+#include "retouch_jobs.inc"
 
 /* ========================================================================================== */
 /* specs                                                                                       */
@@ -861,6 +863,32 @@ static const pc_engine_command SPECS[] = {
      RETOUCH_BRUSH_PARAMS(",\"type\":\"contentAware|createTexture|proximityMatch\"=\"contentAware\","
                           "\"sampleAllLayers\":bool=false"),
      pc_engine_has_paintable, spot_healing, true},
+    {"paint.patch", "Patch", NULL, 0, NULL,
+     "{\"offset\":[dx,dy] (how far the selection was dragged),\"mode\":\"source|destination\"=\"source\","
+     "\"contentAware\":bool=false (fill the selection content-aware from the dragged-to place; a background "
+     "job),\"structure\":1..7=4 (content-aware: 3..7 copy the middle exactly, 1..2 re-synthesise more of "
+     "it),\"color\":0..10=0 (content-aware: how far the copy's level adapts to the selection's "
+     "surroundings),\"sampleAllLayers\":bool=false (content-aware),\"layer\":id?=active,\"target\":\"pixels\""
+     "|\"mask\"|\"quickMask\"|{\"channel\":i}=Channels panel target} → {\"damage\",\"offset\"}",
+     patch_enabled, patch_run, true},
+    {"paint.contentAwareMove", "Content-Aware Move", NULL, 0, NULL,
+     "{\"offset\":[dx,dy] (how far the selection was dragged),\"mode\":\"move|extend\"=\"move\",\"structure\""
+     ":1..7=4 (3..7 copy the content exactly but for a band about a patch wide along its edge; 2 widens the "
+     "band, 1 re-synthesises the content too),\"color\":0..10=0 (0 keeps the content's level; higher values "
+     "bring it towards its new place, by up to about 0.04 × color),\"sampleAllLayers\":bool=false,\"scaleX\""
+     ":%=100,\"scaleY\":%=100 (Transform On Drop: 1..10000, negative flips),\"rotate\":deg=0 (Transform On "
+     "Drop, clockwise; scale and rotation are about the selection's centre, before the offset; a transformed "
+     "patch may reach past the canvas edge),\"layer\":id?=active,\"target\":\"pixels\"|\"mask\"|\"quickMask\""
+     "|{\"channel\":i}=Channels panel target} → {\"damage\",\"offset\",\"mode\",\"transformed\"?} (a "
+     "background job; the selection moves, and is transformed, with the content)",
+     move_enabled, content_aware_move, true},
+    {"paint.remove", "Remove", NULL, 0, NULL,
+     RETOUCH_BRUSH_PARAMS(",\"strokes\":[[[x,y,pressure?],…],…]? (several strokes removed together, as one "
+                          "job and one undo step; else \"points\"),\"closeLoops\":bool=true (a stroke around "
+                          "an object removes what it encloses),\"sampleAllLayers\":bool=false,\"newLayer\":"
+                          "bool=false (the fill goes to a new layer above the target, which stays as it was) "
+                          "→ {\"damage\",\"layer\"?} (a background job)"),
+     pc_engine_has_paintable, remove_run, true},
     {"paint.dodge", "Dodge", NULL, 0, NULL,
      RETOUCH_BRUSH_PARAMS(",\"range\":\"shadows|midtones|highlights\"=\"midtones\",\"exposure\":1..100=50,"
                           "\"protectTones\":bool=true"),

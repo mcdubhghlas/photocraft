@@ -40,6 +40,7 @@
 
 #include "brush_cmds.h" /* pc_engine_blend_from_str */
 #include "engine_internal.h"
+#include "extra_cmds.h" /* pc_engine_rasterize_selected_shapes (layer.rasterize.shape no-layer path) */
 #include "layer_cmds.h" /* pc_engine_top_level / _selected / _set_selection */
 #include "vector_cmds.h"
 #include "warp_cmds.h" /* pc_engine_warp_from_params */
@@ -1174,6 +1175,17 @@ static pc_status with_shape(pc_engine_session *s, pc_layer_id id, const char *la
 #include "vector_specs_mask.inc"
 #include "path_edit_cmds.inc" /* E11: point-level path edits (reuses the helpers above) */
 
+/* layer.rasterize.shape (vector_cmds.rs): one shape layer goes straight to shape.rasterize; with
+ * no `layer`, extra_cmds rasterizes every selected shape layer (calling back here per id). */
+static pc_status run_layer_rasterize_shape(pc_engine_session *s, yyjson_val *p, pc_json_value *out,
+                                           pc_error *err)
+{
+    if (pc_json_get(p, "layer") != NULL) {
+        return run_shape_rasterize(s, p, out, err);
+    }
+    return pc_engine_rasterize_selected_shapes(s, p, out, err);
+}
+
 /* ---- registry ----------------------------------------------------------------------------- */
 
 #define FILLDOC                                                                                                        \
@@ -1261,6 +1273,9 @@ static const pc_engine_command SPECS[] = {
      en_has_layer, run_path_fill, true},
     {"shape.rasterize", "Rasterize Shape", MENU_LAYER_RASTERIZE, 2, NULL, "{\"layer\":id?}", en_has_layer,
      run_shape_rasterize, true},
+    {"layer.rasterize.shape", "Rasterize Shape", NULL, 0, NULL,
+     "{\"layer\":id?} (no layer: every selected shape layer)", en_has_layer, run_layer_rasterize_shape,
+     true},
     {"layer.vectorMask.add", "Add Vector Mask", MENU_LAYER_VMASK, 2, NULL,
      "{\"layer\":id?,\"path\":{\xe2\x80\xa6}? | \"name\":str|\"work\"? (copy a document path),\"hide\":bool=false "
      "(Hide All = inverted)} \xe2\x86\x92 vector mask info. Without a path the mask reveals all.",

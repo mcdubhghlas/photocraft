@@ -485,7 +485,7 @@ static pc_status edit_rasterize_shape(pc_document *doc, bool *ha, pc_layer_id *a
 
 static pc_status run_shape_rasterize(pc_engine_session *s, yyjson_val *p, pc_json_value *out, pc_error *err)
 {
-    pc_layer_id id;
+    pc_layer_id id = 0; /* layer_id_of sets it on PC_OK; init silences an analyzer false positive */
     if (layer_id_of(s, p, &id, err) != PC_OK) {
         return err != NULL ? err->code : PC_ERR_INVALID;
     }

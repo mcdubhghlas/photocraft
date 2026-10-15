@@ -23,6 +23,7 @@
 #include "algo/filter.h"
 #include "channel_cmds.h"
 #include "engine_internal.h"
+#include "extra_cmds.h"
 #include "layer_cmds.h"
 
 /* ---- param readers (filters.rs f / i / b / s / seed) -------------------------------------- */
@@ -117,6 +118,23 @@ static float clampf(float v, float lo, float hi)
         return hi;
     }
     return v;
+}
+
+/* Color to Alpha's lenient channel/threshold mapping (color_to_alpha_cmds::unit): a finite value
+ * clamped to 0..1, else the default (color_to_alpha_cmds validates strictly before this). */
+static float c2a_unit(float v, float def)
+{
+    return isfinite(v) ? clampf(v, 0.0f, 1.0f) : def;
+}
+
+static float c2a_num(yyjson_val *p, const char *k, float def)
+{
+    yyjson_val *v = pc_json_get(p, k);
+    double g;
+    if (v != NULL && pc_json_as_f64(v, &g)) {
+        return c2a_unit((float)g, def);
+    }
+    return def;
 }
 
 /* Command-param undefinedAreas -> algo serde name. */
@@ -285,6 +303,22 @@ static pc_status params_for(const char *id, yyjson_val *p, pc_algo_filter *out, 
         add_i32(d, o, "horizontal", iget(p, "horizontal", 0));
         add_i32(d, o, "vertical", iget(p, "vertical", 0));
         add_s(d, o, "undefined", undefined_str(p));
+    } else if (strcmp(id, "filter.other.colorToAlpha") == 0) {
+        add_s(d, o, "filter", "colorToAlpha");
+        float col[4] = {1.0f, 1.0f, 1.0f, 1.0f};
+        pc_engine_param_color(p, "color", col, col);
+        yyjson_mut_val *carr = yyjson_mut_arr(d);
+        if (carr != NULL) {
+            yyjson_mut_arr_add_real(d, carr, (double)c2a_unit(col[0], 1.0f));
+            yyjson_mut_arr_add_real(d, carr, (double)c2a_unit(col[1], 1.0f));
+            yyjson_mut_arr_add_real(d, carr, (double)c2a_unit(col[2], 1.0f));
+            yyjson_mut_arr_add_real(d, carr, 1.0);
+            yyjson_mut_obj_add_val(d, o, "color", carr);
+        } else {
+            ok = false;
+        }
+        add_f(d, o, "transparencyThreshold", c2a_num(p, "transparencyThreshold", 0.0f));
+        add_f(d, o, "opacityThreshold", c2a_num(p, "opacityThreshold", 1.0f));
     } else if (strcmp(id, "filter.pixelate.mosaic") == 0) {
         add_s(d, o, "filter", "mosaic");
         add_f(d, o, "cellSize", clampf(fget(p, "cellSize", 10.0f), 2.0f, 200.0f));
@@ -461,6 +495,12 @@ static pc_status edit_filter(pc_document *doc, bool *has_active, pc_layer_id *ac
     } else {
         return pc_engine_err_other(err, "no active layer");
     }
+    /* A filter whose job is transparency (Color to Alpha) turns the Background into a normal
+     * layer first, as the erasers do: the Background can't hold transparency (filters::run_filter). */
+    bool mt = pc_algo_filter_makes_transparency(c->filter);
+    if (mt) {
+        pc_engine_background_to_layer_for_mask(doc, id);
+    }
     pc_locks locks = pc_document_effective_locks(doc, id);
     pc_layer *l = pc_document_layer_mut(doc, id);
     if (l == NULL) {
@@ -478,6 +518,13 @@ static pc_status edit_filter(pc_document *doc, bool *has_active, pc_layer_id *ac
         return pc_engine_err_other(err, "not a pixel layer");
     }
     pc_surface *surf = &l->content.u.raster;
+    /* Putting the old alpha back (keep_alpha below) would leave unmixed colours fully opaque, so a
+     * transparency-making filter refuses a transparency-locked raster layer (filters::run_filter). */
+    if (locks.transparency && mt) {
+        return pc_engine_err_other(
+            err, "Could not complete your request because the transparency of layer \"%s\" is locked",
+            pc_str_c(&l->name));
+    }
 
     const pc_surface *sel = doc->has_selection ? &doc->selection : NULL;
     bool has_sel = sel != NULL;
@@ -485,7 +532,7 @@ static pc_status edit_filter(pc_document *doc, bool *has_active, pc_layer_id *ac
     pc_rect doc_bounds = pc_document_bounds(doc);
     pc_rect bounds = (has_sel && !pc_rect_is_empty(sel_bounds)) ? sel_bounds : doc_bounds;
 
-    bool restore = locks.transparency;
+    bool restore = locks.transparency && !mt;
     pc_surface before;
     bool have_before = false;
     if (restore) {

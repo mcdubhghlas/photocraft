@@ -219,6 +219,8 @@ void pc_engine_floating_free(struct pc_engine_floating *f);
 /* E4: free a session's clipboard (edit_cmds.c). NULL-safe. Declared here so session.c can release
  * it in session_free without including edit_cmds internals. */
 void pc_engine_clipboard_free(struct pc_engine_clip *c);
+/* Bytes the session clipboard holds (edit_cmds.c), for Edit > Purge > Clipboard. 0 if NULL. */
+size_t pc_engine_clipboard_bytes(const struct pc_engine_clip *c);
 /* E10: release the painting-tool fields of a ToolState (brush, presets, gesture, current preset);
  * leaves the scalars. NULL-safe (session.c tool_state_fini). */
 void pc_engine_tool_state_fini(pc_engine_tool_state *t);
@@ -500,6 +502,18 @@ const pc_engine_command *pc_engine_web_specs(size_t *n);
 const pc_engine_command *pc_engine_plugin_specs(size_t *n);
 const pc_engine_command *pc_engine_automate_specs(size_t *n);
 const pc_engine_command *pc_engine_actions_specs(size_t *n);
+/* E-tail (ET2): deferred-but-now-unblocked command fills.
+ * tool_colors_cmds.c: tools.setColors/swapColors/defaultColors (foreground/background colours).
+ * auto_adjust_cmds.c: image.autoTone/autoContrast/autoColor (one-click Levels).
+ * layer_menu_cmds.c: layer.flattenImage, layer.layerMask.apply/hideSelection/fromTransparency,
+ *                    layer.smartObjects.stackMode.* (image-stack statistics).
+ * edit_menu_cmds.c: edit.purge.* (free undo/clipboard/history memory).
+ * color_to_alpha_cmds.c: filter.other.colorToAlpha. */
+const pc_engine_command *pc_engine_tool_colors_specs(size_t *n);
+const pc_engine_command *pc_engine_auto_adjust_specs(size_t *n);
+const pc_engine_command *pc_engine_layer_menu_specs(size_t *n);
+const pc_engine_command *pc_engine_edit_menu_specs(size_t *n);
+const pc_engine_command *pc_engine_color_to_alpha_specs(size_t *n);
 /* video_cmds.c: write every video layer's displayed content back into its playhead frame (store),
  * and set every video layer's displayed content to its playhead frame (sync). Used by
  * timeline_cmds navigation. */
@@ -625,6 +639,37 @@ float pc_engine_map_angle(const pc_affine *a, float deg);
 pc_rect pc_engine_map_rect(const pc_affine *a, pc_rect r);
 /* Move all non-pixel geometry of the document through a (layers + document marks). */
 void pc_engine_transform_geometry(pc_document *doc, const pc_affine *a);
+/* Move one layer's non-pixel geometry (canvas_geom::transform_layer_geometry): with `content`,
+ * its content path/transform too; without, only what Free Transform leaves alone (unlinked masks,
+ * fill angles, artboards). Used by Image Rotation › Arbitrary (mode_cmds, ET3). */
+void pc_engine_transform_layer_geometry(pc_layer *l, const pc_affine *a, bool content, float dpi);
+/* image_cmds::translate_doc: move the whole document (every surface, channel, selection, geometry)
+ * by (dx, dy), refused (unchanged) when a pixel would leave the 32-bit range. Used by artboards. */
+pc_status pc_engine_translate_doc(pc_document *doc, const char *cmd, int32_t dx, int32_t dy,
+                                  pc_error *err);
+/* commands::layer_copy: deep-copy layer `id` with fresh ids and a "copy" name (*out initialised on
+ * success). Used by Duplicate Artboard (artboard_cmds, ET3). */
+pc_status pc_engine_layer_copy(const pc_document *doc, pc_layer_id id, pc_layer *out, pc_error *err);
+/* file_cmds file-name helpers for the artboard exports (ET3). */
+void pc_engine_file_stem(const char *path, char *out, size_t cap);
+char *pc_engine_file_join(const char *dir, const char *name);
+pc_status pc_engine_file_sanitize(pc_buf *out, const char *name, pc_error *err);
+/* canvas_geom::refresh: re-render shape caches (always) and, when `all`, type and smart caches too,
+ * from a snapshot of the just-moved document. Best-effort; never crashes. */
+void pc_engine_canvas_refresh(pc_document *doc, bool all);
+/* Canvas size after rotating `size` by `deg` degrees (grows to fit; mode_cmds::rotated_size). */
+pc_size pc_engine_rotated_size(pc_size size, double deg);
+
+/* File > Automate computational-photography commands (automate_photo_cmds.c, ET3). */
+const pc_engine_command *pc_engine_photo_automate_specs(size_t *n);
+
+/* Run several commands as one history step labelled `label` (analysis_cmds::compound): on failure
+ * the document goes back as it was and the journal forgets the commands f ran. f drives the session
+ * through the execute / edit entry points. Used by the rotated Crop (image_cmds) and Straighten
+ * Layer (analysis_cmds). Never crashes. */
+typedef pc_status (*pc_engine_compound_fn)(pc_engine_session *s, void *ctx, pc_error *err);
+pc_status pc_engine_compound(pc_engine_session *s, const char *label, pc_engine_compound_fn f,
+                             void *ctx, pc_error *err);
 /* Document-level marks: paths, work path, notes, count/ruler marks, slices and guides. */
 void pc_engine_transform_doc_marks(pc_document *doc, const pc_affine *a);
 /* Turn or flip the whole canvas: pixels and caches remapped exactly, geometry through the map. */

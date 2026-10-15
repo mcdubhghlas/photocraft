@@ -239,6 +239,20 @@ static pc_status fc_sanitize(pc_buf *out, const char *name, pc_error *err)
     return rc;
 }
 
+/* Exports of the file-name helpers for the artboard exports (artboard_cmds.c, ET3). */
+void pc_engine_file_stem(const char *path, char *out, size_t cap)
+{
+    fc_stem(path, out, cap);
+}
+char *pc_engine_file_join(const char *dir, const char *name)
+{
+    return fc_join(dir, name);
+}
+pc_status pc_engine_file_sanitize(pc_buf *out, const char *name, pc_error *err)
+{
+    return fc_sanitize(out, name, err);
+}
+
 /* ---- SaveOpts (file_cmds::SaveOpts); the struct is declared in engine_internal.h ---------- */
 
 pc_engine_save_opts pc_engine_save_opts_default(void)

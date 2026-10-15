@@ -323,6 +323,89 @@ static void set_quiet_end(pc_engine_doc_state *st)
     st->last_damage = PC_RECT_EMPTY;
 }
 
+/* ---- compound (analysis_cmds::compound) --------------------------------------------------- */
+
+/* A pc_layer_target mirroring the state's active/selected layers (owns a copy of selected). */
+static pc_status compound_layer_target(const pc_engine_doc_state *st, pc_layer_target *out, pc_error *err)
+{
+    out->has_active = st->has_active_layer;
+    out->active = st->active_layer;
+    out->nselected = st->nselected;
+    out->selected = NULL;
+    if (st->nselected > 0) {
+        out->selected = pc_malloc_array(st->nselected, sizeof(pc_layer_id));
+        if (out->selected == NULL) {
+            return pc_fail(err, PC_ERR_NOMEM, "layer target");
+        }
+        memcpy(out->selected, st->selected_layers, st->nselected * sizeof(pc_layer_id));
+    }
+    return PC_OK;
+}
+
+pc_status pc_engine_compound(pc_engine_session *s, const char *label, pc_engine_compound_fn f,
+                             void *ctx, pc_error *err)
+{
+    pc_engine_doc_state *st = pc_engine_session_active_mut(s);
+    if (st == NULL) {
+        return pc_engine_err_no_document(err);
+    }
+    pc_doc_arc *before = pc_doc_arc_retain(st->doc);
+    pc_history *history_save = NULL;
+    if (pc_history_clone(st->history, &history_save, err) != PC_OK) {
+        pc_doc_arc_release(before);
+        return PC_ERR_NOMEM;
+    }
+    pc_layer_target prior = {0};
+    if (compound_layer_target(st, &prior, err) != PC_OK) {
+        pc_history_free(history_save);
+        pc_doc_arc_release(before);
+        return PC_ERR_NOMEM;
+    }
+    size_t journal_len = s->njournal;
+
+    pc_status r = f(s, ctx, err);
+
+    /* On failure the journal forgets the commands f ran (an action being recorded must not replay
+     * an edit that was taken back). */
+    if (r != PC_OK) {
+        for (size_t i = journal_len; i < s->njournal; i++) {
+            free(s->journal[i].id);
+            pc_json_value_fini(&s->journal[i].params);
+        }
+        s->njournal = journal_len;
+    }
+    st = pc_engine_session_active_mut(s);
+    if (st == NULL) {
+        pc_history_free(history_save);
+        pc_layer_target_fini(&prior);
+        pc_doc_arc_release(before);
+        return r == PC_OK ? pc_engine_err_no_document(err) : r;
+    }
+    /* Restore the pre-compound history (the sub-commands' steps are discarded). */
+    pc_history_free(st->history);
+    st->history = history_save;
+    if (r == PC_OK) {
+        /* As in Session::edit: undo targets what was selected just before the step. */
+        pc_layer_target cur = {0};
+        if (compound_layer_target(st, &cur, err) == PC_OK) {
+            (void)pc_history_set_current_layers(st->history, &prior, NULL);
+            (void)pc_history_record(st->history, label, strlen(label), before, &cur, err);
+            (void)pc_history_trim(st->history, pc_doc_arc_get(st->doc), NULL, NULL);
+            pc_layer_target_fini(&cur);
+        }
+        free(st->coalesce);
+        st->coalesce = NULL;
+    } else {
+        pc_doc_arc_release(st->doc);
+        st->doc = pc_doc_arc_retain(before);
+        st->revision++;
+        st->has_last_damage = false;
+    }
+    pc_layer_target_fini(&prior);
+    pc_doc_arc_release(before);
+    return r;
+}
+
 /* ---- scale -------------------------------------------------------------------------------- */
 
 static pc_status scale_json(yyjson_mut_doc *d, yyjson_mut_val **out, const pc_measurement_scale *sc,
@@ -2358,13 +2441,145 @@ static pc_status run_place_scale_marker(pc_engine_session *s, yyjson_val *p, pc_
         err, "Place Scale Marker is not yet supported in this build (needs type.create + a group layer)");
 }
 
+/* Clockwise rotation in degrees that turns the ruler line onto its nearest axis. */
+static double straighten_angle(const pc_ruler *r)
+{
+    double dx = r->end[0] - r->start[0], dy = r->end[1] - r->start[1];
+    double a = atan2(-dy, dx) * 180.0 / M_PI;
+    return a - 90.0 * round(a / 90.0);
+}
+
+/* The largest axis-aligned rectangle (w x h aspect of the crop) inscribed in a `w` x `h` box after
+ * rotating it by `a` radians (analysis_cmds::inscribed). */
+static void inscribed(double w, double h, double a, double *ow, double *oh)
+{
+    double sa = fabs(sin(a)), ca = fabs(cos(a));
+    bool long_w = w >= h;
+    double lng = long_w ? w : h, shrt = long_w ? h : w;
+    if (shrt <= 2.0 * sa * ca * lng || fabs(sa - ca) < 1e-10) {
+        double x = 0.5 * shrt;
+        if (long_w) {
+            *ow = sa != 0.0 ? x / sa : lng;
+            *oh = ca != 0.0 ? x / ca : lng;
+        } else {
+            *ow = ca != 0.0 ? x / ca : lng;
+            *oh = sa != 0.0 ? x / sa : lng;
+        }
+    } else {
+        double c2 = ca * ca - sa * sa;
+        *ow = (w * ca - h * sa) / c2;
+        *oh = (h * ca - w * sa) / c2;
+    }
+}
+
+typedef struct {
+    double rot; /* clockwise degrees */
+    bool crop;
+    double w0, h0;
+} straighten_ctx;
+
+static pc_status straighten_body(pc_engine_session *s, void *vctx, pc_error *err)
+{
+    straighten_ctx *c = vctx;
+    char buf[256];
+    pc_json_value tmp = PC_JSON_VALUE_INIT;
+    pc_status rc;
+    if (c->crop) {
+        (void)snprintf(buf, sizeof buf, "{\"angle\":%.17g,\"direction\":\"cw\"}", c->rot);
+        rc = pc_engine_session_execute_json(s, "image.rotation.arbitrary", buf, &tmp, err);
+        pc_json_value_fini(&tmp);
+        if (rc != PC_OK) {
+            return rc;
+        }
+        const pc_engine_doc_state *nd = pc_engine_session_active(s);
+        if (nd == NULL) {
+            return pc_engine_err_no_document(err);
+        }
+        const pc_document *ndoc = pc_doc_arc_get(nd->doc);
+        double cw, ch;
+        inscribed(c->w0, c->h0, c->rot * M_PI / 180.0, &cw, &ch);
+        double nw = (double)ndoc->size.width, nh = (double)ndoc->size.height;
+        cw = floor(cw);
+        ch = floor(ch);
+        cw = cw < 1.0 ? 1.0 : (cw > nw ? nw : cw);
+        ch = ch < 1.0 ? 1.0 : (ch > nh ? nh : ch);
+        double cxo = round((nw - cw) / 2.0), cyo = round((nh - ch) / 2.0);
+        (void)snprintf(buf, sizeof buf,
+                       "{\"x\":%.17g,\"y\":%.17g,\"width\":%.17g,\"height\":%.17g}", cxo, cyo, cw, ch);
+        rc = pc_engine_session_execute_json(s, "image.crop", buf, &tmp, err);
+        pc_json_value_fini(&tmp);
+        if (rc != PC_OK) {
+            return rc;
+        }
+    } else {
+        double cx = c->w0 / 2.0, cy = c->h0 / 2.0;
+        double rad = c->rot * M_PI / 180.0;
+        double sn = sin(rad), cs = cos(rad);
+        /* Clockwise on screen (y down) about the canvas centre. */
+        double m0 = cs, m1 = sn, m2 = -sn, m3 = cs;
+        double m4 = cx - (cs * cx - sn * cy), m5 = cy - (sn * cx + cs * cy);
+        (void)snprintf(buf, sizeof buf,
+                       "{\"matrix\":[%.17g,%.17g,%.17g,%.17g,%.17g,%.17g]}", m0, m1, m2, m3, m4, m5);
+        rc = pc_engine_session_execute_json(s, "edit.transform", buf, &tmp, err);
+        pc_json_value_fini(&tmp);
+        if (rc != PC_OK) {
+            return rc;
+        }
+    }
+    /* The ruler is cleared after straightening, as in Photoshop. */
+    pc_document *doc = NULL;
+    pc_engine_doc_state *st = NULL;
+    if (set_quiet_begin(s, &doc, &st, err) != PC_OK || doc == NULL || st == NULL) {
+        return err != NULL && err->code != PC_OK ? err->code : PC_ERR_NOMEM;
+    }
+    doc->measurement.has_ruler = false;
+    set_quiet_end(st);
+    return PC_OK;
+}
+
 static pc_status run_straighten(pc_engine_session *s, yyjson_val *p, pc_json_value *out, pc_error *err)
 {
-    (void)s;
-    (void)p;
-    (void)out;
-    return pc_engine_err_other(
-        err, "Straighten Layer is not yet supported in this build (needs arbitrary rotation / transform)");
+    const pc_engine_doc_state *st = pc_engine_session_active(s);
+    if (st == NULL) {
+        return pc_engine_err_no_document(err);
+    }
+    const pc_document *doc = pc_doc_arc_get(st->doc);
+    if (!doc->measurement.has_ruler) {
+        return pc_engine_err_other(err, "no ruler line");
+    }
+    pc_ruler r = doc->measurement.ruler;
+    double rot = straighten_angle(&r);
+    if (fabs(rot) < 1e-9) {
+        yyjson_mut_doc *jd = NULL;
+        if (pc_engine_result_doc(out, &jd, err) != PC_OK) {
+            return PC_ERR_NOMEM;
+        }
+        yyjson_mut_val *root = yyjson_mut_obj(jd);
+        yyjson_mut_obj_add_real(jd, root, "angle", 0.0);
+        yyjson_mut_doc_set_root(jd, root);
+        return PC_OK;
+    }
+    bool active_is_bg = st->has_active_layer && pc_document_is_background(doc, st->active_layer);
+    bool crop_default = active_is_bg || !st->has_active_layer;
+    bool crop = get_bool(p, "crop", crop_default);
+    straighten_ctx ctx = {rot, crop, (double)doc->size.width, (double)doc->size.height};
+    pc_status rc = pc_engine_compound(s, "Straighten", straighten_body, &ctx, err);
+    if (rc != PC_OK) {
+        return rc;
+    }
+    const pc_engine_doc_state *nd = pc_engine_session_active(s);
+    const pc_document *ndoc = pc_doc_arc_get(nd->doc);
+    yyjson_mut_doc *jd = NULL;
+    if (pc_engine_result_doc(out, &jd, err) != PC_OK) {
+        return PC_ERR_NOMEM;
+    }
+    yyjson_mut_val *root = yyjson_mut_obj(jd);
+    yyjson_mut_obj_add_real(jd, root, "angle", round4(rot));
+    yyjson_mut_obj_add_bool(jd, root, "cropped", crop);
+    yyjson_mut_obj_add_uint(jd, root, "width", ndoc->size.width);
+    yyjson_mut_obj_add_uint(jd, root, "height", ndoc->size.height);
+    yyjson_mut_doc_set_root(jd, root);
+    return PC_OK;
 }
 
 /* ---- spec table --------------------------------------------------------------------------- */
