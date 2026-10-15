@@ -14,6 +14,7 @@
 #include "engine_internal.h"
 #include "layer_cmds.h" /* pc_engine_layer_param */
 #include "plugins/plugins.h"
+#include "smart_cmds.h" /* E-tail: pc_engine_add_smart_filter (record a plug-in smart filter) */
 
 #define RUN_ID "plugin.run"
 
@@ -152,8 +153,14 @@ pc_status pc_engine_hook_filter_subtype(const char *id, yyjson_val *params, cons
 {
     (void)bounds;
     *applied = false;
+    /* ET5: Lens Correction / Adaptive Wide Angle / Camera Raw Filter re-render on the placed
+     * source (lens_cmds.c). Leaves *applied false for ids it does not own. */
+    pc_status lrc = pc_engine_lens_apply_to_surface(id, params, surf, canvas, out, applied, err);
+    if (lrc != PC_OK || *applied) {
+        return lrc;
+    }
     if (id == NULL || strcmp(id, RUN_ID) != 0) {
-        return PC_OK; /* not a plug-in run (distort/lens/adjust owners add their cases here) */
+        return PC_OK; /* not a plug-in run (distort/adjust owners add their cases here) */
     }
     size_t plen = 0;
     const char *pid = NULL;
@@ -218,9 +225,32 @@ static pc_status edit_run(pc_document *doc, bool *ha, pc_layer_id *al, void *ctx
         return PC_OK;
     }
     if (l->content.kind == PC_LAYER_SMART) {
-        /* Recording a smart filter needs smart_cmds::add_smart_filter (E6, unported). */
-        return pc_engine_err_other(
-            err, "plug-in smart filters on smart objects are not supported yet (owner: E6)");
+        /* Non-destructive: record {"id": plugin, "params": params} as a `plugin.run` smart filter
+         * and re-render from the source (plugin_cmds::apply_to_surface re-applies on re-render). */
+        const char *pid = pc_plugin_id(c->plugin);
+        yyjson_mut_doc *jd = yyjson_mut_doc_new(NULL);
+        if (jd == NULL) {
+            return pc_fail(err, PC_ERR_NOMEM, "out of memory");
+        }
+        yyjson_mut_val *o = yyjson_mut_obj(jd);
+        yyjson_mut_obj_add_strcpy(jd, o, "id", pid != NULL ? pid : "");
+        yyjson_mut_val *pcopy = pc_json_normalized_copy_val(jd, pp);
+        yyjson_mut_obj_add_val(jd, o, "params", pcopy != NULL ? pcopy : yyjson_mut_null(jd));
+        pc_smart_filter sf;
+        memset(&sf, 0, sizeof sf);
+        pc_status rc = pc_str_set(&sf.command, RUN_ID, strlen(RUN_ID), err);
+        if (rc == PC_OK) {
+            rc = pc_json_value_from_mut(o, &sf.params, err);
+        }
+        yyjson_mut_doc_free(jd);
+        if (rc != PC_OK) {
+            pc_smart_filter_fini(&sf);
+            return rc;
+        }
+        sf.blend = PC_BLEND_NORMAL;
+        sf.opacity = 1.0f;
+        sf.visible = true;
+        return pc_engine_add_smart_filter(doc, c->layer, &sf, selection, err);
     }
     return pc_engine_err_other(err,
                                "plug-in filters need a pixel layer (active layer is %s %s layer)",

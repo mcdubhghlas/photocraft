@@ -99,6 +99,16 @@ void pc_engine_prefs_fini(pc_engine_prefs *p); /* NULL-safe */
 
 /* ---- the session -------------------------------------------------------------------------- */
 
+/* EF (E6): one open Edit-Contents link (smart_cmds::SmartLink). Pins a child document opened by
+ * layer.smartObjects.editContents to the parent smart object it re-embeds on Save Contents or
+ * close. Plain scalars (no owned members). */
+typedef struct pc_engine_smart_link {
+    pc_doc_id child;
+    pc_doc_id parent;
+    pc_layer_id layer;
+    pc_smart_contents_id contents_id;
+} pc_engine_smart_link;
+
 struct pc_engine_session {
     pc_engine_doc_state *docs;
     size_t ndocs, cap_docs;
@@ -112,8 +122,9 @@ struct pc_engine_session {
     pc_status (*authorize)(const char *id, yyjson_val *params, pc_error *err);
     pc_engine_jobs jobs;
     /* A canvas-size map (crop/Canvas Size/Image Size/rotation) the next edit applies to Color
-     * Sampler points, and how many were dropped since last read. The sampler points themselves
-     * (DocState.color_samplers) arrive with E12; until then the map is tracked but moves nothing. */
+     * Sampler points, and how many were dropped since last read. Consumed by session.c edit()
+     * (EF), which moves DocState.color_samplers through the map (or, for any other size change,
+     * drops the points now outside the canvas). */
     bool has_sampler_map;
     pc_affine sampler_map;
     size_t samplers_removed;
@@ -187,6 +198,22 @@ struct pc_engine_session {
     /* E12: Window > Actions recorded-action state (actions_cmds.c). Opaque (the full type is in
      * actions_cmds.h); lazily allocated, released by pc_engine_actions_session_fini. */
     struct pc_action_state *actions;
+    /* EF (E6): open Edit-Contents document links (smart_cmds::smart_links). An owned array of
+     * plain structs (no owned members); freed in session_free. editContents adds a link; Save
+     * Contents (commit_child) and the on-close auto-commit (pc_engine_hook_smart_on_close, moved
+     * into smart_cmds_run.c) re-embed the child into its parent and prune the link. */
+    pc_engine_smart_link *smart_links;
+    size_t nsmart_links, cap_smart_links;
+    /* EF (ET2): Edit > Fade source (edit_menu_cmds::EditState::fade). The last fadeable command
+     * (filter / adjustment / paint / fill), recorded by the edit_menu after-command hook; Fade
+     * blends that layer -- or its mask -- back towards the state before the step. has_fade false =
+     * nothing to fade; fade_label is owned (freed in session_free). */
+    bool has_fade;
+    pc_doc_id fade_doc;
+    uint64_t fade_revision;
+    pc_layer_id fade_layer;
+    bool fade_mask;
+    char *fade_label;
 };
 
 /* E12: release a session's Actions state (actions_cmds.c). NULL-safe. */
@@ -400,6 +427,10 @@ const pc_engine_command *pc_engine_mode_specs(size_t *n);
 typedef void (*pc_engine_surface_cb)(pc_surface *surf, bool is_mask, void *ctx);
 void pc_engine_image_for_each_surface(pc_layer *layers, size_t n, bool masks, pc_engine_surface_cb cb,
                                       void *ctx);
+/* Convert every pixel surface of a layer tree (masks included) to `depth`, a plain per-surface
+ * depth change with no tone-curve mapping (image_cmds::convert_layers_depth). Exported for Convert
+ * to Layers (smart_cmds). The tree is left partly converted only on allocation failure. */
+pc_status pc_engine_convert_layers_depth(pc_layer *layers, size_t n, pc_sample_type depth, pc_error *err);
 
 /* Image > Trap (trap_cmds.c, E9). */
 const pc_engine_command *pc_engine_trap_specs(size_t *n);
@@ -443,6 +474,28 @@ pc_status pc_engine_gallery_validate(const char *id, yyjson_val *params, pc_erro
 pc_status pc_engine_run_filter(pc_engine_session *s, const char *id, yyjson_val *p, pc_json_value *out,
                                pc_error *err);
 pc_status pc_engine_filterable(const pc_engine_session *s, pc_error *reason);
+
+/* The remaining standalone Filter-menu filters: Pixelate/Stylize/Distort/Render/Noise/Blur/Blur
+ * Gallery/Other/Video (filters_ext_cmds.c, E-tail EF2). */
+const pc_engine_command *pc_engine_filters_ext_specs(size_t *n);
+/* Build the algo filter for an extended filter id; *found false for ids it does not own, then
+ * chained to the Filter Gallery (chained from filters_cmds.c params_for). Never crashes. */
+pc_status pc_engine_ext_params_for(const char *id, yyjson_val *p, pc_algo_filter *out, bool *found,
+                                   pc_error *err);
+/* Validate an extended filter's documented choice params (filters_validate.inc chains here for
+ * non-core ids); PC_OK for ids with no choice rules. */
+pc_status pc_engine_ext_validate(const char *id, yyjson_val *params, pc_error *err);
+/* filters_ext::resolve / resolve_map_path: resolve Filter > Distort > Displace's displacement map
+ * into caller-owned storage and point `f`'s params at it. For any non-Displace filter (or a filter
+ * that already carries its map) *has_map stays false and PC_OK. For Displace: the embedded PSD map
+ * (if the params carry one), else `mapPath` (a file on disk), else, when `s` is non-NULL,
+ * `mapDocument` (its index, name or path). On success with a map, *has_map is true, *map_out owns
+ * the image (pc_algo_image_fini after the filter run) and `f`'s params borrow it. `require` (the
+ * command path) errors when no map is given or it is empty; without it (smart re-render) a missing
+ * or empty map leaves the pixels alone. Never crashes on hostile params. */
+pc_status pc_engine_filters_resolve_map(pc_engine_session *s, pc_algo_filter *f, yyjson_val *p,
+                                        bool require, pc_algo_image *map_out, bool *has_map,
+                                        pc_error *err);
 
 /* E10 painting modules (brush_cmds.c, symmetry_cmds.c, brush_key_cmds.c). */
 const pc_engine_command *pc_engine_brush_specs(size_t *n);
@@ -514,6 +567,17 @@ const pc_engine_command *pc_engine_auto_adjust_specs(size_t *n);
 const pc_engine_command *pc_engine_layer_menu_specs(size_t *n);
 const pc_engine_command *pc_engine_edit_menu_specs(size_t *n);
 const pc_engine_command *pc_engine_color_to_alpha_specs(size_t *n);
+/* EF (sampler_cmds.c): the Color Sampler points (view.colorSamplers.add/move/delete/clear/list),
+ * per-document view state in pc_engine_doc_state::color_samplers. */
+const pc_engine_command *pc_engine_sampler_specs(size_t *n);
+/* ET5 (lens_cmds.c): Filter > Lens Correction / Adaptive Wide Angle / Camera Raw Filter, on the
+ * src/algo lens / wideangle / camera_raw pipelines. */
+const pc_engine_command *pc_engine_lens_specs(size_t *n);
+/* Re-applies a stored lens / wide / camera-raw smart filter on a surface (lens_cmds.rs
+ * apply_to_surface); *applied is false (out untouched) for ids this module does not own. The
+ * subtype hook (plugin_cmds.c) dispatches here before the core filter table. Never crashes. */
+pc_status pc_engine_lens_apply_to_surface(const char *id, yyjson_val *params, const pc_surface *surf,
+                                          pc_rect canvas, pc_surface *out, bool *applied, pc_error *err);
 /* video_cmds.c: write every video layer's displayed content back into its playhead frame (store),
  * and set every video layer's displayed content to its playhead frame (sync). Used by
  * timeline_cmds navigation. */
@@ -602,6 +666,13 @@ pc_status pc_engine_try_clear_surface(pc_surface *s, pc_rect area, const pc_surf
  * (leaves the surface unchanged or partly adjusted); never crashes. */
 void pc_engine_adjust_surface(pc_surface *s, const pc_adjustment *adj, const pc_surface *selection,
                               pc_color_mode mode);
+/* E-tail: re-run an `image.adjustments.<kind>` smart filter on a copy of `surf` into *out (the
+ * caller owns it). `kind` is the id with its "image.adjustments." prefix stripped. *applied is
+ * false (out untouched) for a kind that is not a per-pixel adjustment or whose params no longer
+ * parse (Rust `adjust_as_filter` None), as for an unknown filter. Never crashes. */
+pc_status pc_engine_adjust_apply_to_surface(const char *kind, yyjson_val *params,
+                                            const pc_surface *surf, pc_surface *out, bool *applied,
+                                            pc_error *err);
 /* E8 (pixels.c): apply an adjustment to a layer mask through the selection (grayscale). Without a
  * selection the mask's default value is adjusted too, so Invert turns reveal-all into hide-all
  * (pixels::adjust_mask). */
@@ -662,6 +733,11 @@ pc_size pc_engine_rotated_size(pc_size size, double deg);
 
 /* File > Automate computational-photography commands (automate_photo_cmds.c, ET3). */
 const pc_engine_command *pc_engine_photo_automate_specs(size_t *n);
+
+/* The file batch / automate pipeline (batch_cmds.c, E-tail BATCH): file.automate.batch /
+ * contactSheetII / createDroplet / runDroplet / lensCorrection and file.scripts.imageProcessor /
+ * loadFilesIntoStack / statistics. */
+const pc_engine_command *pc_engine_batch_specs(size_t *n);
 
 /* Run several commands as one history step labelled `label` (analysis_cmds::compound): on failure
  * the document goes back as it was and the journal forgets the commands f ran. f drives the session

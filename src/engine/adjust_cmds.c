@@ -29,6 +29,7 @@
 #include "compose/compose.h"
 #include "engine_internal.h"
 #include "layer_cmds.h" /* pc_engine_layer_param */
+#include "smart_cmds.h" /* E-tail: pc_engine_add_smart_filter (record an adjustment as a smart filter) */
 
 /* ---- param helpers ------------------------------------------------------------------------ */
 
@@ -332,7 +333,7 @@ static pc_status destructive_adjust(pc_engine_session *s, const char *label, con
 
 /* ---- generated run functions -------------------------------------------------------------- */
 
-/* A smart object is active -> the adjustment would record as a smart filter (deferred). */
+/* A smart object is active -> the adjustment records as a smart filter. */
 static bool active_is_smart(const pc_engine_session *s)
 {
     const pc_engine_doc_state *d = pc_engine_session_active(s);
@@ -341,6 +342,68 @@ static bool active_is_smart(const pc_engine_session *s)
     }
     const pc_layer *l = pc_document_layer(pc_doc_arc_get(d->doc), d->active_layer);
     return l != NULL && l->content.kind == PC_LAYER_SMART;
+}
+
+/* Record `image.adjustments.<kind>` as a smart filter on the active smart object; the selection
+ * becomes the filter mask (adjust_cmds::adjust_as_smart_filter). One history step. */
+struct smart_adj_ctx {
+    pc_layer_id id;
+    pc_smart_filter sf; /* consumed by the edit (moved into the stack, or finalised on error) */
+    bool consumed;
+};
+
+static pc_status edit_record_smart_adj(pc_document *doc, bool *ha, pc_layer_id *al, void *vctx,
+                                       pc_error *err)
+{
+    (void)ha;
+    (void)al;
+    struct smart_adj_ctx *c = vctx;
+    const pc_surface *sel = doc->has_selection ? &doc->selection : NULL;
+    c->consumed = true;
+    return pc_engine_add_smart_filter(doc, c->id, &c->sf, sel, err);
+}
+
+static pc_status record_smart_adjustment(pc_engine_session *s, const char *kind, const char *label,
+                                         yyjson_val *p, pc_error *err)
+{
+    const pc_engine_doc_state *d = pc_engine_session_active(s);
+    if (d == NULL || !d->has_active_layer) {
+        return pc_engine_err_other(err, "no active layer");
+    }
+    struct smart_adj_ctx c;
+    memset(&c, 0, sizeof c);
+    c.id = d->active_layer;
+    char cmdbuf[64];
+    (void)snprintf(cmdbuf, sizeof cmdbuf, "image.adjustments.%s", kind);
+    pc_status rc = pc_str_set(&c.sf.command, cmdbuf, strlen(cmdbuf), err);
+    if (rc != PC_OK) {
+        pc_smart_filter_fini(&c.sf);
+        return rc;
+    }
+    /* The recorded params are the command's own, minus the engine's private `__kind` key. */
+    yyjson_mut_doc *jd = yyjson_mut_doc_new(NULL);
+    if (jd == NULL) {
+        pc_smart_filter_fini(&c.sf);
+        return pc_fail(err, PC_ERR_NOMEM, "out of memory");
+    }
+    yyjson_mut_val *copy = pc_json_normalized_copy_val(jd, p);
+    if (copy != NULL && yyjson_mut_is_obj(copy)) {
+        (void)yyjson_mut_obj_remove_key(copy, "__kind");
+    }
+    rc = pc_json_value_from_mut(copy, &c.sf.params, err);
+    yyjson_mut_doc_free(jd);
+    if (rc != PC_OK) {
+        pc_smart_filter_fini(&c.sf);
+        return rc;
+    }
+    c.sf.blend = PC_BLEND_NORMAL;
+    c.sf.opacity = 1.0f;
+    c.sf.visible = true;
+    rc = pc_engine_session_edit(s, label, edit_record_smart_adj, &c, err);
+    if (!c.consumed) {
+        pc_smart_filter_fini(&c.sf);
+    }
+    return rc;
 }
 
 static pc_status run_new_adjustment_layer(pc_engine_session *s, yyjson_val *p, pc_json_value *out,
@@ -373,19 +436,23 @@ static pc_status run_image_adjustment(pc_engine_session *s, yyjson_val *p, pc_js
                                         "the Levels/Curves eyedropper is not yet supported in this "
                                         "build (E10 sampler)");
     }
-    /* A smart object would record the adjustment as a smart filter (deferred: E9-full). Only a
-     * mask/channel target falls through to a destructive edit there, so refuse the rest. */
-    if (active_is_smart(s) && !pc_engine_is_mask_target(p) && !pc_engine_is_channel_target(p)) {
-        return pc_engine_err_other(
-            err, "recording an adjustment as a smart filter is not yet supported in this build "
-                 "(E9 smart filters)");
-    }
     pc_adjustment adj;
     pc_status rc = pc_engine_adjustment_from_params(kind, p, NULL, doc_mode(s), &adj, err);
     if (rc != PC_OK) {
         return rc;
     }
-    rc = destructive_adjust(s, pc_adjustment_label(&adj), &adj, p, out, err);
+    const char *label = pc_adjustment_label(&adj);
+    /* A smart object records the adjustment as a smart filter (Photoshop), which re-runs from the
+     * source whenever the object re-renders. Only a mask/channel target edits pixels there. */
+    if (active_is_smart(s) && !pc_engine_is_mask_target(p) && !pc_engine_is_channel_target(p)) {
+        rc = record_smart_adjustment(s, kind, label, p, err);
+        pc_adjustment_fini(&adj);
+        if (rc != PC_OK) {
+            return rc;
+        }
+        return pc_engine_result_null(out, err);
+    }
+    rc = destructive_adjust(s, label, &adj, p, out, err);
     pc_adjustment_fini(&adj);
     return rc;
 }
@@ -575,8 +642,7 @@ static void sh_fn(float (*px)[4], size_t n, size_t w, size_t h, pc_rect r, const
     (void)pc_algo_shadows_highlights(px, n, w, h, ctx, NULL);
 }
 
-static pc_status run_shadows_highlights(pc_engine_session *s, yyjson_val *p, pc_json_value *out,
-                                        pc_error *err)
+static pc_algo_shadows_highlights_params sh_params_from(yyjson_val *p)
 {
     pc_algo_shadows_highlights_params sh = pc_algo_shadows_highlights_default();
     sh.shadow_amount = clampf(fnum(p, "shadowAmount", sh.shadow_amount), 0.0f, 100.0f);
@@ -589,7 +655,54 @@ static pc_status run_shadows_highlights(pc_engine_session *s, yyjson_val *p, pc_
     sh.midtone = clampf(fnum(p, "midtone", sh.midtone), -100.0f, 100.0f);
     sh.black_clip = clampf(fnum(p, "blackClip", sh.black_clip), 0.0f, 50.0f);
     sh.white_clip = clampf(fnum(p, "whiteClip", sh.white_clip), 0.0f, 50.0f);
+    return sh;
+}
+
+static pc_status run_shadows_highlights(pc_engine_session *s, yyjson_val *p, pc_json_value *out,
+                                        pc_error *err)
+{
+    pc_algo_shadows_highlights_params sh = sh_params_from(p);
     return rgba_edit(s, "Shadows/Highlights", p, sh_fn, &sh, out, err);
+}
+
+/* E-tail: re-run an image.adjustments.<kind> smart filter on a copy of `surf` (adjust_as_filter).
+ * A kind / params that no longer parse leave the pixels alone, like an unknown filter. */
+pc_status pc_engine_adjust_apply_to_surface(const char *kind, yyjson_val *params,
+                                            const pc_surface *surf, pc_surface *out, bool *applied,
+                                            pc_error *err)
+{
+    *applied = false;
+    if (kind == NULL || surf == NULL || out == NULL) {
+        return PC_OK;
+    }
+    if (pc_surface_clone(surf, out, err) != PC_OK) {
+        return err != NULL ? err->code : PC_ERR_NOMEM;
+    }
+    if (strcmp(kind, "shadowsHighlights") == 0) {
+        pc_algo_shadows_highlights_params sh = sh_params_from(params);
+        pc_status rc = process_surface(out, NULL, sh_fn, &sh, err);
+        if (rc != PC_OK) {
+            pc_surface_fini(out);
+            return rc;
+        }
+        pc_surface_prune(out);
+        *applied = true;
+        return PC_OK;
+    }
+    pc_color_mode mode = pc_surface_format(surf).mode;
+    pc_adjustment adj;
+    if (pc_engine_adjustment_from_params(kind, params, NULL, mode, &adj, err) != PC_OK) {
+        if (err != NULL) {
+            pc_error_clear(err);
+        }
+        pc_surface_fini(out);
+        return PC_OK; /* not a per-pixel adjustment, or params no longer parse: skip (Rust None) */
+    }
+    pc_engine_adjust_surface(out, &adj, NULL, mode);
+    pc_adjustment_fini(&adj);
+    pc_surface_prune(out);
+    *applied = true;
+    return PC_OK;
 }
 
 /* Replace Color */

@@ -1345,6 +1345,13 @@ static void depth_convert_cb(pc_surface *surf, bool is_mask, void *vctx)
     }
 }
 
+pc_status pc_engine_convert_layers_depth(pc_layer *layers, size_t n, pc_sample_type depth, pc_error *err)
+{
+    depth_ctx dc = {depth, PC_OK, err};
+    pc_engine_image_for_each_surface(layers, n, true, depth_convert_cb, &dc);
+    return dc.rc;
+}
+
 typedef struct {
     pc_status rc;
     pc_error *err;

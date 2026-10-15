@@ -42,19 +42,13 @@ size_t pc_engine_hook_color_restriction(const pc_engine_session *s, const char *
 
 /* pc_engine_hook_mask_view_fix relocated to mask_view_cmds.c, E5. */
 
-void pc_engine_hook_edit_menu_after_command(pc_engine_session *s, const char *id)
-{
-    (void)s;
-    (void)id; /* edit_menu_cmds (E4) */
-}
+/* pc_engine_hook_edit_menu_after_command relocated to edit_menu_cmds.c (EF): records the Edit >
+ * Fade source after every successful command. */
 
 /* pc_engine_hook_automate_after_command relocated to automate_cmds.c (E12). */
 
-void pc_engine_hook_smart_on_close(pc_engine_session *s, size_t index)
-{
-    (void)s;
-    (void)index; /* smart_cmds (E6) */
-}
+/* pc_engine_hook_smart_on_close relocated to smart_cmds_run.c (EF): an edited Edit-Contents
+ * document commits back into its parent smart object before it closes. */
 
 /* pc_engine_hook_coalesce_journal relocated to brush_cmds.c, E10. */
 

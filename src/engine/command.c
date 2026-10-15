@@ -674,6 +674,8 @@ static void register_modules(pc_engine_command **arr, size_t *n, size_t *cap)
     (void)append_specs(arr, n, cap, render, m);
     const pc_engine_command *filters = pc_engine_filters_specs(&m); /* E9 */
     (void)append_specs(arr, n, cap, filters, m);
+    const pc_engine_command *filters_ext = pc_engine_filters_ext_specs(&m); /* E-tail EF2 */
+    (void)append_specs(arr, n, cap, filters_ext, m);
     const pc_engine_command *brush = pc_engine_brush_specs(&m); /* E10 */
     (void)append_specs(arr, n, cap, brush, m);
     const pc_engine_command *symmetry = pc_engine_symmetry_specs(&m); /* E10 */
@@ -786,6 +788,12 @@ static void register_modules(pc_engine_command **arr, size_t *n, size_t *cap)
     (void)append_specs(arr, n, cap, color_to_alpha, m);
     const pc_engine_command *photo_automate = pc_engine_photo_automate_specs(&m); /* ET3: File > Automate */
     (void)append_specs(arr, n, cap, photo_automate, m);
+    const pc_engine_command *sampler = pc_engine_sampler_specs(&m); /* EF: Color Sampler points */
+    (void)append_specs(arr, n, cap, sampler, m);
+    const pc_engine_command *lens = pc_engine_lens_specs(&m); /* ET5: Lens Correction / Wide Angle / Camera Raw */
+    (void)append_specs(arr, n, cap, lens, m);
+    const pc_engine_command *batch = pc_engine_batch_specs(&m); /* E-tail BATCH: file batch/automate pipeline */
+    (void)append_specs(arr, n, cap, batch, m);
     /* E3..E12: append your module's specs() here. */
 }
 

@@ -226,7 +226,9 @@ static pc_status filters_validate_params(const char *id, yyjson_val *params, pc_
     const vrule *fields = NULL;
     size_t nf = 0;
     if (!vr_fields(id, &fields, &nf)) {
-        return PC_OK; /* non-core id: nothing to check here */
+        /* Non-core id: the extended Filter-menu filters check their documented choices
+         * (filters_ext_cmds.c); everything else (incl. Last Filter) passes. */
+        return pc_engine_ext_validate(id, params, err);
     }
     if (params == NULL || yyjson_is_null(params)) {
         return PC_OK;

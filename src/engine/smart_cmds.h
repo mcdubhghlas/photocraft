@@ -32,6 +32,28 @@
 pc_status pc_engine_smart_source_bytes(const pc_metadata *meta, const pc_smart_source *src, bool *found,
                                        pc_str *name, pc_blob **bytes, pc_error *err);
 
+/* Like pc_engine_smart_source_bytes, but for an untrusted (authorize-gated) session command: a
+ * genuine linked file read from disk is re-checked through the session's authorize gate under
+ * `cmd` before it is read (embedded bytes and PSD-uuid data never reach the filesystem, so they
+ * are never gated). `s` may be NULL (no gate). On success the caller owns *name (pc_str_fini) and
+ * holds a reference in *bytes (pc_blob_release); *found is false when the source is unavailable. */
+pc_status pc_engine_smart_authorized_source_bytes(pc_engine_session *s, const char *cmd,
+                                                  const pc_metadata *meta, const pc_smart_source *src,
+                                                  bool *found, pc_str *name, pc_blob **bytes,
+                                                  pc_error *err);
+/* Recheck a source's real path through the authorize gate before an untrusted command reads it
+ * (the path is in the document, not the params). A no-op for embedded or PSD-uuid sources, and
+ * when `s` has no gate. */
+pc_status pc_engine_smart_authorize_source(pc_engine_session *s, const char *cmd,
+                                           const pc_document *doc, const pc_smart_source *src,
+                                           pc_error *err);
+/* Decode smart-object contents (a .pcraft bundle, PSD/PSB or any flat image) into *out
+ * (smart_cmds::decode_source). The caller owns *out (pc_document_fini). */
+pc_status pc_engine_smart_decode_source(const char *name, const uint8_t *bytes, size_t len,
+                                        pc_document *out, pc_error *err);
+/* Move any layer (and its whole subtree) by whole pixels without re-rendering (shift_layer). */
+void pc_engine_smart_shift_layer(pc_layer *l, int32_t dx, int32_t dy);
+
 /* Renders a smart object from its source into *out (the caller owns it, pc_surface_fini).
  * *available is false (out untouched) when the source can't be read, OR when the smart object has
  * visible smart filters (the filter subsystem is deferred -> callers keep the existing cache). A
@@ -78,6 +100,15 @@ uint32_t pc_engine_smart_source_decode_count(const uint8_t *bytes, size_t len, p
 pc_status pc_engine_layer_to_smart(const pc_document *doc, const pc_layer *l, pc_layer *out, pc_error *err);
 pc_status pc_engine_layers_to_smart(const pc_document *doc, const char *name, pc_layer *layers,
                                     size_t n, pc_layer *out, pc_error *err);
+
+/* Record *sf (a filter.* / image.adjustments.* / plugin.run / lens command, ownership moved in)
+ * as a smart filter on the smart object `id`, then re-render (smart_cmds::add_smart_filter). A
+ * selection becomes the filter mask when there is none yet (as in Photoshop). Without a
+ * renderable source the filter is applied to the cached pixels and still recorded. *sf is always
+ * consumed (finalised on every error path, moved into the stack on success); the caller must not
+ * finalise it afterwards. PC_ERR_INVALID when `id` is not a smart object. Never crashes. */
+pc_status pc_engine_add_smart_filter(pc_document *doc, pc_layer_id id, pc_smart_filter *sf,
+                                     const pc_surface *selection, pc_error *err);
 
 const pc_engine_command *pc_engine_smart_specs(size_t *n);
 

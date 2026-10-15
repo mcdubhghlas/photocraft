@@ -164,6 +164,13 @@ typedef struct pc_engine_doc_state {
      * floating. View state, not an undo step (the drop is the history step). Owned; released by
      * doc_state_fini through pc_engine_floating_free. The type is private to float_cmds.c. */
     struct pc_engine_floating *floating;
+    /* EF (sampler_cmds.c): the Color Sampler points (sampler_cmds::color_samplers), each a document
+     * pixel position [x, y]. Per-document view state: not saved to .pcraft/PSD, no history step.
+     * A canvas-size change (crop, Canvas Size, rotation) moves them with their pixels and drops the
+     * ones outside the new canvas (session.c edit() applies the Session sampler map). An owned array
+     * (free()) of ncolor_samplers points, or NULL. */
+    double (*color_samplers)[2];
+    size_t ncolor_samplers, cap_color_samplers;
 } pc_engine_doc_state;
 
 /* How a shown layer mask is drawn (mask_view_cmds::MaskViewMode). */

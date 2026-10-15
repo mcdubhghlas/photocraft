@@ -152,6 +152,86 @@ pc_status pc_engine_smart_source_bytes(const pc_metadata *meta, const pc_smart_s
     return PC_OK;
 }
 
+/* Run the session's authorize gate for a linked-source `path` under command `cmd`. PC_OK when no
+ * gate is set. */
+static pc_status authorize_path(pc_engine_session *s, const char *cmd, const char *path, pc_error *err)
+{
+    if (s == NULL || s->authorize == NULL) {
+        return PC_OK;
+    }
+    yyjson_mut_doc *jd = yyjson_mut_doc_new(NULL);
+    if (jd == NULL) {
+        return pc_fail(err, PC_ERR_NOMEM, "authorize");
+    }
+    yyjson_mut_val *o = yyjson_mut_obj(jd);
+    yyjson_mut_obj_add_str(jd, o, "path", path);
+    yyjson_mut_doc_set_root(jd, o);
+    yyjson_doc *imm = yyjson_mut_doc_imut_copy(jd, NULL);
+    yyjson_mut_doc_free(jd);
+    if (imm == NULL) {
+        return pc_fail(err, PC_ERR_NOMEM, "authorize");
+    }
+    pc_status rc = s->authorize(cmd, yyjson_doc_get_root(imm), err);
+    yyjson_doc_free(imm);
+    return rc;
+}
+
+pc_status pc_engine_smart_authorized_source_bytes(pc_engine_session *s, const char *cmd,
+                                                  const pc_metadata *meta, const pc_smart_source *src,
+                                                  bool *found, pc_str *name, pc_blob **bytes,
+                                                  pc_error *err)
+{
+    /* Embedded bytes and PSD-uuid-embedded data never reach the filesystem, so no gate. */
+    if (embedded_source_bytes(meta, src, found, name, bytes, err) != PC_OK) {
+        return PC_ERR_INVALID;
+    }
+    if (*found || !src->linked) {
+        return PC_OK;
+    }
+    /* A genuine linked file on disk: recheck the path before reading it. */
+    const char *path = pc_str_c(&src->path);
+    pc_status arc = authorize_path(s, cmd, path, err);
+    if (arc != PC_OK) {
+        return arc;
+    }
+    pc_blob *b = NULL;
+    (void)read_file_blob(path, &b);
+    if (b == NULL) {
+        return PC_OK; /* None */
+    }
+    size_t len = strlen(path);
+    size_t off = base_name_off(path, len);
+    if (pc_str_set(name, path + off, len - off, err) != PC_OK) {
+        pc_blob_release(b);
+        return PC_ERR_NOMEM;
+    }
+    *bytes = b;
+    *found = true;
+    return PC_OK;
+}
+
+pc_status pc_engine_smart_authorize_source(pc_engine_session *s, const char *cmd,
+                                           const pc_document *doc, const pc_smart_source *src,
+                                           pc_error *err)
+{
+    if (s == NULL || s->authorize == NULL || !src->linked) {
+        return PC_OK;
+    }
+    /* Embedded PSD data addressed by a Linked uuid never reaches the filesystem: no gate. */
+    const char *path = pc_str_c(&src->path);
+    bool lfound = false;
+    pc_io_linked_file lf;
+    memset(&lf, 0, sizeof lf);
+    if (pc_io_find_linked_file(&doc->metadata, path, strlen(path), &lfound, &lf, err) != PC_OK) {
+        return PC_ERR_INVALID;
+    }
+    if (lfound) {
+        pc_io_linked_file_fini(&lf);
+        return PC_OK;
+    }
+    return authorize_path(s, cmd, path, err);
+}
+
 /* ============================================================== decode / place */
 
 static pc_status decode_source(const char *name, const uint8_t *bytes, size_t len, pc_document *out,
@@ -174,6 +254,12 @@ static pc_status decode_source(const char *name, const uint8_t *bytes, size_t le
     memset(&r.document, 0, sizeof r.document); /* moved out */
     pc_io_import_result_fini(&r);
     return PC_OK;
+}
+
+pc_status pc_engine_smart_decode_source(const char *name, const uint8_t *bytes, size_t len,
+                                        pc_document *out, pc_error *err)
+{
+    return decode_source(name, bytes, len, out, err);
 }
 
 /* A compose buffer as a surface of `fmt` (buffer_to_surface). */
@@ -614,6 +700,140 @@ pc_status pc_engine_smart_refresh(pc_document *doc, pc_layer_id id, bool *update
     return pc_engine_smart_refresh_layer(doc, l, updated, err);
 }
 
+/* ============================================= recording (add_smart_filter, E-tail) */
+
+/* The smart object `id` of `doc`, or NULL with *err set (no such layer / not a smart object). */
+static pc_smart_object *add_smart_mut(pc_document *doc, pc_layer_id id, pc_error *err)
+{
+    pc_layer *l = pc_document_layer_mut(doc, id);
+    if (l == NULL) {
+        (void)pc_engine_err_no_layer(err, id);
+        return NULL;
+    }
+    if (l->content.kind != PC_LAYER_SMART) {
+        (void)pc_engine_err_other(err, "the layer is not a smart object");
+        return NULL;
+    }
+    return &l->content.u.smart;
+}
+
+/* A selection becomes a filter mask (reveal=enabled, linked, full density, no feather). */
+static pc_status mask_from_selection(const pc_surface *sel, pc_layer_mask *out, pc_error *err)
+{
+    if (pc_surface_clone(sel, &out->surface, err) != PC_OK) {
+        return err != NULL ? err->code : PC_ERR_NOMEM;
+    }
+    out->enabled = true;
+    out->linked = true;
+    out->density = 1.0f;
+    out->feather = 0.0f;
+    return PC_OK;
+}
+
+/* Append *sf to the stack (ownership moved: *sf is zeroed on success, untouched on OOM). */
+static pc_status push_filter(pc_smart_object *sm, pc_smart_filter *sf, pc_error *err)
+{
+    pc_smart_filter *grown = realloc(sm->smart_filters, (sm->nsmart_filters + 1) * sizeof *grown);
+    if (grown == NULL) {
+        return pc_fail(err, PC_ERR_NOMEM, "out of memory");
+    }
+    sm->smart_filters = grown;
+    sm->smart_filters[sm->nsmart_filters++] = *sf;
+    memset(sf, 0, sizeof *sf);
+    return PC_OK;
+}
+
+pc_status pc_engine_add_smart_filter(pc_document *doc, pc_layer_id id, pc_smart_filter *sf,
+                                     const pc_surface *selection, pc_error *err)
+{
+    pc_rect canvas = pc_document_bounds(doc);
+    pc_smart_object *sm = add_smart_mut(doc, id, err);
+    if (sm == NULL) {
+        pc_smart_filter_fini(sf);
+        return PC_ERR_INVALID;
+    }
+    /* renderable = the source can be read (the path is the document's own, so no authorize gate). */
+    bool found = false;
+    pc_str name = PC_STR_INIT;
+    pc_blob *bytes = NULL;
+    if (pc_engine_smart_source_bytes(&doc->metadata, &sm->source, &found, &name, &bytes, err) != PC_OK) {
+        pc_smart_filter_fini(sf);
+        return PC_ERR_INVALID;
+    }
+    pc_str_fini(&name);
+    pc_blob_release(bytes);
+
+    if (found) {
+        /* A selection becomes the filter mask (as in Photoshop) when there is none yet. */
+        if (selection != NULL && !sm->has_filter_mask) {
+            pc_layer_mask mask;
+            memset(&mask, 0, sizeof mask);
+            if (mask_from_selection(selection, &mask, err) != PC_OK) {
+                pc_smart_filter_fini(sf);
+                return PC_ERR_NOMEM;
+            }
+            sm->filter_mask = mask;
+            sm->has_filter_mask = true;
+        }
+        if (push_filter(sm, sf, err) != PC_OK) {
+            pc_smart_filter_fini(sf);
+            return PC_ERR_NOMEM;
+        }
+        bool updated = false;
+        if (pc_engine_smart_refresh(doc, id, &updated, err) != PC_OK) {
+            return PC_ERR_INVALID;
+        }
+        if (!updated) {
+            return pc_engine_err_other(
+                err, "the smart object's contents are unavailable (missing linked file?), so it "
+                     "can't be re-rendered");
+        }
+        return PC_OK;
+    }
+
+    /* Without a renderable source, apply to the cached pixels and still record the filter. */
+    pc_rect bounds = canvas;
+    if (selection != NULL) {
+        pc_rect sb = pc_surface_content_bounds(selection);
+        if (!pc_rect_is_empty(sb)) {
+            bounds = sb;
+        }
+    }
+    if (!sm->has_cache) {
+        pc_smart_filter_fini(sf);
+        return pc_engine_err_other(err, "smart object has no pixels");
+    }
+    yyjson_doc *pdoc = NULL;
+    yyjson_val *pval = NULL;
+    if (filter_params_val(sf, &pdoc, &pval, err) != PC_OK) {
+        pc_smart_filter_fini(sf);
+        return PC_ERR_INVALID;
+    }
+    pc_surface out;
+    bool applied = false;
+    pc_status rc = pc_engine_apply_filter_to_surface(pc_str_c(&sf->command), pval, &sm->cache, bounds,
+                                                     selection, canvas, &out, &applied, err);
+    if (pdoc != NULL) {
+        yyjson_doc_free(pdoc);
+    }
+    if (rc != PC_OK) {
+        pc_smart_filter_fini(sf);
+        return rc;
+    }
+    if (!applied) {
+        pc_status e = pc_engine_err_other(err, "unknown filter %s", pc_str_c(&sf->command));
+        pc_smart_filter_fini(sf);
+        return e;
+    }
+    pc_surface_fini(&sm->cache);
+    sm->cache = out;
+    if (push_filter(sm, sf, err) != PC_OK) {
+        pc_smart_filter_fini(sf);
+        return PC_ERR_NOMEM;
+    }
+    return PC_OK;
+}
+
 /* ============================================================== placement algebra */
 
 pc_affine pc_engine_smart_snap_affine(pc_affine a)
@@ -817,6 +1037,11 @@ static void shift_layer(pc_layer *l, int32_t dx, int32_t dy)
     default: /* adjustment, fill: no pixels to move */
         break;
     }
+}
+
+void pc_engine_smart_shift_layer(pc_layer *l, int32_t dx, int32_t dy)
+{
+    shift_layer(l, dx, dy);
 }
 
 /* layers_to_smart's subtree bounds: a group spans its children, an adjustment/fill spans the

@@ -362,6 +362,19 @@ pc_status pc_engine_compound(pc_engine_session *s, const char *label, pc_engine_
         return PC_ERR_NOMEM;
     }
     size_t journal_len = s->njournal;
+    /* EF: Color Sampler points are view state a step may move (crop, rotation): snapshot them so a
+     * failed step can roll them back too, as the reference's compound does. NULL on OOM or when
+     * there are none -- the error branch then just clears them, matching an empty restore. */
+    size_t samplers_n = st->ncolor_samplers;
+    double(*samplers_save)[2] = NULL;
+    if (samplers_n > 0) {
+        samplers_save = pc_malloc_array(samplers_n, sizeof *samplers_save);
+        if (samplers_save != NULL) {
+            memcpy(samplers_save, st->color_samplers, samplers_n * sizeof *samplers_save);
+        } else {
+            samplers_n = 0; /* best-effort: can't snapshot, so the error branch clears */
+        }
+    }
 
     pc_status r = f(s, ctx, err);
 
@@ -376,6 +389,7 @@ pc_status pc_engine_compound(pc_engine_session *s, const char *label, pc_engine_
     }
     st = pc_engine_session_active_mut(s);
     if (st == NULL) {
+        free(samplers_save);
         pc_history_free(history_save);
         pc_layer_target_fini(&prior);
         pc_doc_arc_release(before);
@@ -395,11 +409,17 @@ pc_status pc_engine_compound(pc_engine_session *s, const char *label, pc_engine_
         }
         free(st->coalesce);
         st->coalesce = NULL;
+        free(samplers_save);
     } else {
         pc_doc_arc_release(st->doc);
         st->doc = pc_doc_arc_retain(before);
         st->revision++;
         st->has_last_damage = false;
+        /* EF: roll the Color Sampler points back to their pre-compound positions. */
+        free(st->color_samplers);
+        st->color_samplers = samplers_save;
+        st->ncolor_samplers = samplers_n;
+        st->cap_color_samplers = samplers_n;
     }
     pc_layer_target_fini(&prior);
     pc_doc_arc_release(before);

@@ -23,15 +23,20 @@
 
 #include "base/blob.h"
 #include "base/json.h"
+#include "base/num.h" /* pc_f64_to_i32 (Convert to Layers whole-pixel shift) */
 #include "base/str.h"
 #include "color/blend.h"
 #include "doc/doc.h"
 #include "io/smart_map.h" /* PC_IO_UNSUPPORTED_FILTER */
 
+#include "geom/warp.h"  /* pc_warp_is_identity (Convert to Layers) */
+#include "io/linked.h"  /* pc_io_find_linked_file (embed_nested) */
+
 #include "brush_cmds.h" /* pc_engine_blend_from_str */
 #include "engine_internal.h"
-#include "layer_cmds.h" /* pc_engine_layer_param */
+#include "layer_cmds.h"     /* pc_engine_layer_param */
 #include "smart_cmds.h"
+#include "transform_cmds.h" /* pc_engine_transform_layer (Convert to Layers placement) */
 
 /* PSD placed-layer keys that describe the smart object's source; stale once we change it. */
 static const uint8_t PLACED_KEYS[3][4] = {{'S', 'o', 'L', 'd'}, {'P', 'l', 'L', 'd'}, {'S', 'o', 'L', 'E'}};
@@ -926,6 +931,8 @@ static pc_status not_smart(const pc_engine_session *s, pc_error *reason)
 
 /* Layer > Smart Objects contents commands (ET4): Export/Replace/Relink/Update/Convert. */
 #include "smart_contents.inc"
+/* Layer > Smart Objects > Convert to Layers (ET6): unpack a smart object's contents. */
+#include "smart_unpack.inc"
 
 const pc_engine_command *pc_engine_smart_specs(size_t *n)
 {
@@ -941,7 +948,17 @@ const pc_engine_command *pc_engine_smart_specs(size_t *n)
          "{\"layer\":id?}", has_smart, run_via_copy, true},
         {"layer.smartObjects.rasterize", "Rasterize", SO, 2, NULL, "{\"layer\":id?}", has_smart,
          run_rasterize, true},
-        /* Contents (ET4) */
+        {"layer.smartObjects.convertToLayers", "Convert to Layers", SO, 2, NULL,
+         "{\"layer\":id?} (contents unpacked at the placement: one layer, or a group named after the "
+         "smart object; smart filters are discarded)",
+         has_smart, up_convert_to_layers, true},
+        /* Contents (ET4 + EF Edit/Save Contents) */
+        {"layer.smartObjects.editContents", "Edit Contents", SO, 2, NULL,
+         "{\"layer\":id?} -> opens the contents as a new document; saving "
+         "(layer.smartObjects.saveContents) or closing it updates the smart object",
+         has_smart, cn_edit_contents, true},
+        {"layer.smartObjects.saveContents", "Save Contents", NULL, 0, NULL,
+         "{} (in an Edit Contents document)", cn_is_smart_child, cn_save_contents, true},
         {"layer.smartObjects.replaceContents", "Replace Contents\xE2\x80\xA6", SO, 2, NULL,
          "{\"layer\":id?,\"path\":str}", has_smart, cn_replace_contents, true},
         {"layer.smartObjects.exportContents", "Export Contents\xE2\x80\xA6", SO, 2, NULL,

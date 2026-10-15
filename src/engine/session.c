@@ -1,6 +1,8 @@
 /* The session: open documents, the active one, history, and the edit/undo/redo core
  * (port of crates/engine/src/lib.rs Session, DocState, ToolState). The command registry,
  * dispatch and the job table live in command.c and jobs.c. */
+#include <math.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -134,6 +136,7 @@ void pc_engine_doc_state_fini(pc_engine_doc_state *st)
     pc_engine_channel_view_free(st->channel_view); /* E7 */
     pc_engine_symmetry_free(st->symmetry); /* E10 */
     pc_engine_floating_free(st->floating); /* E4 */
+    free(st->color_samplers); /* EF: Color Sampler points */
     free(st->path);
     free(st->coalesce);
     memset(st, 0, sizeof *st);
@@ -324,6 +327,8 @@ void pc_engine_session_free(pc_engine_session *s)
         pc_json_value_fini(&s->event_log[i]);
     }
     free(s->event_log);
+    free(s->smart_links);         /* EF (E6): Edit-Contents links */
+    free(s->fade_label);          /* EF (ET2): Edit > Fade source */
     for (size_t i = 0; i < s->ndocs; i++) {
         pc_engine_doc_state_fini(&s->docs[i]);
     }
@@ -533,6 +538,54 @@ bool pc_engine_session_move_document(pc_engine_session *s, size_t from, size_t t
 
 /* ---- edit / undo / redo ------------------------------------------------------------------- */
 
+/* Floor of v to an i32, saturating (NaN -> INT32_MIN); keeps the float->int cast in range. */
+static int32_t floor_i32_sat(double v)
+{
+    double f = floor(v);
+    if (!(f >= (double)INT32_MIN)) { /* also catches NaN */
+        return INT32_MIN;
+    }
+    if (f > (double)INT32_MAX) {
+        return INT32_MAX;
+    }
+    return (int32_t)f;
+}
+
+/* EF: after a canvas-size edit, move the Color Sampler points with their pixels (had_map, through
+ * `map`) or -- for any other size change -- drop the ones now outside the canvas. Accumulates how
+ * many were removed into s->samplers_removed. View state: not a history step. Port of the sampler
+ * block in Session::edit (crates/engine/src/lib.rs). */
+static void apply_sampler_map(pc_engine_session *s, pc_engine_doc_state *st, bool had_map,
+                              pc_affine map, pc_size before_size)
+{
+    if (st->ncolor_samplers == 0) {
+        return;
+    }
+    pc_rect bounds = pc_document_bounds(pc_doc_arc_get(st->doc));
+    pc_size after_size = pc_doc_arc_get(st->doc)->size;
+    if (!had_map && after_size.width == before_size.width && after_size.height == before_size.height) {
+        return;
+    }
+    size_t before = st->ncolor_samplers;
+    size_t out = 0;
+    for (size_t i = 0; i < st->ncolor_samplers; i++) {
+        double x = st->color_samplers[i][0];
+        double y = st->color_samplers[i][1];
+        if (had_map) {
+            pc_point q = pc_affine_apply(map, (pc_point){x, y});
+            x = q.x;
+            y = q.y;
+        }
+        if (pc_rect_contains(bounds, floor_i32_sat(x), floor_i32_sat(y))) {
+            st->color_samplers[out][0] = x;
+            st->color_samplers[out][1] = y;
+            out++;
+        }
+    }
+    st->ncolor_samplers = out;
+    s->samplers_removed += before - out;
+}
+
 pc_status pc_engine_session_edit(pc_engine_session *s, const char *label, pc_engine_edit_fn f,
                                  void *ctx, pc_error *err)
 {
@@ -540,7 +593,13 @@ pc_status pc_engine_session_edit(pc_engine_session *s, const char *label, pc_eng
     if (st == NULL) {
         return pc_engine_err_no_document(err);
     }
+    /* EF: consume the pending Color Sampler map (set by crop/Canvas Size/Image Size/rotation before
+     * this edit), as Session::edit does with sampler_map.take(). */
+    bool sampler_had_map = s->has_sampler_map;
+    pc_affine sampler_map = s->sampler_map;
+    s->has_sampler_map = false;
     pc_doc_arc *before = pc_doc_arc_retain(st->doc);
+    pc_size before_size = pc_doc_arc_get(before)->size;
     pc_layer_target prior = {0};
     if (doc_state_layer_target(st, &prior, err) != PC_OK) {
         pc_doc_arc_release(before);
@@ -577,6 +636,7 @@ pc_status pc_engine_session_edit(pc_engine_session *s, const char *label, pc_eng
     st->active_layer = active;
     pc_engine_fix_selection(st);
     pc_engine_hook_fix_view(st);
+    apply_sampler_map(s, st, sampler_had_map, sampler_map, before_size); /* EF: Color Sampler points */
 
     bool dmg_present = false;
     pc_rect dmg = PC_RECT_EMPTY;

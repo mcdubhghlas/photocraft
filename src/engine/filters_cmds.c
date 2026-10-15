@@ -25,6 +25,7 @@
 #include "engine_internal.h"
 #include "extra_cmds.h"
 #include "layer_cmds.h"
+#include "smart_cmds.h" /* E-tail: pc_engine_add_smart_filter (record a smart filter) */
 
 /* ---- param readers (filters.rs f / i / b / s / seed) -------------------------------------- */
 
@@ -376,11 +377,12 @@ static pc_status params_for(const char *id, yyjson_val *p, pc_algo_filter *out, 
                   ? "polarToRectangular"
                   : "rectangularToPolar");
     } else {
-        /* Not a core filter: try the Filter Gallery (filter.filterGallery / filter.gallery.*),
-         * mirroring the reference's `_ => filters_ext::params_for(id, p)` fallthrough. gallery
-         * params_for leaves *found false for ids it does not own. */
+        /* Not a core filter: try the extended Filter-menu filters (filters_ext_cmds.c), which in
+         * turn fall through to the Filter Gallery, mirroring the reference's
+         * `_ => filters_ext::params_for(id, p)` -> `_ => gallery_cmds::params_for(id, p)` chain.
+         * Both leave *found false for ids they do not own. */
         yyjson_mut_doc_free(d);
-        return pc_engine_gallery_params_for(id, p, out, found, err);
+        return pc_engine_ext_params_for(id, p, out, found, err);
     }
 
     pc_status rc = PC_OK;
@@ -481,6 +483,8 @@ struct filter_ctx {
     const pc_algo_filter *filter;
     bool has_layer;
     pc_layer_id layer;
+    const char *id;       /* command id, to record on a smart object */
+    yyjson_val *params;   /* command params, recorded verbatim on a smart object */
 };
 
 static pc_status edit_filter(pc_document *doc, bool *has_active, pc_layer_id *active, void *vctx,
@@ -511,8 +515,23 @@ static pc_status edit_filter(pc_document *doc, bool *has_active, pc_layer_id *ac
             err, "Could not complete your request because the layer \"%s\" is locked", pc_str_c(&l->name));
     }
     if (l->content.kind == PC_LAYER_SMART) {
-        return pc_engine_err_other(
-            err, "smart-object filters are not yet supported in this build (E6 smart filters)");
+        /* Non-destructive: record the filter and re-render the smart object from its source
+         * (filters::run_filter). A selection becomes the filter mask. */
+        const pc_surface *sel = doc->has_selection ? &doc->selection : NULL;
+        pc_smart_filter sf;
+        memset(&sf, 0, sizeof sf);
+        pc_status rc = pc_str_set(&sf.command, c->id, strlen(c->id), err);
+        if (rc == PC_OK) {
+            rc = pc_json_value_from_val(c->params, &sf.params, err);
+        }
+        if (rc != PC_OK) {
+            pc_smart_filter_fini(&sf);
+            return rc;
+        }
+        sf.blend = PC_BLEND_NORMAL;
+        sf.opacity = 1.0f;
+        sf.visible = true;
+        return pc_engine_add_smart_filter(doc, id, &sf, sel, err);
     }
     if (l->content.kind != PC_LAYER_RASTER) {
         return pc_engine_err_other(err, "not a pixel layer");
@@ -586,7 +605,18 @@ static pc_status run_filter(pc_engine_session *s, const char *id, yyjson_val *p,
         return pc_engine_err_other(err, "unknown filter %s", id);
     }
 
-    struct filter_ctx ctx = {&filter, false, 0};
+    /* Inputs that live outside the target layer (filters_ext::resolve): Displace's displacement
+     * map (mapPath / mapDocument / an embedded PSD map), loaded before any document change and
+     * borrowed by the filter for the run. A no-op for every other filter. */
+    pc_algo_image map_storage;
+    bool has_map = false;
+    rc = pc_engine_filters_resolve_map(s, &filter, p, true, &map_storage, &has_map, err);
+    if (rc != PC_OK) {
+        pc_algo_filter_fini(&filter);
+        return rc;
+    }
+
+    struct filter_ctx ctx = {&filter, false, 0, id, p};
     yyjson_val *lv = pc_json_get(p, "layer");
     if (lv != NULL && yyjson_is_uint(lv)) {
         ctx.layer = (pc_layer_id)yyjson_get_uint(lv);
@@ -605,6 +635,11 @@ static pc_status run_filter(pc_engine_session *s, const char *id, yyjson_val *p,
     const char *label = preset != NULL ? preset : pc_algo_filter_label(&filter);
 
     rc = pc_engine_session_edit(s, label, edit_filter, &ctx, err);
+    /* The map (borrowed by the filter) is no longer read once the edit returns; serialising the
+     * filter below skips it (algo #[serde(skip)]). */
+    if (has_map) {
+        pc_algo_image_fini(&map_storage);
+    }
     if (rc != PC_OK) {
         pc_algo_filter_fini(&filter);
         return rc;
@@ -646,6 +681,11 @@ pc_status pc_engine_apply_filter_to_surface(const char *id, yyjson_val *params, 
     if (rc != PC_OK || *applied) {
         return rc;
     }
+    /* Image > Adjustments recorded as smart filters (Levels, Curves, Brightness/Contrast, Invert…
+     * from a smart object or a PSD filterFX), re-run from the source (adjust_cmds::adjust_as_filter). */
+    if (strncmp(id, "image.adjustments.", 18) == 0) {
+        return pc_engine_adjust_apply_to_surface(id + 18, params, surf, out, applied, err);
+    }
     /* The core filter table (and, when registered, the gallery / ext filters chained by
      * params_for). An unknown id leaves the pixels alone, like the reference's `None`. */
     bool found = false;
@@ -657,8 +697,20 @@ pc_status pc_engine_apply_filter_to_surface(const char *id, yyjson_val *params, 
     if (!found) {
         return PC_OK; /* not a pixel filter: *applied stays false */
     }
-    /* Displacement-map resolution (filters_ext::resolve_map_path, file I/O) is deferred to E3; the
-     * core filters do not read a map. */
+    /* Displace reads its map again on every re-render (smart filters record params, not the map):
+     * resolve_map_path loads it from the recorded mapPath / embedded PSD map. A map that can no
+     * longer be read (moved or deleted since) leaves the pixels alone, like an unknown filter --
+     * the command itself already refused an unreadable map when it was added. mapDocument needs
+     * the session and is left unresolved here. */
+    pc_algo_image map_storage;
+    bool has_map = false;
+    if (pc_engine_filters_resolve_map(NULL, &f, params, false, &map_storage, &has_map, err) != PC_OK) {
+        pc_algo_filter_fini(&f);
+        if (err != NULL) {
+            pc_error_clear(err);
+        }
+        return PC_OK; /* *applied stays false */
+    }
     pc_rect content = pc_surface_content_bounds(surf);
     pc_rect sel_bounds;
     const pc_rect *selp = NULL;
@@ -669,6 +721,9 @@ pc_status pc_engine_apply_filter_to_surface(const char *id, yyjson_val *params, 
     pc_rect area = pc_algo_output_area(&f, content, bounds, selp);
     pc_rect extent = pc_rect_union(canvas, content);
     rc = pc_algo_apply_in(surf, &f, area, bounds, selection, extent, out, err);
+    if (has_map) {
+        pc_algo_image_fini(&map_storage);
+    }
     pc_algo_filter_fini(&f);
     if (rc == PC_OK) {
         *applied = true;
