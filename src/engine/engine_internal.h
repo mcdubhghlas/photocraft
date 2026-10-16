@@ -185,6 +185,14 @@ struct pc_engine_session {
     pc_fill path_fill_clip;
     bool has_path_stroke_clip;
     pc_shape_stroke path_stroke_clip;
+    /* GAP (layer style): Layer > Layer Style > Copy/Paste Layer Style (Session::style_clipboard).
+     * has_style_clip false = empty (zero-initialised in session_new). The effects are released by
+     * pc_engine_style_clipboard_fini (layerstyle_copy_cmds.c) in session_free. */
+    bool has_style_clip;
+    pc_effects style_clip_effects;
+    pc_blend_mode style_clip_blend;
+    float style_clip_fill;
+    pc_advanced_blending style_clip_advanced;
     /* E11 (type): Type > Save/Load Default Type Styles (Session::type_defaults). The character
      * and paragraph style new type layers start from; has_type_defaults false = Photoshop's
      * default (zero-initialised in session_new). Released by pc_engine_type_defaults_fini
@@ -758,6 +766,16 @@ pc_status pc_engine_mix_through_selection(pc_pixel_format fmt, pc_rect r, const 
                                           const float (*edited)[4], size_t count,
                                           const pc_surface *selection, float **out, size_t *out_len,
                                           pc_error *err);
+
+/* Scale a layer's effects by k (Image Size's Scale Styles; image_cmds.c), reused by Layer > Layer
+ * Style > Scale Effects. */
+void pc_engine_scale_effects(pc_effects *fx, float k);
+
+/* Release the Layer Style copy/paste clipboard (layerstyle_copy_cmds.c); NULL-safe, called by
+ * session_free. */
+void pc_engine_style_clipboard_fini(pc_engine_session *s);
+/* Layer > Layer Style > Copy/Paste Layer Style (layerstyle_copy_cmds.c). */
+const pc_engine_command *pc_engine_layerstyle_copy_specs(size_t *n);
 
 /* enabled predicates (command.c), shared with command modules. */
 pc_status pc_engine_has_doc(const pc_engine_session *s, pc_error *reason);

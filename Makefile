@@ -170,7 +170,7 @@ APP_OBJS := $(CLI_OBJS)
 .PHONY: all spike corpus test check sanitize tsan analyze valgrind install clean
 .DEFAULT_GOAL := all
 
-all: $(LIB) $(PROGRAMS:%=$(BUILD)/bin/%) $(if $(HAVE_GUI),$(SPIKE) $(SNAP))
+all: $(LIB) $(PROGRAMS:%=$(BUILD)/bin/%) $(if $(HAVE_GUI),$(SPIKE) $(SNAP) $(UISHELL))
 
 # Listed first: GNU make 3.81 takes the first matching pattern rule, not the most specific.
 $(BUILD)/obj/third_party/%.o: third_party/%.c

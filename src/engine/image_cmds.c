@@ -135,6 +135,13 @@ static void scale_effects(pc_effects *fx, float k)
     }
 }
 
+/* Public wrapper so Layer > Layer Style > Scale Effects (layerstyle_gap_cmds.c) can reuse the exact
+ * same scaling (Image Size's Scale Styles). */
+void pc_engine_scale_effects(pc_effects *fx, float k)
+{
+    scale_effects(fx, k);
+}
+
 static void scale_effects_cb(pc_layer *l, void *ctx)
 {
     float k = *(const float *)ctx;
@@ -184,7 +191,8 @@ static void refresh_doc(pc_document *doc, bool all)
 
 /* ---- errors ------------------------------------------------------------------------------- */
 
-static pc_status bad(pc_error *err, const char *cmd, const char *fmt, ...)
+__attribute__((format(printf, 3, 4))) static pc_status bad(pc_error *err, const char *cmd,
+                                                           const char *fmt, ...)
 {
     char msg[256];
     va_list ap;

@@ -27,6 +27,10 @@
 #include "extra_cmds.h"  /* E12: Stroke, Reselect, Equalize, rasterize, ungroup, layer-mask toggles, clouds */
 #include "align_distribute_cmds.h" /* GAP: layer align + distribute */
 #include "view_proof_guide_cmds.h"  /* GAP: view.proofSetup.* variants + guide commands */
+#include "matting_gap_cmds.h"       /* GAP: matting + mask all objects + reveal in finder */
+#include "layerstyle_gap_cmds.h"    /* GAP: blending options + global light + scale effects */
+#include "fill_layer_gap_cmds.h"    /* GAP: new fill layer (solid color + gradient) */
+#include "flatten_gap_cmds.h"       /* GAP: flatten all layer effects / all masks */
 
 /* ---- owned JSON results ------------------------------------------------------------------- */
 
@@ -804,6 +808,16 @@ static void register_modules(pc_engine_command **arr, size_t *n, size_t *cap)
     (void)append_specs(arr, n, cap, align_distribute, m);
     const pc_engine_command *view_proof_guide = pc_engine_view_proof_guide_specs(&m); /* GAP: proofSetup + guides */
     (void)append_specs(arr, n, cap, view_proof_guide, m);
+    const pc_engine_command *matting_gap = pc_engine_matting_gap_specs(&m); /* GAP: matting + mask objects + reveal */
+    (void)append_specs(arr, n, cap, matting_gap, m);
+    const pc_engine_command *layerstyle_gap = pc_engine_layerstyle_gap_specs(&m); /* GAP: blending/light/scale fx */
+    (void)append_specs(arr, n, cap, layerstyle_gap, m);
+    const pc_engine_command *fill_layer_gap = pc_engine_fill_layer_gap_specs(&m); /* GAP: new fill layers */
+    (void)append_specs(arr, n, cap, fill_layer_gap, m);
+    const pc_engine_command *layerstyle_copy = pc_engine_layerstyle_copy_specs(&m); /* GAP: copy/paste style */
+    (void)append_specs(arr, n, cap, layerstyle_copy, m);
+    const pc_engine_command *flatten_gap = pc_engine_flatten_gap_specs(&m); /* GAP: flatten effects/masks */
+    (void)append_specs(arr, n, cap, flatten_gap, m);
     /* E3..E12: append your module's specs() here. */
 }
 

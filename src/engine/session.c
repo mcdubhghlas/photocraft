@@ -316,6 +316,7 @@ void pc_engine_session_free(pc_engine_session *s)
     pc_engine_tool_state_fini(&s->tools); /* E10 */
     pc_engine_vector_clipboard_fini(s);   /* E11 */
     pc_engine_type_defaults_fini(s);      /* E11 (type) */
+    pc_engine_style_clipboard_fini(s);    /* GAP (layer style copy/paste) */
     pc_engine_clipboard_free(s->clipboard); /* E4 */
     s->clipboard = NULL;
     pc_engine_analysis_fini(s);           /* E8 (analysis) */
