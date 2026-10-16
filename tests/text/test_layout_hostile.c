@@ -130,7 +130,7 @@ static void test_absurd_numbers(void)
             t.paragraphs[0].len = t.text.len;
             t.paragraphs[0].style = p;
             if (j < sizeof boxes / sizeof boxes[0]) {
-                t.shape = (pc_text_shape){true, boxes[j][0], boxes[j][1], boxes[j][2], boxes[j][3]};
+                t.shape = (pc_text_shape){.kind = PC_TEXT_SHAPE_BOX, .x = boxes[j][0], .y = boxes[j][1], .width = boxes[j][2], .height = boxes[j][3]};
             }
             t.orientation = j % 2 == 0 ? PC_ORIENT_VERTICAL : PC_ORIENT_HORIZONTAL;
             exercise(e, &t, dpis[(i + j) % 6]);
@@ -183,7 +183,7 @@ static void test_huge_text(void)
         (void)pc_buf_append_str(&b, i % 50 == 49 ? "word\n" : i % 7 == 0 ? "שלום " : "word ", NULL);
     }
     one_run(&t, (const char *)b.data, b.len, &s);
-    t.shape = (pc_text_shape){true, 0.0f, 0.0f, 300.0f, 1e9f};
+    t.shape = (pc_text_shape){.kind = PC_TEXT_SHAPE_BOX, .x = 0.0f, .y = 0.0f, .width = 300.0f, .height = 1e9f};
     CHECK(pc_text_engine_layout(e, &t, 72.0f, &l, NULL) == PC_OK);
     CHECK(l.nlines > 400);
     pc_text_layout_fini(&l);
@@ -194,10 +194,10 @@ static void test_huge_text(void)
         (void)pc_buf_append_byte(&b, (uint8_t)('a' + i % 26), NULL);
     }
     one_run(&t, (const char *)b.data, b.len, &s);
-    t.shape = (pc_text_shape){true, 0.0f, 0.0f, 10.0f, 100.0f};
+    t.shape = (pc_text_shape){.kind = PC_TEXT_SHAPE_BOX, .x = 0.0f, .y = 0.0f, .width = 10.0f, .height = 100.0f};
     CHECK(pc_text_engine_layout(e, &t, 72.0f, &l, NULL) == PC_OK);
     pc_text_layout_fini(&l);
-    t.shape.is_box = false;
+    t.shape.kind = PC_TEXT_SHAPE_POINT;
     CHECK(pc_text_engine_layout(e, &t, 72.0f, &l, NULL) == PC_OK);
     CHECK_EQ_UINT(l.nglyphs, 100000);
     pc_text_layout_fini(&l);

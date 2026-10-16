@@ -570,13 +570,13 @@ static pc_status real_pair(double a, double b, pc_ed_value *out, pc_error *err)
 /* EngineDict/Rendered for the layer's shape and orientation. */
 static pc_status rendered(const pc_text_layer *layer, pc_ed_value *out, pc_error *err)
 {
-    int64_t shape_type = layer->shape.is_box ? 1 : 0;
+    int64_t shape_type = layer->shape.kind == PC_TEXT_SHAPE_BOX ? 1 : 0;
     int64_t writing = layer->orientation == PC_ORIENT_VERTICAL ? 2 : 0;
     pc_ed_value photoshop = pc_ed_dict(), base = pc_ed_dict(), child = pc_ed_dict(), lines = pc_ed_dict();
     pc_ed_value cookie = pc_ed_dict(), shapes = pc_ed_dict(), children = pc_ed_array(), r = pc_ed_dict();
     pc_ed_value tmp = pc_ed_array();
     pc_status st = psd_set_int(&photoshop, "ShapeType", shape_type, err);
-    if (st == PC_OK && !layer->shape.is_box) {
+    if (st == PC_OK && layer->shape.kind != PC_TEXT_SHAPE_BOX) {
         st = real_pair(real(0.0f), real(0.0f), &tmp, err);
         if (st == PC_OK) {
             st = set_take(&photoshop, "PointBase", &tmp, err);
@@ -1192,7 +1192,7 @@ pc_status pc_text_build_tysh(const pc_text_layer *layer, float dpi, const float 
             st = pc_psd_desc_init(&t.text, "TxLr", err);
         }
     }
-    if (layer->shape.is_box) {
+    if (layer->shape.kind == PC_TEXT_SHAPE_BOX) {
         b[0] = layer->shape.x;
         b[1] = layer->shape.y;
         b[2] = layer->shape.x + layer->shape.width;

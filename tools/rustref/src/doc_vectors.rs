@@ -550,7 +550,8 @@ fn ser_lines() {
     ser!(TextDirection: TextDirection::Auto, TextDirection::Ltr, TextDirection::Rtl);
     ser!(ParagraphStyle: ParagraphStyle::default(), para_full());
     ser!(ParagraphRun: ParagraphRun { len: 9007199254740993, style: para_full() });
-    ser!(TextShape: TextShape::Point, TextShape::Box { x: 0.1, y: -0.0, width: 1e20, height: 1e-45 });
+    ser!(TextShape: TextShape::Point, TextShape::Box { x: 0.1, y: -0.0, width: 1e20, height: 1e-45 },
+         TextShape::Path { path: Subpath::polyline(&[(0.0, 0.0), (50.0, 20.0), (120.0, 5.5)]), start: 2.5, flip: true });
     ser!(Orientation: Orientation::Horizontal, Orientation::Vertical);
     for a in [AntiAlias::None, AntiAlias::Sharp, AntiAlias::Crisp, AntiAlias::Strong, AntiAlias::Smooth, AntiAlias::Windows, AntiAlias::WindowsLcd] {
         ser!(AntiAlias: a);
@@ -700,7 +701,9 @@ fn de_lines() {
         r#"{"caps":"AllCaps","ligatures":false}"#, r#"{"color":{"mode":"Lab","c":[0.5,0.5,0.5,0],"alpha":0.5},"unknown":[1,2]}"#,
         r#"{"postscript_name":"PS","language":null,"variations":[{"axis":"wdth","value":75}]}"#, r#"{"font_family":null}"#, r#"[]"#);
     de!(ParagraphStyle: r#"{"align":"Center"}"#, r#"{"auto_leading":null}"#, r#"{"direction":"Rtl","style_sheet":0}"#, r#"{"align":"Bogus"}"#, r#"{}"#);
-    de!(TextShape: r#""Point""#, r#"{"Box":{"x":1,"y":2,"width":3,"height":4}}"#, r#"{"Box":{"x":1}}"#, r#"{"Point":null}"#, r#""Box""#);
+    de!(TextShape: r#""Point""#, r#"{"Box":{"x":1,"y":2,"width":3,"height":4}}"#, r#"{"Box":{"x":1}}"#, r#"{"Point":null}"#, r#""Box""#,
+        r#"{"Path":{"path":{"closed":false,"knots":[{"anchor":{"x":0,"y":0}},{"anchor":{"x":50,"y":20}}],"op":"Combine"},"start":2.5,"flip":true}}"#,
+        r#"{"Path":{"path":{"knots":[]}}}"#);
     de!(TextRun: r#"{"len":-1,"style":{}}"#, r#"{"len":18446744073709551615,"style":{}}"#, r#"{"len":3}"#);
     de!(TextStyles: r#"{}"#, r#"{"character":[{"id":1}]}"#, r#"{"basic":{}}"#, r#"{"psd_raw":{"b":1,"a":[2,{"d":0,"c":1.5}]}}"#, r#"{"psd_raw":null}"#,
         r#"{"paragraph":[{"id":3,"name":"P","para_attrs":{"align":"Right"},"char_attrs":{}}]}"#);

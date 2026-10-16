@@ -886,21 +886,48 @@ static void test_text_layer_clone_eq(void)
     set_runs(&t, rs, 1);
     t.has_warp = true;
     CHECK(pc_str_set_c(&t.warp.style, "warpArc", NULL) == PC_OK);
-    t.shape.is_box = true;
+    t.shape.kind = PC_TEXT_SHAPE_BOX;
     t.shape.width = 10.0f;
     CHECK(pc_text_layer_clone(&t, &c, NULL) == PC_OK);
     CHECK(pc_text_layer_eq(&t, &c));
     c.runs[0].style.features[0].value = 2;
     CHECK(!pc_text_layer_eq(&t, &c));
     c.runs[0].style.features[0].value = 1;
-    c.shape.is_box = false;
+    c.shape.kind = PC_TEXT_SHAPE_POINT;
     CHECK(!pc_text_layer_eq(&t, &c));
-    t.shape.is_box = false;
+    t.shape.kind = PC_TEXT_SHAPE_POINT;
     CHECK(pc_text_layer_eq(&t, &c)); /* point text ignores the box fields */
     pc_text_layer_fini(&c);
     pc_text_layer_fini(&t);
     CHECK(pc_text_align_is_justified(PC_TEXT_ALIGN_JUSTIFY_ALL));
     CHECK(!pc_text_align_is_justified(PC_TEXT_ALIGN_CENTER));
+
+    /* Type on a path: the Path shape clones its subpath deeply, compares by start/flip/path, and
+     * frees the subpath (ASan-checked). */
+    {
+        double pp[2][2] = {{0.0, 0.0}, {50.0, 0.0}};
+        pc_text_layer p2, pc2;
+        pc_subpath sp;
+        pc_text_layer_default(&p2);
+        CHECK(pc_str_set_c(&p2.text, "abc", NULL) == PC_OK);
+        CHECK(pc_subpath_polyline((const double(*)[2])pp, 2, &sp, NULL) == PC_OK);
+        p2.shape.kind = PC_TEXT_SHAPE_PATH;
+        p2.shape.path = sp;
+        p2.shape.start = 3.5f;
+        p2.shape.flip = true;
+        CHECK(pc_text_layer_clone(&p2, &pc2, NULL) == PC_OK);
+        CHECK(pc_text_layer_eq(&p2, &pc2));
+        pc2.shape.start = 9.0f;
+        CHECK(!pc_text_layer_eq(&p2, &pc2)); /* start differs */
+        pc2.shape.start = 3.5f;
+        pc2.shape.flip = false;
+        CHECK(!pc_text_layer_eq(&p2, &pc2)); /* flip differs */
+        pc2.shape.flip = true;
+        pc2.shape.path.knots[1].anchor.x = 999.0;
+        CHECK(!pc_text_layer_eq(&p2, &pc2)); /* subpath differs (deep copy, not shared) */
+        pc_text_layer_fini(&pc2);
+        pc_text_layer_fini(&p2);
+    }
 }
 
 static void test_invalid_utf8_runs_terminate(void)

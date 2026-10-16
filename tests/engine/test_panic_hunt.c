@@ -8,10 +8,11 @@
  * SIGALRM watchdog turns a genuine hang into a named failure instead of a wedged run. Every
  * returned status is checked to be a valid enum value, and successful outputs are freed.
  *
- * The reference skips file.print / file.printOneCopy (they spool to CUPS); those commands are
- * DEFERRED in the C port (print_cmds.c registers only Paths to Illustrator), so nothing here can
- * reach a printer and no skip list is needed. The battery also carries no "path" key, so no
- * save/export command can write a file. */
+ * The reference skips file.print / file.printOneCopy (they spool to CUPS); the C port registers
+ * them, so main() calls pc_engine_print_disable() first (as the reference's panic hunt calls
+ * print_cmds::disable_printing) -- the spool path then returns an error instead of reaching a
+ * printer, and a dry run only renders a PDF in memory. The battery also carries no "path" key, so
+ * no save/export command (nor the "output" of Print) writes a file. */
 #include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,6 +22,7 @@
 #include "color/color.h"
 #include "doc/doc.h"
 #include "engine/engine.h"
+#include "engine/engine_internal.h" /* pc_engine_print_disable */
 #include "harness.h"
 
 /* ---- hang watchdog ------------------------------------------------------------------------ */
@@ -295,6 +297,9 @@ int main(int argc, char **argv)
     memset(&sa, 0, sizeof sa);
     sa.sa_handler = on_alarm;
     g_armed = (sigaction(SIGALRM, &sa, NULL) == 0);
+
+    /* Never reach a printer while fuzzing file.print / file.printOneCopy. */
+    pc_engine_print_disable();
 
     RUN(fuzz_registry);
     return pc_t_finish();

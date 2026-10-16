@@ -18,7 +18,7 @@ static pc_status render_bounded(pc_text_engine *eng, pc_text_layer *t, float dpi
                                 pc_error *err)
 {
     pc_text_layout layout;
-    pc_style_warp warp;
+    pc_text_deform warp;
     bool has_warp;
     pc_rect ink;
     pc_size sz;
@@ -27,16 +27,22 @@ static pc_status render_bounded(pc_text_engine *eng, pc_text_layer *t, float dpi
     if (st != PC_OK) {
         return st == PC_ERR_NOMEM ? st : PC_OK;
     }
-    has_warp = t->has_warp && pc_text_layout_warp(&layout, &t->warp, &warp);
+    has_warp = pc_text_layout_deform(&layout, t, &warp);
     st = pc_text_ink_rect(&layout, &t->transform, has_warp ? &warp : NULL, &ink, err);
     if (st != PC_OK) {
         pc_text_layout_fini(&layout);
+        if (has_warp) {
+            pc_text_deform_fini(&warp);
+        }
         return st;
     }
     sz = pc_rect_size(ink);
     if ((uint64_t)sz.width * (uint64_t)sz.height > PC_IO_TEXT_MAX_RENDER_PIXELS) {
         pc_pixel_format f = format;
         pc_text_layout_fini(&layout);
+        if (has_warp) {
+            pc_text_deform_fini(&warp);
+        }
         f.alpha = true;
         if (t->has_cache) {
             pc_surface_fini(&t->cache);
@@ -47,6 +53,9 @@ static pc_status render_bounded(pc_text_engine *eng, pc_text_layer *t, float dpi
     }
     st = pc_text_rasterize(&layout, &t->transform, format, t->antialias, has_warp ? &warp : NULL, &r, err);
     pc_text_layout_fini(&layout);
+    if (has_warp) {
+        pc_text_deform_fini(&warp);
+    }
     if (st != PC_OK) {
         return st == PC_ERR_NOMEM ? st : PC_OK;
     }

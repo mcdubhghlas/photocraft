@@ -19,6 +19,8 @@
 #include "base/mem.h"
 #include "compose/compose.h"
 #include "doc/analysis.h"
+#include "raster/pixel.h"   /* pc_from_rgba (Place Scale Marker bar fill) */
+#include "raster/surface.h" /* pc_surface_fill_rect */
 #include "engine_internal.h"
 
 #ifndef M_PI
@@ -2449,16 +2451,329 @@ static pc_status run_info(pc_engine_session *s, yyjson_val *p, pc_json_value *ou
     return PC_OK;
 }
 
-/* ---- deferred: Place Scale Marker, Straighten Layer --------------------------------------- */
+/* ---- Place Scale Marker (ET: analysis_cmds::place_scale_marker) ---------------------------- */
+
+/* The shortest image a scale bar fits: four times its 2 px minimum height (#932). */
+#define PSM_MIN_HEIGHT 8.0
+
+/* A "nice" bar length (1, 2 or 5 x 10^n) near a fifth of the image width, in logical units. */
+static double psm_nice_length(const pc_document *d)
+{
+    double target = (double)d->size.width / 5.0 * pc_measurement_scale_factor(&d->measurement.scale);
+    if (!(target > 0.0) || !isfinite(target)) {
+        return 0.0; /* caller rejects a non-positive length */
+    }
+    double e = pow(10.0, floor(log10(target)));
+    const double mult[3] = {5.0, 2.0, 1.0};
+    for (size_t i = 0; i < 3; i++) {
+        double v = mult[i] * e;
+        if (v <= target) {
+            return v;
+        }
+    }
+    return e;
+}
+
+/* Photoshop's length label: an integer when whole, else the shortest round-trip digits. */
+static void psm_trim_num(double v, char *out, size_t cap)
+{
+    if (v == floor(v) && isfinite(v) && fabs(v) < 9.007199254740992e15) {
+        snprintf(out, cap, "%lld", (long long)v);
+    } else {
+        pc_json_format_f64(v, out); /* serde-style shortest form (PC_JSON_NUM_MAX <= cap) */
+    }
+}
+
+static int32_t psm_round_i32(double v)
+{
+    double r = round(v);
+    if (r < (double)INT32_MIN) {
+        return INT32_MIN;
+    }
+    if (r > (double)INT32_MAX) {
+        return INT32_MAX;
+    }
+    return (int32_t)r;
+}
+
+/* The edit that creates the "Scale Bar" raster layer, fills the bar, wraps it in a group and makes
+ * the bar active. */
+struct psm_edit {
+    pc_rect bar;
+    pc_pixel_format fmt;
+    float rgb[3];
+    pc_layer_id bar_id; /* out */
+};
+
+static pc_status psm_make_layers(pc_document *doc, bool *has_active, pc_layer_id *active, void *v,
+                                 pc_error *err)
+{
+    struct psm_edit *e = v;
+    pc_layer bar;
+    pc_status rc = pc_layer_raster(&bar, "Scale Bar", e->fmt, err);
+    if (rc != PC_OK) {
+        return rc;
+    }
+    pc_surface *surf = pc_layer_surface_mut(&bar);
+    if (surf != NULL) {
+        float rgba[4] = {e->rgb[0], e->rgb[1], e->rgb[2], 1.0f};
+        float px[PC_RASTER_MAX_CHANNELS];
+        size_t n = pc_from_rgba(e->fmt, rgba, px);
+        rc = pc_surface_fill_rect(surf, e->bar, px, n, err);
+        if (rc != PC_OK) {
+            pc_layer_fini(&bar);
+            return rc;
+        }
+    }
+    e->bar_id = bar.id;
+    pc_layer *kids = malloc(sizeof *kids);
+    if (kids == NULL) {
+        pc_layer_fini(&bar);
+        return pc_fail(err, PC_ERR_NOMEM, "scale marker");
+    }
+    kids[0] = bar; /* move */
+    pc_layer group;
+    rc = pc_layer_group(&group, "Measurement Scale Marker", kids, 1, err);
+    if (rc != PC_OK) {
+        pc_layer_fini(&kids[0]);
+        free(kids);
+        return rc;
+    }
+    pc_layer_id gid = 0;
+    rc = pc_document_insert_above(doc, NULL, &group, &gid, err);
+    if (rc != PC_OK) {
+        pc_layer_fini(&group);
+        return rc;
+    }
+    *has_active = true;
+    *active = e->bar_id;
+    return PC_OK;
+}
+
+struct psm_ctx {
+    pc_rect bar;
+    float rgb[3];
+    bool show_text;
+    bool text_top;
+    double font_size;
+    const char *font; /* NULL or borrowed from the params */
+    const char *label;
+    double px;
+    /* outputs */
+    pc_layer_id bar_id;
+    pc_layer_id group_id;
+    uint64_t text_layer;
+    bool has_text;
+};
+
+/* Add the label as a point-text layer inside the group (type.create inserts above the active bar).
+ * Builds the params through yyjson so the label and font are escaped. */
+static pc_status psm_add_text(pc_engine_session *s, const struct psm_ctx *c, double baseline,
+                              uint64_t *layer_out, bool *has_out, pc_error *err)
+{
+    yyjson_mut_doc *jd = yyjson_mut_doc_new(NULL);
+    if (jd == NULL) {
+        return pc_fail(err, PC_ERR_NOMEM, "type.create params");
+    }
+    yyjson_mut_val *o = yyjson_mut_obj(jd);
+    yyjson_mut_obj_add_int(jd, o, "x", c->bar.x0);
+    yyjson_mut_obj_add_real(jd, o, "y", baseline);
+    yyjson_mut_obj_add_strcpy(jd, o, "text", c->label);
+    yyjson_mut_obj_add_real(jd, o, "size", c->font_size);
+    yyjson_mut_val *col = yyjson_mut_arr(jd);
+    yyjson_mut_arr_add_real(jd, col, c->rgb[0]);
+    yyjson_mut_arr_add_real(jd, col, c->rgb[1]);
+    yyjson_mut_arr_add_real(jd, col, c->rgb[2]);
+    yyjson_mut_arr_add_real(jd, col, 1.0);
+    yyjson_mut_obj_add_val(jd, o, "color", col);
+    yyjson_mut_obj_add_strcpy(jd, o, "name", c->label);
+    if (c->font != NULL) {
+        yyjson_mut_obj_add_strcpy(jd, o, "font", c->font);
+    }
+    yyjson_mut_doc_set_root(jd, o);
+    char *text = yyjson_mut_write(jd, 0, NULL);
+    yyjson_mut_doc_free(jd);
+    if (text == NULL) {
+        return pc_fail(err, PC_ERR_NOMEM, "type.create params");
+    }
+    pc_json_value cr = PC_JSON_VALUE_INIT;
+    pc_status rc = pc_engine_session_execute_json(s, "type.create", text, &cr, err);
+    free(text);
+    if (rc != PC_OK) {
+        pc_json_value_fini(&cr);
+        return rc;
+    }
+    yyjson_mut_val *root = pc_json_value_root(&cr);
+    yyjson_mut_val *lv = root != NULL ? yyjson_mut_obj_get(root, "layer") : NULL;
+    if (lv != NULL) {
+        *layer_out = yyjson_mut_get_uint(lv);
+        *has_out = true;
+    }
+    pc_json_value_fini(&cr);
+    return PC_OK;
+}
+
+static pc_status psm_body(pc_engine_session *s, void *v, pc_error *err)
+{
+    struct psm_ctx *c = v;
+    const pc_engine_doc_state *d = pc_engine_session_active(s);
+    if (d == NULL) {
+        return pc_engine_err_no_document(err);
+    }
+    pc_pixel_format fmt = pc_document_pixel_format(pc_doc_arc_get(d->doc));
+    struct psm_edit e = {c->bar, fmt, {c->rgb[0], c->rgb[1], c->rgb[2]}, 0};
+    pc_status rc = pc_engine_session_edit(s, "Place Scale Marker", psm_make_layers, &e, err);
+    if (rc != PC_OK) {
+        return rc;
+    }
+    c->bar_id = e.bar_id;
+    if (c->show_text) {
+        double baseline = c->text_top ? (double)c->bar.y0 - c->font_size * 0.3
+                                      : (double)c->bar.y1 + c->font_size;
+        rc = psm_add_text(s, c, baseline, &c->text_layer, &c->has_text, err);
+        if (rc != PC_OK) {
+            return rc;
+        }
+    }
+    d = pc_engine_session_active(s);
+    const pc_document *doc = pc_doc_arc_get(d->doc);
+    if (doc->nlayers > 0) {
+        c->group_id = doc->layers[doc->nlayers - 1].id;
+    }
+    return PC_OK;
+}
 
 static pc_status run_place_scale_marker(pc_engine_session *s, yyjson_val *p, pc_json_value *out,
                                         pc_error *err)
 {
-    (void)s;
-    (void)p;
-    (void)out;
-    return pc_engine_err_other(
-        err, "Place Scale Marker is not yet supported in this build (needs type.create + a group layer)");
+    const char *CMD = "image.analysis.placeScaleMarker";
+    const pc_engine_doc_state *st = pc_engine_session_active(s);
+    if (st == NULL) {
+        return pc_engine_err_no_document(err);
+    }
+    const pc_document *d = pc_doc_arc_get(st->doc);
+    const pc_measurement_scale *sc = &d->measurement.scale;
+    double factor = pc_measurement_scale_factor(sc);
+
+    double length;
+    if (!pc_json_as_f64(pc_json_get(p, "length"), &length)) {
+        length = psm_nice_length(d);
+    }
+    if (!(length > 0.0) || !isfinite(length)) {
+        return bad(err, CMD, "length must be positive");
+    }
+    double px = length / factor;
+    double w = (double)d->size.width, h = (double)d->size.height;
+    if (px < 1.0 || px > w) {
+        char lnum[PC_JSON_NUM_MAX];
+        psm_trim_num(length, lnum, sizeof lnum);
+        return bad(err, CMD, "a %s %s bar is %.1f px; it must fit the %g px wide image", lnum,
+                   pc_str_c(&sc->units), px, w);
+    }
+    /* The bar is at least 2 px tall and at most a quarter of the image, so a shorter image has no
+     * room for it (and would invert the height clamp below) (#932). */
+    if (h < PSM_MIN_HEIGHT) {
+        return bad(err, CMD, "the image is %g px tall; a scale marker needs at least %g px", h,
+                   PSM_MIN_HEIGHT);
+    }
+
+    double font_size = 12.0;
+    if (pc_json_as_f64(pc_json_get(p, "fontSize"), &font_size)) {
+        font_size = font_size < 1.0 ? 1.0 : font_size > 1000.0 ? 1000.0 : font_size;
+    }
+    size_t flen = 0;
+    const char *font = pc_json_as_str(pc_json_get(p, "font"), &flen);
+
+    bool show_text = true;
+    (void)pc_json_as_bool(pc_json_get(p, "displayText"), &show_text);
+
+    size_t tplen = 0;
+    const char *tp = pc_json_as_str(pc_json_get(p, "textPosition"), &tplen);
+    bool text_top;
+    if (tp == NULL || strcmp(tp, "bottom") == 0) {
+        text_top = false;
+    } else if (strcmp(tp, "top") == 0) {
+        text_top = true;
+    } else {
+        return bad(err, CMD, "textPosition `%s` (top|bottom)", tp);
+    }
+
+    size_t clen = 0;
+    const char *color = pc_json_as_str(pc_json_get(p, "color"), &clen);
+    float rgb[3];
+    if (color == NULL || strcmp(color, "black") == 0) {
+        rgb[0] = rgb[1] = rgb[2] = 0.0f;
+    } else if (strcmp(color, "white") == 0) {
+        rgb[0] = rgb[1] = rgb[2] = 1.0f;
+    } else {
+        return bad(err, CMD, "color `%s` (black|white)", color);
+    }
+
+    /* Bottom-left with a margin; the text sits under (or over) the bar. */
+    double mn = w < h ? w : h;
+    double margin = round(mn * 0.03);
+    if (margin < 2.0) {
+        margin = 2.0;
+    }
+    double bar_h = round(font_size / 4.0);
+    if (bar_h < 2.0) {
+        bar_h = 2.0;
+    }
+    if (bar_h > h / 4.0) {
+        bar_h = h / 4.0;
+    }
+    double text_h = show_text ? font_size * 1.25 : 0.0;
+    /* Keep the bar on the canvas when the text under it doesn't fit; the label is clipped (#932). */
+    double bar_y = text_top ? h - margin - bar_h : h - margin - bar_h - text_h;
+    if (bar_y < 0.0) {
+        bar_y = 0.0;
+    }
+    /* Pull a bar nearly as wide as the image in from the right edge (#932). */
+    double bar_x = margin < w - px ? margin : w - px;
+
+    char label[PC_JSON_NUM_MAX + 128];
+    char lnum[PC_JSON_NUM_MAX];
+    psm_trim_num(length, lnum, sizeof lnum);
+    snprintf(label, sizeof label, "%s %s", lnum, pc_str_c(&sc->units));
+
+    struct psm_ctx c = {
+        .bar = pc_rect_make(psm_round_i32(bar_x), psm_round_i32(bar_y), psm_round_i32(bar_x + px),
+                            psm_round_i32(bar_y + bar_h)),
+        .rgb = {rgb[0], rgb[1], rgb[2]},
+        .show_text = show_text,
+        .text_top = text_top,
+        .font_size = font_size,
+        .font = font,
+        .label = label,
+        .px = px,
+    };
+    pc_status rc = pc_engine_compound(s, "Place Scale Marker", psm_body, &c, err);
+    if (rc != PC_OK) {
+        return rc;
+    }
+
+    yyjson_mut_doc *rd = NULL;
+    if (pc_engine_result_doc(out, &rd, err) != PC_OK) {
+        return PC_ERR_NOMEM;
+    }
+    yyjson_mut_val *root = yyjson_mut_obj(rd);
+    yyjson_mut_obj_add_uint(rd, root, "group", c.group_id);
+    yyjson_mut_obj_add_uint(rd, root, "bar", c.bar_id);
+    if (c.has_text) {
+        yyjson_mut_obj_add_uint(rd, root, "text", c.text_layer);
+    } else {
+        yyjson_mut_obj_add_val(rd, root, "text", yyjson_mut_null(rd));
+    }
+    yyjson_mut_val *br = yyjson_mut_arr(rd);
+    yyjson_mut_arr_add_int(rd, br, c.bar.x0);
+    yyjson_mut_arr_add_int(rd, br, c.bar.y0);
+    yyjson_mut_arr_add_int(rd, br, c.bar.x1);
+    yyjson_mut_arr_add_int(rd, br, c.bar.y1);
+    yyjson_mut_obj_add_val(rd, root, "barRect", br);
+    yyjson_mut_obj_add_real(rd, root, "pixels", c.px);
+    yyjson_mut_obj_add_strcpy(rd, root, "label", label);
+    yyjson_mut_doc_set_root(rd, root);
+    return PC_OK;
 }
 
 /* Clockwise rotation in degrees that turns the ruler line onto its nearest axis. */

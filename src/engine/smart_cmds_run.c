@@ -933,6 +933,8 @@ static pc_status not_smart(const pc_engine_session *s, pc_error *reason)
 #include "smart_contents.inc"
 /* Layer > Smart Objects > Convert to Layers (ET6): unpack a smart object's contents. */
 #include "smart_unpack.inc"
+/* The linked smart-object watcher (layer.smartObjects.updateChanged): link_watch.rs. */
+#include "link_watch.inc"
 
 const pc_engine_command *pc_engine_smart_specs(size_t *n)
 {
@@ -969,6 +971,13 @@ const pc_engine_command *pc_engine_smart_specs(size_t *n)
          "{\"layer\":id?}", cn_has_linked, cn_update_modified, true},
         {"layer.smartObjects.updateAllModifiedContent", "Update All Modified Content", SO, 2, NULL, "{}",
          has_doc, cn_update_all, true},
+        {"layer.smartObjects.updateChanged", "Update Changed Linked Content", NULL, 0, NULL,
+         "{} \xE2\x80\x94 re-render the active document's linked smart objects whose files changed on "
+         "disk since they were last seen (size or modification time); the desktop app does this by "
+         "itself every two seconds, as Photoshop does while a document is open. Files seen for the "
+         "first time are only remembered. One Update Modified Content undo step per file \xE2\x86\x92 "
+         "{updated: [layer ids]}",
+         has_doc, cn_update_changed, true},
         {"layer.smartObjects.convertToEmbedded", "Convert to Embedded", SO, 2, NULL, "{\"layer\":id?}",
          cn_has_linked, cn_convert_embedded, true},
         {"layer.smartObjects.convertToLinked", "Convert to Linked\xE2\x80\xA6", SO, 2, NULL,

@@ -267,6 +267,7 @@ void pc_text_layer_fini(pc_text_layer *t)
     if (t->has_warp) {
         pc_text_warp_fini(&t->warp);
     }
+    pc_text_shape_fini(&t->shape);
     memset(t, 0, sizeof *t);
 }
 
@@ -278,10 +279,12 @@ pc_status pc_text_layer_clone(const pc_text_layer *t, pc_text_layer *out, pc_err
     c.size_pt = t->size_pt;
     c.color = t->color;
     c.transform = t->transform;
-    c.shape = t->shape;
     c.orientation = t->orientation;
     c.antialias = t->antialias;
-    s = pc_str_clone(&t->text, &c.text, err);
+    s = pc_text_shape_clone(&t->shape, &c.shape, err);
+    if (s == PC_OK) {
+        s = pc_str_clone(&t->text, &c.text, err);
+    }
     if (s == PC_OK) {
         s = pc_str_clone(&t->font_family, &c.font_family, err);
     }
@@ -317,12 +320,49 @@ pc_status pc_text_layer_clone(const pc_text_layer *t, pc_text_layer *out, pc_err
     return PC_OK;
 }
 
-static bool text_shape_eq(const pc_text_shape *a, const pc_text_shape *b)
+void pc_text_shape_fini(pc_text_shape *s)
 {
-    if (a->is_box != b->is_box) {
+    if (s == NULL) {
+        return;
+    }
+    if (s->kind == PC_TEXT_SHAPE_PATH) {
+        pc_subpath_fini(&s->path);
+    }
+    memset(s, 0, sizeof *s);
+}
+
+pc_status pc_text_shape_clone(const pc_text_shape *s, pc_text_shape *out, pc_error *err)
+{
+    pc_text_shape c = *s;
+    memset(&c.path, 0, sizeof c.path);
+    if (s->kind == PC_TEXT_SHAPE_PATH) {
+        pc_status st = pc_subpath_clone(&s->path, &c.path, err);
+        if (st != PC_OK) {
+            return st;
+        }
+    }
+    *out = c;
+    return PC_OK;
+}
+
+bool pc_text_shape_eq(const pc_text_shape *a, const pc_text_shape *b)
+{
+    if (a->kind != b->kind) {
         return false;
     }
-    return !a->is_box || (a->x == b->x && a->y == b->y && a->width == b->width && a->height == b->height);
+    switch (a->kind) {
+    case PC_TEXT_SHAPE_BOX:
+        return a->x == b->x && a->y == b->y && a->width == b->width && a->height == b->height;
+    case PC_TEXT_SHAPE_PATH:
+        return a->start == b->start && a->flip == b->flip && pc_subpath_eq(&a->path, &b->path);
+    default:
+        return true;
+    }
+}
+
+static bool text_shape_eq(const pc_text_shape *a, const pc_text_shape *b)
+{
+    return pc_text_shape_eq(a, b);
 }
 
 bool pc_text_layer_eq(const pc_text_layer *a, const pc_text_layer *b)

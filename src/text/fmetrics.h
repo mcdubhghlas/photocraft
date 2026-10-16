@@ -35,6 +35,11 @@ bool pl_glyph_bounds_ymax(pc_font *f, float size, const int16_t *coords, size_t 
 /* skrifa Charmap::map: the nominal glyph of cp, 0 for none. */
 uint32_t pl_skrifa_cmap(pc_font *f, uint32_t cp);
 
+/* skrifa GlyphMetrics::new(font, Size::new(size), coords).advance_width(gid): the glyph's advance
+ * in pixels (font-unit hmtx advance, FreeType's for variable fonts, scaled by skrifa's
+ * fixed_linear_scale). 0 when the advance is unavailable. */
+float pl_glyph_advance_px(pc_font *f, float size, const int16_t *coords, size_t ncoords, uint32_t gid);
+
 /* layout.rs VMetrics::vertical_origin (unscaled font units): VORG, else the glyph's top from
  * its outline plus its vmtx top side bearing. False when unavailable. */
 bool pl_vertical_origin_units(pc_font *f, const int16_t *coords, size_t ncoords, uint32_t gid, float *out);

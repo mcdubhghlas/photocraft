@@ -1826,7 +1826,7 @@ static pc_status new_text_layer(const pc_engine_session *s, yyjson_val *p, const
             free(norm);
             return bad(err, cmd, "box width and height must be positive");
         }
-        shape.is_box = true;
+        shape.kind = PC_TEXT_SHAPE_BOX;
         shape.x = 0.0f;
         shape.y = 0.0f;
         shape.width = (float)v[2];
@@ -1836,7 +1836,7 @@ static pc_status new_text_layer(const pc_engine_session *s, yyjson_val *p, const
         float x = 0.0f, y = 0.0f;
         (void)f32p(p, "x", &x);
         (void)f32p(p, "y", &y);
-        shape.is_box = false;
+        shape.kind = PC_TEXT_SHAPE_POINT;
         transform = pc_affine_translate(x, y);
     }
 
@@ -2234,7 +2234,8 @@ static pc_status type_edit_cb(pc_text_layer *t, const pc_document *doc, void *ud
         for (size_t i = 0; i < 4; i++) {
             (void)pc_json_as_f64(yyjson_arr_get(box, i), &vv[i]);
         }
-        t->shape.is_box = true;
+        pc_text_shape_fini(&t->shape);
+        t->shape.kind = PC_TEXT_SHAPE_BOX;
         t->shape.x = 0.0f;
         t->shape.y = 0.0f;
         t->shape.width = (float)(vv[2] > 1.0 ? vv[2] : 1.0);
@@ -2251,7 +2252,8 @@ static pc_status type_edit_cb(pc_text_layer *t, const pc_document *doc, void *ud
         double x = 0, y = 0;
         (void)pc_json_as_f64(yyjson_arr_get(pt, 0), &x);
         (void)pc_json_as_f64(yyjson_arr_get(pt, 1), &y);
-        t->shape.is_box = false;
+        pc_text_shape_fini(&t->shape);
+        t->shape.kind = PC_TEXT_SHAPE_POINT;
         t->transform.m[0] = lin[0];
         t->transform.m[1] = lin[1];
         t->transform.m[2] = lin[2];

@@ -55,7 +55,7 @@ static void with_para(pc_text_layer *t, pc_paragraph_style p)
 
 static void set_box(pc_text_layer *t, float x, float y, float w, float h)
 {
-    t->shape = (pc_text_shape){true, x, y, w, h};
+    t->shape = (pc_text_shape){.kind = PC_TEXT_SHAPE_BOX, .x = x, .y = y, .width = w, .height = h};
 }
 
 static pc_text_layout lay(pc_text_engine *e, const pc_text_layer *t, float dpi)

@@ -24,6 +24,7 @@
 #include "algo/selection.h"
 #include "vector/vector.h"
 
+#include "brush_cmds.h" /* pc_engine_target_surface (mutable channel/mask/pixel target) */
 #include "channel_cmds.h"
 
 /* ============================================================================================
@@ -1007,6 +1008,42 @@ pc_status pc_engine_read_target_surface(const pc_document *doc, bool has_layer, 
         return PC_OK;
     }
     }
+}
+
+/* channel_cmds::materialize: make a surface explicit over `r` (read then write it back), so a
+ * filter/plug-in that works a whole region sees every pixel (the default tiles become real). */
+static pc_status materialize_region(pc_surface *s, pc_rect r, pc_error *err)
+{
+    float *v = NULL;
+    size_t len = 0;
+    pc_status rc = pc_surface_read_region(s, r, &v, &len, err);
+    if (rc != PC_OK) {
+        return rc;
+    }
+    rc = pc_surface_write_region(s, r, v, len, err);
+    free(v);
+    return rc;
+}
+
+pc_status pc_engine_channel_surface_for_filter(pc_document *doc, bool has_layer, pc_layer_id layer,
+                                               yyjson_val *p, pc_surface **out, pc_error *err)
+{
+    *out = NULL;
+    if (pc_engine_target_of(p, NULL) == PC_ENGINE_PIXTGT_PIXELS) {
+        return PC_OK; /* the layer's pixels: the caller handles it (Rust None) */
+    }
+    pc_surface *surf = NULL;
+    bool lock = false; /* channel/mask targets are never transparency-locked */
+    pc_status rc = pc_engine_target_surface(doc, has_layer, layer, p, &surf, &lock, err);
+    if (rc != PC_OK) {
+        return rc;
+    }
+    rc = materialize_region(surf, pc_document_bounds(doc), err);
+    if (rc != PC_OK) {
+        return rc;
+    }
+    *out = surf;
+    return PC_OK;
 }
 
 size_t pc_engine_targeted_color(const pc_engine_session *s)

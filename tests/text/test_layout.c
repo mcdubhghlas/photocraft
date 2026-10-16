@@ -9,6 +9,8 @@
 #include "base/file.h"
 #include "base/num.h"
 #include "base/utf8.h"
+#include "doc/vector.h"
+#include "geom/geom.h"
 #include "harness.h"
 #include "raster/surface.h"
 #include "text/text.h"
@@ -68,7 +70,7 @@ static void with_para(pc_text_layer *t, pc_paragraph_style p)
 
 static void set_box(pc_text_layer *t, float x, float y, float w, float h)
 {
-    t->shape = (pc_text_shape){true, x, y, w, h};
+    t->shape = (pc_text_shape){.kind = PC_TEXT_SHAPE_BOX, .x = x, .y = y, .width = w, .height = h};
 }
 
 static pc_paragraph_style para_align(pc_text_align a)
@@ -938,7 +940,7 @@ static void test_warp_bends_rendered_text_and_outlines(void)
     pc_text_layer t;
     pc_rendered flat, arced;
     pc_text_layout l;
-    pc_style_warp w;
+    pc_text_deform w;
     bool hw;
     pc_glyph_outline *outs = NULL, *fouts = NULL;
     size_t no = 0, nf = 0, i, j, drawn = 0;
@@ -953,7 +955,7 @@ static void test_warp_bends_rendered_text_and_outlines(void)
     arced = render(e, &t, 72.0f, RGBA8, &l);
     CHECK(pc_rect_height(arced.rect) > pc_rect_height(flat.rect) + 10);
     CHECK(alpha_sum(&arced.surface, arced.rect) > 0.0);
-    hw = pc_text_layout_warp(&l, &t.warp, &w);
+    hw = pc_text_layout_deform(&l, &t, &w);
     CHECK(hw);
     CHECK(pc_text_outlines(&l, &t.transform, hw ? &w : NULL, &outs, &no, NULL) == PC_OK);
     for (i = 0; i < l.nglyphs; i++) {
@@ -976,6 +978,80 @@ static void test_warp_bends_rendered_text_and_outlines(void)
     pc_text_layout_fini(&l);
     pc_rendered_fini(&flat);
     pc_rendered_fini(&arced);
+    pc_text_layer_fini(&t);
+    pc_text_engine_free(e);
+}
+
+/* Type on a path (#218, port of crates/text tests::type_on_a_path_follows_the_curve): along a
+ * vertical line the type runs top to bottom, along a curve it follows the curve, and glyphs past
+ * the end are not drawn; a degenerate path falls back to straight point text. */
+static pc_rect path_ink(pc_text_engine *e, pc_text_layer *t)
+{
+    pc_rendered r = render(e, t, 72.0f, RGBA8, NULL);
+    pc_rect rect = r.rect;
+    pc_rendered_fini(&r);
+    return rect;
+}
+
+static void set_poly_path(pc_text_layer *t, const double (*pts)[2], size_t n, float start, bool flip)
+{
+    pc_subpath sp;
+    CHECK(pc_subpath_polyline(pts, n, &sp, NULL) == PC_OK);
+    pc_text_shape_fini(&t->shape);
+    t->shape.kind = PC_TEXT_SHAPE_PATH;
+    t->shape.path = sp;
+    t->shape.start = start;
+    t->shape.flip = flip;
+}
+
+static void test_type_on_a_path(void)
+{
+    pc_text_engine *e = NULL;
+    pc_text_layer t;
+    pc_rect flat, down, curved, shortr, dotr;
+    CHECK(pc_text_engine_new(&e, NULL) == PC_OK);
+    point(&t, "Path text", 24.0f);
+    flat = path_ink(e, &t);
+    CHECK(pc_rect_width(flat) > pc_rect_height(flat) * 3);
+
+    /* A long vertical path: the type runs down it, keeping its arc length. */
+    double vert[2][2] = {{0.0, 0.0}, {0.0, 400.0}};
+    set_poly_path(&t, (const double(*)[2])vert, 2, 0.0f, false);
+    down = path_ink(e, &t);
+    CHECK(pc_rect_height(down) > pc_rect_width(down) * 3);
+    CHECK((double)pc_rect_height(down) >= (double)pc_rect_width(flat) - 8.0);
+
+    /* A half circle (cubic knots) bends the text through a taller area than the straight line. */
+    double k = 0.5523 * 60.0;
+    pc_knot knots[3];
+    knots[0] = pc_knot_smooth(pc_point_make(-60.0, 0.0), pc_point_make(-60.0, 0.0), pc_point_make(-60.0, -k));
+    knots[1] = pc_knot_smooth(pc_point_make(0.0, -60.0), pc_point_make(-k, -60.0), pc_point_make(k, -60.0));
+    knots[2] = pc_knot_smooth(pc_point_make(60.0, 0.0), pc_point_make(60.0, -k), pc_point_make(60.0, 0.0));
+    pc_subpath arc;
+    memset(&arc, 0, sizeof arc);
+    arc.knots = malloc(sizeof knots);
+    CHECK(arc.knots != NULL);
+    memcpy(arc.knots, knots, sizeof knots);
+    arc.nknots = 3;
+    arc.op = PC_PATH_COMBINE;
+    pc_text_shape_fini(&t.shape);
+    t.shape.kind = PC_TEXT_SHAPE_PATH;
+    t.shape.path = arc;
+    curved = path_ink(e, &t);
+    CHECK(pc_rect_height(curved) > pc_rect_height(flat) * 2);
+
+    /* A path too short for the text hides the glyphs past its end. */
+    double shortp[2][2] = {{0.0, 0.0}, {30.0, 0.0}};
+    set_poly_path(&t, (const double(*)[2])shortp, 2, 0.0f, false);
+    shortr = path_ink(e, &t);
+    CHECK(pc_rect_width(shortr) < pc_rect_width(flat) / 2);
+
+    /* A degenerate path falls back to straight point text instead of failing. */
+    double dotp[2][2] = {{5.0, 5.0}, {5.0, 5.0}};
+    set_poly_path(&t, (const double(*)[2])dotp, 2, 0.0f, false);
+    dotr = path_ink(e, &t);
+    CHECK(dotr.x0 == flat.x0 && dotr.y0 == flat.y0 && dotr.x1 == flat.x1 && dotr.y1 == flat.y1);
+
     pc_text_layer_fini(&t);
     pc_text_engine_free(e);
 }
@@ -1515,6 +1591,7 @@ int main(int argc, char **argv)
     RUN(test_depth_is_respected);
     RUN(test_variable_font_axes);
     RUN(test_warp_bends_rendered_text_and_outlines);
+    RUN(test_type_on_a_path);
     RUN(test_clusters_sit_on_rendered_glyphs);
     RUN(test_manual_kerning_moves_the_next_glyph);
     RUN(test_optical_kerning_tightens_open_pairs);

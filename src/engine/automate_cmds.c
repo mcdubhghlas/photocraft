@@ -550,6 +550,12 @@ static size_t fire_event(pc_engine_session *s, const char *event)
     return ran;
 }
 
+/* Public wrapper so print_cmds (and other modules) can fire a named Script Events event. */
+size_t pc_engine_automate_fire_event(pc_engine_session *s, const char *event)
+{
+    return fire_event(s, event);
+}
+
 /* Hook moved from hooks.c: re-fit layer-based slices and fire the New / Close script events. */
 void pc_engine_hook_automate_after_command(pc_engine_session *s, const char *id)
 {

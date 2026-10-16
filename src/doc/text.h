@@ -9,6 +9,7 @@
 
 #include "color/color.h"
 #include "doc/adjust.h"
+#include "doc/vector.h"
 #include "geom/geom.h"
 #include "raster/surface.h"
 
@@ -108,11 +109,28 @@ typedef struct pc_paragraph_run {
     pc_paragraph_style style;
 } pc_paragraph_run;
 
-/* Point text, or paragraph (box) text in text-space pixels. */
+/* How a type layer's text is shaped. The discriminant values are the serde variant order
+ * (Point 0, Box 1, Path 2); they are the tagged-enum index in the .pcraft JSON. */
+typedef enum pc_text_shape_kind {
+    PC_TEXT_SHAPE_POINT, /* grows from the anchor (text-space origin = first baseline) */
+    PC_TEXT_SHAPE_BOX,   /* wraps inside a rectangle (text-space pixels) */
+    PC_TEXT_SHAPE_PATH   /* type on a path: laid out like point text, then each glyph is placed on
+                          * `path` (text-space pixels) by arc length and turned to follow the curve */
+} pc_text_shape_kind;
+
+/* Point text, paragraph (box) text in text-space pixels, or type on a path. */
 typedef struct pc_text_shape {
-    bool is_box;
-    float x, y, width, height;
+    pc_text_shape_kind kind;
+    float x, y, width, height; /* BOX: text-space pixels, before the layer transform */
+    pc_subpath path;           /* PATH: the curve, text-space pixels, before the layer transform */
+    float start;               /* PATH: arc-length offset (px) of the text origin along the path */
+    bool flip;                 /* PATH: run along the path the other way, on its other side */
 } pc_text_shape;
+
+/* Frees a PATH shape's subpath (no-op for Point/Box); leaves the struct zeroed as Point. */
+void pc_text_shape_fini(pc_text_shape *s);
+pc_status pc_text_shape_clone(const pc_text_shape *s, pc_text_shape *out, pc_error *err);
+bool pc_text_shape_eq(const pc_text_shape *a, const pc_text_shape *b);
 
 typedef enum pc_orientation { PC_ORIENT_HORIZONTAL, PC_ORIENT_VERTICAL } pc_orientation;
 

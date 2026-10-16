@@ -2610,6 +2610,13 @@ case caps_mixed b 42900000 4d69786564204341505320736d616c6c63617073 5b7b226c656e
 lay caps_mixed 0 3f800000 3 20 0 1 20 ca7d948bcf3ee2a3 ad2d0b226fd831e0 cbf29ce484222325 ff821d39c936e046 78ab2690243dfdac 81feae380ae3d6a0
 nav caps_mixed 8dccc4c10e3f9a03
 kern caps_mixed 63a380755602ff93
+# l15
+onpath point 8 41 108 62 9 672af54ec64156b4 8 0401f112314c39c4
+onpath vert 5 61 26 161 9 924961e980a5c38c 8 92556c5f8c09150b
+onpath vertflip -12 349 9 449 9 492af52f44754164 8 cb742d65d5f148bf
+onpath arc -72 -18 14 59 9 77107f092f09dcd6 8 90d9e95bfd58ccfa
+onpath short 8 41 35 62 9 f8c628d060e984a1 2 1f8c5253fce517d2
+onpath dot 8 41 108 62 9 672af54ec64156b4 8 0401f112314c39c4
 # r8
 r8families thai => Leelawadee\x20UI Leelawadee Tahoma Thonburi Sukhumvit\x20Set Noto\x20Sans\x20Thai Noto\x20Sans\x20Thai\x20Looped Noto\x20Sans\x20Thai\x20UI
 r8families khmer => Khmer\x20Sangam\x20MN Khmer\x20MN Khmer\x20UI Noto\x20Sans\x20Khmer

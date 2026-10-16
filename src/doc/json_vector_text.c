@@ -348,7 +348,8 @@ static const jstruct paragraph_run_s = {"struct ParagraphRun", paragraph_run_f, 
                                         sizeof(pc_paragraph_run)};
 static const jtype jt_paragraph_run = JT_STRUCT(pc_paragraph_run, paragraph_run_s);
 
-/* TextShape: Point, or Box { x, y, width, height } (discriminant: is_box). */
+/* TextShape: Point, Box { x, y, width, height }, or Path { path, start, flip } (discriminant:
+ * kind, whose values are the serde variant order). */
 static const jfield text_box_f[] = {
     JFV("x", pc_text_shape, x, pc_jt_f32),
     JFV("y", pc_text_shape, y, pc_jt_f32),
@@ -357,8 +358,15 @@ static const jfield text_box_f[] = {
 };
 static const jstruct text_box_s = {"struct variant TextShape::Box", text_box_f, JCOUNT(text_box_f), NULL,
                                    sizeof(pc_text_shape)};
-static const jvariant text_shape_v[] = {JVU("Point"), JVS("Box", text_box_s)};
-static const jenum text_shape_e = JENUM_TAGGED(pc_text_shape, text_shape_v, is_box);
+static const jfield text_path_f[] = {
+    JFV("path", pc_text_shape, path, jt_subpath),
+    JFV("start", pc_text_shape, start, pc_jt_f32),
+    JFV("flip", pc_text_shape, flip, pc_jt_bool),
+};
+static const jstruct text_path_s = {"struct variant TextShape::Path", text_path_f, JCOUNT(text_path_f), NULL,
+                                    sizeof(pc_text_shape)};
+static const jvariant text_shape_v[] = {JVU("Point"), JVS("Box", text_box_s), JVS("Path", text_path_s)};
+static const jenum text_shape_e = JENUM_TAGGED(pc_text_shape, text_shape_v, kind);
 static const jtype jt_text_shape = JT_TAGGED(pc_text_shape, text_shape_e);
 
 static const jvariant orientation_v[] = {JVU("Horizontal"), JVU("Vertical")};

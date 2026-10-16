@@ -64,14 +64,17 @@ pc_status pc_engine_photo_warp_placed(const pc_surface *surf, pc_rect rect, doub
 void pc_engine_photo_seam_order(const pc_surface *warped, size_t n, size_t reference, size_t *out);
 
 /* Result of pc_engine_photo_seam_blend: per input the pixels to keep (blended inside its seam
- * region) and its mask, plus the blended composite. (The reference also returns gain maps, used
- * only by Photomerge; omitted here, REWRITE_PLAN.md §7.) */
+ * region) and its mask, plus the blended composite. `gains` holds the photometric gain per image
+ * and colour channel (gains[i * gains_ch + c], gains_ch == colour channels), reported by
+ * Photomerge; Auto-Blend ignores it. */
 typedef struct pc_engine_photo_blended {
     pc_surface *layer_px;   /* n surfaces */
     pc_surface *layer_mask; /* n grayscale surfaces */
     size_t n;
     pc_surface composite;
     double vignette[2];
+    float *gains; /* n * gains_ch, owned */
+    size_t gains_ch;
 } pc_engine_photo_blended;
 
 void pc_engine_photo_blended_fini(pc_engine_photo_blended *b); /* NULL-safe */

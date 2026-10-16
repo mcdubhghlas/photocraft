@@ -1,7 +1,9 @@
 /* E11 Type menu (type_extra_cmds.c): anti-alias/orientation/opentype/convert/warp/lorem/update/
- * fonts/defaults + adversarial. type.attachToPath/detachFromPath are deferred (not registered). */
+ * fonts/defaults + type-on-a-path (attach/detach) + adversarial. */
 #include <stdlib.h>
 #include <string.h>
+
+#include "doc/vector.h"
 
 #include "color/color.h"
 #include "engine/engine_internal.h"
@@ -21,6 +23,14 @@ static pc_engine_session *mk(void)
 static pc_status ex(pc_engine_session *s, const char *id, const char *json, pc_json_value *out)
 {
     return pc_engine_session_execute_json(s, id, json, out, NULL);
+}
+
+static pc_status exd(pc_engine_session *s, const char *id, const char *json)
+{
+    pc_json_value o = PC_JSON_VALUE_INIT;
+    pc_status st = ex(s, id, json, &o);
+    pc_json_value_fini(&o);
+    return st;
 }
 
 static uint64_t uint_of(pc_json_value *o, const char *k)
@@ -104,10 +114,10 @@ static void test_point_paragraph(void)
     pc_json_value out = PC_JSON_VALUE_INIT;
     CHECK(ex(s, "type.convertToParagraphText", p, &out) == PC_OK);
     pc_json_value_fini(&out);
-    CHECK(tl(s, id)->shape.is_box);
+    CHECK(tl(s, id)->shape.kind == PC_TEXT_SHAPE_BOX);
     CHECK(ex(s, "type.convertToPointText", p, &out) == PC_OK);
     pc_json_value_fini(&out);
-    CHECK(!tl(s, id)->shape.is_box);
+    CHECK(tl(s, id)->shape.kind != PC_TEXT_SHAPE_BOX);
     pc_engine_session_free(s);
 }
 
@@ -149,12 +159,13 @@ static const char *const IDS[] = {
     "type.openType.ordinals", "type.openType.fractions", "type.createWorkPath", "type.convertToShape",
     "type.rasterizeTypeLayer", "type.convertToParagraphText", "type.convertToPointText", "type.warpText",
     "type.updateAllTextLayers", "type.replaceAllMissingFonts", "type.resolveMissingFonts", "type.pasteLoremIpsum",
-    "type.saveDefaultTypeStyles", "type.loadDefaultTypeStyles",
+    "type.saveDefaultTypeStyles", "type.loadDefaultTypeStyles", "type.attachToPath", "type.detachFromPath",
 };
 static const char *const HOSTILE[] = {
     "{}", "null", "[]", "{\"layer\":-1}", "{\"layer\":99999}", "{\"layer\":\"no\"}", "{\"layers\":5}",
     "{\"layers\":[\"x\"]}", "{\"on\":\"x\"}", "{\"range\":[9,0]}", "{\"style\":\"nope\"}", "{\"bend\":1e99}",
-    "{\"map\":5}", "{\"at\":-1}", "{\"new\":\"x\"}",
+    "{\"map\":5}", "{\"at\":-1}", "{\"new\":\"x\"}", "{\"subpath\":-1}", "{\"shape\":[]}", "{\"flip\":5}",
+    "{\"start\":\"x\"}", "{\"shape\":1}",
 };
 
 static void test_adversarial(void)
@@ -178,11 +189,66 @@ static void test_adversarial(void)
     }
 }
 
-static void test_attach_deferred(void)
+typedef struct {
+    pc_path path;
+} wpctx;
+
+static pc_status set_wp(pc_document *doc, bool *ha, pc_layer_id *a, void *ud, pc_error *err)
 {
-    /* type.attachToPath / detachFromPath are permanently deferred (not registered). */
-    CHECK(pc_engine_command_find("type.attachToPath") == NULL);
-    CHECK(pc_engine_command_find("type.detachFromPath") == NULL);
+    (void)ha;
+    (void)a;
+    (void)err;
+    wpctx *c = ud;
+    if (doc->has_work_path) {
+        pc_path_fini(&doc->work_path);
+    }
+    doc->work_path = c->path;
+    doc->has_work_path = true;
+    memset(&c->path, 0, sizeof c->path);
+    return PC_OK;
+}
+
+/* Ports crates/engine type_extra_cmds/tests::type_attaches_to_a_path_and_releases_it. */
+static void test_attach_detach(void)
+{
+    pc_engine_session *s = mk();
+    uint64_t id = create(s, "{\"x\":10,\"y\":40,\"text\":\"Hello path\",\"size\":16}");
+    CHECK(pc_engine_command_find("type.attachToPath") != NULL);
+    CHECK(pc_engine_command_find("type.detachFromPath") != NULL);
+    CHECK(pc_engine_session_is_enabled(s, "type.attachToPath"));
+    CHECK(!pc_engine_session_is_enabled(s, "type.detachFromPath"));
+    /* No work path yet, and bad params, are errors (never a crash). */
+    CHECK(exd(s, "type.attachToPath", "{}") != PC_OK);
+    /* Give the document a vertical work path. */
+    double pts[2][2] = {{150.0, 10.0}, {150.0, 110.0}};
+    wpctx wc;
+    pc_subpath sp;
+    memset(&wc, 0, sizeof wc);
+    CHECK(pc_subpath_polyline((const double(*)[2])pts, 2, &sp, NULL) == PC_OK);
+    wc.path.subpaths = malloc(sizeof *wc.path.subpaths);
+    CHECK(wc.path.subpaths != NULL);
+    wc.path.subpaths[0] = sp;
+    wc.path.nsubpaths = 1;
+    wc.path.fill_rule = PC_FILL_RULE_NONZERO;
+    wc.path.inverted = false;
+    CHECK(pc_engine_session_edit(s, "path", set_wp, &wc, NULL) == PC_OK);
+    pc_path_fini(&wc.path);
+    /* A bad subpath index, a non-numeric start and a missing shape layer are errors. */
+    CHECK(exd(s, "type.attachToPath", "{\"subpath\":5}") != PC_OK);
+    CHECK(exd(s, "type.attachToPath", "{\"start\":\"far\"}") != PC_OK);
+    CHECK(exd(s, "type.attachToPath", "{\"shape\":9999}") != PC_OK);
+    CHECK(exd(s, "type.attachToPath", "{\"start\":4}") == PC_OK);
+    CHECK(tl(s, id)->shape.kind == PC_TEXT_SHAPE_PATH);
+    CHECK(tl(s, id)->shape.start == 4.0f);
+    CHECK(pc_engine_session_is_enabled(s, "type.detachFromPath"));
+    /* Path text is neither point nor paragraph text. */
+    CHECK(!pc_engine_session_is_enabled(s, "type.convertToPointText"));
+    CHECK(!pc_engine_session_is_enabled(s, "type.convertToParagraphText"));
+    CHECK(exd(s, "type.detachFromPath", "{}") == PC_OK);
+    CHECK(tl(s, id)->shape.kind == PC_TEXT_SHAPE_POINT);
+    CHECK(pc_engine_session_undo(s));
+    CHECK(tl(s, id)->shape.kind == PC_TEXT_SHAPE_PATH);
+    pc_engine_session_free(s);
 }
 
 int main(int argc, char **argv)
@@ -193,7 +259,7 @@ int main(int argc, char **argv)
     RUN(test_convert_and_workpath);
     RUN(test_point_paragraph);
     RUN(test_warp_lorem_update_defaults);
-    RUN(test_attach_deferred);
+    RUN(test_attach_detach);
     RUN(test_adversarial);
     return pc_t_finish();
 }

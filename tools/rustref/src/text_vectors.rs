@@ -67,6 +67,7 @@ pub fn run() {
     }
     l13();
     l14();
+    l15_type_on_path();
     crate::text_r8_vectors::run();
 }
 
@@ -1651,4 +1652,60 @@ fn l14() {
     l14_units();
     l14_spell();
     l14_layouts();
+}
+
+// Type on a path (TextShape::Path): render pixels, ink rect and deformed outlines along a path.
+// Uses the bundled "Inter" (no system fonts, default axis), so the lines are machine-independent.
+// tests/text/test_layout.c::test_type_on_a_path_golden replays these.
+fn l15_type_on_path() {
+    use photocraft_doc::vector::{Knot, Subpath};
+    use photocraft_geom::Point;
+    println!("# l15");
+    let mut e = photocraft_text::TextEngine::new();
+    let mut base = TextLayer::default();
+    base.text = "Path text".into();
+    base.font_family = "Inter".into();
+    base.size_pt = 24.0;
+    let k = 0.5523 * 60.0;
+    let arc = Subpath {
+        closed: false,
+        knots: vec![
+            Knot { anchor: Point::new(-60.0, 0.0), in_ctrl: Point::new(-60.0, 0.0), out_ctrl: Point::new(-60.0, -k), smooth: true },
+            Knot { anchor: Point::new(0.0, -60.0), in_ctrl: Point::new(-k, -60.0), out_ctrl: Point::new(k, -60.0), smooth: true },
+            Knot { anchor: Point::new(60.0, 0.0), in_ctrl: Point::new(60.0, -k), out_ctrl: Point::new(60.0, 0.0), smooth: true },
+        ],
+        ..Default::default()
+    };
+    let cases: [(&str, TextShape); 6] = [
+        ("point", TextShape::Point),
+        ("vert", TextShape::Path { path: Subpath::polyline(&[(0.0, 0.0), (0.0, 400.0)]), start: 0.0, flip: false }),
+        ("vertflip", TextShape::Path { path: Subpath::polyline(&[(0.0, 0.0), (0.0, 400.0)]), start: 10.0, flip: true }),
+        ("arc", TextShape::Path { path: arc, start: 0.0, flip: false }),
+        ("short", TextShape::Path { path: Subpath::polyline(&[(0.0, 0.0), (30.0, 0.0)]), start: 0.0, flip: false }),
+        ("dot", TextShape::Path { path: Subpath::polyline(&[(5.0, 5.0), (5.0, 5.0)]), start: 0.0, flip: false }),
+    ];
+    let fmt = PixelFormat::new(ColorMode::Rgb, SampleType::U8, true);
+    for (name, shape) in cases {
+        let mut t = base.clone();
+        t.transform = Affine::translate(7.0, 60.0);
+        t.shape = shape;
+        let (l, r) = e.render(&t, 72.0, fmt);
+        let mut hr = H0;
+        if r.rect.width() > 0 && r.rect.height() > 0 {
+            for v in r.surface.read_region(r.rect) {
+                hf32(&mut hr, v);
+            }
+        }
+        let w = render::layout_deform(&l, &t);
+        let els = render::outlines(&l, &t.transform, w.as_ref());
+        let mut ho = H0;
+        for g in &els {
+            hu32(&mut ho, g.len() as u32);
+            hash_els(&mut ho, g);
+        }
+        println!(
+            "onpath {name} {} {} {} {} {} {hr:016x} {} {ho:016x}",
+            r.rect.x0, r.rect.y0, r.rect.x1, r.rect.y1, l.glyphs.len(), els.len()
+        );
+    }
 }

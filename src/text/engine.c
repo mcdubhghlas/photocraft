@@ -212,7 +212,7 @@ pc_status pc_text_engine_render(pc_text_engine *e, const pc_text_layer *layer, f
                                 pc_error *err)
 {
     pc_text_layout l;
-    pc_style_warp w;
+    pc_text_deform w;
     bool warped;
     pc_status st;
     if (e == NULL || layer == NULL || out == NULL) {
@@ -222,8 +222,11 @@ pc_status pc_text_engine_render(pc_text_engine *e, const pc_text_layer *layer, f
     if (st != PC_OK) {
         return st;
     }
-    warped = layer->has_warp && pc_text_layout_warp(&l, &layer->warp, &w);
+    warped = pc_text_layout_deform(&l, layer, &w);
     st = pc_text_rasterize(&l, &layer->transform, format, layer->antialias, warped ? &w : NULL, out, err);
+    if (warped) {
+        pc_text_deform_fini(&w);
+    }
     if (st == PC_OK && layout != NULL) {
         *layout = l;
     } else {

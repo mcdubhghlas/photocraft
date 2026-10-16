@@ -338,7 +338,7 @@ static inline void t_rich_doc(pc_color_mode mode, pc_sample_type depth, pc_docum
     c.u.text.psd_raw = t_blob(9, 100);
     T_JSON_ARRAY(pc_text_run, T_TEXT_RUNS, &c.u.text.runs, &c.u.text.nruns);
     T_JSON_ARRAY(pc_paragraph_run, T_PARAGRAPHS, &c.u.text.paragraphs, &c.u.text.nparagraphs);
-    c.u.text.shape.is_box = true;
+    c.u.text.shape.kind = PC_TEXT_SHAPE_BOX;
     c.u.text.shape.x = 1.0f;
     c.u.text.shape.y = 2.0f;
     c.u.text.shape.width = 100.0f;

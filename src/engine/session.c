@@ -328,7 +328,12 @@ void pc_engine_session_free(pc_engine_session *s)
     }
     free(s->event_log);
     free(s->smart_links);         /* EF (E6): Edit-Contents links */
+    for (size_t i = 0; i < s->nlink_stamps; i++) { /* EF (E6): link-watch stamps */
+        free(s->link_stamps[i].path);
+    }
+    free(s->link_stamps);
     free(s->fade_label);          /* EF (ET2): Edit > Fade source */
+    pc_engine_edit_state_fini(s); /* ET2: custom shape library */
     for (size_t i = 0; i < s->ndocs; i++) {
         pc_engine_doc_state_fini(&s->docs[i]);
     }

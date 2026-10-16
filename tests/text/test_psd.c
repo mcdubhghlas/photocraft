@@ -580,7 +580,7 @@ static void test_psd_text_fill_is_enabled_in_runs_and_new_default_styles(void)
         pc_ed_value data;
         pc_text_layer back;
         size_t k;
-        t.shape.is_box = s == 1;
+        t.shape.kind = s == 1 ? PC_TEXT_SHAPE_BOX : PC_TEXT_SHAPE_POINT;
         t.shape.width = 300.0f;
         t.shape.height = 200.0f;
         build(&t, 72.0f, NULL, &b);
@@ -1118,7 +1118,7 @@ static void test_layer_hostile(void)
     t.paragraphs[0].style = pc_paragraph_style_default();
     t.paragraphs[1].len = SIZE_MAX;
     t.paragraphs[1].style = pc_paragraph_style_default();
-    t.shape.is_box = true;
+    t.shape.kind = PC_TEXT_SHAPE_BOX;
     t.shape.width = INFINITY;
     t.shape.height = NAN;
     t.has_warp = true;

@@ -8,6 +8,7 @@
 #include "base/mem.h"
 #include "base/num.h"
 #include "raster/pixel.h"
+#include "text/fmetrics.h"
 
 void pc_rendered_fini(pc_rendered *r)
 {
@@ -21,14 +22,14 @@ void pc_rendered_fini(pc_rendered *r)
 
 typedef struct warp_sink {
     const pc_line_sink *inner;
-    const pc_style_warp *warp;
+    const pc_text_deform *warp;
     pc_xform post;
 } warp_sink;
 
 static void warp_map(const warp_sink *ws, double x0, double y0, double x1, double y1, double t, double *ox,
                      double *oy)
 {
-    pc_point p = pc_style_warp_apply(ws->warp, x0 + (x1 - x0) * t, y0 + (y1 - y0) * t);
+    pc_point p = pc_text_deform_apply(ws->warp, x0 + (x1 - x0) * t, y0 + (y1 - y0) * t);
     pc_xform_apply(&ws->post, p.x, p.y, ox, oy);
 }
 
@@ -37,7 +38,7 @@ static void warp_line(void *ctx, double x0, double y0, double x1, double y1)
     const warp_sink *ws = ctx;
     double dx = x1 - x0, dy = y1 - y0;
     double len = sqrt(dx * dx + dy * dy);
-    size_t n = pc_f64_to_size(ceil(len / pc_style_warp_max_segment(ws->warp))), i;
+    size_t n = pc_f64_to_size(ceil(len / pc_text_deform_max_segment(ws->warp))), i;
     double ax, ay;
     if (n < 1) {
         n = 1;
@@ -109,12 +110,25 @@ static bool glyph_is_bold(const pc_text_layout *l, const pc_placed_glyph *g)
     return (g->style < l->nstyles && l->styles[g->style].faux_bold) || face_bold;
 }
 
+/* The horizontal centre (text space) of a placed glyph: the pen position plus half its advance
+ * (skrifa's advance_width, scaled by the glyph's horizontal scale). render.rs glyph_center. */
+static double glyph_center(const pc_text_layout *l, const pc_placed_glyph *g, const pc_glyph_face *face)
+{
+    float hs = (g->style < l->nstyles && l->styles[g->style].horizontal_scale > 0.0f)
+                   ? l->styles[g->style].horizontal_scale
+                   : 1.0f;
+    float advance = g->orient == PC_GLYPH_HORIZONTAL
+                        ? pl_glyph_advance_px(face->font, face->size_px, face->coords, face->ncoords, g->id)
+                        : 0.0f;
+    return (double)g->x + (double)(advance * hs) / 2.0;
+}
+
 /* Draws every glyph and decoration whose style colour is `only` (all when NULL) into `sink`
  * through `transform`, bending outlines with `warp` first (in text space). `pass` selects which
  * glyphs and offsets are emitted; `bold_k` is the offset index for PASS_BOLD. Font errors skip
  * the glyph as in the reference; only running out of memory fails. */
 static pc_status draw_pass(const pc_text_layout *l, const pc_xform *transform, const pc_line_sink *sink,
-                           const pc_color *only, const pc_style_warp *warp, pass_kind pass, size_t bold_k,
+                           const pc_color *only, const pc_text_deform *warp, pass_kind pass, size_t bold_k,
                            pc_error *err)
 {
     size_t i;
@@ -146,6 +160,24 @@ static pc_status draw_pass(const pc_text_layout *l, const pc_xform *transform, c
             continue; /* no outline for this glyph */
         }
         glyph = pc_text_glyph_xform(l, g, face->skew_deg);
+        /* Type on a path moves each glyph rigidly, turned to the curve at its centre; a glyph past
+         * either end is not drawn. Otherwise `bend` stays the pass warp (bent point by point). */
+        const pc_text_deform *bend = warp;
+        if (warp != NULL) {
+            double m[6];
+            switch (pc_text_deform_place_glyph(warp, glyph_center(l, g, face), m)) {
+            case PC_PLACEMENT_BEND:
+                break;
+            case PC_PLACEMENT_HIDDEN:
+                continue;
+            case PC_PLACEMENT_FRAME: {
+                pc_xform fx = {{m[0], m[1], m[2], m[3], m[4], m[5]}};
+                glyph = pc_xform_mul(&fx, &glyph);
+                bend = NULL;
+                break;
+            }
+            }
+        }
         bold = st->faux_bold || face->embolden;
         if ((pass == PASS_PLAIN && bold) || (pass == PASS_BOLD && !bold)) {
             continue;
@@ -164,7 +196,7 @@ static pc_status draw_pass(const pc_text_layout *l, const pc_xform *transform, c
             pc_outline_pen op;
             pc_error e;
             pc_status s;
-            if (warp != NULL) {
+            if (bend != NULL) {
                 pc_flatten_pen_init(&pen, &wsink, local);
             } else {
                 pc_flatten_pen_init(&pen, sink, pc_xform_mul(transform, &local));
@@ -205,7 +237,7 @@ static pc_status draw_pass(const pc_text_layout *l, const pc_xform *transform, c
 
 /* Everything, all offsets: used for the ink rectangle (bounds). */
 static pc_status draw(const pc_text_layout *l, const pc_xform *transform, const pc_line_sink *sink,
-                      const pc_color *only, const pc_style_warp *warp, pc_error *err)
+                      const pc_color *only, const pc_text_deform *warp, pc_error *err)
 {
     return draw_pass(l, transform, sink, only, warp, PASS_ALL, 0, err);
 }
@@ -238,7 +270,7 @@ pc_rect pc_text_rect_from_bounds(const double b[4])
     return pc_rect_make(pc_f64_to_i32(x0), pc_f64_to_i32(y0), pc_f64_to_i32(x1), pc_f64_to_i32(y1));
 }
 
-pc_status pc_text_ink_rect(const pc_text_layout *l, const pc_affine *transform, const pc_style_warp *warp,
+pc_status pc_text_ink_rect(const pc_text_layout *l, const pc_affine *transform, const pc_text_deform *warp,
                            pc_rect *out, pc_error *err)
 {
     pc_bounds b = {false, {0.0, 0.0, 0.0, 0.0}};
@@ -283,7 +315,7 @@ static size_t color_in(pc_pixel_format f, const pc_color *c, float out[PC_RASTER
 }
 
 pc_status pc_text_rasterize(const pc_text_layout *l, const pc_affine *transform, pc_pixel_format format,
-                            pc_antialias aa, const pc_style_warp *warp, pc_rendered *out, pc_error *err)
+                            pc_antialias aa, const pc_text_deform *warp, pc_rendered *out, pc_error *err)
 {
     pc_rect rect;
     size_t w, h, n, stride, npx, i, k, ncolors = 0, len;
@@ -458,7 +490,7 @@ cleanup:
 
 typedef struct recorder {
     pc_xform glyph, post;
-    const pc_style_warp *warp;
+    const pc_text_deform *warp;
     pc_path_el *els;
     size_t n, cap;
     bool nomem;
@@ -469,7 +501,7 @@ static void rec_map(const recorder *r, float x, float y, double out[2])
     double tx, ty;
     pc_xform_apply(&r->glyph, (double)x, (double)y, &tx, &ty);
     if (r->warp != NULL) {
-        pc_point p = pc_style_warp_apply(r->warp, tx, ty);
+        pc_point p = pc_text_deform_apply(r->warp, tx, ty);
         tx = p.x;
         ty = p.y;
     }
@@ -548,7 +580,7 @@ void pc_glyph_outlines_free(pc_glyph_outline *o, size_t n)
     free(o);
 }
 
-pc_status pc_text_outlines(const pc_text_layout *l, const pc_affine *transform, const pc_style_warp *warp,
+pc_status pc_text_outlines(const pc_text_layout *l, const pc_affine *transform, const pc_text_deform *warp,
                            pc_glyph_outline **out, size_t *n, pc_error *err)
 {
     pc_glyph_outline *res = NULL;
@@ -575,6 +607,22 @@ pc_status pc_text_outlines(const pc_text_layout *l, const pc_affine *transform, 
         r.glyph = pc_text_glyph_xform(l, g, face->skew_deg);
         r.post = post;
         r.warp = warp;
+        /* Type on a path: place each glyph rigidly on the curve; hide glyphs past either end. */
+        if (warp != NULL) {
+            double m[6];
+            switch (pc_text_deform_place_glyph(warp, glyph_center(l, g, face), m)) {
+            case PC_PLACEMENT_BEND:
+                break;
+            case PC_PLACEMENT_HIDDEN:
+                continue;
+            case PC_PLACEMENT_FRAME: {
+                pc_xform fx = {{m[0], m[1], m[2], m[3], m[4], m[5]}};
+                r.glyph = pc_xform_mul(&fx, &r.glyph);
+                r.warp = NULL;
+                break;
+            }
+            }
+        }
         pen = (pc_outline_pen){rec_move, rec_line, rec_quad, rec_curve, rec_close, &r};
         s = pc_font_draw(face->font, g->id, &face->size_px, face->coords, face->ncoords, &pen, NULL);
         if (r.nomem || s == PC_ERR_NOMEM) {

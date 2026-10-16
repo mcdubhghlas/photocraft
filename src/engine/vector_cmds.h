@@ -46,4 +46,10 @@ pc_status pc_engine_map_path(const pc_path *path, const pc_algo_homography *h, c
 pc_status pc_engine_map_shape(pc_shape_layer *sh, const pc_algo_homography *h, const pc_warp *warp,
                               pc_error *err);
 
+/* vector_cmds::{parse_path, path_json}. Parse a `{subpaths,fillRule,inverted}` path value into
+ * *out (false with emsg set on error), and serialise a path to that same JSON (for the Shapes
+ * panel / shape.presets.place, which build shape.create params). */
+bool pc_engine_parse_path(yyjson_val *v, pc_path *out, char *emsg, size_t ecap);
+yyjson_mut_val *pc_engine_path_to_json(yyjson_mut_doc *d, const pc_path *p);
+
 #endif /* PC_ENGINE_VECTOR_CMDS_H */

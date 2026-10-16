@@ -531,7 +531,8 @@ static pc_status load_content(loader *L, pc_mf_content *m, pc_layer *kids, size_
         t->nparagraphs = m->nparagraphs;
         m->paragraphs = NULL;
         m->nparagraphs = 0;
-        t->shape = m->shape;
+        t->shape = m->shape; /* moved: a Path shape owns its subpath */
+        memset(&m->shape, 0, sizeof m->shape);
         t->orientation = m->orientation;
         t->antialias = m->antialias;
         t->has_warp = m->has_text_warp;

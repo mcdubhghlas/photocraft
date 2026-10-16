@@ -73,6 +73,16 @@ bool pc_pressure_curve_is_linear(const pc_pressure_curve *c);
  * into out[cap] and returns true, or returns false when it has no key or an unknown modifier. */
 bool pc_pref_normalize_shortcut(const char *s, size_t len, char *out, size_t cap);
 
+/* One held temporary tool (prefs::TEMPORARY_TOOLS): its binding id, label and default shortcut. */
+typedef struct pc_engine_temporary_tool {
+    const char *id;
+    const char *label;
+    const char *def;
+} pc_engine_temporary_tool;
+
+/* The key-bound temporary tools (Hand/Zoom In/Zoom Out/Erase): a borrowed array of *n triples. */
+const pc_engine_temporary_tool *pc_engine_temporary_tools(size_t *n);
+
 /* ---- enumerated/ranged metadata (port of prefs::choices / range / is_color) ---------------- */
 
 /* The valid names of an enumerated preference at `path`, or NULL with *n untouched. Borrowed. */
@@ -92,6 +102,13 @@ typedef struct pc_engine_session pc_engine_session;
  * path is unknown. */
 pc_status pc_engine_prefs_get(const pc_engine_session *s, const char *path, pc_json_value *out,
                               pc_error *err);
+
+/* The shortcut in effect for a command id: the user's Edit › Keyboard Shortcuts override, else
+ * `def` (which may be NULL). Writes into out[cap] and returns true, or returns false when there is
+ * no effective binding (no default and no override, or the override was cleared to ""). Mirrors
+ * prefs::PrefsStore::shortcut, used by the UI shortcut layer (shortcuts.c). */
+bool pc_engine_prefs_effective_shortcut(const pc_engine_session *s, const char *id, const char *def,
+                                        char *out, size_t cap);
 /* History limits derived from the performance section (apply to every open and new document). */
 void pc_engine_prefs_history_limits(const pc_engine_session *s, size_t *max_states, size_t *max_bytes);
 /* Push engine-relevant preferences into live state (history limits, effect-cache budget). */

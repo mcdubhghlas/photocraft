@@ -14,6 +14,8 @@
 #include "base/json.h"
 #include "base/utf8.h"
 #include "doc/json.h"
+#include "doc/vector.h"
+#include "geom/geom.h"
 #include "harness.h"
 #include "raster/surface.h"
 #include "text/text.h"
@@ -942,8 +944,8 @@ static void test_golden(void)
                                                  (int)r.rect.y0, (int)r.rect.x1, (int)r.rect.y1,
                                                  (unsigned long long)surface_hash(&r));
                         } else if (strcmp(k, "outl") == 0) {
-                            pc_style_warp sw;
-                            bool hw = pc_text_layout_warp(&wl, &layer.warp, &sw);
+                            pc_text_deform sw;
+                            bool hw = pc_text_layout_deform(&wl, &layer, &sw);
                             pc_glyph_outline *o = NULL;
                             size_t no = 0, j;
                             uint64_t h = H0;
@@ -954,6 +956,9 @@ static void test_golden(void)
                                     hash_els(&h, o[j].els, o[j].n);
                                 }
                                 pc_glyph_outlines_free(o, no);
+                            }
+                            if (hw) {
+                                pc_text_deform_fini(&sw);
                             }
                             (void)pc_buf_appendf(&got, NULL, "%zu %016llx", no, (unsigned long long)h);
                         } else {
@@ -1010,12 +1015,140 @@ static void test_golden(void)
     pc_buf_fini(&golden);
 }
 
+/* Builds the i-th type-on-a-path golden fixture (rustref text_vectors l15 order). */
+static void onpath_fixture(size_t i, pc_text_layer *t)
+{
+    pc_subpath sp;
+    double vert[2][2] = {{0.0, 0.0}, {0.0, 400.0}};
+    double shortp[2][2] = {{0.0, 0.0}, {30.0, 0.0}};
+    double dotp[2][2] = {{5.0, 5.0}, {5.0, 5.0}};
+    pc_text_layer_default(t);
+    (void)pc_str_set_c(&t->text, "Path text", NULL);
+    (void)pc_str_set_c(&t->font_family, "Inter", NULL);
+    t->size_pt = 24.0f;
+    t->transform = pc_affine_translate(7.0, 60.0);
+    switch (i) {
+    case 0: /* point */
+        break;
+    case 1: /* vert */
+        CHECK(pc_subpath_polyline((const double(*)[2])vert, 2, &sp, NULL) == PC_OK);
+        t->shape.kind = PC_TEXT_SHAPE_PATH;
+        t->shape.path = sp;
+        break;
+    case 2: /* vertflip */
+        CHECK(pc_subpath_polyline((const double(*)[2])vert, 2, &sp, NULL) == PC_OK);
+        t->shape.kind = PC_TEXT_SHAPE_PATH;
+        t->shape.path = sp;
+        t->shape.start = 10.0f;
+        t->shape.flip = true;
+        break;
+    case 3: { /* arc (cubic knots) */
+        double k = 0.5523 * 60.0;
+        pc_knot knots[3];
+        knots[0] = pc_knot_smooth(pc_point_make(-60.0, 0.0), pc_point_make(-60.0, 0.0), pc_point_make(-60.0, -k));
+        knots[1] = pc_knot_smooth(pc_point_make(0.0, -60.0), pc_point_make(-k, -60.0), pc_point_make(k, -60.0));
+        knots[2] = pc_knot_smooth(pc_point_make(60.0, 0.0), pc_point_make(60.0, -k), pc_point_make(60.0, 0.0));
+        memset(&sp, 0, sizeof sp);
+        sp.knots = malloc(sizeof knots);
+        CHECK(sp.knots != NULL);
+        memcpy(sp.knots, knots, sizeof knots);
+        sp.nknots = 3;
+        sp.op = PC_PATH_COMBINE;
+        t->shape.kind = PC_TEXT_SHAPE_PATH;
+        t->shape.path = sp;
+        break;
+    }
+    case 4: /* short */
+        CHECK(pc_subpath_polyline((const double(*)[2])shortp, 2, &sp, NULL) == PC_OK);
+        t->shape.kind = PC_TEXT_SHAPE_PATH;
+        t->shape.path = sp;
+        break;
+    default: /* dot (degenerate) */
+        CHECK(pc_subpath_polyline((const double(*)[2])dotp, 2, &sp, NULL) == PC_OK);
+        t->shape.kind = PC_TEXT_SHAPE_PATH;
+        t->shape.path = sp;
+        break;
+    }
+}
+
+/* Type on a path (rustref l15 `onpath` lines): render pixels, ink rect and deformed outlines of
+ * six fixtures on the bundled Inter must match the reference bit-for-bit. */
+static void test_type_on_path_golden(void)
+{
+    static const char *const NAMES[6] = {"point", "vert", "vertflip", "arc", "short", "dot"};
+    const pc_pixel_format fmt = {PC_COLOR_MODE_RGB, PC_SAMPLE_TYPE_U8, true};
+    size_t pos = 0, i = 0;
+    bool in = false;
+    line l;
+    pc_text_engine *e = NULL;
+    if (golden.len == 0 && pc_file_read(GOLDEN, (size_t)64 << 20, &golden, NULL) != PC_OK) {
+        PC_T_FAIL("%s missing", GOLDEN);
+        return;
+    }
+    CHECK(pc_text_engine_new(&e, NULL) == PC_OK);
+    while (next_line(&pos, &l)) {
+        const char *k = l.n > 0 ? l.tok[0] : "";
+        if (strcmp(k, "#") == 0) {
+            in = l.n > 1 && strcmp(l.tok[1], "l15") == 0;
+            free(l.buf);
+            continue;
+        }
+        if (!in || strcmp(k, "onpath") != 0) {
+            free(l.buf);
+            continue;
+        }
+        CHECK(l.n == 10);
+        CHECK(i < 6 && strcmp(l.tok[1], NAMES[i]) == 0);
+        if (l.n == 10 && i < 6) {
+            pc_text_layer t;
+            pc_text_layout layout;
+            pc_rendered r;
+            pc_text_deform w;
+            pc_glyph_outline *o = NULL;
+            size_t no = 0, j;
+            uint64_t ho = H0;
+            char got[160];
+            bool hw;
+            onpath_fixture(i, &t);
+            CHECK(pc_text_engine_render(e, &t, 72.0f, fmt, &layout, &r, NULL) == PC_OK);
+            hw = pc_text_layout_deform(&layout, &t, &w);
+            CHECK(pc_text_outlines(&layout, &t.transform, hw ? &w : NULL, &o, &no, NULL) == PC_OK);
+            for (j = 0; j < no; j++) {
+                hu32(&ho, (uint32_t)o[j].n);
+                hash_els(&ho, o[j].els, o[j].n);
+            }
+            (void)snprintf(got, sizeof got, "onpath %s %d %d %d %d %zu %016llx %zu %016llx", NAMES[i], r.rect.x0,
+                           r.rect.y0, r.rect.x1, r.rect.y1, layout.nglyphs,
+                           (unsigned long long)surface_hash(&r), no, (unsigned long long)ho);
+            {
+                char want[256];
+                int wn = snprintf(want, sizeof want, "onpath %s %s %s %s %s %s %s %s %s", l.tok[1], l.tok[2],
+                                  l.tok[3], l.tok[4], l.tok[5], l.tok[6], l.tok[7], l.tok[8], l.tok[9]);
+                (void)wn;
+                CHECK_EQ_STR(got, want);
+            }
+            pc_glyph_outlines_free(o, no);
+            if (hw) {
+                pc_text_deform_fini(&w);
+            }
+            pc_text_layout_fini(&layout);
+            pc_rendered_fini(&r);
+            pc_text_layer_fini(&t);
+            i++;
+        }
+        free(l.buf);
+    }
+    CHECK_EQ_UINT(i, 6);
+    pc_text_engine_free(e);
+}
+
 int main(int argc, char **argv)
 {
     (void)argc;
     (void)argv;
     (void)setenv("PHOTOCRAFT_NO_SYSTEM_FONTS", "1", 1);
     RUN(test_golden);
+    RUN(test_type_on_path_golden);
     (void)printf("%d golden lines, %d skipped (fonts not installed), %d known differences\n", lines, skipped,
                  known);
     return pc_t_finish();

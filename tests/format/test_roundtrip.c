@@ -702,6 +702,58 @@ static const pc_text_layer *find_text(const pc_layer *layers, size_t n)
     return NULL;
 }
 
+static pc_text_layer *find_text_mut(pc_layer *layers, size_t n)
+{
+    for (size_t i = 0; i < n; i++) {
+        if (layers[i].content.kind == PC_LAYER_TEXT) {
+            return &layers[i].content.u.text;
+        }
+    }
+    return NULL;
+}
+
+/* Type on a path (#218, port of crates/format path_text_shape_roundtrips): the path, start offset
+ * and flip survive .pcraft. */
+static void test_path_text_shape_roundtrips(void)
+{
+    pc_document d;
+    pc_document back;
+    pc_buf b = PC_BUF_INIT;
+    double pts[3][2] = {{0.0, 0.0}, {50.0, 20.0}, {120.0, 5.5}};
+    pc_text_layer *t;
+    t_rich_doc(PC_COLOR_MODE_RGB, PC_SAMPLE_TYPE_U8, &d);
+    t = find_text_mut(d.layers, d.nlayers);
+    CHECK(t != NULL);
+    if (t != NULL) {
+        pc_subpath sp;
+        CHECK(pc_subpath_polyline((const double(*)[2])pts, 3, &sp, NULL) == PC_OK);
+        pc_text_shape_fini(&t->shape);
+        t->shape.kind = PC_TEXT_SHAPE_PATH;
+        t->shape.path = sp;
+        t->shape.start = 12.5f;
+        t->shape.flip = true;
+    }
+    save(&d, &b);
+    CHECK(pc_format_load_from_bytes(b.data, b.len, &back, NULL) == PC_OK);
+    {
+        const pc_text_layer *bt = find_text(back.layers, back.nlayers);
+        CHECK(bt != NULL);
+        if (bt != NULL) {
+            CHECK(bt->shape.kind == PC_TEXT_SHAPE_PATH);
+            CHECK(bt->shape.start == 12.5f && bt->shape.flip == true);
+            CHECK(bt->shape.path.nknots == 3 && !bt->shape.path.closed);
+            CHECK(bt->shape.path.op == PC_PATH_COMBINE);
+            CHECK(bt->shape.path.knots[1].anchor.x == 50.0 && bt->shape.path.knots[1].anchor.y == 20.0);
+            CHECK(bt->shape.path.knots[2].anchor.x == 120.0 && bt->shape.path.knots[2].anchor.y == 5.5);
+        }
+    }
+    pc_document_fini(&back);
+    /* Whole-document equality still holds across the round trip. */
+    CHECK(loads_equal(&b, &d));
+    pc_document_fini(&d);
+    pc_buf_fini(&b);
+}
+
 /* Type kerning (#206): the auto mode and manual kerning survive .pcraft; manifests written
  * before `kern` existed load with no manual kerning. */
 static void test_text_kerning_roundtrips_and_defaults(void)
@@ -1084,6 +1136,7 @@ int main(int argc, char **argv)
     RUN(test_not_pcraft);
     RUN(test_vector_fields_roundtrip_and_default_when_absent);
     RUN(test_text_kerning_roundtrips_and_defaults);
+    RUN(test_path_text_shape_roundtrips);
     RUN(test_channel_restrictions_and_bevel_elements_roundtrip);
     RUN(test_blend_if_roundtrips);
     RUN(test_advanced_blending_roundtrips_and_defaults_when_absent);

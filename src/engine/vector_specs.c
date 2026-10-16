@@ -423,6 +423,17 @@ static yyjson_mut_val *path_to_json(yyjson_mut_doc *d, const pc_path *p)
     return o;
 }
 
+/* Exported wrappers so other command modules (the Shapes panel, shape.presets.*) reach the vector
+ * path parser / serialiser (vector_cmds::{parse_path, path_json}). */
+bool pc_engine_parse_path(yyjson_val *v, pc_path *out, char *emsg, size_t ecap)
+{
+    return parse_path(v, out, emsg, ecap);
+}
+yyjson_mut_val *pc_engine_path_to_json(yyjson_mut_doc *d, const pc_path *p)
+{
+    return path_to_json(d, p);
+}
+
 /* ---- fill parse / serialise --------------------------------------------------------------- */
 
 static const char *gradient_style_name(pc_gradient_style s)

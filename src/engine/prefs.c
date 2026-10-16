@@ -255,17 +255,21 @@ static bool is_section(const char *path)
 }
 
 /* Temporary tools (held keys): bindable like shortcuts but held, not commands. */
-static const struct {
-    const char *id;
-    const char *label;
-    const char *def;
-} TEMPORARY_TOOLS[] = {
+static const pc_engine_temporary_tool TEMPORARY_TOOLS[] = {
     {"tools.temporary.hand", "Hand Tool (hold)", "Space"},
     {"tools.temporary.zoomIn", "Zoom In (hold, drag to scrub)", "Cmd+Space"},
     {"tools.temporary.zoomOut", "Zoom Out (hold)", "Alt+Space"},
     {"tools.temporary.erase", "Erase with Brush or Pencil (hold)", "`"},
 };
 enum { TEMPORARY_TOOLS_N = (int)(sizeof(TEMPORARY_TOOLS) / sizeof(TEMPORARY_TOOLS[0])) };
+
+const pc_engine_temporary_tool *pc_engine_temporary_tools(size_t *n)
+{
+    if (n != NULL) {
+        *n = (size_t)TEMPORARY_TOOLS_N;
+    }
+    return TEMPORARY_TOOLS;
+}
 
 /* ========================================================================================== *
  * Default tree
@@ -2395,6 +2399,15 @@ static bool effective_shortcut(const pc_engine_prefs *pf, const char *id, const 
     }
     snprintf(out, cap, "%s", def);
     return true;
+}
+
+bool pc_engine_prefs_effective_shortcut(const pc_engine_session *s, const char *id, const char *def,
+                                        char *out, size_t cap)
+{
+    if (s == NULL || id == NULL || out == NULL || cap == 0) {
+        return false;
+    }
+    return effective_shortcut(&s->prefs, id, def, out, cap);
 }
 
 /* Is id a bindable command or temporary tool? */

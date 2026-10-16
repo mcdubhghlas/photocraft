@@ -25,6 +25,8 @@
 #include "edit_cmds.h"   /* E4: clipboard (cut/copy/paste), clear, layer via copy/cut, merge visible */
 #include "transform_cmds.h" /* E4/ET1: edit.transform Free Transform + frame-based presets */
 #include "extra_cmds.h"  /* E12: Stroke, Reselect, Equalize, rasterize, ungroup, layer-mask toggles, clouds */
+#include "align_distribute_cmds.h" /* GAP: layer align + distribute */
+#include "view_proof_guide_cmds.h"  /* GAP: view.proofSetup.* variants + guide commands */
 
 /* ---- owned JSON results ------------------------------------------------------------------- */
 
@@ -794,6 +796,14 @@ static void register_modules(pc_engine_command **arr, size_t *n, size_t *cap)
     (void)append_specs(arr, n, cap, lens, m);
     const pc_engine_command *batch = pc_engine_batch_specs(&m); /* E-tail BATCH: file batch/automate pipeline */
     (void)append_specs(arr, n, cap, batch, m);
+    const pc_engine_command *style_preset = pc_engine_style_preset_specs(&m); /* E2b: Styles panel */
+    (void)append_specs(arr, n, cap, style_preset, m);
+    const pc_engine_command *shape_preset = pc_engine_shape_preset_specs(&m); /* E2b: Shapes panel */
+    (void)append_specs(arr, n, cap, shape_preset, m);
+    const pc_engine_command *align_distribute = pc_engine_align_distribute_specs(&m); /* GAP: align/distribute */
+    (void)append_specs(arr, n, cap, align_distribute, m);
+    const pc_engine_command *view_proof_guide = pc_engine_view_proof_guide_specs(&m); /* GAP: proofSetup + guides */
+    (void)append_specs(arr, n, cap, view_proof_guide, m);
     /* E3..E12: append your module's specs() here. */
 }
 

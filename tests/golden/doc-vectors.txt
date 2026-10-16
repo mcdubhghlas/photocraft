@@ -266,6 +266,7 @@ ser	ParagraphStyle	{"align":"JustifyAll","first_line_indent_pt":0.1,"start_inden
 ser	ParagraphRun	{"len":9007199254740993,"style":{"align":"JustifyAll","first_line_indent_pt":0.1,"start_indent_pt":-0.0,"end_indent_pt":1e-7,"space_before_pt":1e+20,"space_after_pt":3.4028235e+38,"auto_leading":1.2,"direction":"Rtl","hyphenate":true,"style_sheet":0}}
 ser	TextShape	"Point"
 ser	TextShape	{"Box":{"x":0.1,"y":-0.0,"width":1e+20,"height":1e-45}}
+ser	TextShape	{"Path":{"path":{"closed":false,"knots":[{"anchor":{"x":0.0,"y":0.0},"in_ctrl":{"x":0.0,"y":0.0},"out_ctrl":{"x":0.0,"y":0.0},"smooth":false},{"anchor":{"x":50.0,"y":20.0},"in_ctrl":{"x":50.0,"y":20.0},"out_ctrl":{"x":50.0,"y":20.0},"smooth":false},{"anchor":{"x":120.0,"y":5.5},"in_ctrl":{"x":120.0,"y":5.5},"out_ctrl":{"x":120.0,"y":5.5},"smooth":false}],"op":"Combine"},"start":2.5,"flip":true}}
 ser	Orientation	"Horizontal"
 ser	Orientation	"Vertical"
 ser	AntiAlias	"None"
@@ -580,6 +581,8 @@ de	TextShape	{"Box":{"x":1,"y":2,"width":3,"height":4}}	{"Box":{"x":1.0,"y":2.0,
 de	TextShape	{"Box":{"x":1}}	ERR missing field `y`
 de	TextShape	{"Point":null}	"Point"
 de	TextShape	"Box"	ERR invalid type: unit variant, expected struct variant
+de	TextShape	{"Path":{"path":{"closed":false,"knots":[{"anchor":{"x":0,"y":0}},{"anchor":{"x":50,"y":20}}],"op":"Combine"},"start":2.5,"flip":true}}	ERR missing field `in_ctrl`
+de	TextShape	{"Path":{"path":{"knots":[]}}}	ERR missing field `closed`
 de	TextRun	{"len":-1,"style":{}}	ERR invalid value: integer `-1`, expected usize
 de	TextRun	{"len":18446744073709551615,"style":{}}	{"len":18446744073709551615,"style":{"font_family":"","font_style":"","postscript_name":null,"weight":400,"italic":false,"size_pt":12.0,"color":{"mode":"Rgb","c":[0.0,0.0,0.0,0.0],"alpha":1.0},"tracking":0.0,"leading_pt":null,"baseline_shift_pt":0.0,"horizontal_scale":1.0,"vertical_scale":1.0,"underline":false,"strikethrough":false,"faux_bold":false,"faux_italic":false,"kerning":"Metrics","kern":0.0,"caps":"Normal","ligatures":true,"discretionary_ligatures":false,"features":[],"variations":[],"language":null}}
 de	TextRun	{"len":3}	ERR missing field `style`

@@ -124,6 +124,58 @@ static void test_install_list_run(void)
     pc_engine_session_free(s);
 }
 
+/* plugin.run on a targeted alpha channel filters the channel surface in place (the channel branch,
+ * via channel_cmds::channel_surface_for_filter). */
+static void test_run_channel_target(void)
+{
+    pc_buf wasm = PC_BUF_INIT;
+    if (!fixture(&wasm)) {
+        fprintf(stderr, "SKIP: tests/fixtures/plugins/invert.wasm missing (run from repo root)\n");
+        return;
+    }
+    char *data = b64(wasm.data, wasm.len);
+    pc_buf_fini(&wasm);
+    pc_buf params = PC_BUF_INIT;
+    (void)pc_buf_append_str(&params, "{\"data\":\"", NULL);
+    (void)pc_buf_append_str(&params, data, NULL);
+    (void)pc_buf_append_str(&params, "\"}", NULL);
+    free(data);
+
+    pc_engine_session *s = NULL;
+    CHECK(pc_engine_session_new(&s, NULL) == PC_OK);
+    CHECK(ex(s, "plugin.install", (const char *)params.data) == PC_OK);
+    pc_buf_fini(&params);
+
+    CHECK(ex(s, "file.new", "{\"width\":8,\"height\":8}") == PC_OK);
+    CHECK(ex(s, "layer.new.layer", "{}") == PC_OK);
+    /* A white alpha channel filled over the selection, so its value is known (and non-zero). */
+    CHECK(ex(s, "select.rect", "{\"x\":0,\"y\":0,\"width\":8,\"height\":8}") == PC_OK);
+    CHECK(ex(s, "channel.new", "{\"name\":\"Alpha 1\",\"fill\":\"white\"}") == PC_OK);
+    CHECK(ex(s, "select.deselect", "{}") == PC_OK || true);
+
+    const pc_document *doc = pc_doc_arc_get(pc_engine_session_active(s)->doc);
+    CHECK(doc->nchannels >= 1);
+    float before[4] = {0, 0, 0, 0};
+    pc_surface_read_pixel(&doc->channels[0].surface, 4, 4, before);
+
+    CHECK(ex(s, "plugin.run", "{\"id\":\"" INVERT_ID "\",\"target\":{\"channel\":0}}") == PC_OK);
+    doc = pc_doc_arc_get(pc_engine_session_active(s)->doc);
+    float px[4] = {0, 0, 0, 0};
+    pc_surface_read_pixel(&doc->channels[0].surface, 4, 4, px);
+    /* The plug-in inverted the channel surface in place: v -> 1 - v. */
+    CHECK_NEAR(px[0], 1.0f - before[0], 0.02);
+    CHECK(before[0] > 0.5); /* the white fill was actually stored */
+
+    /* one undo restores the channel */
+    CHECK(pc_engine_session_undo(s));
+    doc = pc_doc_arc_get(pc_engine_session_active(s)->doc);
+    pc_surface_read_pixel(&doc->channels[0].surface, 4, 4, px);
+    CHECK_NEAR(px[0], before[0], 0.02);
+
+    CHECK(ex(s, "plugin.remove", "{\"id\":\"" INVERT_ID "\"}") == PC_OK);
+    pc_engine_session_free(s);
+}
+
 static void test_bad_params(void)
 {
     pc_engine_session *s = NULL;
@@ -150,6 +202,7 @@ int main(int argc, char **argv)
      * (the -DPC_HAVE_WAMR define reaches src/plugins, not tests/engine, so detect at runtime). */
     if (pc_plugins_available()) {
         RUN(test_install_list_run);
+        RUN(test_run_channel_target);
     } else {
         (void)fprintf(stderr, "  plug-ins unavailable in this build: install/list/run skipped\n");
     }

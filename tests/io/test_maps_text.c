@@ -335,7 +335,7 @@ static void test_corpus_text_layers(void)
             if (!runs_eq(&back, t)) {
                 PC_T_FAIL("%s / %s: runs differ after our TySh writer", files[i], pc_str_c(&l->name));
             }
-            CHECK(back.shape.is_box == t->shape.is_box && back.shape.x == t->shape.x &&
+            CHECK(back.shape.kind == t->shape.kind && back.shape.x == t->shape.x &&
                   back.shape.width == t->shape.width && back.shape.height == t->shape.height);
             pc_text_layer_fini(&back);
             pc_psd_bytes_fini(&rebuilt);
@@ -432,7 +432,7 @@ static void test_created_text_layer_roundtrips_through_psd(void)
     t.paragraphs[1].len = 5;
     t.paragraphs[1].style = pc_paragraph_style_default();
     t.paragraphs[1].style.align = PC_TEXT_ALIGN_JUSTIFY_ALL;
-    t.shape.is_box = true;
+    t.shape.kind = PC_TEXT_SHAPE_BOX;
     t.shape.width = 100.0f;
     t.shape.height = 60.0f;
     t.transform = pc_affine_translate(8.0, 6.0);
@@ -465,7 +465,7 @@ static void test_created_text_layer_roundtrips_through_psd(void)
     }
     pc_text_runs_free(x, nx);
     pc_text_runs_free(y, ny);
-    CHECK(bt->shape.is_box && bt->shape.width == 100.0f && bt->shape.height == 60.0f);
+    CHECK(bt->shape.kind == PC_TEXT_SHAPE_BOX && bt->shape.width == 100.0f && bt->shape.height == 60.0f);
     CHECK(memcmp(&bt->transform, &t.transform, sizeof t.transform) == 0);
     CHECK(bt->has_cache && pc_rect_width(pc_surface_content_bounds(&bt->cache)) > 10);
     pc_io_warnings_fini(&w);
@@ -752,7 +752,7 @@ static void test_vertical_orientation_round_trips_through_psd(void)
 {
     pc_text_shape shapes[2];
     memset(shapes, 0, sizeof shapes);
-    shapes[1].is_box = true;
+    shapes[1].kind = PC_TEXT_SHAPE_BOX;
     shapes[1].x = -200.0f;
     shapes[1].width = 220.0f;
     shapes[1].height = 300.0f;
@@ -767,7 +767,7 @@ static void test_vertical_orientation_round_trips_through_psd(void)
         back = psd_roundtrip(&doc);
         t = text0(&back);
         CHECK(t->orientation == PC_ORIENT_VERTICAL);
-        CHECK(t->shape.is_box == shapes[s].is_box && t->shape.x == shapes[s].x &&
+        CHECK(t->shape.kind == shapes[s].kind && t->shape.x == shapes[s].x &&
               t->shape.width == shapes[s].width && t->shape.height == shapes[s].height);
         CHECK(pc_str_eq(&t->text, &text0(&doc)->text));
         must(pc_text_layer_clone(t, &again, NULL));
@@ -1200,7 +1200,7 @@ static void test_imported_type_layers_keep_their_full_bounds(void)
                       (double)c->size_pt);
         }
         CHECK(memcmp(&t->transform, &c->transform, sizeof t->transform) == 0);
-        CHECK(t->shape.is_box == c->has_box);
+        CHECK((t->shape.kind == PC_TEXT_SHAPE_BOX) == c->has_box);
         if (c->has_box) {
             CHECK((double)t->shape.x == c->box[0] && (double)t->shape.y == c->box[1] &&
                   (double)(t->shape.x + t->shape.width) == c->box[2] &&

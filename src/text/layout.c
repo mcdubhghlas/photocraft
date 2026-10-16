@@ -539,7 +539,7 @@ pc_status pc_text_layouter_layout(pc_text_layouter *lo, pc_fontdb *db, const pc_
     pc_small_caps_mode *small_caps = NULL;
     const char **fallback = NULL, **serif_fallback = NULL, **craft = NULL;
     size_t nfallback = 0, ncraft = 0;
-    bool vertical = t->orientation == PC_ORIENT_VERTICAL, is_box = t->shape.is_box;
+    bool vertical = t->orientation == PC_ORIENT_VERTICAL, is_box = t->shape.kind == PC_TEXT_SHAPE_BOX;
     float box[4] = {0.0f, 0.0f, 0.0f, 0.0f};
     bool has_prev = false, stop = false;
     float prev_baseline = 0.0f, pending_space = 0.0f;

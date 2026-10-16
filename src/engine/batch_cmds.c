@@ -627,9 +627,16 @@ static pc_status run_batch(pc_engine_session *s, yyjson_val *p, pc_json_value *o
     yyjson_mut_arr_foreach(steps, idx, max, pair) {
         const char *id = yyjson_mut_get_str(yyjson_mut_arr_get(pair, 0));
         if (id == NULL || pc_engine_command_find(id) == NULL) {
+            /* `id` lives in md's string pool; copy it out before freeing md. */
+            char idcopy[128];
+            size_t ilen = id != NULL ? strlen(id) : 0;
+            size_t ic = ilen < sizeof idcopy - 1 ? ilen : sizeof idcopy - 1;
+            if (id != NULL) {
+                memcpy(idcopy, id, ic);
+            }
+            idcopy[ic] = '\0';
             yyjson_mut_doc_free(md);
-            return pc_engine_err_bad_params(err, CMD, "unknown command `%s` in the action",
-                                            id != NULL ? id : "");
+            return pc_engine_err_bad_params(err, CMD, "unknown command `%s` in the action", idcopy);
         }
     }
     const char *output = bf_str(p, "output");
@@ -1518,9 +1525,16 @@ static pc_status run_create_droplet(pc_engine_session *s, yyjson_val *p, pc_json
     yyjson_mut_arr_foreach(steps, idx, max, pair) {
         const char *id = yyjson_mut_get_str(yyjson_mut_arr_get(pair, 0));
         if (id == NULL || pc_engine_command_find(id) == NULL) {
+            /* `id` lives in md's string pool; copy it out before freeing md. */
+            char idcopy[128];
+            size_t ilen = id != NULL ? strlen(id) : 0;
+            size_t ic = ilen < sizeof idcopy - 1 ? ilen : sizeof idcopy - 1;
+            if (id != NULL) {
+                memcpy(idcopy, id, ic);
+            }
+            idcopy[ic] = '\0';
             yyjson_mut_doc_free(md);
-            return pc_engine_err_bad_params(err, CMD, "unknown command `%s` in the script",
-                                            id != NULL ? id : "");
+            return pc_engine_err_bad_params(err, CMD, "unknown command `%s` in the script", idcopy);
         }
     }
     /* Give the droplet its own path (".pcdroplet" unless already .pcdroplet/.json). */
@@ -1728,7 +1742,7 @@ static pc_status run_run_droplet(pc_engine_session *s, yyjson_val *p, pc_json_va
     } else if (outp != NULL) {
         output = pc_strndup(outp, strlen(outp));
     }
-    if (rc == PC_OK && output == NULL) {
+    if (rc == PC_OK && output == NULL && inputs != NULL && ninputs > 0) {
         /* parent folder of the first input */
         const char *first = inputs[0];
         const char *slash = NULL;

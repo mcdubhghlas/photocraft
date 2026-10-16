@@ -686,7 +686,7 @@ static pc_status text(builder *b, const pc_af_text *t, pc_affine to_doc, pc_text
         return st;
     }
     if (t->has_frame) {
-        layer.shape.is_box = true;
+        layer.shape.kind = PC_TEXT_SHAPE_BOX;
         layer.shape.x = 0.0f;
         layer.shape.y = 0.0f;
         layer.shape.width = pc_f64_to_f32((t->frame.x1 - t->frame.x0) * k);

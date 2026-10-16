@@ -2522,6 +2522,94 @@ static pc_status run_file_info(pc_engine_session *s, yyjson_val *p, pc_json_valu
     return PC_OK;
 }
 
+/* web_cmds::web_xmp: the XMP Save for Web embeds for a metadata choice. Lives here because the
+ * File Info parsing (fc_read_file_info / fc_write_file_info) is this file's. */
+pc_status pc_engine_web_xmp(const char *xmp, size_t xl, int mode, char **out, pc_error *err)
+{
+    *out = NULL;
+    if (xmp == NULL || xl == 0 || mode == 0) {
+        return PC_OK; /* no XMP, or metadata = none */
+    }
+    if (mode == 3) { /* all */
+        char *dup = malloc(xl + 1);
+        if (dup == NULL) {
+            return pc_fail(err, PC_ERR_NOMEM, "out of memory");
+        }
+        memcpy(dup, xmp, xl);
+        dup[xl] = '\0';
+        *out = dup;
+        return PC_OK;
+    }
+    /* copyright (1) / copyright + contact (2): keep only the chosen File Info fields. */
+    static const char *const BASE_KEYS[] = {"copyright", "copyrightStatus", "copyrightUrl"};
+    static const char *const CONTACT_KEYS[] = {"author", "authorTitle"};
+    yyjson_mut_doc *id = yyjson_mut_doc_new(NULL);
+    if (id == NULL) {
+        return pc_fail(err, PC_ERR_NOMEM, "out of memory");
+    }
+    yyjson_mut_val *info = fc_read_file_info(id, xmp, xl);
+    yyjson_mut_doc_set_root(id, info);
+    yyjson_mut_val *keep = yyjson_mut_obj(id);
+    bool any = false;
+    for (size_t pass = 0; pass < 2; pass++) {
+        const char *const *keys = pass == 0 ? BASE_KEYS : CONTACT_KEYS;
+        size_t nk = pass == 0 ? 3u : (mode == 2 ? 2u : 0u);
+        for (size_t i = 0; i < nk; i++) {
+            yyjson_mut_val *v = info != NULL ? yyjson_mut_obj_get(info, keys[i]) : NULL;
+            if (v == NULL) {
+                continue;
+            }
+            bool ok = yyjson_mut_is_arr(v) || (yyjson_mut_is_str(v) && yyjson_mut_get_len(v) > 0);
+            if (!ok) {
+                continue;
+            }
+            yyjson_mut_val *cp = yyjson_mut_val_mut_copy(id, v);
+            yyjson_mut_val *k = yyjson_mut_strcpy(id, keys[i]);
+            if (cp == NULL || k == NULL) {
+                yyjson_mut_doc_free(id);
+                return pc_fail(err, PC_ERR_NOMEM, "out of memory");
+            }
+            yyjson_mut_obj_add(keep, k, cp);
+            any = true;
+        }
+    }
+    if (!any) {
+        yyjson_mut_doc_free(id);
+        return PC_OK;
+    }
+    /* fc_write_file_info takes immutable info + cur (the current fields of an empty packet). */
+    pc_buf keeptext = PC_BUF_INIT;
+    (void)pc_json_write(keep, 0, &keeptext, NULL);
+    yyjson_doc *keepdoc = NULL;
+    (void)pc_json_parse(pc_buf_cstr(&keeptext), keeptext.len, &keepdoc, NULL);
+    pc_buf_fini(&keeptext);
+    yyjson_mut_doc *cd = yyjson_mut_doc_new(NULL);
+    yyjson_doc *curdoc = NULL;
+    yyjson_val *cur = NULL;
+    if (cd != NULL) {
+        yyjson_mut_val *cur_mut = fc_read_file_info(cd, "", 0);
+        yyjson_mut_doc_set_root(cd, cur_mut);
+        pc_buf curtext = PC_BUF_INIT;
+        (void)pc_json_write(cur_mut, 0, &curtext, NULL);
+        (void)pc_json_parse(pc_buf_cstr(&curtext), curtext.len, &curdoc, NULL);
+        pc_buf_fini(&curtext);
+        cur = curdoc != NULL ? yyjson_doc_get_root(curdoc) : NULL;
+    }
+    char *nx = NULL;
+    if (keepdoc != NULL) {
+        nx = fc_write_file_info("", 0, yyjson_doc_get_root(keepdoc), cur);
+    }
+    yyjson_doc_free(keepdoc);
+    yyjson_doc_free(curdoc);
+    yyjson_mut_doc_free(cd);
+    yyjson_mut_doc_free(id);
+    if (nx == NULL) {
+        return pc_fail(err, PC_ERR_NOMEM, "out of memory");
+    }
+    *out = nx;
+    return PC_OK;
+}
+
 /* ---- registry ----------------------------------------------------------------------------- */
 
 static const char *const MENU_FILE[] = {"File"};

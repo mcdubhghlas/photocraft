@@ -39,7 +39,7 @@ PC_DOC_FIELDS(pc_document, 1064);
 PC_DOC_FIELDS(pc_layer, 1072);
 PC_DOC_FIELDS(pc_layer_content, 520);
 PC_DOC_FIELDS(pc_group, 88);
-PC_DOC_FIELDS(pc_text_layer, 288);
+PC_DOC_FIELDS(pc_text_layer, 336);
 PC_DOC_FIELDS(pc_shape_layer, 488);
 PC_DOC_FIELDS(pc_smart_object, 512);
 PC_DOC_FIELDS(pc_smart_source, 48);

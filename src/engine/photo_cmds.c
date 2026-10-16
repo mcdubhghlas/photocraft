@@ -603,6 +603,7 @@ void pc_engine_photo_blended_fini(pc_engine_photo_blended *b)
     }
     free(b->layer_px);
     free(b->layer_mask);
+    free(b->gains);
     pc_surface_fini(&b->composite);
     memset(b, 0, sizeof *b);
 }
@@ -658,6 +659,7 @@ pc_status pc_engine_photo_seam_blend(const pc_surface *warped, size_t n, pc_rect
     size_t *rank = NULL;
     float *blend = NULL;
     float *cov = NULL;
+    float *gains_copy = NULL;
     pc_surface *layer_px = pc_calloc_array(n > 0 ? n : 1, sizeof *layer_px);
     pc_surface *layer_mask = pc_calloc_array(n > 0 ? n : 1, sizeof *layer_mask);
     if (rois == NULL || bufs == NULL || weights == NULL || local == NULL || layer_px == NULL ||
@@ -696,6 +698,18 @@ pc_status pc_engine_photo_seam_blend(const pc_surface *warped, size_t n, pc_rect
     }
     have_photo = true;
     bool vig = photo.vignette[0] != 0.0 || photo.vignette[1] != 0.0;
+    /* Keep a copy of the photometric gains for the caller (Photomerge reports them). */
+    {
+        size_t gn = n * photo.ch;
+        gains_copy = pc_malloc_array(gn > 0 ? gn : 1, sizeof *gains_copy);
+        if (gains_copy == NULL) {
+            rc = pc_fail(err, PC_ERR_NOMEM, "seam_blend");
+            goto cleanup;
+        }
+        for (size_t i = 0; i < gn; i++) {
+            gains_copy[i] = photo.gains[i];
+        }
+    }
 
     for (size_t i = 0; i < n; i++) {
         pc_algo_roi_image *roi = &rois[i];
@@ -954,8 +968,11 @@ pc_status pc_engine_photo_seam_blend(const pc_surface *warped, size_t n, pc_rect
     out->composite = composite;
     out->vignette[0] = photo.vignette[0];
     out->vignette[1] = photo.vignette[1];
+    out->gains = gains_copy;
+    out->gains_ch = photo.ch;
     layer_px = NULL;
     layer_mask = NULL;
+    gains_copy = NULL;
 
 cleanup:
     if (bufs != NULL) {
@@ -995,6 +1012,7 @@ cleanup:
     free(rank);
     free(blend);
     free(cov);
+    free(gains_copy);
     free(layer_px);
     free(layer_mask);
     return rc;

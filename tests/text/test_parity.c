@@ -1058,13 +1058,17 @@ static void test_golden(void)
                     t.m[i] = f64of(l.tok[2 + i]);
                 }
                 hw = parse_warp(l.tok[8], &g->l, &w);
+                pc_text_deform dw;
+                memset(&dw, 0, sizeof dw);
+                dw.kind = PC_DEFORM_STYLE;
+                dw.style = w;
                 if (k[0] == 'i') {
                     pc_rect r = PC_RECT_EMPTY;
                     pc_glyph_outline *o = NULL;
                     size_t no = 0, j;
                     uint64_t h = H0;
-                    pc_text_ink_rect(&g->l, &t, hw ? &w : NULL, &r, NULL);
-                    pc_text_outlines(&g->l, &t, hw ? &w : NULL, &o, &no, NULL);
+                    pc_text_ink_rect(&g->l, &t, hw ? &dw : NULL, &r, NULL);
+                    pc_text_outlines(&g->l, &t, hw ? &dw : NULL, &o, &no, NULL);
                     for (j = 0; j < no; j++) {
                         hu32(&h, (uint32_t)o[j].n);
                         hash_els(&h, o[j].els, o[j].n);
@@ -1077,7 +1081,7 @@ static void test_golden(void)
                     pc_rendered r;
                     pc_antialias aa = atoi(l.tok[10]) != 0 ? PC_AA_NONE : PC_AA_SMOOTH;
                     fmt_of(l.tok[9], &f);
-                    if (pc_text_rasterize(&g->l, &t, f, aa, hw ? &w : NULL, &r, NULL) == PC_OK) {
+                    if (pc_text_rasterize(&g->l, &t, f, aa, hw ? &dw : NULL, &r, NULL) == PC_OK) {
                         uint64_t h = H0;
                         size_t n = 0, j;
                         if (!pc_rect_is_empty(r.rect)) {

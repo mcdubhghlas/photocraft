@@ -21,14 +21,14 @@ CFLAGS ?= -O2 -g
 ARFLAGS = rcs
 
 # Modules in layer order (REWRITE_PLAN.md §3). Each chunk appends its module here.
-MODULES = base geom cms color raster psd codecs raw affinity doc ops paint algo vector text compose format io plugins engine
+MODULES = base geom cms color raster psd codecs raw affinity doc ops paint algo vector text compose format io plugins engine automation ui
 # pkg-config packages the current modules need.
 PKGS = zlib libzstd libblake3 libpng16 libjpeg libwebp libwebpmux libwebpdemux freetype2 harfbuzz fribidi libunibreak
 # Vendored third-party C (REWRITE_PLAN.md D17), compiled without our strict warnings: it isn't
 # our code to fix, and upstream builds it warning-free with its own flags.
 THIRD_PARTY = yyjson nuklear pocketfft
 # Executables (src/cli, src/app) once they exist.
-PROGRAMS =
+PROGRAMS = photocraft-cli
 # Libraries only the UI layer may use (REWRITE_PLAN.md D4). Their flags are applied to src/ui
 # objects only, so nothing lower can include SDL by accident.
 GUI_PKGS = sdl3 freetype2
@@ -133,20 +133,44 @@ THIRD_SRCS := $(foreach t,$(THIRD_PARTY),$(wildcard third_party/$(t)/*.c))
 # Binary data compiled in (POSIX od + sed; no xxd): name = file under data/ (see GEN rules below).
 # Bundled fonts (src/text/bundled.h), embedded the same way (assets/fonts/<name>.ttf).
 FONT_GEN := Inter-Regular Inter-Medium Inter-SemiBold JetBrainsMono-Regular
-GEN_SRCS := $(BUILD)/gen/coated_cmyk_icc.c $(FONT_GEN:%=$(BUILD)/gen/font_%.c) $(BUILD)/gen/dict_scowl.c
+# UI translation catalogs (src/ui/i18n.c: pc_i18n_cat_<code with - as _>), embedded uncompressed.
+I18N_CATS := ja zh-hans zh-hant es ru uk sr cs fr id ko pl de pt-br el nl it hu tr vi
+GEN_SRCS := $(BUILD)/gen/coated_cmyk_icc.c $(FONT_GEN:%=$(BUILD)/gen/font_%.c) $(BUILD)/gen/dict_scowl.c \
+            $(I18N_CATS:%=$(BUILD)/gen/i18n_%.c) $(BUILD)/gen/app_icon.c
 OBJS := $(SRCS:%.c=$(BUILD)/obj/%.o) $(THIRD_SRCS:%.c=$(BUILD)/obj/%.o) $(GEN_SRCS:%.c=%.o) $(WAMR_OBJS)
 LIB := $(BUILD)/libphotocraft.a
 # B3 GUI stack spike (src/ui/spike): built when SDL3 and FreeType are installed.
 SPIKE_SRCS := $(wildcard src/ui/spike/*.c)
 SPIKE_OBJS := $(SPIKE_SRCS:%.c=$(BUILD)/obj/%.o)
 SPIKE := $(BUILD)/bin/photocraft-spike
+# U1 offscreen snapshot tool (src/ui/snapshot): reuses the spike's GL/font/PNG/renderer helpers
+# but drives Nuklear through the real theme tokens (D23).
+SNAP_SRCS := $(wildcard src/ui/snapshot/*.c)
+SNAP_OBJS := $(SNAP_SRCS:%.c=$(BUILD)/obj/%.o)
+SNAP_HELPERS := $(BUILD)/obj/src/ui/spike/gl33.o $(BUILD)/obj/src/ui/spike/font.o \
+                $(BUILD)/obj/src/ui/spike/png.o $(BUILD)/obj/src/ui/spike/render.o
+SNAP := $(BUILD)/bin/photocraft-ui-snapshot
+# PhotocraftApp shell + frame loop + control channel (src/ui/shell): the GUI-coupled app root the
+# desktop app (Phase 9 P1) wraps. Built like the snapshot tool (reuses the spike GL/font helpers).
+UISHELL_SRCS := $(wildcard src/ui/shell/*.c)
+UISHELL_OBJS := $(UISHELL_SRCS:%.c=$(BUILD)/obj/%.o)
+UISHELL_TEST_OBJS := $(filter-out $(BUILD)/obj/src/ui/shell/main.o,$(UISHELL_OBJS))
+UISHELL := $(BUILD)/bin/photocraft-ui-shell
 TEST_SRCS := $(wildcard tests/*/test_*.c)
+# The shell control test needs the GUI packages (it links SDL, never inits video); drop it when they
+# are absent so a headless build host still runs the rest of the suite.
+TEST_SRCS := $(if $(HAVE_GUI),$(TEST_SRCS),$(filter-out tests/ui/test_shell_control.c,$(TEST_SRCS)))
 TEST_BINS := $(TEST_SRCS:tests/%.c=$(BUILD)/tests/%)
+# Executable apps: each src/<app>/ with a main.c links against the library (src/cli = photocraft-cli).
+CLI_SRCS := $(wildcard src/cli/*.c)
+CLI_OBJS := $(CLI_SRCS:%.c=$(BUILD)/obj/%.o)
+APP_SRCS := $(CLI_SRCS)
+APP_OBJS := $(CLI_OBJS)
 
 .PHONY: all spike corpus test check sanitize tsan analyze valgrind install clean
 .DEFAULT_GOAL := all
 
-all: $(LIB) $(PROGRAMS:%=$(BUILD)/bin/%) $(if $(HAVE_GUI),$(SPIKE))
+all: $(LIB) $(PROGRAMS:%=$(BUILD)/bin/%) $(if $(HAVE_GUI),$(SPIKE) $(SNAP))
 
 # Listed first: GNU make 3.81 takes the first matching pattern rule, not the most specific.
 $(BUILD)/obj/third_party/%.o: third_party/%.c
@@ -177,6 +201,26 @@ $(BUILD)/gen/font_%.c: assets/fonts/%.ttf
 	  echo '};'; \
 	  echo "const size_t pc_font_$(subst -,_,$*)_len = sizeof pc_font_$(subst -,_,$*);"; } > $@.tmp && mv $@.tmp $@
 
+# The app-icon PNG (src/ui/brand.c: pc_ui_app_icon_png), embedded as shipped.
+$(BUILD)/gen/app_icon.c: assets/app-icon/hicolor/128x128/apps/ai.storyteller.photocraft.png
+	@mkdir -p $(@D)
+	@{ echo '/* Generated from $< by the Makefile. */'; \
+	  echo '#include <stddef.h>'; \
+	  echo 'const unsigned char pc_ui_app_icon_png[] = {'; \
+	  od -An -v -tu1 $< | sed -e 's/[[:space:]][[:space:]]*/,/g' -e 's/^,//' -e 's/,$$//' -e 's/$$/,/' -e '/^,$$/d'; \
+	  echo '};'; \
+	  echo "const size_t pc_ui_app_icon_png_len = sizeof pc_ui_app_icon_png;"; } > $@.tmp && mv $@.tmp $@
+
+# UI translation catalogs (src/ui/i18n.c: pc_i18n_cat_<name with - as _>), raw TSV bytes.
+$(BUILD)/gen/i18n_%.c: src/ui/i18n/%.tsv
+	@mkdir -p $(@D)
+	@{ echo '/* Generated from $< by the Makefile. */'; \
+	  echo '#include <stddef.h>'; \
+	  echo 'const unsigned char pc_i18n_cat_$(subst -,_,$*)[] = {'; \
+	  od -An -v -tu1 $< | sed -e 's/[[:space:]][[:space:]]*/,/g' -e 's/^,//' -e 's/,$$//' -e 's/$$/,/' -e '/^,$$/d'; \
+	  echo '};'; \
+	  echo "const size_t pc_i18n_cat_$(subst -,_,$*)_len = sizeof pc_i18n_cat_$(subst -,_,$*);"; } > $@.tmp && mv $@.tmp $@
+
 # The spelling dictionary (src/text/spell.c: pc_dict_scowl_gz), gzip-compressed as shipped.
 $(BUILD)/gen/dict_scowl.c: assets/dict/en_US-scowl-50.txt.gz
 	@mkdir -p $(@D)
@@ -196,6 +240,8 @@ $(LIB): $(OBJS)
 	$(AR) $(ARFLAGS) $@ $(OBJS)
 
 $(SPIKE_OBJS): EXTRA_CPPFLAGS = $(GUI_CFLAGS)
+$(SNAP_OBJS): EXTRA_CPPFLAGS = $(GUI_CFLAGS) -Isrc/ui/spike
+$(UISHELL_OBJS): EXTRA_CPPFLAGS = $(GUI_CFLAGS) -Isrc/ui/spike
 # Only the codecs and their tests see the optional libraries' headers (and PC_NO_EXR / PC_NO_HEIF).
 # Only the codecs see the optional libraries' headers.
 $(filter $(BUILD)/obj/src/codecs/%,$(OBJS)): EXTRA_CPPFLAGS = $(CODEC_CFLAGS)
@@ -219,11 +265,40 @@ $(SPIKE): $(SPIKE_OBJS) $(LIB)
 	@mkdir -p $(@D)
 	$(CC) $(SPIKE_OBJS) $(LIB) $(ALL_LDFLAGS) $(GUI_LIBS) $(ALL_LDLIBS) -o $@
 
+$(SNAP): $(SNAP_OBJS) $(SNAP_HELPERS) $(LIB)
+	@mkdir -p $(@D)
+	$(CC) $(SNAP_OBJS) $(SNAP_HELPERS) $(LIB) $(ALL_LDFLAGS) $(GUI_LIBS) $(ALL_LDLIBS) -o $@
+
+$(UISHELL): $(UISHELL_OBJS) $(SNAP_HELPERS) $(LIB)
+	@mkdir -p $(@D)
+	$(CC) $(UISHELL_OBJS) $(SNAP_HELPERS) $(LIB) $(ALL_LDFLAGS) $(GUI_LIBS) $(ALL_LDLIBS) -o $@
+
+# photocraft-cli (src/cli): the headless command line, linked against the library.
+$(BUILD)/bin/photocraft-cli: $(CLI_OBJS) $(LIB)
+	@mkdir -p $(@D)
+	$(CC) $(CLI_OBJS) $(LIB) $(ALL_LDFLAGS) $(ALL_LDLIBS) -o $@
+
 spike:
 ifeq ($(HAVE_GUI),)
 	@echo "spike: needs pkg-config packages: $(GUI_PKGS)"; exit 1
 else
 	@$(MAKE) $(SPIKE)
+endif
+
+# photocraft-cli tests link against the app objects (minus its main) plus the library. Listed
+# before the generic rule: GNU make 3.81 takes the first matching pattern rule.
+CLI_TEST_OBJS := $(filter-out $(BUILD)/obj/src/cli/main.o,$(CLI_OBJS))
+$(BUILD)/tests/cli/%: tests/cli/%.c $(CLI_TEST_OBJS) $(LIB)
+	@mkdir -p $(@D)
+	$(CC) $(ALL_CPPFLAGS) -Itests $(ALL_CFLAGS) $(DEPFLAGS) $< $(CLI_TEST_OBJS) $(LIB) $(ALL_LDFLAGS) $(ALL_LDLIBS) -o $@
+
+# The PhotocraftApp control test links the shell objects (app + control, no main) and the GUI
+# helpers; it never initialises SDL video (no GL context, no Mesa leak under the sanitizers), so it
+# runs in the ordinary test loop. Explicit target: it wins over the generic pattern rule.
+ifneq ($(HAVE_GUI),)
+$(BUILD)/tests/ui/test_shell_control: tests/ui/test_shell_control.c $(UISHELL_TEST_OBJS) $(SNAP_HELPERS) $(LIB)
+	@mkdir -p $(@D)
+	$(CC) $(ALL_CPPFLAGS) $(GUI_CFLAGS) -Isrc/ui/spike -Itests $(ALL_CFLAGS) $(DEPFLAGS) $< $(UISHELL_TEST_OBJS) $(SNAP_HELPERS) $(LIB) $(ALL_LDFLAGS) $(GUI_LIBS) $(ALL_LDLIBS) -o $@
 endif
 
 $(BUILD)/tests/%: tests/%.c $(LIB)
@@ -249,7 +324,7 @@ ifeq ($(SAN),)
 	@echo "sanitize: $(CC) has no -fsanitize=address,undefined; skipped"
 else
 	$(MAKE) BUILD=build/san STRICT=1 CFLAGS="-O1 -g" EXTRA_CFLAGS="$(SAN)" EXTRA_LDFLAGS="$(SAN)" \
-		TEST_ENV="ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 UBSAN_OPTIONS=print_stacktrace=1" test
+		TEST_ENV="ASAN_OPTIONS=detect_leaks=1:abort_on_error=1 UBSAN_OPTIONS=print_stacktrace=1" all test
 endif
 
 analyze:
@@ -258,10 +333,22 @@ analyze:
 			clang --analyze -Xclang -analyzer-werror -std=c17 -D_POSIX_C_SOURCE=200809L -Isrc $(THIRD_PARTY:%=-Ithird_party/%) $(PKG_CFLAGS) \
 				$(CODEC_CFLAGS) $(JXL_CFLAGS) $(PLUGINS_CFLAGS) -o /dev/null $$f || exit 1; \
 		done; \
+		for f in $(APP_SRCS); do \
+			clang --analyze -Xclang -analyzer-werror -std=c17 -D_POSIX_C_SOURCE=200809L -Isrc $(THIRD_PARTY:%=-Ithird_party/%) $(PKG_CFLAGS) \
+				-o /dev/null $$f || exit 1; \
+		done; \
 		for f in $(if $(HAVE_GUI),$(SPIKE_SRCS)); do \
 			clang --analyze -Xclang -analyzer-werror -std=c17 -D_POSIX_C_SOURCE=200809L -Isrc $(THIRD_PARTY:%=-Ithird_party/%) $(PKG_CFLAGS) \
 				$(GUI_CFLAGS) -o /dev/null $$f || exit 1; \
-		done; echo "analyze: clang static analyzer clean ($(words $(SRCS) $(if $(HAVE_GUI),$(SPIKE_SRCS))) files)"; \
+		done; \
+		for f in $(if $(HAVE_GUI),$(SNAP_SRCS)); do \
+			clang --analyze -Xclang -analyzer-werror -std=c17 -D_POSIX_C_SOURCE=200809L -Isrc -Isrc/ui/spike $(THIRD_PARTY:%=-Ithird_party/%) $(PKG_CFLAGS) \
+				$(GUI_CFLAGS) -o /dev/null $$f || exit 1; \
+		done; \
+		for f in $(if $(HAVE_GUI),$(UISHELL_SRCS)); do \
+			clang --analyze -Xclang -analyzer-werror -std=c17 -D_POSIX_C_SOURCE=200809L -Isrc -Isrc/ui/spike $(THIRD_PARTY:%=-Ithird_party/%) $(PKG_CFLAGS) \
+				$(GUI_CFLAGS) -o /dev/null $$f || exit 1; \
+		done; echo "analyze: clang static analyzer clean ($(words $(SRCS) $(APP_SRCS) $(if $(HAVE_GUI),$(SPIKE_SRCS) $(SNAP_SRCS) $(UISHELL_SRCS))) files)"; \
 	elif command -v cppcheck >/dev/null 2>&1; then \
 		cppcheck --error-exitcode=1 --std=c11 --enable=warning,portability -Isrc $(THIRD_PARTY:%=-Ithird_party/%) $(SRCS); \
 	else echo "analyze: neither clang nor cppcheck found; skipped"; fi
@@ -272,7 +359,7 @@ ifeq ($(TSAN),)
 	@echo "tsan: $(CC) has no -fsanitize=thread; skipped"
 else
 	$(MAKE) BUILD=build/tsan STRICT=1 CFLAGS="-O1 -g" EXTRA_CFLAGS="$(TSAN)" EXTRA_LDFLAGS="$(TSAN)" \
-		TEST_ENV="TSAN_OPTIONS=halt_on_error=1" test
+		TEST_ENV="TSAN_OPTIONS=halt_on_error=1" all test
 endif
 
 valgrind:
@@ -281,7 +368,7 @@ valgrind:
 		echo "valgrind: cannot run even 'true' on this system (unsupported CPU instructions in libc?); skipped"; \
 	else \
 		$(MAKE) BUILD=build/valgrind CFLAGS="-O1 -g" \
-			TEST_WRAP="valgrind -q --error-exitcode=1 --leak-check=full --errors-for-leak-kinds=definite" test; \
+			TEST_WRAP="valgrind -q --error-exitcode=1 --leak-check=full --errors-for-leak-kinds=definite" all test; \
 	fi
 
 install: all
@@ -292,4 +379,4 @@ install: all
 clean:
 	rm -rf build
 
--include $(OBJS:.o=.d) $(SPIKE_OBJS:.o=.d) $(TEST_BINS:=.d)
+-include $(OBJS:.o=.d) $(SPIKE_OBJS:.o=.d) $(APP_OBJS:.o=.d) $(TEST_BINS:=.d)

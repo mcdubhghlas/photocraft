@@ -743,7 +743,7 @@ static pc_status read_shape(const pc_ed_value *e, pc_text_layer *layer, pc_error
         return st;
     }
     if (nb == 4) {
-        layer->shape.is_box = true;
+        layer->shape.kind = PC_TEXT_SHAPE_BOX;
         layer->shape.x = f32_of(b[0]);
         layer->shape.y = f32_of(b[1]);
         layer->shape.width = f32_of(b[2] - b[0]);

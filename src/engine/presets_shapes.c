@@ -7,8 +7,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "doc/doc.h"
+#include "doc/vector.h"
 #include "geom/geom.h"
+
+#include "engine_internal.h"
 #include "presets.h"
+#include "vector_cmds.h" /* pc_engine_parse_path, pc_engine_path_to_json */
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -682,4 +687,510 @@ oom:
         *err = e;
     }
     return PC_ERR_NOMEM;
+}
+
+/* ================================ commands (shape.presets.*) ============================== *
+ * Port of crates/engine/src/presets/shapes.rs commands. The Shapes panel shows the preset groups
+ * plus Edit > Define Custom Shape results (EditState::custom_shapes, the "Custom Shapes" group).
+ * Never crashes on hostile params. */
+
+#define CUSTOM_GROUP "Custom Shapes"
+
+static const pc_preset_item_ops *SH_OPS(void)
+{
+    return pc_shape_preset_ops();
+}
+
+/* A trimmed non-empty string param copied into out[cap]; false when absent/empty. */
+static bool sh_str_copy(yyjson_val *p, const char *key, char *out, size_t cap)
+{
+    size_t len = 0;
+    const char *s = pc_json_as_str(pc_json_get(p, key), &len);
+    if (s == NULL) {
+        return false;
+    }
+    size_t a = 0, b = len;
+    while (a < b && (s[a] == ' ' || s[a] == '\t' || s[a] == '\n' || s[a] == '\r')) {
+        a++;
+    }
+    while (b > a && (s[b - 1] == ' ' || s[b - 1] == '\t' || s[b - 1] == '\n' || s[b - 1] == '\r')) {
+        b--;
+    }
+    if (b == a) {
+        return false;
+    }
+    size_t n = b - a;
+    if (n >= cap) {
+        n = cap - 1;
+    }
+    memcpy(out, s + a, n);
+    out[n] = '\0';
+    return true;
+}
+
+/* ---- list ---- */
+
+static pc_status run_list(pc_engine_session *s, yyjson_val *p, pc_json_value *out, pc_error *err)
+{
+    (void)p;
+    yyjson_mut_doc *d = NULL;
+    if (pc_engine_result_doc(out, &d, err) != PC_OK) {
+        return PC_ERR_NOMEM;
+    }
+    yyjson_mut_val *root = yyjson_mut_obj(d);
+    yyjson_mut_val *groups = yyjson_mut_arr(d);
+    const pc_preset_item_ops *ops = SH_OPS();
+    for (size_t i = 0; i < s->presets.shapes.n; i++) {
+        const pc_preset_group *g = &s->presets.shapes.v[i];
+        yyjson_mut_val *go = yyjson_mut_obj(d);
+        yyjson_mut_obj_add_strcpy(d, go, "name", g->name);
+        yyjson_mut_val *arr = yyjson_mut_arr(d);
+        for (size_t j = 0; j < g->n; j++) {
+            const pc_shape_preset *sp = (const pc_shape_preset *)((char *)g->items + j * ops->size);
+            yyjson_mut_val *so = yyjson_mut_obj(d);
+            yyjson_mut_obj_add_strcpy(d, so, "name", sp->name != NULL ? sp->name : "");
+            yyjson_mut_obj_add_uint(d, so, "subpaths", sp->path.nsubpaths);
+            yyjson_mut_arr_append(arr, so);
+        }
+        yyjson_mut_obj_add_val(d, go, "shapes", arr);
+        yyjson_mut_arr_append(groups, go);
+    }
+    /* Define Custom Shape results, as the "Custom Shapes" group. */
+    size_t ncustom = 0;
+    const pc_engine_custom_shape *custom = pc_engine_custom_shapes(s, &ncustom);
+    if (ncustom > 0) {
+        yyjson_mut_val *go = yyjson_mut_obj(d);
+        yyjson_mut_obj_add_str(d, go, "name", CUSTOM_GROUP);
+        yyjson_mut_val *arr = yyjson_mut_arr(d);
+        for (size_t j = 0; j < ncustom; j++) {
+            yyjson_mut_val *so = yyjson_mut_obj(d);
+            yyjson_mut_obj_add_strcpy(d, so, "name", custom[j].name != NULL ? custom[j].name : "");
+            yyjson_mut_obj_add_uint(d, so, "subpaths", custom[j].path.nsubpaths);
+            yyjson_mut_arr_append(arr, so);
+        }
+        yyjson_mut_obj_add_val(d, go, "shapes", arr);
+        yyjson_mut_arr_append(groups, go);
+    }
+    yyjson_mut_obj_add_val(d, root, "groups", groups);
+    yyjson_mut_doc_set_root(d, root);
+    return PC_OK;
+}
+
+/* Find a shape by name (optionally within group), across the preset groups and the custom shapes.
+ * Writes an owned clone into *out (pc_shape_preset_fini) on success. */
+static bool shape_lookup(pc_engine_session *s, const char *name, const char *group,
+                         pc_shape_preset *out, pc_error *err)
+{
+    const pc_preset_item_ops *ops = SH_OPS();
+    size_t gi, ii;
+    if (pc_preset_find(&s->presets.shapes, name, group, ops, &gi, &ii)) {
+        const pc_shape_preset *src = (const pc_shape_preset *)((char *)s->presets.shapes.v[gi].items + ii * ops->size);
+        return pc_shape_preset_clone(src, out, err) == PC_OK;
+    }
+    if (group == NULL || strcmp(group, CUSTOM_GROUP) == 0) {
+        size_t n = 0;
+        const pc_engine_custom_shape *custom = pc_engine_custom_shapes(s, &n);
+        for (size_t i = 0; i < n; i++) {
+            if (custom[i].name != NULL && strcmp(custom[i].name, name) == 0) {
+                memset(out, 0, sizeof *out);
+                out->name = pc_strndup(custom[i].name, strlen(custom[i].name));
+                if (out->name == NULL) {
+                    return false;
+                }
+                if (pc_path_clone(&custom[i].path, &out->path, err) != PC_OK) {
+                    pc_shape_preset_fini(out);
+                    return false;
+                }
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+/* ---- place ---- */
+
+static pc_status run_place(pc_engine_session *s, yyjson_val *p, pc_json_value *out, pc_error *err)
+{
+    const char *CMD = "shape.presets.place";
+    char name[512], group[512];
+    if (!sh_str_copy(p, "preset", name, sizeof name)) {
+        return pc_engine_err_bad_params(err, CMD, "missing `preset`");
+    }
+    const char *grp = sh_str_copy(p, "group", group, sizeof group) ? group : NULL;
+    pc_shape_preset shape;
+    if (!shape_lookup(s, name, grp, &shape, err)) {
+        if (err != NULL && err->code != PC_OK) {
+            return err->code;
+        }
+        return pc_engine_err_bad_params(err, CMD, "no shape \"%s\" (see shape.presets.list)", name);
+    }
+    const pc_engine_doc_state *st = pc_engine_session_active(s);
+    if (st == NULL) {
+        pc_shape_preset_fini(&shape);
+        return pc_engine_err_no_document(err);
+    }
+    const pc_document *doc = pc_doc_arc_get(st->doc);
+    double w = (double)doc->size.width, h = (double)doc->size.height;
+    bool keep = true;
+    (void)pc_json_as_bool(pc_json_get(p, "keepAspect"), &keep);
+    double rect[4];
+    yyjson_val *rv = pc_json_get(p, "rect");
+    if (rv != NULL && yyjson_is_arr(rv) && yyjson_arr_size(rv) == 4) {
+        double v[4] = {0, 0, 0, 0};
+        for (size_t i = 0; i < 4; i++) {
+            (void)pc_json_as_f64(yyjson_arr_get(rv, i), &v[i]);
+        }
+        double x = v[0], wd = v[2], y = v[1], hd = v[3];
+        if (wd < 0.0) {
+            x = v[0] + v[2];
+            wd = -v[2];
+        }
+        if (hd < 0.0) {
+            y = v[1] + v[3];
+            hd = -v[3];
+        }
+        if (wd < 1.0 || hd < 1.0) {
+            pc_shape_preset_fini(&shape);
+            return pc_engine_err_bad_params(err, CMD, "the shape rect is empty");
+        }
+        rect[0] = x;
+        rect[1] = y;
+        rect[2] = wd;
+        rect[3] = hd;
+    } else {
+        double side = (w < h ? w : h) * 0.5;
+        rect[0] = (w - side) / 2.0;
+        rect[1] = (h - side) / 2.0;
+        rect[2] = side;
+        rect[3] = side;
+    }
+    pc_path fitted;
+    if (pc_shape_fit(&shape.path, rect, keep, &fitted, err) != PC_OK) {
+        pc_shape_preset_fini(&shape);
+        return PC_ERR_NOMEM;
+    }
+
+    /* Build shape.create params: {kind:"path", path, name, [fill, stroke, addTo, op]}. */
+    char shname[512];
+    const char *created_name = sh_str_copy(p, "name", shname, sizeof shname)
+                                   ? shname
+                                   : (shape.name != NULL ? shape.name : "Shape");
+    yyjson_mut_doc *md = yyjson_mut_doc_new(NULL);
+    if (md == NULL) {
+        pc_path_fini(&fitted);
+        pc_shape_preset_fini(&shape);
+        return pc_fail(err, PC_ERR_NOMEM, "shape");
+    }
+    yyjson_mut_val *q = yyjson_mut_obj(md);
+    yyjson_mut_obj_add_str(md, q, "kind", "path");
+    yyjson_mut_obj_add_val(md, q, "path", pc_engine_path_to_json(md, &fitted));
+    yyjson_mut_obj_add_strcpy(md, q, "name", created_name);
+    static const char *const PASS[] = {"fill", "stroke", "addTo", "op"};
+    for (size_t i = 0; i < sizeof PASS / sizeof PASS[0]; i++) {
+        yyjson_val *v = pc_json_get(p, PASS[i]);
+        if (v != NULL) {
+            yyjson_mut_obj_add_val(md, q, PASS[i], pc_json_normalized_copy_val(md, v));
+        }
+    }
+    yyjson_mut_doc_set_root(md, q);
+    pc_path_fini(&fitted);
+
+    yyjson_doc *imut = yyjson_mut_doc_imut_copy(md, NULL);
+    yyjson_mut_doc_free(md);
+    if (imut == NULL) {
+        pc_shape_preset_fini(&shape);
+        return pc_fail(err, PC_ERR_NOMEM, "shape");
+    }
+    const pc_engine_command *create = pc_engine_command_find("shape.create");
+    if (create == NULL) {
+        yyjson_doc_free(imut);
+        pc_shape_preset_fini(&shape);
+        return pc_engine_err_other(err, "shape.create is unavailable");
+    }
+    pc_error ren = {0};
+    pc_status rc = create->enabled(s, &ren);
+    if (rc != PC_OK) {
+        yyjson_doc_free(imut);
+        pc_shape_preset_fini(&shape);
+        if (err != NULL) {
+            *err = ren;
+        }
+        return rc;
+    }
+    rc = create->run(s, yyjson_doc_get_root(imut), out, err);
+    yyjson_doc_free(imut);
+    if (rc == PC_OK) {
+        yyjson_mut_val *root = pc_json_value_root(out);
+        if (root != NULL && yyjson_mut_is_obj(root) && out->doc != NULL) {
+            yyjson_mut_obj_add_strcpy(out->doc, root, "preset", shape.name != NULL ? shape.name : "");
+        }
+    }
+    pc_shape_preset_fini(&shape);
+    return rc;
+}
+
+/* ---- new ---- */
+
+static pc_status run_new(pc_engine_session *s, yyjson_val *p, pc_json_value *out, pc_error *err)
+{
+    const char *CMD = "shape.presets.new";
+    pc_path path;
+    memset(&path, 0, sizeof path);
+    bool have = false;
+    yyjson_val *pv = pc_json_get(p, "path");
+    char emsg[256];
+    if (pv != NULL && yyjson_is_obj(pv)) {
+        if (!pc_engine_parse_path(pv, &path, emsg, sizeof emsg)) {
+            return pc_engine_err_bad_params(err, CMD, "%s", emsg);
+        }
+        have = true;
+    } else {
+        size_t slen = 0;
+        const char *src = pc_json_as_str(pv, &slen);
+        /* A preset-path-language string starts (after spaces) with M, O or !. */
+        const char *t = src;
+        size_t tl = slen;
+        while (tl > 0 && (*t == ' ' || *t == '\t' || *t == '\n' || *t == '\r')) {
+            t++;
+            tl--;
+        }
+        if (src != NULL && tl > 0 && (*t == 'M' || *t == 'O' || *t == '!')) {
+            char buf[4096];
+            if (slen >= sizeof buf) {
+                return pc_engine_err_bad_params(err, CMD, "path is too long");
+            }
+            memcpy(buf, src, slen);
+            buf[slen] = '\0';
+            if (!pc_shape_parse_path(buf, &path, emsg)) {
+                return pc_engine_err_bad_params(err, CMD, "%s", emsg);
+            }
+            have = true;
+        } else {
+            const pc_engine_doc_state *st = pc_engine_session_active(s);
+            if (st == NULL) {
+                return pc_engine_err_bad_params(err, CMD, "no document (pass `path`)");
+            }
+            const pc_document *doc = pc_doc_arc_get(st->doc);
+            char specbuf[512];
+            const char *spec = NULL;
+            if (src != NULL && slen < sizeof specbuf) {
+                memcpy(specbuf, src, slen);
+                specbuf[slen] = '\0';
+                spec = specbuf;
+            }
+            if (!pc_engine_current_path(doc, st->has_active_layer, st->active_layer, spec, &path)) {
+                return pc_engine_err_bad_params(err, CMD, "select a path or shape layer first");
+            }
+            have = true;
+        }
+    }
+    if (!have || pc_path_is_empty(&path)) {
+        pc_path_fini(&path);
+        return pc_engine_err_bad_params(err, CMD, "the path is empty");
+    }
+    /* Normalise into the 100 box so thumbnails/placing don't depend on where it was drawn. */
+    const double box[4] = {0.0, 0.0, 100.0, 100.0};
+    pc_path norm;
+    if (pc_shape_fit(&path, box, true, &norm, err) != PC_OK) {
+        pc_path_fini(&path);
+        return PC_ERR_NOMEM;
+    }
+    pc_path_fini(&path);
+
+    char nmbuf[512];
+    const char *base = sh_str_copy(p, "name", nmbuf, sizeof nmbuf) ? nmbuf : "Shape";
+    char *uniq = pc_preset_unique_name(&s->presets.shapes, base, SH_OPS());
+    if (uniq == NULL) {
+        pc_path_fini(&norm);
+        return pc_fail(err, PC_ERR_NOMEM, "shape");
+    }
+    char grpbuf[512];
+    const char *group = sh_str_copy(p, "group", grpbuf, sizeof grpbuf) ? grpbuf : NULL;
+    size_t gi = pc_preset_group_index(&s->presets.shapes, group, err);
+    if (gi == SIZE_MAX) {
+        free(uniq);
+        pc_path_fini(&norm);
+        return PC_ERR_NOMEM;
+    }
+    char *gname = pc_strndup(s->presets.shapes.v[gi].name, strlen(s->presets.shapes.v[gi].name));
+    pc_shape_preset sp;
+    memset(&sp, 0, sizeof sp);
+    sp.name = uniq;
+    sp.path = norm; /* move */
+    if (pc_preset_group_push(&s->presets.shapes, gi, &sp, SH_OPS(), err) != PC_OK) {
+        pc_shape_preset_fini(&sp);
+        free(gname);
+        return PC_ERR_NOMEM;
+    }
+    pc_engine_presets_changed(s);
+    yyjson_mut_doc *d = NULL;
+    if (pc_engine_result_doc(out, &d, err) != PC_OK) {
+        free(gname);
+        return PC_ERR_NOMEM;
+    }
+    yyjson_mut_val *root = yyjson_mut_obj(d);
+    yyjson_mut_obj_add_strcpy(d, root, "name", uniq);
+    yyjson_mut_obj_add_strcpy(d, root, "group", gname != NULL ? gname : "");
+    yyjson_mut_doc_set_root(d, root);
+    free(gname);
+    return PC_OK;
+}
+
+/* ---- edit ---- */
+
+/* The named preset is a custom shape (edit here rather than in the preset groups). */
+static bool is_custom(pc_engine_session *s, yyjson_val *p, const char *n)
+{
+    char g[512];
+    const char *group = sh_str_copy(p, "group", g, sizeof g) ? g : NULL;
+    if (group != NULL && strcmp(group, CUSTOM_GROUP) != 0) {
+        return false;
+    }
+    size_t gi, ii;
+    if (pc_preset_find(&s->presets.shapes, n, NULL, SH_OPS(), &gi, &ii)) {
+        return false;
+    }
+    size_t nc = 0;
+    const pc_engine_custom_shape *custom = pc_engine_custom_shapes(s, &nc);
+    for (size_t i = 0; i < nc; i++) {
+        if (custom[i].name != NULL && strcmp(custom[i].name, n) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static pc_status run_edit(pc_engine_session *s, yyjson_val *p, pc_json_value *out, pc_error *err)
+{
+    const char *CMD = "shape.presets.edit";
+    size_t al = 0;
+    const char *action = pc_json_as_str(pc_json_get(p, "action"), &al);
+    if (action == NULL) {
+        return pc_engine_err_bad_params(err, CMD, "missing `action`");
+    }
+    char act[32];
+    if (al >= sizeof act) {
+        return pc_engine_err_bad_params(err, CMD, "unknown action");
+    }
+    memcpy(act, action, al);
+    act[al] = '\0';
+
+    char preset[512];
+    bool have_preset = sh_str_copy(p, "preset", preset, sizeof preset);
+
+    if (strcmp(act, "rename") == 0 && have_preset && is_custom(s, p, preset)) {
+        char to[512];
+        if (!sh_str_copy(p, "name", to, sizeof to)) {
+            return pc_engine_err_bad_params(err, CMD, "missing `name`");
+        }
+        size_t nc = 0;
+        pc_engine_custom_shape *custom = pc_engine_custom_shapes_mut(s, &nc);
+        for (size_t i = 0; i < nc; i++) {
+            if (custom[i].name != NULL && strcmp(custom[i].name, preset) == 0) {
+                char *nm = pc_strndup(to, strlen(to));
+                if (nm == NULL) {
+                    return pc_fail(err, PC_ERR_NOMEM, "rename");
+                }
+                free(custom[i].name);
+                custom[i].name = nm;
+                break;
+            }
+        }
+        pc_engine_presets_changed(s);
+        yyjson_mut_doc *d = NULL;
+        if (pc_engine_result_doc(out, &d, err) != PC_OK) {
+            return PC_ERR_NOMEM;
+        }
+        yyjson_mut_val *root = yyjson_mut_obj(d);
+        yyjson_mut_obj_add_strcpy(d, root, "name", to);
+        yyjson_mut_doc_set_root(d, root);
+        return PC_OK;
+    }
+    if (strcmp(act, "delete") == 0 && have_preset && is_custom(s, p, preset)) {
+        pc_engine_custom_shapes_remove(s, preset);
+        pc_engine_presets_changed(s);
+        yyjson_mut_doc *d = NULL;
+        if (pc_engine_result_doc(out, &d, err) != PC_OK) {
+            return PC_ERR_NOMEM;
+        }
+        yyjson_mut_val *root = yyjson_mut_obj(d);
+        yyjson_mut_obj_add_uint(d, root, "deleted", 1);
+        yyjson_mut_doc_set_root(d, root);
+        return PC_OK;
+    }
+    pc_status rc = pc_preset_edit_groups(&s->presets.shapes, act, p, CMD, SH_OPS(), out, err);
+    if (rc == PC_OK) {
+        pc_engine_presets_changed(s);
+    }
+    return rc;
+}
+
+/* ---- reset ---- */
+
+static pc_status run_reset(pc_engine_session *s, yyjson_val *p, pc_json_value *out, pc_error *err)
+{
+    bool append = false;
+    (void)pc_json_as_bool(pc_json_get(p, "append"), &append);
+    pc_preset_groups b;
+    if (pc_shapes_builtin(&b, err) != PC_OK) {
+        return PC_ERR_NOMEM;
+    }
+    const pc_preset_item_ops *ops = SH_OPS();
+    if (append) {
+        for (size_t i = 0; i < b.n; i++) {
+            char *nm = pc_preset_unique_group(&s->presets.shapes, b.v[i].name);
+            if (nm != NULL) {
+                free(b.v[i].name);
+                b.v[i].name = nm;
+            }
+            pc_preset_group *gr = pc_preset_groups_push(&s->presets.shapes, b.v[i].name, err);
+            if (gr == NULL) {
+                pc_preset_groups_fini(&b, ops);
+                return PC_ERR_NOMEM;
+            }
+            gr->items = b.v[i].items;
+            gr->n = b.v[i].n;
+            gr->cap = b.v[i].cap;
+            b.v[i].items = NULL;
+            b.v[i].n = b.v[i].cap = 0;
+        }
+        pc_preset_groups_fini(&b, ops);
+    } else {
+        pc_preset_groups_fini(&s->presets.shapes, ops);
+        s->presets.shapes = b;
+    }
+    pc_engine_presets_changed(s);
+    yyjson_mut_doc *d = NULL;
+    if (pc_engine_result_doc(out, &d, err) != PC_OK) {
+        return PC_ERR_NOMEM;
+    }
+    yyjson_mut_val *root = yyjson_mut_obj(d);
+    yyjson_mut_obj_add_uint(d, root, "groups", s->presets.shapes.n);
+    yyjson_mut_doc_set_root(d, root);
+    return PC_OK;
+}
+
+static const pc_engine_command SHAPE_SPECS[] = {
+    {"shape.presets.list", "Shape Presets", NULL, 0, NULL,
+     "{} -> {groups:[{name,shapes:[{name,subpaths}]}]}", pc_engine_always, run_list, false},
+    {"shape.presets.place", "Place Custom Shape", NULL, 0, NULL,
+     "{\"preset\":name,\"group\":name?,\"rect\":[x,y,w,h]? (default: centred, half the canvas),"
+     "\"keepAspect\":bool=true,\"fill\":…?=foreground,\"stroke\":…?,\"name\":str?,\"addTo\":layerId?,"
+     "\"op\":\"combine|subtract|intersect|exclude\"?} -> shape.info (fill and stroke as in shape.create)",
+     pc_engine_has_doc, run_place, true},
+    {"shape.presets.new", "New Shape Preset", NULL, 0, NULL,
+     "{\"name\":str=\"Shape\",\"group\":name?,\"path\":{…path}|\"M x y L …\"|\"work\"|saved path name? "
+     "(default: work path, active shape layer or vector mask)}",
+     pc_engine_always, run_new, true},
+    {"shape.presets.edit", "Edit Shape Presets", NULL, 0, NULL, GROUP_EDIT_PARAMS_DOC, pc_engine_always,
+     run_edit, true},
+    {"shape.presets.reset", "Restore Default Shapes", NULL, 0, NULL, "{\"append\":bool=false}",
+     pc_engine_always, run_reset, true},
+};
+
+const pc_engine_command *pc_engine_shape_preset_specs(size_t *n)
+{
+    *n = sizeof SHAPE_SPECS / sizeof SHAPE_SPECS[0];
+    return SHAPE_SPECS;
 }

@@ -1,9 +1,9 @@
 /* plugin.* commands: sandboxed WebAssembly filter plug-ins (src/plugins). Port of
  * crates/engine/src/plugin_cmds.rs (E12).
  *
- * Plug-ins run on the active pixel layer (channel-targeted and smart-object runs are DEFERRED:
- * they need channel_cmds::channel_surface_for_filter (E7) and smart_cmds::add_smart_filter (E6),
- * which those chunks did not export; a smart object is reported unsupported, as filters_cmds does).
+ * Plug-ins run on the active pixel layer, a targeted channel / Quick Mask / layer mask (through
+ * channel_cmds::channel_surface_for_filter), or a smart object (recorded as a `plugin.run` smart
+ * filter via smart_cmds::add_smart_filter and re-applied on re-render).
  * The plug-in smart-filter re-render is wired into pc_engine_hook_filter_subtype (moved here from
  * hooks.c). The Plug-ins-preference-folder auto-load (sync_prefs) is not wired: there is no C
  * prefs-applied hook to attach to; plugin.reload loads a folder explicitly (REWRITE_PLAN.md §7). */
@@ -11,6 +11,7 @@
 #include <string.h>
 
 #include "base/buf.h"
+#include "channel_cmds.h" /* pc_engine_channel_surface_for_filter (channel/mask target) */
 #include "engine_internal.h"
 #include "layer_cmds.h" /* pc_engine_layer_param */
 #include "plugins/plugins.h"
@@ -197,8 +198,9 @@ pc_status pc_engine_hook_filter_subtype(const char *id, yyjson_val *params, cons
 /* ---- plugin.run --------------------------------------------------------------------------- */
 
 typedef struct {
-    pc_plugin *plugin; /* borrowed (a held reference) */
+    pc_plugin *plugin;  /* borrowed (a held reference) */
     yyjson_doc *params; /* immutable plugin params */
+    yyjson_val *cmd_params; /* the command params (for the channel/mask target) */
     pc_layer_id layer;
 } run_ctx;
 
@@ -208,12 +210,28 @@ static pc_status edit_run(pc_document *doc, bool *ha, pc_layer_id *al, void *ctx
     (void)al;
     run_ctx *c = ctx;
     yyjson_val *pp = yyjson_doc_get_root(c->params);
+    pc_rect canvas = pc_document_bounds(doc);
+    const pc_surface *selection = doc->has_selection ? &doc->selection : NULL;
+    /* A targeted alpha / Quick Mask / layer-mask channel: filter that grayscale surface in place. */
+    pc_surface *chan = NULL;
+    pc_status crc = pc_engine_channel_surface_for_filter(doc, true, c->layer, c->cmd_params, &chan, err);
+    if (crc != PC_OK) {
+        return crc;
+    }
+    if (chan != NULL) {
+        pc_surface res;
+        pc_status rc = pc_plugin_apply(c->plugin, chan, canvas, selection, pp, &res, err);
+        if (rc != PC_OK) {
+            return rc;
+        }
+        pc_surface_fini(chan);
+        *chan = res;
+        return PC_OK;
+    }
     pc_layer *l = pc_document_layer_mut(doc, c->layer);
     if (l == NULL) {
         return pc_engine_err_no_layer(err, c->layer);
     }
-    pc_rect canvas = pc_document_bounds(doc);
-    const pc_surface *selection = doc->has_selection ? &doc->selection : NULL;
     if (l->content.kind == PC_LAYER_RASTER) {
         pc_surface res;
         pc_status rc = pc_plugin_apply(c->plugin, &l->content.u.raster, canvas, selection, pp, &res, err);
@@ -293,7 +311,7 @@ static pc_status run_run(pc_engine_session *s, yyjson_val *p, pc_json_value *out
     const char *id = pc_plugin_id(plugin);
     char idbuf[128];
     snprintf(idbuf, sizeof idbuf, "%s", id != NULL ? id : "");
-    run_ctx c = {.plugin = plugin, .params = params, .layer = layer};
+    run_ctx c = {.plugin = plugin, .params = params, .cmd_params = p, .layer = layer};
     rc = pc_engine_session_edit(s, label, edit_run, &c, err);
     yyjson_doc_free(params);
     pc_plugin_release(plugin);

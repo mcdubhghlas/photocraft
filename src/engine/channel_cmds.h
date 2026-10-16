@@ -37,6 +37,15 @@ bool pc_engine_is_channel_target(yyjson_val *p);
 pc_status pc_engine_read_target_surface(const pc_document *doc, bool has_layer, pc_layer_id layer,
                                         yyjson_val *p, const pc_surface **out, pc_error *err);
 
+/* The grayscale surface filters, adjustments and plug-ins edit instead of the layer's pixels when
+ * the params target a channel / Quick Mask / the active layer's mask (channel_cmds::
+ * channel_surface_for_filter). *out is set to the MUTABLE target surface, made explicit over the
+ * canvas (so the caller sees the whole area), or to NULL when the target is the layer's pixels (so
+ * the caller falls back to its own pixel/smart-object path). Borrowed; valid until `doc` is
+ * mutated. has_layer/layer give the active layer for the Mask target. */
+pc_status pc_engine_channel_surface_for_filter(pc_document *doc, bool has_layer, pc_layer_id layer,
+                                               yyjson_val *p, pc_surface **out, pc_error *err);
+
 /* The colour channel index the Channels panel targets (ChannelTarget::Color), or SIZE_MAX. Clear
  * (Delete) is limited to that channel (channel_cmds::targeted_color). */
 size_t pc_engine_targeted_color(const pc_engine_session *s);

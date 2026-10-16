@@ -109,6 +109,26 @@ typedef struct pc_engine_smart_link {
     pc_smart_contents_id contents_id;
 } pc_engine_smart_link;
 
+/* EF (E6): one (document, linked-file path) stamp last seen by the link watcher
+ * (smart_cmds::link_watch::Stamp). The source file's size and modification time; a file whose
+ * stamp moved is re-rendered by layer.smartObjects.updateChanged. The modification time keeps the
+ * reference's full resolution split as (seconds, nanoseconds) rather than Rust's u128 nanoseconds
+ * (C has no u128; comparing the pair is equivalent). `path` is owned. */
+typedef struct pc_engine_link_stamp {
+    pc_doc_id doc;
+    char *path;
+    uint64_t size;
+    uint64_t mtime_sec;
+    uint32_t mtime_nsec;
+} pc_engine_link_stamp;
+
+/* ET2: a custom shape (Edit > Define Custom Shape), usable by the Custom Shape tool and the Shapes
+ * panel (edit_menu_cmds::CustomShape). */
+typedef struct pc_engine_custom_shape {
+    char *name;  /* owned */
+    pc_path path; /* owned */
+} pc_engine_custom_shape;
+
 struct pc_engine_session {
     pc_engine_doc_state *docs;
     size_t ndocs, cap_docs;
@@ -204,6 +224,15 @@ struct pc_engine_session {
      * into smart_cmds_run.c) re-embed the child into its parent and prune the link. */
     pc_engine_smart_link *smart_links;
     size_t nsmart_links, cap_smart_links;
+    /* EF (E6): the link watcher's stamps of each open document's linked smart-object source files
+     * (smart_cmds::link_watch, Session::link_stamps). layer.smartObjects.updateChanged stamps the
+     * active document's linked files and re-renders those whose size or modification time moved;
+     * stamps of closed documents are dropped on the next look. Owned; freed in session_free. The
+     * reference's two-second / window-focus background worker thread (start_link_scan /
+     * poll_link_scan) belongs to the desktop shell (Phase 8) and is deferred (REWRITE_PLAN.md §7):
+     * the on-demand command is the whole detection path for the CLI and agents. */
+    pc_engine_link_stamp *link_stamps;
+    size_t nlink_stamps, cap_link_stamps;
     /* EF (ET2): Edit > Fade source (edit_menu_cmds::EditState::fade). The last fadeable command
      * (filter / adjustment / paint / fill), recorded by the edit_menu after-command hook; Fade
      * blends that layer -- or its mask -- back towards the state before the step. has_fade false =
@@ -214,6 +243,15 @@ struct pc_engine_session {
     pc_layer_id fade_layer;
     bool fade_mask;
     char *fade_label;
+    /* ET2 (edit_menu_cmds::EditState): the custom shape library (Edit > Define Custom Shape; the
+     * Custom Shape tool and the Shapes panel read it) and the Find and Replace Text cursor. The
+     * array is owned (each name owned, each path owned); released by pc_engine_edit_state_fini
+     * (edit_menu_cmds.c) in session_free. */
+    pc_engine_custom_shape *custom_shapes;
+    size_t ncustom_shapes, cap_custom_shapes;
+    bool has_find_cursor;
+    pc_layer_id find_layer;
+    size_t find_a, find_b; /* byte range of the current match */
 };
 
 /* E12: release a session's Actions state (actions_cmds.c). NULL-safe. */
@@ -335,10 +373,19 @@ pc_status pc_engine_save_doc(const pc_document *doc, const char *path, const pc_
  * returns a valid empty surface and fills err. */
 pc_status pc_engine_flattened(const pc_document *doc, pc_pixel_format fmt, pc_surface *out,
                               pc_error *err);
+/* The XMP to embed for a Save for Web metadata choice (mode: 0 none, 1 copyright, 2 copyright +
+ * contact, 3 all) given a document's XMP packet (`xmp`/`xl`; NULL/0 for a document with none).
+ * *out is a new NUL-terminated string to embed, or NULL (embed nothing). Port of
+ * web_cmds::web_xmp; owns the File Info parsing in file_cmds. Never crashes. */
+pc_status pc_engine_web_xmp(const char *xmp, size_t xl, int mode, char **out, pc_error *err);
 
-/* File > Export > Paths to Illustrator (print_cmds.c, E3). File > Print / Print One Copy / Printers
- * / Package are deferred (PDF writer + system spooler + relinkToFile not ported). */
+/* File > Print / Print One Copy / Printers / Package and File > Export > Paths to Illustrator
+ * (print_cmds.c, E3 / PRINT). Printing renders a colour-managed one-page PDF and spools it through
+ * the POSIX CUPS tools (lpstat/lp via posix_spawn; craft_print has no C port -- §7). */
 const pc_engine_command *pc_engine_print_specs(size_t *n);
+/* Block spooling for the rest of this process (tests, the panic hunt), as the reference's
+ * print_cmds::disable_printing does. PHOTOCRAFT_NO_PRINT does the same for a whole shell. */
+void pc_engine_print_disable(void);
 
 /* ---- preset panels (E2b, presets*.c + the <kind>_preset_cmds.c modules) ------------------- */
 /* Record a preset change: bump the panel revision and mark the preferences document dirty (Rust
@@ -554,6 +601,9 @@ const pc_engine_command *pc_engine_video_specs(size_t *n);
 const pc_engine_command *pc_engine_web_specs(size_t *n);
 const pc_engine_command *pc_engine_plugin_specs(size_t *n);
 const pc_engine_command *pc_engine_automate_specs(size_t *n);
+/* Run the scripts bound to a Script Events Manager event (automate_cmds::fire_event). Used by
+ * print_cmds for the "print" event. Returns how many scripts ran; never crashes. */
+size_t pc_engine_automate_fire_event(pc_engine_session *s, const char *event);
 const pc_engine_command *pc_engine_actions_specs(size_t *n);
 /* E-tail (ET2): deferred-but-now-unblocked command fills.
  * tool_colors_cmds.c: tools.setColors/swapColors/defaultColors (foreground/background colours).
@@ -567,6 +617,30 @@ const pc_engine_command *pc_engine_auto_adjust_specs(size_t *n);
 const pc_engine_command *pc_engine_layer_menu_specs(size_t *n);
 const pc_engine_command *pc_engine_edit_menu_specs(size_t *n);
 const pc_engine_command *pc_engine_color_to_alpha_specs(size_t *n);
+
+/* ET2 (edit_menu_cmds.c): the custom shape library (EditState::custom_shapes). The read accessor
+ * returns the owned array and its count; the mutable one is for in-place edits (rename). */
+const pc_engine_custom_shape *pc_engine_custom_shapes(const pc_engine_session *s, size_t *n);
+pc_engine_custom_shape *pc_engine_custom_shapes_mut(pc_engine_session *s, size_t *n);
+/* Remove the custom shape named `name` (no-op when absent). */
+void pc_engine_custom_shapes_remove(pc_engine_session *s, const char *name);
+/* Release the Edit-menu state (custom shapes). NULL-safe. Called from session_free. */
+void pc_engine_edit_state_fini(pc_engine_session *s);
+/* The path Edit > Define Custom Shape / shape.presets.new use: `spec` = "work", a saved path name,
+ * or NULL (work path, the active shape layer, its vector mask, else the last saved path). Writes an
+ * owned non-empty path into *out and returns true; false (nothing written) when there is none. */
+bool pc_engine_current_path(const pc_document *doc, bool has_active, pc_layer_id active,
+                            const char *spec, pc_path *out);
+
+/* A byte range of a Find-and-Replace match (edit_menu_cmds::find_matches). */
+typedef struct pc_text_match {
+    size_t a, b;
+} pc_text_match;
+/* Byte ranges of `find` in `text` (case-insensitive unless `case_sensitive`; whole words only with
+ * `whole`). *out is an owned array (free()) of *n ranges (empty: *out NULL, *n 0). */
+pc_status pc_engine_find_matches(const char *text, size_t tlen, const char *find, size_t flen,
+                                 bool case_sensitive, bool whole, pc_text_match **out, size_t *n,
+                                 pc_error *err);
 /* EF (sampler_cmds.c): the Color Sampler points (view.colorSamplers.add/move/delete/clear/list),
  * per-document view state in pc_engine_doc_state::color_samplers. */
 const pc_engine_command *pc_engine_sampler_specs(size_t *n);

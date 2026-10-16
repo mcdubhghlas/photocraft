@@ -207,7 +207,7 @@ static void test_psd_round_trips_tabs(void)
         pc_psd_bytes b = {NULL, 0};
         point(&t, "Name\tValue\n\tIndented", 20.0f);
         if (box) {
-            t.shape.is_box = true;
+            t.shape.kind = PC_TEXT_SHAPE_BOX;
             t.shape.width = 300.0f;
             t.shape.height = 100.0f;
         }
@@ -827,7 +827,7 @@ static void test_txt2_frame_moves_box_text_onto_its_bounds(void)
     pc_char_style_default(&s);
     s.size_pt = 25.0f;
     styled(&t, "Casemiro 45", &s);
-    t.shape.is_box = true;
+    t.shape.kind = PC_TEXT_SHAPE_BOX;
     t.shape.x = 500.0f;
     t.shape.y = 600.0f;
     t.shape.width = 300.0f;
@@ -842,7 +842,7 @@ static void test_txt2_frame_moves_box_text_onto_its_bounds(void)
     txt2_with_frame(&b, "Casemiro 45", NULL, m);
     txt2_parse_buf(&b, &txt2);
     CHECK(import(&tysh, &l));
-    CHECK(l.shape.is_box);
+    CHECK(l.shape.kind == PC_TEXT_SHAPE_BOX);
     CHECK(pc_txt2_apply_frame(&l, tysh.data, tysh.len, &txt2, NULL) == PC_OK);
     o = origin_of(&l, (double)l.shape.x, (double)l.shape.y);
     CHECK_NEAR(o.x, 260.0, 1e-3);

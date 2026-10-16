@@ -302,6 +302,18 @@ bool pl_glyph_bounds_ymax(pc_font *f, float size, const int16_t *coords, size_t 
     return true;
 }
 
+float pl_glyph_advance_px(pc_font *f, float size, const int16_t *coords, size_t ncoords, uint32_t gid)
+{
+    uint16_t upem = pc_font_units_per_em(f);
+    float units;
+    int32_t scale;
+    if (!pc_font_advance(f, gid, coords, ncoords, &units)) {
+        return 0.0f;
+    }
+    scale = upem > 0 ? fixed_div(pc_f32_to_i32(size * 64.0f), (int32_t)upem) : 0x10000 * 64;
+    return (float)fixed_mul_div(scale, pc_f32_to_i32(units), 64) * (1.0f / 65536.0f);
+}
+
 uint32_t pl_skrifa_cmap(pc_font *f, uint32_t cp)
 {
     pc_sfnt s;

@@ -213,7 +213,7 @@ static void test_box_text_wraps_columns_within_the_box_height(void)
     size_t i;
     CHECK(pc_text_engine_new(&e, NULL) == PC_OK);
     vertical(&t, "ab cd ef gh ij kl mn op", "Inter", 20.0f);
-    t.shape = (pc_text_shape){true, 10.0f, 20.0f, 200.0f, 60.0f};
+    t.shape = (pc_text_shape){.kind = PC_TEXT_SHAPE_BOX, .x = 10.0f, .y = 20.0f, .width = 200.0f, .height = 60.0f};
     l = lay(e, &t);
     CHECK(l.nlines >= 3);
     CHECK(pc_text_layout_bounds(&l, b));
@@ -223,7 +223,7 @@ static void test_box_text_wraps_columns_within_the_box_height(void)
         CHECK(l.glyphs[i].y >= 20.0f - 1e-3f && l.glyphs[i].y <= 80.0f + 1e-3f);
     }
     pc_text_layout_fini(&l);
-    t.shape = (pc_text_shape){true, 0.0f, 0.0f, 30.0f, 60.0f};
+    t.shape = (pc_text_shape){.kind = PC_TEXT_SHAPE_BOX, .x = 0.0f, .y = 0.0f, .width = 30.0f, .height = 60.0f};
     l = lay(e, &t);
     CHECK_EQ_UINT(l.nlines, 1);
     pc_text_layout_fini(&l);
@@ -377,9 +377,9 @@ static void test_hostile_vertical_input_does_not_panic(void)
             (void)pc_str_set(&t.text, texts[i], lens[i], NULL);
             t.runs[0].len = lens[i];
             if (s == 1) {
-                t.shape = (pc_text_shape){true, 0.0f, 0.0f, 0.0f, 0.0f};
+                t.shape = (pc_text_shape){.kind = PC_TEXT_SHAPE_BOX, .x = 0.0f, .y = 0.0f, .width = 0.0f, .height = 0.0f};
             } else if (s == 2) {
-                t.shape = (pc_text_shape){true, NAN, 1e30f, -5.0f, 1.0f};
+                t.shape = (pc_text_shape){.kind = PC_TEXT_SHAPE_BOX, .x = NAN, .y = 1e30f, .width = -5.0f, .height = 1.0f};
             }
             CHECK(pc_text_engine_render(e, &t, 72.0f, RGBA8, &l, &r, NULL) == PC_OK);
             (void)pc_text_layout_bounds(&l, b);

@@ -84,6 +84,12 @@ pc_status pc_preset_edit_groups(pc_preset_groups *g, const char *action, yyjson_
 
 /* Params doc string for the generic group commands. */
 extern const char *const PC_PRESET_GROUP_EDIT_PARAMS;
+/* The same text as a compile-time literal, for `params` in a static command-spec table. */
+#define GROUP_EDIT_PARAMS_DOC                                                                      \
+    "{\"action\":\"rename|delete|move|newGroup|renameGroup|deleteGroup\",\"preset\":name|[names] "  \
+    "(rename/delete/move),\"group\":name? (narrows the lookup; the group for "                      \
+    "renameGroup/deleteGroup),\"name\":str (rename: new name; newGroup/renameGroup: group "         \
+    "name),\"to\":group (move),\"index\":n? (move)}"
 
 /* ---- gradients ---------------------------------------------------------------------------- */
 

@@ -6,8 +6,8 @@
  * Everything edits the typed text model and re-renders through pc_engine_type_refresh, so the PSD
  * TySh data saves as editable text. Routes through src/text.
  *
- * type.attachToPath / type.detachFromPath are PERMANENTLY DEFERRED: they need a doc-model
- * TextShape::Path variant src/doc lacks (only Point/Box). */
+ * type.attachToPath / type.detachFromPath put the type on (and take it off) a path via the
+ * doc-model TextShape::Path variant; the on-path layout is src/text (warp.c PathFrame). */
 #include <math.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -161,7 +161,14 @@ static pc_status en_has_point_text(const pc_engine_session *s, pc_error *r)
     if (t == NULL) {
         return pc_engine_err_other(r, "the active layer is not a type layer");
     }
-    return t->shape.is_box ? pc_engine_err_other(r, "the type layer is already paragraph text") : PC_OK;
+    switch (t->shape.kind) {
+    case PC_TEXT_SHAPE_POINT:
+        return PC_OK;
+    case PC_TEXT_SHAPE_PATH:
+        return pc_engine_err_other(r, "detach the type layer from its path first");
+    default:
+        return pc_engine_err_other(r, "the type layer is already paragraph text");
+    }
 }
 
 static pc_status en_has_box_text(const pc_engine_session *s, pc_error *r)
@@ -170,7 +177,14 @@ static pc_status en_has_box_text(const pc_engine_session *s, pc_error *r)
     if (t == NULL) {
         return pc_engine_err_other(r, "the active layer is not a type layer");
     }
-    return t->shape.is_box ? PC_OK : pc_engine_err_other(r, "the type layer is already point text");
+    switch (t->shape.kind) {
+    case PC_TEXT_SHAPE_BOX:
+        return PC_OK;
+    case PC_TEXT_SHAPE_PATH:
+        return pc_engine_err_other(r, "the type layer is path text");
+    default:
+        return pc_engine_err_other(r, "the type layer is already point text");
+    }
 }
 
 static pc_status en_any_text(const pc_engine_session *s, pc_error *r)
@@ -544,7 +558,7 @@ static pc_status to_paragraph_cb(pc_text_layer *t, const pc_document *doc, void 
                   : (ps.align == PC_TEXT_ALIGN_RIGHT || ps.align == PC_TEXT_ALIGN_JUSTIFY_RIGHT) ? -height
                                                                                                  : 0.0f;
         float x = -v0 - width;
-        t->shape.is_box = true;
+        t->shape.kind = PC_TEXT_SHAPE_BOX;
         t->shape.x = 0.0f;
         t->shape.y = 0.0f;
         t->shape.width = width;
@@ -576,7 +590,7 @@ static pc_status to_paragraph_cb(pc_text_layer *t, const pc_document *doc, void 
     pc_text_layer probe;
     float b0 = 0.0f;
     if (pc_text_layer_clone(t, &probe, NULL) == PC_OK) {
-        probe.shape.is_box = true;
+        probe.shape.kind = PC_TEXT_SHAPE_BOX;
         probe.shape.x = x;
         probe.shape.y = y0;
         probe.shape.width = width;
@@ -590,7 +604,7 @@ static pc_status to_paragraph_cb(pc_text_layer *t, const pc_document *doc, void 
         pc_text_layer_fini(&probe);
     }
     float y = y0 - b0;
-    t->shape.is_box = true;
+    t->shape.kind = PC_TEXT_SHAPE_BOX;
     t->shape.x = 0.0f;
     t->shape.y = 0.0f;
     t->shape.width = width;
@@ -634,7 +648,7 @@ static pc_status to_point_cb(pc_text_layer *t, const pc_document *doc, void *ud,
 {
     (void)err;
     conv_out *o = ud;
-    if (!t->shape.is_box) {
+    if (t->shape.kind != PC_TEXT_SHAPE_BOX) {
         return pc_engine_err_other(err, "already point text");
     }
     pc_text_layout l;
@@ -671,7 +685,7 @@ static pc_status to_point_cb(pc_text_layer *t, const pc_document *doc, void *ud,
     float ax = (al == PC_TEXT_ALIGN_CENTER || al == PC_TEXT_ALIGN_JUSTIFY_CENTER) ? x + width / 2.0f
                : (al == PC_TEXT_ALIGN_RIGHT || al == PC_TEXT_ALIGN_JUSTIFY_RIGHT) ? x + width
                                                                                   : x;
-    t->shape.is_box = false;
+    t->shape.kind = PC_TEXT_SHAPE_POINT;
     float tx = 0.0f, ty = 0.0f;
     pc_text_layout_to_text(&l, ax, baseline, &tx, &ty);
     t->transform = then_translate(&t->transform, tx, ty);
@@ -766,11 +780,14 @@ static pc_status text_path(const pc_document *doc, const pc_text_layer *t, pc_pa
     out->fill_rule = PC_FILL_RULE_NONZERO;
     pc_text_layout l;
     layout_of(doc, t, &l);
-    pc_style_warp sw;
-    bool has_warp = t->has_warp && pc_text_layout_warp(&l, &t->warp, &sw);
+    pc_text_deform sw;
+    bool has_warp = pc_text_layout_deform(&l, t, &sw);
     pc_glyph_outline *glyphs = NULL;
     size_t ng = 0;
     (void)pc_text_outlines(&l, &t->transform, has_warp ? &sw : NULL, &glyphs, &ng, NULL);
+    if (has_warp) {
+        pc_text_deform_fini(&sw);
+    }
     pc_text_layout_fini(&l);
 
     pc_subpath *subs = NULL;
@@ -1454,6 +1471,232 @@ static pc_status run_load_defaults(pc_engine_session *s, yyjson_val *p, pc_json_
     return defaults_result(out, &s->type_defaults_char, err);
 }
 
+/* ---- type on a path (type.attachToPath / type.detachFromPath) ----------------------------- */
+
+/* Most anchors a type path may have (a hostile document cannot make the layout walk millions). */
+#define MAX_TYPE_PATH_KNOTS 100000
+
+static pc_status en_is_path_text(const pc_engine_session *s, pc_error *r)
+{
+    const pc_text_layer *t = active_text(s);
+    if (t == NULL) {
+        return pc_engine_err_other(r, "the active layer is not a type layer");
+    }
+    return t->shape.kind == PC_TEXT_SHAPE_PATH ? PC_OK
+                                               : pc_engine_err_other(r, "the type layer is not on a path");
+}
+
+/* The subpath type.attachToPath follows, in document space: the work path (default) or a shape
+ * layer's path ("shape":id), subpath "subpath" (default 0). Clones it into *out on success. */
+static pc_status attach_path_source(const pc_document *doc, yyjson_val *p, pc_subpath *out, pc_error *err)
+{
+    static const char *const cmd = "type.attachToPath";
+    const pc_path *path;
+    const pc_subpath *sub;
+    size_t index = 0;
+    yyjson_val *shape = pc_json_get(p, "shape");
+    yyjson_val *subp = pc_json_get(p, "subpath");
+    if (shape == NULL || yyjson_is_null(shape)) {
+        if (!doc->has_work_path) {
+            return pc_engine_err_bad_params(err, cmd,
+                                            "the document has no work path; draw a path or pass \"shape\":layerId");
+        }
+        path = &doc->work_path;
+    } else {
+        uint64_t id;
+        const pc_layer *l;
+        if (!pc_json_as_u64(shape, &id)) {
+            return pc_engine_err_bad_params(err, cmd, "\"shape\" must be a layer id");
+        }
+        l = pc_document_layer(doc, (pc_layer_id)id);
+        if (l == NULL) {
+            return pc_engine_err_no_layer(err, (pc_layer_id)id);
+        }
+        if (l->content.kind != PC_LAYER_SHAPE) {
+            return pc_engine_err_bad_params(err, cmd, "\"shape\" is not a shape layer");
+        }
+        path = &l->content.u.shape.path;
+    }
+    if (subp != NULL && !yyjson_is_null(subp)) {
+        uint64_t n;
+        if (!pc_json_as_u64(subp, &n) || n > (uint64_t)SIZE_MAX) {
+            return pc_engine_err_bad_params(err, cmd, "\"subpath\" must be a non-negative index");
+        }
+        index = (size_t)n;
+    }
+    if (index >= path->nsubpaths) {
+        return pc_engine_err_bad_params(err, cmd, "the path has no such subpath");
+    }
+    sub = &path->subpaths[index];
+    if (sub->nknots < 2) {
+        return pc_engine_err_bad_params(err, cmd, "the subpath needs at least two anchor points");
+    }
+    if (sub->nknots > MAX_TYPE_PATH_KNOTS) {
+        return pc_engine_err_bad_params(err, cmd, "the subpath has too many anchor points");
+    }
+    return pc_subpath_clone(sub, out, err);
+}
+
+typedef struct {
+    const pc_subpath *src; /* document space */
+    float start;
+    bool flip;
+} attach_ctx;
+
+static bool knot_finite(const pc_knot *k)
+{
+    return isfinite(k->anchor.x) && isfinite(k->anchor.y) && isfinite(k->in_ctrl.x) && isfinite(k->in_ctrl.y) &&
+           isfinite(k->out_ctrl.x) && isfinite(k->out_ctrl.y);
+}
+
+static pc_status attach_cb(pc_text_layer *t, const pc_document *doc, void *ud, pc_error *err)
+{
+    (void)doc;
+    attach_ctx *c = ud;
+    pc_affine inv;
+    pc_subpath sp;
+    size_t i;
+    bool finite = true;
+    /* The path lives in document space; the type layer keeps it in its own text space, so the
+     * type lands on the path where it is drawn. */
+    if (!pc_affine_inverse(t->transform, &inv)) {
+        return pc_engine_err_other(err, "the type layer's transform cannot be inverted");
+    }
+    memset(&sp, 0, sizeof sp);
+    sp.closed = c->src->closed;
+    sp.op = PC_PATH_COMBINE;
+    sp.nknots = c->src->nknots;
+    if (sp.nknots > 0) {
+        sp.knots = pc_malloc_array(sp.nknots, sizeof *sp.knots);
+        if (sp.knots == NULL) {
+            return pc_fail(err, PC_ERR_NOMEM, "out of memory mapping the type path");
+        }
+    }
+    for (i = 0; i < sp.nknots; i++) {
+        pc_knot k = c->src->knots[i];
+        k.anchor = pc_affine_apply(inv, k.anchor);
+        k.in_ctrl = pc_affine_apply(inv, k.in_ctrl);
+        k.out_ctrl = pc_affine_apply(inv, k.out_ctrl);
+        sp.knots[i] = k;
+        if (!knot_finite(&k)) {
+            finite = false;
+        }
+    }
+    if (!finite) {
+        pc_subpath_fini(&sp);
+        return pc_engine_err_other(err, "the path cannot be mapped into the type layer");
+    }
+    pc_text_shape_fini(&t->shape);
+    t->shape.kind = PC_TEXT_SHAPE_PATH;
+    t->shape.path = sp; /* moved */
+    t->shape.start = c->start;
+    t->shape.flip = c->flip;
+    return PC_OK;
+}
+
+static pc_status run_attach_to_path(pc_engine_session *s, yyjson_val *p, pc_json_value *out, pc_error *err)
+{
+    static const char *const cmd = "type.attachToPath";
+    float start = 0.0f;
+    bool flip = false;
+    pc_layer_id id;
+    const pc_engine_doc_state *dst;
+    const pc_document *doc;
+    pc_subpath src;
+    attach_ctx ctx;
+    pc_status rc;
+    yyjson_mut_doc *rd = NULL;
+    yyjson_mut_val *root;
+    yyjson_val *sv = pc_json_get(p, "start");
+    yyjson_val *fv = pc_json_get(p, "flip");
+    if (sv != NULL && !yyjson_is_null(sv)) {
+        double d;
+        if (!pc_json_as_f64(sv, &d) || !isfinite(d)) {
+            return pc_engine_err_bad_params(err, cmd, "\"start\" must be a finite number of pixels");
+        }
+        start = (float)d;
+    }
+    if (fv != NULL && !yyjson_is_null(fv)) {
+        if (!pc_json_as_bool(fv, &flip)) {
+            return pc_engine_err_bad_params(err, cmd, "\"flip\" must be true or false");
+        }
+    }
+    if (pc_engine_layer_param(s, p, &id, err) != PC_OK) {
+        return err != NULL ? err->code : PC_ERR_INVALID;
+    }
+    dst = pc_engine_session_active(s);
+    if (dst == NULL) {
+        return pc_engine_err_no_document(err);
+    }
+    doc = pc_doc_arc_get(dst->doc);
+    if (pc_document_effective_locks(doc, id).all) {
+        return pc_engine_err_other(err, "the type layer is locked");
+    }
+    rc = attach_path_source(doc, p, &src, err);
+    if (rc != PC_OK) {
+        return rc;
+    }
+    ctx.src = &src;
+    ctx.start = start;
+    ctx.flip = flip;
+    rc = tx_with_text(s, p, "Type on a Path", attach_cb, &ctx, err);
+    pc_subpath_fini(&src);
+    if (rc != PC_OK) {
+        return rc;
+    }
+    if (pc_engine_result_doc(out, &rd, err) != PC_OK) {
+        return PC_ERR_NOMEM;
+    }
+    root = yyjson_mut_obj(rd);
+    yyjson_mut_obj_add_uint(rd, root, "layer", id);
+    yyjson_mut_obj_add_real(rd, root, "start", (double)start);
+    yyjson_mut_obj_add_bool(rd, root, "flip", flip);
+    yyjson_mut_doc_set_root(rd, root);
+    return PC_OK;
+}
+
+static pc_status detach_cb(pc_text_layer *t, const pc_document *doc, void *ud, pc_error *err)
+{
+    (void)doc;
+    (void)ud;
+    pc_text_deform w;
+    double ox = 0.0, oy = 0.0;
+    if (t->shape.kind != PC_TEXT_SHAPE_PATH) {
+        return pc_engine_err_other(err, "the type layer is not on a path");
+    }
+    /* Point text starts where the type started on the path. */
+    if (pc_text_warp_on_path(&t->shape, &w)) {
+        pc_point o = pc_text_deform_apply(&w, 0.0, 0.0);
+        ox = o.x;
+        oy = o.y;
+        pc_text_deform_fini(&w);
+    }
+    pc_text_shape_fini(&t->shape);
+    t->shape.kind = PC_TEXT_SHAPE_POINT;
+    t->transform = then_translate(&t->transform, ox, oy);
+    return PC_OK;
+}
+
+static pc_status run_detach_from_path(pc_engine_session *s, yyjson_val *p, pc_json_value *out, pc_error *err)
+{
+    pc_layer_id id;
+    yyjson_mut_doc *rd = NULL;
+    yyjson_mut_val *root;
+    if (pc_engine_layer_param(s, p, &id, err) != PC_OK) {
+        return err != NULL ? err->code : PC_ERR_INVALID;
+    }
+    if (tx_with_text(s, p, "Release Type from Path", detach_cb, NULL, err) != PC_OK) {
+        return err != NULL ? err->code : PC_ERR_INVALID;
+    }
+    if (pc_engine_result_doc(out, &rd, err) != PC_OK) {
+        return PC_ERR_NOMEM;
+    }
+    root = yyjson_mut_obj(rd);
+    yyjson_mut_obj_add_uint(rd, root, "layer", id);
+    yyjson_mut_doc_set_root(rd, root);
+    return PC_OK;
+}
+
 /* ---- registry ----------------------------------------------------------------------------- */
 
 static pc_status run_aa_none(pc_engine_session *s, yyjson_val *p, pc_json_value *o, pc_error *e) { return set_aa(s, p, o, PC_AA_NONE, e); }
@@ -1518,6 +1761,13 @@ static const pc_engine_command SPECS[] = {
      "\"orientation\":\"horizontal|vertical\"=\"horizontal\",\"bend\":-100..100=50,\"horizontalDistortion\":-100.."
      "100=0,\"verticalDistortion\":-100..100=0}",
      pc_engine_has_format_target, run_warp_text, true},
+    {"type.attachToPath", "Type on a Path", NULL, 0, NULL,
+     "{\"layer\":id? (default active Type layer),\"shape\":layerId? (a shape layer; default the work "
+     "path),\"subpath\":index=0,\"start\":px=0 (offset along the path),\"flip\":bool=false (run along the path "
+     "the other way, on its other side)}",
+     en_has_text, run_attach_to_path, true},
+    {"type.detachFromPath", "Release Type from Path", NULL, 0, NULL, LP, en_is_path_text, run_detach_from_path,
+     true},
     {"type.updateAllTextLayers", "Update All Text Layers", MENU_TYPE, 1, NULL, "{}", en_any_text, run_update_all, true},
     {"type.replaceAllMissingFonts", "Replace All Missing Fonts", MENU_TYPE, 1, NULL, "{} (with the default family)",
      en_any_text, run_replace_all_missing, true},

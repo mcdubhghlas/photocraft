@@ -2056,7 +2056,7 @@ static const json_vec JSON_VECS[] = {
      "err\011invalid type: integer `5`, expected string or map"},
     {"text_shape",
      "\"s\"",
-     "err\011unknown variant `s`, expected `Point` or `Box`"},
+     "err\011unknown variant `s`, expected one of `Point`, `Box`, `Path`"},
     {"orientation",
      "\"Horizontal\"",
      "ok\011\"Horizontal\"\011\"Horizontal\""},

@@ -202,9 +202,6 @@ static void test_deferred_report_errors(void)
 {
     pc_engine_session *s = mk_session();
     pc_json_value out;
-    /* Place Scale Marker is still deferred: a graceful error. */
-    CHECK(pc_engine_session_execute_json(s, "image.analysis.placeScaleMarker", "{}", &out, NULL) !=
-          PC_OK);
     /* Straighten needs a ruler: refused until one is set. */
     CHECK(pc_engine_session_execute_json(s, "image.analysis.straightenLayer", "{}", &out, NULL) !=
           PC_OK);
@@ -261,6 +258,124 @@ static void test_adversarial_params(void)
     CHECK(fuzzed > 0);
 }
 
+/* The top layer of the active document (the group Place Scale Marker added), or NULL. */
+static const pc_layer *top_layer(pc_engine_session *s)
+{
+    const pc_document *d = pc_doc_arc_get(pc_engine_session_active(s)->doc);
+    return d->nlayers > 0 ? &d->layers[d->nlayers - 1] : NULL;
+}
+
+static bool has_marker(pc_engine_session *s)
+{
+    const pc_document *d = pc_doc_arc_get(pc_engine_session_active(s)->doc);
+    for (size_t i = 0; i < d->nlayers; i++) {
+        if (pc_str_eq_c(&d->layers[i].name, "Measurement Scale Marker")) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void test_place_scale_marker(void)
+{
+    pc_engine_session *s = NULL;
+    CHECK(pc_engine_session_new(&s, NULL) == PC_OK);
+    pc_json_value out;
+    CHECK(pc_engine_session_execute_json(s, "file.new", "{\"width\":400,\"height\":300}", &out, NULL) ==
+          PC_OK);
+    pc_json_value_fini(&out);
+    CHECK(run(s, "image.analysis.setMeasurementScale",
+              "{\"pixelLength\":50,\"logicalLength\":1,\"units\":\"cm\"}", &out) == PC_OK);
+    pc_json_value_fini(&out);
+
+    size_t before = pc_history_past_len(pc_engine_session_active(s)->history);
+    pc_json_value r;
+    CHECK(run(s, "image.analysis.placeScaleMarker", "{\"color\":\"black\"}", &r) == PC_OK);
+    /* One compound history step. */
+    CHECK(pc_history_past_len(pc_engine_session_active(s)->history) == before + 1);
+    /* Nice length near width/5 = 80 px = 1.6 cm -> 1 cm = 50 px. */
+    CHECK_EQ_STR(yyjson_mut_get_str(yyjson_mut_obj_get(pc_json_value_root(&r), "label")), "1 cm");
+    CHECK(num_at(&r, "pixels") == 50.0);
+    pc_json_value_fini(&r);
+
+    const pc_layer *g = top_layer(s);
+    CHECK(g != NULL && pc_str_eq_c(&g->name, "Measurement Scale Marker"));
+    size_t nkids = 0;
+    const pc_layer *kids = pc_layer_children(g, &nkids);
+    CHECK(nkids == 2); /* bar + text */
+    const pc_layer *bar = NULL;
+    for (size_t i = 0; i < nkids; i++) {
+        if (pc_str_eq_c(&kids[i].name, "Scale Bar")) {
+            bar = &kids[i];
+        }
+    }
+    CHECK(bar != NULL);
+    if (bar != NULL) {
+        pc_rect b = pc_surface_content_bounds(pc_layer_surface(bar));
+        CHECK(b.x1 - b.x0 == 50);
+        CHECK(b.y1 < 300);
+    }
+
+    /* Without text, white, on top. */
+    CHECK(run(s, "image.analysis.placeScaleMarker",
+              "{\"length\":2,\"displayText\":false,\"color\":\"white\",\"textPosition\":\"top\"}", &r) ==
+          PC_OK);
+    CHECK(num_at(&r, "pixels") == 100.0);
+    CHECK(yyjson_mut_is_null(yyjson_mut_obj_get(pc_json_value_root(&r), "text")));
+    pc_json_value_fini(&r);
+
+    /* A bar wider than the image, and an unknown colour, are refused. */
+    CHECK(pc_engine_session_execute_json(s, "image.analysis.placeScaleMarker", "{\"length\":100}",
+                                         &out, NULL) != PC_OK);
+    CHECK(pc_engine_session_execute_json(s, "image.analysis.placeScaleMarker", "{\"color\":\"red\"}",
+                                         &out, NULL) != PC_OK);
+
+    /* Two markers, two undos, nothing left. */
+    CHECK(pc_engine_session_undo(s));
+    CHECK(pc_engine_session_undo(s));
+    CHECK(!has_marker(s));
+    pc_engine_session_free(s);
+}
+
+/* A document under 8 px tall must error ("tall"), never crash, and add nothing (#932). */
+static void test_place_scale_marker_short_document(void)
+{
+    static const struct {
+        uint32_t w, h;
+        const char *params;
+    } CASES[] = {
+        {100, 4, "{}"},
+        {100, 1, "{}"},
+        {100, 7, "{\"displayText\":false,\"textPosition\":\"top\"}"},
+        {300000, 3, "{\"fontSize\":1000}"},
+        {2, 7, "{\"length\":1}"},
+        {7, 7, "{\"length\":7,\"fontSize\":1}"},
+    };
+    static const uint32_t HS[] = {0, 1, 2, 3, 5, 6};
+    for (size_t i = 0; i < sizeof CASES / sizeof CASES[0]; i++) {
+        for (size_t j = 0; j < sizeof HS / sizeof HS[0]; j++) {
+            uint32_t h = HS[j] != 0 ? HS[j] : CASES[i].h;
+            pc_engine_session *s = NULL;
+            CHECK(pc_engine_session_new(&s, NULL) == PC_OK);
+            char nj[128];
+            snprintf(nj, sizeof nj, "{\"width\":%u,\"height\":%u}", CASES[i].w, h);
+            pc_json_value out;
+            CHECK(pc_engine_session_execute_json(s, "file.new", nj, &out, NULL) == PC_OK);
+            pc_json_value_fini(&out);
+            size_t before = pc_history_past_len(pc_engine_session_active(s)->history);
+            pc_error err = {0};
+            pc_json_value o;
+            pc_status rc =
+                pc_engine_session_execute_json(s, "image.analysis.placeScaleMarker", CASES[i].params, &o, &err);
+            CHECK(rc != PC_OK);
+            CHECK(strstr(err.msg, "tall") != NULL);
+            CHECK(pc_history_past_len(pc_engine_session_active(s)->history) == before);
+            CHECK(!has_marker(s));
+            pc_engine_session_free(s);
+        }
+    }
+}
+
 int main(int argc, char **argv)
 {
     RUN(test_scale);
@@ -269,6 +384,8 @@ int main(int argc, char **argv)
     RUN(test_count);
     RUN(test_record_and_log);
     RUN(test_deferred_report_errors);
+    RUN(test_place_scale_marker);
+    RUN(test_place_scale_marker_short_document);
     RUN(test_adversarial_params);
     return pc_t_finish();
 }

@@ -420,7 +420,7 @@ pc_status pc_txt2_apply_frame(pc_text_layer *layer, const uint8_t *tysh, size_t 
         isfinite(m[1]) && isfinite(m[2]) && isfinite(m[3]) && isfinite(m[4]) && isfinite(m[5])) {
         memcpy(matrix.m, m, sizeof m);
     }
-    if (!layer->shape.is_box && arr_nums(pc_ed_get(frame, "0"), p, 2) == 2 && isfinite(p[0]) &&
+    if (layer->shape.kind != PC_TEXT_SHAPE_BOX && arr_nums(pc_ed_get(frame, "0"), p, 2) == 2 && isfinite(p[0]) &&
         isfinite(p[1])) {
         at = pc_affine_translate(p[0], p[1]);
     }
@@ -432,7 +432,7 @@ pc_status pc_txt2_apply_frame(pc_text_layer *layer, const uint8_t *tysh, size_t 
      * text-space `bounds` Photoshop wrote beside it, and not already be there without it. A TySh
      * PhotoCraft rewrote already has the frame folded into its transform and its `bounds` near
      * the origin: applying the frame again would move it twice. */
-    if (layer->shape.is_box) {
+    if (layer->shape.kind == PC_TEXT_SHAPE_BOX) {
         pc_ed_value e;
         double b[2];
         size_t nb = 0;
