@@ -20,6 +20,7 @@
 #include "base/status.h"
 #include "ui/dock.h"
 #include "ui/theme.h"
+#include "ui/view_options.h"
 
 /* ---- Tool (state.rs Tool) ---- */
 typedef enum pc_ui_tool {
@@ -214,6 +215,7 @@ typedef struct pc_ui_state {
 
     pc_ui_panels panels;
     pc_ui_extras extras;
+    pc_ui_view_options view; /* persistent View/Window/Type options */
     pc_ui_dock_tabs dock_tabs;
     pc_ui_color_panel color_panel;
     pc_ui_camera_raw_scope camera_raw_scope;

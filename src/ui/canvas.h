@@ -47,6 +47,29 @@ void pc_ui_scroll_extent(pc_ui_scroll_span span, bool overscroll, float out[2]);
 void pc_ui_scroll_thumb(pc_ui_scroll_span span, const float extent[2], float track, float out[2]);
 float pc_ui_scroll_doc_per_point(pc_ui_scroll_span span, const float extent[2], float track);
 float pc_ui_scroll_clamp(float center, float length, float size, float zoom);
+/* Overscroll-off bounds in displayed space, including camera rotation and pixel aspect. */
+bool pc_ui_scroll_clamp_view(pc_ui_view *view, float width, float height, float ppp, float aspect);
+
+typedef struct pc_ui_scrollbar {
+    float rect[4]; /* x,y,width,height, in logical screen points */
+    pc_ui_scroll_span span;
+    float extent[2], thumb[2], center;
+    unsigned axis;
+    bool shown, flipped;
+} pc_ui_scrollbar;
+typedef struct pc_ui_scroll_drag {
+    pc_ui_scrollbar bar; /* frozen geometry/extent at press */
+    float origin, scale, press_cross;
+    bool active, thumb, moved;
+} pc_ui_scroll_drag;
+/* Both tracks overlay the viewport (12 points); spans cover its full size, as in the reference.
+ * Invalid input leaves output untouched. No allocation or document mutation. */
+bool pc_ui_scrollbars_layout(const pc_ui_canvas_xform *xf, const uint32_t size[2], bool overscroll,
+                             pc_ui_scrollbar out[2]);
+bool pc_ui_scrollbar_press(const pc_ui_scrollbar bars[2], float x, float y, pc_ui_scroll_drag *drag);
+/* On a changed centre, writes the document coordinate for drag.bar.axis. A page click applies
+ * on release; dragging the thumb keeps its original extent. Focus loss cancels by clearing active. */
+bool pc_ui_scrollbar_motion(pc_ui_scroll_drag *drag, float x, float y, bool release, float *center);
 
 /* Cache at most 4096 pixels on either side; keyed by document identity + revision. Source pixels
  * remain f32 through composition/reduction, with premultiplied colour for correct texture interpolation. A

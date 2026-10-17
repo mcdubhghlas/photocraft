@@ -18,7 +18,7 @@ compositor + native format, file I/O + WebAssembly plug-ins, the engine (L5), an
 Photoshop-parity image editor drivable today via the CLI and the MCP/control channel.
 
 - **Engine:** registry **~827 commands**; menu-command parity **600 / 631 live** (`PC_UI_PARITY_FLOOR` = 631, never lowered). The 31 not-yet-live ids are the **engine gap tail** (see the Phase 6 note).
-- **Phase 8 (UI, SDL3 + OpenGL 3.3 + Nuklear) — in progress:** U1 (foundation: theme/i18n/state/widgets/sizing/icons/parity), U2 (menu catalog/shortcuts/dispatch model), the **PhotocraftApp shell** (frame loop + menu bar + `ui.*` control channel + headless `ui.screenshot`), and U3 core (dock/tabs/work-area/notices/props-layout) are done. U4 is underway (camera/cache/display slice; see its checklist); U5–U10 and G1–G2, plus U3's deferred panels (dialogs/workspaces/jobs/gpu/monitor/titlebar/chrome), remain.
+- **Phase 8 (UI, SDL3 + OpenGL 3.3 + Nuklear) — in progress:** U1 (foundation: theme/i18n/state/widgets/sizing/icons/parity), U2 (menu catalog/shortcuts/dispatch model), the **PhotocraftApp shell** (frame loop + menu bar + `ui.*` control channel + headless `ui.screenshot`), and U3 core (dock/tabs/work-area/notices/props-layout) are done. U4 is underway (camera/cache/display, scrollbars and view settings; see its checklist); U5–U10 and G1–G2, plus U3's deferred panels (dialogs/workspaces/jobs/gpu/monitor/titlebar/chrome), remain.
 - **Gate:** whole tree passes `make check` (gcc, STRICT -Werror), `CC=clang make check`, and `make analyze`. Whole-tree **ASan** currently overruns this host's disk (907 G root ~98 % full), so ASan runs **scoped** to changed code + the full `panic_hunt` (all commands); restore full-tree ASan once disk is freed.
 
 **Remaining work, largest first:** Phase 8 U4–U10 + G1–G2 (~76 k reference lines) and U3's deferred panels · the 31-command engine gap tail · Phase 9 desktop app (~6 k) · Phase 10 tooling + cutover (Z1 replace `xtask` with shell tools; Z3 final differential run then delete the Rust reference tree).
@@ -490,7 +490,7 @@ Needs B3 and Phase 7 (the control channel). U1–U4 in order, then G1–G2, then
   - `crates/ui-egui/src/`: chrome_ui.rs, dialogs.rs, dock.rs, dock_tests.rs, gpu_status.rs, jobs_ui.rs, jobs_ui_tests.rs, monitor_status.rs, notices.rs, props_layout.rs, props_layout_tests.rs, tab_strip.rs, titlebar.rs, work_area.rs, workspace_ui.rs
   - DONE (data-model cores + the usable-window chrome, all green): **dock.{c,h}** (Group + DockLayout: order/heights_for/resize/move_group/move_tab/hide/show/visible/ordered tabs + byte-exact serde "dock" in UiState; ports every portable dock_tests case — 11 tests/112 checks), **work_area.{c,h}** (visible_part/fits/trusted window-work-area geometry, 5 tests/24 checks), **tab_strip.{c,h}** (the craft_ui tab-fit policy reimplemented + drop_slot, 5 tests/119 checks), **notices.{c,h}** (Notice stack: post/cap/expire auto-hide timer/dismiss/io_warnings/slow_cpu_refresh, 7 tests/43 checks), **props_layout.{c,h}** (kind_icon/field_width/quick_actions pure helpers, 3 tests/20 checks). Shell (src/ui/shell/app.c EXTENSION region): reimplemented the **right dock column** (groups in display order, data-driven heights, per-group tab strips fitted with tab_strip, panel-menu/collapse button, active-tab body placeholder), the **work-area canvas** surround (active doc card / empty hint), and the **lower-right notice toasts** (posted on failed menu invokes, auto-hidden) against Nuklear. 4 offscreen snapshots eyeballed (proMedium/studio/solarizedDark + rebuild) render the dock + tabs + canvas correctly across themes (pro flat tabs vs Studio pills, elision, non-pro Swatches-first order).
   - REMAINING (deferred, dependencies not yet in the C tree — see §7): dialogs.rs (the modal host framework), workspace_ui.rs (needs ShellUi + engine prefs.workspaces/workspace_locked + view.pixel_aspect/timeline/docking), jobs_ui.rs (engine jobs API surface), gpu_status.rs + monitor_status.rs (U4 GPU/perf state + P2 monitor profile), titlebar.rs + chrome_ui.rs (custom window chrome/title bar). Deferred within ported modules: wiring the dock drag-to-reorder / splitter-resize / tab-drag-to-group / auto-collapse-peek gestures to pointer input (the logic is modelled+tested in dock.c), the control channel's ui.inspect of the notice stack, and the Wayland file-drop guidance (needs the Services struct). The egui-harness interaction/paint tests (dock_tests drag cases, tab_strip paint cases, work_area fit_window) become shell snapshots or are dropped (§7).
-- [-] **U4** (codex, 2026-10-17; camera/cache/display slice validated; remaining items below) · UI canvas (4/10): canvas view, GPU canvas, rulers, scrollbars, zoom/rotate, cursors · ~10,880 lines → `src/ui/`
+- [-] **U4** (codex, 2026-10-17; camera/cache/display and scrollbar/view-settings slices validated; remaining items below) · UI canvas (4/10): canvas view, GPU canvas, rulers, scrollbars, zoom/rotate, cursors · ~10,880 lines → `src/ui/`
   - `crates/ui-egui/src/`: canvas.rs, canvas/tabs_tests.rs, channel_view.rs, gpu_canvas.rs, gpu_canvas_mip_tests.rs, input_tests.rs, outline.rs, rotate_view.rs, rulers.rs, scrollbars.rs, tool_cursor.rs, tool_cursor/tests.rs, tool_feedback.rs, transform_tex.rs, wheel_nav.rs, zoom_tool.rs
   - **2026-10-17 U4 progress:** `src/ui/canvas.{c,h}`, `scrollbars.c`, and
     `src/ui/shell/canvas_view.{c,h}` implement ViewXform (rotation/flip/aspect math), the zoom
@@ -504,11 +504,22 @@ Needs B3 and Phase 7 (the control channel). U1–U4 in order, then G1–G2, then
     offscreen snapshots. `ui.set`/`ui.inspect` now address the active document camera and reject
     invalid camera values before applying changes. Makefile now includes shell/snapshot `.d`
     files: previously a changed header could leave stale shell objects and crash a snapshot.
-  - **Still open in U4:** actual scrollbar widgets, guide dragging/grid/selection/channel/mask
-    overlays, view-flip/pixel-aspect settings and persistence, monitor/proof/32-bit preview display
+  - **2026-10-17 U4 follow-up:** actual themed scrollbar tracks/thumbs now overlay the canvas;
+    thumb drags freeze their extent/scale and track clicks page on release. Horizontal scrolling
+    respects view flip and pixel aspect; disabling `tools.overscroll` clamps rotated views too.
+    `view_options.{c,h}` ports the persistent ViewOptions model and round-trips through UiState.
+    Flip, aspect correction/presets and screen-mode menu commands now change rendering/navigation;
+    nonstandard screen modes hide tabs/scrollbars, and fullScreen hides menus/dock. Visible windows request
+    SDL fullscreen transitions with rollback on failure (actual desktop transitions remain untested).
+    `ui.inspect.view` exposes ViewOptions; `activeView` exposes the active camera, alongside `views`.
+    Focused GCC/Clang and ASan+UBSan tests cover saved state, invalid input, frozen scrollbar drags,
+    paging/flip/rotated clamping, real GL pixels and native pointer routing. Fourteen theme previews
+    and a 2x-scale preview were visually checked. No document/history mutation from display changes.
+  - **Still open in U4:** guide dragging/grid/selection/channel/mask
+    overlays, monitor/proof/32-bit preview display
     transforms, full-resolution tiled/mip display for documents above the preview cap, tool
     feedback/cursors, view-command action recording, pinch/rotation gestures and preference
-    integration beyond wheel zoom; remaining Rust canvas integration tests. The GPU camera shader
+    integration beyond wheel zoom/overscroll; remaining Rust canvas integration tests. The GPU camera shader
     displays a CPU composite; it does **not** implement G1/G2 GPU layer compositing. U1–U3
     follow-ups, U5–U10, and G1–G2 remain open. This is not completion of Phase 8.
 - [ ] **G1** · GPU compositor (1/2): GL 3.3 context, plan, tiles, blend shaders · ~3,982 lines → `src/gpu/`
@@ -923,10 +934,25 @@ Newest last. One dated line per chunk session: chunk, what landed, test counts, 
   ASan+UBSan runs, including real offscreen GL captures at four rotations and native pan input,
   pass (10 canvas tests / 3,030 checks + 12 shell tests / 137 checks). Leak detection is disabled
   for the sanitizer runs; no leak-audit claim. Changed C files pass clang static analysis;
-  whole-tree `make analyze` is still running (build/phase8-analyze.log). Layer check, diff whitespace, and `sh tools/test-ui-header-deps.sh build/phase8`
+  whole-tree `make analyze` completed cleanly across 603 files (build/phase8-analyze.log). Layer check, diff whitespace, and `sh tools/test-ui-header-deps.sh build/phase8`
   pass; the latter reproduces the missing rebuild under the old dependency include. All 14 theme snapshots rendered and were visually reviewed in a contact
   sheet (/tmp/photocraft-phase8-previews/contact.png). Release (-O2, PHOTOCRAFT_THREADS=4) cold
   previews: 24 MP 343.507 ms; 36 MP 515.628 ms; 10,000 unchanged-cache accesses 0.024 ms each batch.
   These are CPU-preview measurements, not GPU compositor or product-performance acceptance.
   Still open: the U4 remainder listed in §5, U1–U3 follow-ups, G1/G2, and U5–U10.
   **Phase 8 is not complete.** No Rust or engine implementation files were changed.
+
+- 2026-10-17 · U4 scrollbar/view-settings follow-up (codex). Added persistent ViewOptions,
+  flip/aspect/screen-mode command effects, themed overlay scrollbars with native pointer capture,
+  frozen drag extents, page clicks and overscroll-off rotated clamping. Display changes stay out
+  of document/history state. `ui.inspect.view` now matches the reference ViewOptions contract;
+  active camera is `activeView`, with all cameras still in `views`. Strict GCC/Clang builds,
+  focused tests and scoped ASan+UBSan (leak detection disabled) pass: view options 3/66,
+  UiState 7/292, canvas 10/3030, shell/control including real offscreen GL 13/160.
+  Changed-file static analysis clean (six files); layers and header-dependency regression pass.
+  Reviewed all 14 theme previews and 2x scaling in /tmp/photocraft-scroll-previews/.
+  Full GCC strict build and all 359 test executables exercised (four-thread bounded follow-up);
+  only MCP failed inside the socket-restricted sandbox and passed its unsandboxed rerun (11/594).
+  All 16 UI executables pass (108 cases / 18,679 checks; ordinary display-independent run).
+  Follow-up evidence: build/phase8-followup-{check,suite,core,doc-core,analyze}.log.
+  Phase 8 remains incomplete; U4's remaining work is listed above. No Rust/engine implementation edits.

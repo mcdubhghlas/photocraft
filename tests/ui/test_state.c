@@ -184,6 +184,8 @@ static void test_state_roundtrip(void)
     s.palette_open = true;
     s.panels.navigator = true;
     s.extras.rulers = true;
+    s.view.flip_horizontal = true;
+    CHECK(pc_str_set_c(&s.view.pixel_aspect, "anamorphic2To1", NULL) == PC_OK);
     s.selection_mode = 2;
     s.crop_angle = 12.5;
     free(s.status);
@@ -217,6 +219,8 @@ static void test_state_roundtrip(void)
     CHECK_EQ_UINT(s2.selection_mode, 2);
     CHECK(s2.crop_angle == 12.5);
     CHECK_EQ_STR(s2.status, "Opened file");
+    CHECK(s2.view.flip_horizontal);
+    CHECK_NEAR(pc_ui_view_display_aspect(&s2.view), 2, 0);
     CHECK_EQ_UINT(s2.n_views, 1);
     CHECK(s2.views[0].zoom == 2.0f && s2.views[0].doc_size[0] == 800);
     CHECK_EQ_UINT(s2.n_dialogs, 1);

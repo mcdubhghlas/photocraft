@@ -373,6 +373,7 @@ void pc_ui_state_init(pc_ui_state *s)
     s->tool = PC_TOOL_BRUSH;
     pc_ui_panels_default(&s->panels);
     pc_ui_extras_default(&s->extras);
+    pc_ui_view_options_init(&s->view);
     pc_ui_camera_raw_preview_default(&s->camera_raw_preview);
     s->theme = PC_UI_THEME_DEFAULT;
     s->workspace = strdup("Essentials");
@@ -389,6 +390,7 @@ static void free_str_arr(char **a, size_t n)
 void pc_ui_state_fini(pc_ui_state *s)
 {
     if (!s) { return; }
+    pc_ui_view_options_fini(&s->view);
     free(s->group_tools);
     free_str_arr(s->recent_files, s->n_recent_files);
     free_str_arr(s->layer_filter, s->n_layer_filter);
@@ -561,6 +563,12 @@ pc_status pc_ui_state_to_json(const pc_ui_state *s, yyjson_mut_doc *doc, yyjson_
     yyjson_mut_obj_add_bool(doc, ex, "snap", s->extras.snap);
     yyjson_mut_obj_add_bool(doc, ex, "lock_guides", s->extras.lock_guides);
     yyjson_mut_obj_add_val(doc, o, "extras", ex);
+    yyjson_mut_val *view_options = NULL;
+    pc_status view_rc = pc_ui_view_options_to_json(&s->view, doc, &view_options, err);
+    if (view_rc != PC_OK) { return view_rc; }
+    if (!yyjson_mut_obj_add_val(doc, o, "view", view_options)) {
+        return pc_fail(err, PC_ERR_NOMEM, "view options JSON");
+    }
     /* dock_tabs */
     yyjson_mut_val *dt = yyjson_mut_obj(doc);
     yyjson_mut_obj_add_uint(doc, dt, "properties", s->dock_tabs.properties);
@@ -690,6 +698,8 @@ pc_status pc_ui_state_from_json(pc_ui_state *s, yyjson_val *o, pc_error *err)
         if (pc_json_as_bool(pc_json_get(ex, "snap"), &b)) { s->extras.snap = b; }
         if (pc_json_as_bool(pc_json_get(ex, "lock_guides"), &b)) { s->extras.lock_guides = b; }
     }
+    pc_status view_rc = pc_ui_view_options_from_json(pc_json_get(o, "view"), &s->view, err);
+    if (view_rc != PC_OK) { return view_rc; }
     yyjson_val *dt = pc_json_get(o, "dock_tabs");
     if (dt) {
 #define RU(field) if (pc_json_as_u64(pc_json_get(dt, #field), &u)) { s->dock_tabs.field = (size_t)u; }

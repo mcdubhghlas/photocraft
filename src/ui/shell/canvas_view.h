@@ -10,6 +10,8 @@ typedef struct pc_ui_canvas_view {
     pc_doc_id *documents;
     size_t n_documents;
     pc_ui_canvas_xform xf;
+    pc_ui_scrollbar bars[2];
+    pc_ui_scroll_drag scroll_drag;
     bool laid_out, dragging;
     float last_pointer[2], press_pointer[2], press_zoom, press_rotation, press_angle;
     pc_ui_tool drag_tool;

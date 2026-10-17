@@ -10,6 +10,8 @@
 #include "ui/widgets.h"
 #include "engine/prefs.h"
 
+static bool preference_bool(pc_ui_shell_app *app, const char *path, bool fallback);
+
 pc_ui_view *pc_ui_canvas_active_view(pc_ui_shell_app *app)
 {
     pc_ui_state *ui = pc_ui_shell_app_state(app);
@@ -55,6 +57,7 @@ pc_status pc_ui_canvas_sync(pc_ui_shell_app *app, pc_ui_canvas_view *cv, pc_erro
         cv->documents = ids;
         cv->n_documents = n;
         cv->dragging = false;
+        cv->scroll_drag.active = false;
         cv->laid_out = false;
     }
     for (size_t i = 0; i < n; i++) {
@@ -356,8 +359,10 @@ pc_status pc_ui_canvas_view_draw(pc_ui_shell_app *app, pc_ui_canvas_view *v, con
         return PC_OK;
     }
     float ppp = pc_ui_shell_app_ui_scale(app);
+    const pc_ui_view_options *options = &pc_ui_shell_app_state(app)->view;
+    float aspect = pc_ui_view_display_aspect(options);
     if (view->fit_pending || view->fill_pending) {
-        pc_ui_canvas_fit(view, r.w, r.h, ppp, 1.f, view->fill_pending);
+        pc_ui_canvas_fit(view, r.w, r.h, ppp, aspect, view->fill_pending);
     }
     view->zoom = pc_ui_zoom_clamp(view->zoom, view->doc_size);
     view->rotation = pc_ui_rotation_wrap(view->rotation);
@@ -367,6 +372,17 @@ pc_status pc_ui_canvas_view_draw(pc_ui_shell_app *app, pc_ui_canvas_view *v, con
     if (!isfinite(view->center[1])) {
         view->center[1] = (float)view->doc_size[1] / 2.f;
     }
+    if (!preference_bool(app, "tools.overscroll", true)) {
+        (void)pc_ui_scroll_clamp_view(view, r.w, r.h, ppp, aspect);
+    }
+    if (v->xf.x != r.x || v->xf.y != r.y || v->xf.width != r.w || v->xf.height != r.h ||
+        v->xf.aspect != aspect || v->xf.zoom != view->zoom / ppp ||
+        v->cache.document !=
+            pc_doc_arc_get(pc_engine_session_active(pc_ui_shell_app_session(app))->doc)->id ||
+        v->xf.flip != options->flip_horizontal || v->xf.rotation != view->rotation ||
+        !pc_ui_view_standard(options)) {
+        v->scroll_drag.active = false;
+    }
     v->xf = (pc_ui_canvas_xform){.x = r.x,
                                  .y = r.y,
                                  .width = r.w,
@@ -374,7 +390,8 @@ pc_status pc_ui_canvas_view_draw(pc_ui_shell_app *app, pc_ui_canvas_view *v, con
                                  .zoom = view->zoom / ppp,
                                  .center = {view->center[0], view->center[1]},
                                  .rotation = view->rotation,
-                                 .aspect = 1.f};
+                                 .aspect = aspect,
+                                 .flip = options->flip_horizontal};
     v->laid_out = true;
     rc = pc_ui_canvas_cache_update(&v->cache, pc_engine_session_active(pc_ui_shell_app_session(app)), err);
     if (rc == PC_OK) {
@@ -386,6 +403,44 @@ pc_status pc_ui_canvas_view_draw(pc_ui_shell_app *app, pc_ui_canvas_view *v, con
     }
     if (rulers && rc == PC_OK) {
         draw_rulers(app, &v->xf);
+    }
+    memset(v->bars, 0, sizeof v->bars);
+    if (rc == PC_OK && pc_ui_view_standard(options) &&
+        pc_ui_scrollbars_layout(&v->xf, view->doc_size, preference_bool(app, "tools.overscroll", true),
+                                v->bars)) {
+        const pc_ui_tokens *tokens = pc_ui_shell_app_tokens(app);
+        struct nk_command_buffer *commands = nk_window_get_canvas(pc_ui_shell_app_nk(app));
+        for (size_t axis = 0; axis < 2; axis++) {
+            pc_ui_scrollbar *bar = &v->bars[axis];
+            if (!bar->shown) {
+                continue;
+            }
+            if (v->scroll_drag.active && v->scroll_drag.bar.axis == axis) {
+                pc_ui_scroll_thumb(bar->span, v->scroll_drag.bar.extent, bar->rect[axis ? 3 : 2], bar->thumb);
+            }
+            const float *rbar = bar->rect;
+            struct nk_rect track = nk_rect(rbar[0], rbar[1], rbar[2], rbar[3]);
+            nk_fill_rect(commands, track, 0, pc_ui_nk_color(tokens->chrome));
+            nk_stroke_line(commands, track.x, track.y, axis ? track.x : track.x + track.w,
+                           axis ? track.y + track.h : track.y, 1, pc_ui_nk_color(tokens->separator));
+            struct nk_rect thumb = track;
+            if (axis) {
+                thumb.y += bar->thumb[0];
+                thumb.h = bar->thumb[1];
+            } else {
+                thumb.x += bar->thumb[0];
+                thumb.w = bar->thumb[1];
+            }
+            thumb.x += 3;
+            thumb.y += 3;
+            thumb.w = fmaxf(0, thumb.w - 6);
+            thumb.h = fmaxf(0, thumb.h - 6);
+            struct nk_vec2 mouse = pc_ui_shell_app_nk(app)->input.mouse.pos;
+            bool hot = (v->scroll_drag.active && v->scroll_drag.bar.axis == axis) ||
+                       (mouse.x >= thumb.x - 3 && mouse.x < thumb.x + thumb.w + 3 && mouse.y >= thumb.y - 3 &&
+                        mouse.y < thumb.y + thumb.h + 3);
+            nk_fill_rect(commands, thumb, 3, pc_ui_nk_color(hot ? tokens->text_dim : tokens->text_faint));
+        }
     }
     return rc;
 }
@@ -415,6 +470,7 @@ bool pc_ui_canvas_view_event(pc_ui_shell_app *app, pc_ui_canvas_view *cv, const 
     pc_ui_view *view = pc_ui_canvas_active_view(app);
     if (!view) {
         cv->dragging = false;
+        cv->scroll_drag.active = false;
         return false;
     }
     pc_ui_canvas_xform current = cv->xf;
@@ -423,9 +479,15 @@ bool pc_ui_canvas_view_event(pc_ui_shell_app *app, pc_ui_canvas_view *cv, const 
     current.center[0] = view->center[0];
     current.center[1] = view->center[1];
     current.rotation = view->rotation;
+    current.aspect = pc_ui_view_display_aspect(&pc_ui_shell_app_state(app)->view);
+    current.flip = pc_ui_shell_app_state(app)->view.flip_horizontal;
+    if (!pc_ui_view_standard(&pc_ui_shell_app_state(app)->view)) {
+        cv->scroll_drag.active = false;
+    }
     const pc_engine_doc_state *active = pc_engine_session_active(pc_ui_shell_app_session(app));
     if (!active || pc_doc_arc_get(active->doc)->id != cv->cache.document) {
         cv->dragging = false;
+        cv->scroll_drag.active = false;
         return false;
     }
     const pc_ui_canvas_xform *xf = &current;
@@ -433,11 +495,33 @@ bool pc_ui_canvas_view_event(pc_ui_shell_app *app, pc_ui_canvas_view *cv, const 
     float factor = density / ppp, x, y;
     if (e->type == SDL_EVENT_WINDOW_FOCUS_LOST) {
         cv->dragging = false;
+        cv->scroll_drag.active = false;
         return false;
     }
     if (e->type == SDL_EVENT_KEY_DOWN && e->key.key == SDLK_ESCAPE &&
         pc_ui_shell_app_state(app)->tool == PC_TOOL_ROTATE_VIEW) {
         view->rotation = 0;
+        cv->dragging = false;
+        cv->scroll_drag.active = false;
+        return true;
+    }
+    if (cv->scroll_drag.active &&
+        (e->type == SDL_EVENT_MOUSE_MOTION ||
+         (e->type == SDL_EVENT_MOUSE_BUTTON_UP && e->button.button == SDL_BUTTON_LEFT))) {
+        bool release = e->type == SDL_EVENT_MOUSE_BUTTON_UP;
+        x = (release ? e->button.x : e->motion.x) * factor;
+        y = (release ? e->button.y : e->motion.y) * factor;
+        unsigned axis = cv->scroll_drag.bar.axis;
+        float center;
+        if (pc_ui_scrollbar_motion(&cv->scroll_drag, x, y, release, &center)) {
+            view->center[axis] = center;
+            view->fit_pending = view->fill_pending = false;
+        }
+        return true;
+    }
+    if (e->type == SDL_EVENT_MOUSE_BUTTON_DOWN && e->button.button == SDL_BUTTON_LEFT &&
+        pc_ui_view_standard(&pc_ui_shell_app_state(app)->view) &&
+        pc_ui_scrollbar_press(cv->bars, e->button.x * factor, e->button.y * factor, &cv->scroll_drag)) {
         cv->dragging = false;
         return true;
     }
@@ -480,6 +564,7 @@ bool pc_ui_canvas_view_event(pc_ui_shell_app *app, pc_ui_canvas_view *cv, const 
                                           pc_ui_zoom_step(view->zoom, direction, view->doc_size), ppp);
             }
             cv->dragging = false;
+            cv->scroll_drag.active = false;
             return true;
         }
         if (x < xf->x || y < xf->y || x >= xf->x + xf->width || y >= xf->y + xf->height) {

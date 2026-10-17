@@ -42,6 +42,22 @@ The desktop server waits up to 60 seconds for a reply. A request still queued at
 
 The transport is `apps/photocraft/src/control_server.rs`, and the handlers are in `crates/ui-egui/src/control.rs`. The MCP server (`photocraft-cli mcp --bridge 127.0.0.1:<port>`, crate `photocraft-automation`) wraps this same protocol. See [MCP bridge](#mcp-bridge) below.
 
+## C17 shell canvas status
+
+The rewrite currently implements canvas navigation and display options. `ui.inspect.view` contains
+persistent ViewOptions (`screen_mode`, `flip_horizontal`, `pixel_aspect`,
+`pixel_aspect_correction`, and the other saved view flags). `activeView` contains the active
+camera or null; `views` contains the cameras in document-tab order. Camera `center` uses document
+pixels and `zoom: 1` means one physical display pixel per document pixel before aspect correction.
+Drive cameras with `ui.set {zoom, center, rotation}` and display options with `ui.menu.invoke`:
+`view.flipHorizontal`, `view.pixelAspectRatioCorrection`, `view.pixelAspectRatio.<preset>`,
+`view.screenMode.standard`, `view.screenMode.fullScreenWithMenuBar`, `view.screenMode.fullScreen`,
+and `view.screenMode.cycle`. The two toggles accept optional `params: {on: boolean}`.
+These settings change the view and leave document pixels/history unchanged. ViewOptions round-trip
+through the UiState JSON codec; a complete application preferences/save lifecycle remains future work.
+The remaining sections describe the Rust reference contract; broader C17 shell support is tracked in
+[REWRITE_PLAN.md](../REWRITE_PLAN.md).
+
 ## Methods
 
 - `engine.execute {command, params}`: run any engine or UI command by id. Engine commands run directly with their default params and never open a dialog. Use `ui.menu.invoke` for menu-click behaviour, which opens a command's dialog when no params are given. `params` must be a JSON object (omit it or pass `null` for none); an array, string, number or boolean is an error naming the command, in every transport (control channel, `serve`, MCP and the CLI)

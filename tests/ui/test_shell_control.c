@@ -113,8 +113,8 @@ static void test_menu_list_and_invoke(void)
     pc_buf_fini(&t);
 
     /* Invoking an engine command opens a document. */
-    CHECK(call(a, "ui.menu.invoke",
-               "{\"id\":\"file.new\",\"params\":{\"width\":64,\"height\":48}}", NULL) == PC_OK);
+    CHECK(call(a, "ui.menu.invoke", "{\"id\":\"file.new\",\"params\":{\"width\":64,\"height\":48}}", NULL) ==
+          PC_OK);
     pc_buf ins = PC_BUF_INIT;
     CHECK(call(a, "ui.inspect", NULL, &ins) == PC_OK);
     CHECK_CONTAINS(pc_buf_cstr(&ins), "\"document\":{");
@@ -136,8 +136,8 @@ static void test_engine_execute_and_commands(void)
     pc_buf_fini(&t);
 
     /* engine.execute runs a command by id directly. */
-    CHECK(call(a, "engine.execute",
-               "{\"command\":\"file.new\",\"params\":{\"width\":10,\"height\":10}}", NULL) == PC_OK);
+    CHECK(call(a, "engine.execute", "{\"command\":\"file.new\",\"params\":{\"width\":10,\"height\":10}}",
+               NULL) == PC_OK);
     pc_ui_shell_app_free(a);
 }
 
@@ -186,8 +186,8 @@ static void test_screenshot_png(void)
     pc_json_value_fini(&out);
 
     /* With a document open, the screenshot composites its thumbnail; still a valid PNG. */
-    CHECK(call(a, "engine.execute",
-               "{\"command\":\"file.new\",\"params\":{\"width\":32,\"height\":24}}", NULL) == PC_OK);
+    CHECK(call(a, "engine.execute", "{\"command\":\"file.new\",\"params\":{\"width\":32,\"height\":24}}",
+               NULL) == PC_OK);
     pc_json_value out2 = PC_JSON_VALUE_INIT;
     CHECK(pc_ui_control_handle(a, "ui.screenshot", NULL, &out2, &err) == PC_OK);
     pc_json_value_fini(&out2);
@@ -241,7 +241,7 @@ static void test_document_cameras(void)
     yyjson_doc *inspected = NULL;
     CHECK(pc_json_parse(pc_buf_cstr(&b), b.len, &inspected, &err) == PC_OK);
     double current_zoom = 0;
-    CHECK(pc_json_as_f64(pc_json_get(pc_json_get(yyjson_doc_get_root(inspected), "view"), "zoom"),
+    CHECK(pc_json_as_f64(pc_json_get(pc_json_get(yyjson_doc_get_root(inspected), "activeView"), "zoom"),
                          &current_zoom));
     CHECK_NEAR(current_zoom, 2, 0);
     yyjson_doc_free(inspected);
@@ -259,8 +259,8 @@ static void test_document_cameras(void)
     CHECK_NEAR(ui->views[0].zoom, 7, 0);
     pc_buf reset = PC_BUF_INIT;
     CHECK(call(a, "ui.menu.invoke", "{\"id\":\"view.resetView\"}", &reset) == PC_OK);
-    CHECK_CONTAINS(pc_buf_cstr(&reset),"\"rotation\":0.0");
-    CHECK_CONTAINS(pc_buf_cstr(&reset),"\"zoom\":7.0");
+    CHECK_CONTAINS(pc_buf_cstr(&reset), "\"rotation\":0.0");
+    CHECK_CONTAINS(pc_buf_cstr(&reset), "\"zoom\":7.0");
     pc_buf_fini(&reset);
     CHECK_NEAR(ui->views[0].rotation, 0, 0);
     pc_ui_shell_app_free(a);
@@ -273,9 +273,9 @@ static void test_camera_rejects_atomically(void)
     CHECK(pc_ui_shell_app_new(&a, &err) == PC_OK);
     CHECK(call(a, "engine.execute", "{\"command\":\"file.new\",\"params\":{\"width\":80,\"height\":60}}",
                NULL) == PC_OK);
-    CHECK(pc_ui_shell_app_state(a)->n_views==0);
-    CHECK(call(a,"ui.set","{\"zoom\":1e100}",NULL)!=PC_OK);
-    CHECK(pc_ui_shell_app_state(a)->n_views==0);
+    CHECK(pc_ui_shell_app_state(a)->n_views == 0);
+    CHECK(call(a, "ui.set", "{\"zoom\":1e100}", NULL) != PC_OK);
+    CHECK(pc_ui_shell_app_state(a)->n_views == 0);
     CHECK(call(a, "ui.set", "{\"zoom\":2,\"center\":[10,20]}", NULL) == PC_OK);
     const char *bad[] = {"{\"zoom\":1e100,\"tool\":\"Brush\"}", "{\"center\":[1e100,0],\"zoom\":3}",
                          "{\"center\":[1],\"zoom\":3}", "{\"rotation\":1e100,\"zoom\":3}",
@@ -356,10 +356,71 @@ static void test_gl_canvas(void)
     event.button.x = 530;
     event.button.y = 429;
     pc_ui_shell_input_event(a, &event);
-    memset(&event,0,sizeof event); event.type=SDL_EVENT_MOUSE_MOTION;
-    event.motion.x=INFINITY; event.motion.y=NAN; pc_ui_shell_input_event(a,&event);
-    memset(&event,0,sizeof event); event.type=SDL_EVENT_TEXT_INPUT;
-    event.text.text=NULL; pc_ui_shell_input_event(a,&event);
+    memset(&event, 0, sizeof event);
+    event.type = SDL_EVENT_MOUSE_MOTION;
+    event.motion.x = INFINITY;
+    event.motion.y = NAN;
+    pc_ui_shell_input_event(a, &event);
+    memset(&event, 0, sizeof event);
+    event.type = SDL_EVENT_TEXT_INPUT;
+    event.text.text = NULL;
+    pc_ui_shell_input_event(a, &event);
+    CHECK(call(a, "ui.set", "{\"rotation\":0,\"center\":[96,48],\"zoom\":2}", NULL) == PC_OK);
+    for (size_t variant = 0; variant < 3; variant++) {
+        if (variant == 1) {
+            CHECK(call(a, "ui.menu.invoke", "{\"id\":\"view.flipHorizontal\"}", NULL) == PC_OK);
+        } else if (variant == 2) {
+            CHECK(call(a, "ui.menu.invoke", "{\"id\":\"view.flipHorizontal\"}", NULL) == PC_OK);
+            CHECK(call(a, "ui.menu.invoke", "{\"id\":\"view.pixelAspectRatio.anamorphic2To1\"}", NULL) ==
+                  PC_OK);
+        }
+        uint8_t *pixels = NULL;
+        int width = 0, height = 0;
+        CHECK(pc_ui_shell_app_capture(a, &pixels, &width, &height, &err) == PC_OK);
+        if (pixels && width > 600 && height > 429) {
+            size_t sample_x = variant == 2 ? 600 : 350;
+            const uint8_t *sample = pixels + ((size_t)429 * (size_t)width + sample_x) * 4;
+            bool red = sample[0] > 250 && sample[1] < 3 && sample[2] < 3;
+            CHECK(red == (variant != 1));
+        }
+        free(pixels);
+    }
+    /* Scrollbar capture must override Hand, keep a fixed drag scale, and end on release. */
+    ui->views[0].zoom = 16;
+    ui->views[0].center[0] = 64;
+    ui->views[0].center[1] = 48;
+    uint8_t *pixels = NULL;
+    int width = 0, height = 0;
+    CHECK(pc_ui_shell_app_capture(a, &pixels, &width, &height, &err) == PC_OK);
+    free(pixels);
+    memset(&event, 0, sizeof event);
+    event.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+    event.button.button = SDL_BUTTON_LEFT;
+    event.button.down = true;
+    event.button.x = 490;
+    event.button.y = 794;
+    pc_ui_shell_input_event(a, &event);
+    memset(&event, 0, sizeof event);
+    event.type = SDL_EVENT_MOUSE_MOTION;
+    event.motion.x = 540;
+    event.motion.y = 794;
+    pc_ui_shell_input_event(a, &event);
+    CHECK(ui->views[0].center[0] > 64);
+    CHECK_NEAR(ui->views[0].center[1], 48, 0);
+    float drag_center = ui->views[0].center[0];
+    memset(&event, 0, sizeof event);
+    event.type = SDL_EVENT_MOUSE_BUTTON_UP;
+    event.button.button = SDL_BUTTON_LEFT;
+    event.button.x = 540;
+    event.button.y = 794;
+    pc_ui_shell_input_event(a, &event);
+    memset(&event, 0, sizeof event);
+    event.type = SDL_EVENT_MOUSE_MOTION;
+    event.motion.x = 560;
+    event.motion.y = 794;
+    pc_ui_shell_input_event(a, &event);
+    CHECK_NEAR(ui->views[0].center[0], drag_center, 0);
+    CHECK(!pc_engine_doc_state_is_dirty(pc_engine_session_active(pc_ui_shell_app_session(a))));
     CHECK(call(a, "ui.menu.invoke", "{\"id\":\"view.rulers\"}", NULL) == PC_OK);
     CHECK(ui->extras.rulers);
     uint8_t *ruled = NULL;
@@ -368,6 +429,22 @@ static void test_gl_canvas(void)
     free(ruled);
     pc_ui_shell_app_free(a);
     SDL_Quit();
+}
+
+static void test_display_commands(void)
+{
+    pc_ui_shell_app *a = NULL;
+    CHECK(pc_ui_shell_app_new(&a, NULL) == PC_OK);
+    CHECK(call(a, "ui.menu.invoke", "{\"id\":\"view.flipHorizontal\"}", NULL) == PC_OK);
+    CHECK(call(a, "ui.menu.invoke", "{\"id\":\"view.pixelAspectRatio.anamorphic2To1\"}", NULL) == PC_OK);
+    CHECK(call(a, "ui.menu.invoke", "{\"id\":\"view.screenMode.cycle\"}", NULL) == PC_OK);
+    pc_buf text = PC_BUF_INIT;
+    CHECK(call(a, "ui.inspect", NULL, &text) == PC_OK);
+    CHECK_CONTAINS((const char *)text.data, "\"flip_horizontal\":true");
+    CHECK_CONTAINS((const char *)text.data, "\"pixel_aspect\":\"anamorphic2To1\"");
+    CHECK_CONTAINS((const char *)text.data, "\"screen_mode\":\"fullScreenWithMenuBar\"");
+    pc_buf_fini(&text);
+    pc_ui_shell_app_free(a);
 }
 
 int main(int argc, char **argv)
@@ -384,6 +461,7 @@ int main(int argc, char **argv)
     RUN(test_unknown_method);
     RUN(test_resize);
     RUN(test_gl_canvas);
+    RUN(test_display_commands);
     RUN(test_document_cameras);
     RUN(test_camera_rejects_atomically);
     return pc_t_finish();

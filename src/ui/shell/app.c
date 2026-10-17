@@ -208,8 +208,8 @@ static pc_status invoke_ui_command(pc_ui_shell_app *a, const char *id, pc_json_v
     return PC_OK; /* a UI command with no shell effect yet: a no-op success */
 }
 
-pc_status pc_ui_shell_app_invoke(pc_ui_shell_app *a, const char *id, yyjson_val *params,
-                                 pc_json_value *out, pc_error *err)
+pc_status pc_ui_shell_app_invoke(pc_ui_shell_app *a, const char *id, yyjson_val *params, pc_json_value *out,
+                                 pc_error *err)
 {
     if (id == NULL || id[0] == '\0') {
         return pc_fail(err, PC_ERR_INVALID, "missing `command`");
@@ -219,8 +219,33 @@ pc_status pc_ui_shell_app_invoke(pc_ui_shell_app *a, const char *id, yyjson_val 
     if (sync != PC_OK) {
         return sync;
     }
+    pc_str saved_mode = PC_STR_INIT;
+    bool screen = strncmp(id, "view.screenMode.", 16) == 0;
+    if (screen && a->ui.view.screen_mode.ptr &&
+        pc_str_set(&saved_mode, a->ui.view.screen_mode.ptr, a->ui.view.screen_mode.len, err) != PC_OK) {
+        return err ? err->code : PC_ERR_NOMEM;
+    }
+    pc_json_value display_result = PC_JSON_VALUE_INIT;
+    pc_status display = pc_ui_view_options_command(&a->ui.view, id, params, &display_result, err);
+    if (display == PC_OK) {
+        if (screen && a->have_window && !(SDL_GetWindowFlags(a->win) & SDL_WINDOW_HIDDEN) &&
+            !SDL_SetWindowFullscreen(a->win, !pc_ui_view_standard(&a->ui.view))) {
+            pc_str_fini(&a->ui.view.screen_mode);
+            a->ui.view.screen_mode = saved_mode;
+            pc_json_value_fini(&display_result);
+            return pc_fail(err, PC_ERR_INVALID, "screen mode: %s", SDL_GetError());
+        }
+        a->canvas.dragging = false;
+        a->canvas.scroll_drag.active = false;
+        *out = display_result;
+    }
+    pc_str_fini(&saved_mode);
+    if (display != PC_ERR_NOT_FOUND) {
+        return display;
+    }
     pc_status camera = pc_ui_canvas_view_command(a, id, params, out, err);
     if (camera != PC_ERR_NOT_FOUND) {
+        if (camera == PC_OK) { a->canvas.dragging = false; a->canvas.scroll_drag.active = false; }
         return camera;
     }
     if (pc_engine_command_find(id) != NULL) {
@@ -346,20 +371,23 @@ static void draw_canvas_body(pc_ui_shell_app *a)
     struct nk_context *c = &a->ctx;
     size_t n = 0;
     const pc_engine_doc_state *docs = pc_engine_session_documents(a->session, &n);
-    nk_layout_row_dynamic(c, 24, n > 0 && n < 8 ? (int)n : 1);
-    for (size_t i = 0; i < n; i++) {
-        const pc_document *doc = pc_doc_arc_get(docs[i].doc);
-        char tab[160];
-        (void)snprintf(tab, sizeof tab, "%.120s%s", pc_str_c(&doc->name),
-                       pc_engine_doc_state_is_dirty(&docs[i]) ? " *" : "");
-        if (nk_button_label(c, tab)) {
-            (void)pc_engine_session_set_active(a->session, i);
-            a->menu_dirty = true;
+    bool tabs = pc_ui_view_standard(&a->ui.view);
+    if (tabs) {
+        nk_layout_row_dynamic(c, 24, n > 0 && n < 8 ? (int)n : 1);
+        for (size_t i = 0; i < n; i++) {
+            const pc_document *doc = pc_doc_arc_get(docs[i].doc);
+            char tab[160];
+            (void)snprintf(tab, sizeof tab, "%.120s%s", pc_str_c(&doc->name),
+                           pc_engine_doc_state_is_dirty(&docs[i]) ? " *" : "");
+            if (nk_button_label(c, tab)) {
+                (void)pc_engine_session_set_active(a->session, i);
+                a->menu_dirty = true;
+            }
         }
     }
     struct nk_rect r = nk_window_get_content_region(c);
-    r.y += 28.f;
-    r.h -= 28.f;
+    r.y += tabs ? 28.f : 0.f;
+    r.h -= tabs ? 28.f : 0.f;
     if (r.w < 1.f || r.h < 1.f) {
         return;
     }
@@ -444,7 +472,8 @@ static void draw_content(pc_ui_shell_app *a)
     if (aw < 1.0f || ah < 1.0f) {
         return;
     }
-    float dock_w = (float)DOCK_W;
+    bool dock = a->ui.panels.dock && !pc_ui_view_hides_chrome(&a->ui.view);
+    float dock_w = dock ? (float)DOCK_W : 0.f;
     if (dock_w > aw * 0.5f) {
         dock_w = aw * 0.5f;
     }
@@ -456,7 +485,7 @@ static void draw_content(pc_ui_shell_app *a)
     pc_ui_group shown[PC_UI_GROUP_N];
     size_t nshown = 0;
     for (size_t i = 0; i < PC_UI_GROUP_N; i++) {
-        if (group_shown(a, order[i])) {
+        if (dock && group_shown(a, order[i])) {
             shown[nshown++] = order[i];
         }
     }
@@ -507,8 +536,7 @@ static void draw_notices(pc_ui_shell_app *a, float w, float h)
         size_t extra = n->n_lines < PC_UI_NOTICE_MAX_LINES ? n->n_lines : PC_UI_NOTICE_MAX_LINES;
         float ch = 30.0f + (float)extra * 16.0f;
         y -= ch + 6.0f;
-        if (nk_begin(c, pc_buf_cstr(&title),
-                     nk_rect(x, y, cw, ch),
+        if (nk_begin(c, pc_buf_cstr(&title), nk_rect(x, y, cw, ch),
                      NK_WINDOW_BORDER | NK_WINDOW_NO_SCROLLBAR)) {
             struct nk_command_buffer *cv = nk_window_get_canvas(c);
             struct nk_rect b = nk_window_get_bounds(c);
@@ -537,7 +565,9 @@ static void build_ui(pc_ui_shell_app *a, float w, float h)
     (void)refresh_menu(a, &e);
     struct nk_context *c = &a->ctx;
     if (nk_begin(c, "PhotoCraft", nk_rect(0, 0, w, h), NK_WINDOW_NO_SCROLLBAR)) {
-        draw_menu_bar(a);
+        if (!pc_ui_view_hides_chrome(&a->ui.view)) {
+            draw_menu_bar(a);
+        }
         draw_content(a);
     }
     nk_end(c);
@@ -795,9 +825,18 @@ int pc_ui_shell_app_run(pc_ui_shell_app *a)
 }
 
 /* These let main.c translate SDL input without reaching into the struct. */
-struct nk_context *pc_ui_shell_app_nk(pc_ui_shell_app *a) { return a->ctx_ready ? &a->ctx : NULL; }
-SDL_Window *pc_ui_shell_app_sdl_window(pc_ui_shell_app *a) { return a->win; }
-float pc_ui_shell_app_ui_scale(const pc_ui_shell_app *a) { return a->ui_scale; }
+struct nk_context *pc_ui_shell_app_nk(pc_ui_shell_app *a)
+{
+    return a->ctx_ready ? &a->ctx : NULL;
+}
+SDL_Window *pc_ui_shell_app_sdl_window(pc_ui_shell_app *a)
+{
+    return a->win;
+}
+float pc_ui_shell_app_ui_scale(const pc_ui_shell_app *a)
+{
+    return a->ui_scale;
+}
 
 pc_status pc_ui_shell_app_sync_views(pc_ui_shell_app *a, pc_error *err)
 {

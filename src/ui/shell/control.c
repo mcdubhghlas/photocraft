@@ -139,11 +139,13 @@ pc_status pc_ui_control_inspect(pc_ui_shell_app *a, pc_json_value *out, pc_error
     yyjson_mut_obj_add_strcpy(d, root, "tool", pc_ui_tool_serde(ui->tool));
     yyjson_mut_obj_add_val(d, root, "panels", panels_json(d, &ui->panels));
     yyjson_mut_obj_add_val(d, root, "extras", extras_json(d, &ui->extras));
+    yyjson_mut_val *view_options = NULL;
+    pc_status view_rc = pc_ui_view_options_to_json(&ui->view, d, &view_options, err);
+    if (view_rc != PC_OK) { yyjson_mut_doc_free(d); return view_rc; }
+    yyjson_mut_obj_add_val(d, root, "view", view_options);
     size_t active_view = 0;
-    (void)pc_engine_session_active_index(s, &active_view);
-    yyjson_mut_obj_add_val(
-        d, root, "view",
-        view_json(d, active_view < ui->n_views ? &ui->views[active_view] : &(pc_ui_view){.zoom = 1.0f}));
+    bool has_view = pc_engine_session_active_index(s, &active_view) && active_view < ui->n_views;
+    yyjson_mut_obj_add_val(d, root, "activeView", has_view ? view_json(d, &ui->views[active_view]) : yyjson_mut_null(d));
 
     yyjson_mut_val *views = yyjson_mut_arr(d);
     for (size_t i = 0; i < ui->n_views; i++) {
