@@ -76,6 +76,9 @@ void pc_ui_shell_app_apply_theme(pc_ui_shell_app *a);
 pc_status pc_ui_shell_app_invoke(pc_ui_shell_app *a, const char *id, yyjson_val *params,
                                  pc_json_value *out, pc_error *err);
 
+/* Synchronise per-document cameras after open/close/reorder. Preserves them by document id. */
+pc_status pc_ui_shell_app_sync_views(pc_ui_shell_app *a, pc_error *err);
+
 /* The menu-bar keyboard navigation state (used by the frame loop and testable on its own). */
 pc_ui_menu_nav *pc_ui_shell_app_nav(pc_ui_shell_app *a);
 

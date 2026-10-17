@@ -44,6 +44,7 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_TEXTURE_WRAP_T 0x2803
 #define GL_CLAMP_TO_EDGE 0x812F
 #define GL_RGBA8 0x8058
+#define GL_RGBA32F 0x8814
 #define GL_FUNC_ADD 0x8006
 #define GL_TEXTURE0 0x84C0
 #define GL_ARRAY_BUFFER 0x8892
@@ -57,9 +58,13 @@ typedef ptrdiff_t GLsizeiptr;
 #define GL_COLOR_ATTACHMENT0 0x8CE0
 #define GL_FRAMEBUFFER 0x8D40
 #define GL_COLOR_BUFFER_BIT 0x00004000
+#define GL_FRAMEBUFFER_BINDING 0x8CA6
+#define GL_MAX_TEXTURE_SIZE 0x0D33
+#define GL_NEAREST 0x2600
 
 /* X(return type, name, parameter list) for every function we load. */
 #define GL33_FUNCS(X)                                                                             \
+    X(void, glGetIntegerv, (GLenum name, GLint *value))                                             \
     X(GLenum, glGetError, (void))                                                                 \
     X(const GLubyte *, glGetString, (GLenum name))                                                \
     X(void, glViewport, (GLint x, GLint y, GLsizei w, GLsizei h))                                 \
@@ -88,6 +93,8 @@ typedef ptrdiff_t GLsizeiptr;
     X(GLint, glGetUniformLocation, (GLuint p, const GLchar *name))                                \
     X(GLint, glGetAttribLocation, (GLuint p, const GLchar *name))                                 \
     X(void, glUniform1i, (GLint loc, GLint v))                                                    \
+    X(void, glUniform2f, (GLint loc, GLfloat x, GLfloat y))                                         \
+    X(void, glUniform4f, (GLint loc, GLfloat x, GLfloat y, GLfloat z, GLfloat w))                    \
     X(void, glUniformMatrix4fv, (GLint loc, GLsizei n, GLboolean t, const GLfloat *v))           \
     X(void, glGenBuffers, (GLsizei n, GLuint *out))                                               \
     X(void, glDeleteBuffers, (GLsizei n, const GLuint *b))                                        \
@@ -100,6 +107,7 @@ typedef ptrdiff_t GLsizeiptr;
     X(void, glVertexAttribPointer, (GLuint i, GLint n, GLenum t, GLboolean norm, GLsizei stride,  \
                                     const void *off))                                             \
     X(void, glDrawElements, (GLenum mode, GLsizei count, GLenum type, const void *off))          \
+    X(void, glDrawArrays, (GLenum mode, GLint first, GLsizei count))                                \
     X(void, glGenTextures, (GLsizei n, GLuint *out))                                              \
     X(void, glDeleteTextures, (GLsizei n, const GLuint *t))                                       \
     X(void, glBindTexture, (GLenum target, GLuint t))                                             \

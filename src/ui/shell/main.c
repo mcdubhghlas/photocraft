@@ -14,6 +14,9 @@
 
 #include "base/buf.h"
 #include "base/file.h"
+#include "base/mem.h"
+#include "base/num.h"
+#include "io/io.h"
 #include "codecs/codecs.h"
 #include "codecs/image.h"
 #include "shell_internal.h"
@@ -59,14 +62,17 @@ static int write_snapshot(pc_ui_shell_app *a, const char *out)
 int main(int argc, char **argv)
 {
     const char *snapshot = NULL, *font_path = "assets/fonts/Inter-Regular.ttf";
+    const char *open_path = NULL;
     float scale = 0.0f;
     pc_ui_theme_kind theme = PC_UI_THEME_DEFAULT;
     bool set_theme = false;
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--snapshot") == 0 && i + 1 < argc) {
             snapshot = argv[++i];
+        } else if (strcmp(argv[i], "--open") == 0 && i + 1 < argc) {
+            open_path = argv[++i];
         } else if (strcmp(argv[i], "--scale") == 0 && i + 1 < argc) {
-            scale = (float)SDL_strtod(argv[++i], NULL);
+            scale = pc_f64_to_f32(SDL_strtod(argv[++i], NULL));
             if (!(scale >= 0.5f && scale <= 4.0f)) {
                 return fail("--scale", "must be 0.5..4");
             }
@@ -78,8 +84,10 @@ int main(int argc, char **argv)
         } else if (strcmp(argv[i], "--font") == 0 && i + 1 < argc) {
             font_path = argv[++i];
         } else {
-            (void)fprintf(stderr, "usage: %s [--snapshot OUT.png] [--scale S] [--theme ID] [--font PATH]\n",
-                          argv[0]);
+            (void)fprintf(
+                stderr,
+                "usage: %s [--snapshot OUT.png] [--scale S] [--theme ID] [--font PATH] [--open FILE]\n",
+                argv[0]);
             return 2;
         }
     }
@@ -93,6 +101,29 @@ int main(int argc, char **argv)
     if (pc_ui_shell_app_new(&a, &err) != PC_OK) {
         (void)fail("startup", err.msg);
         goto done;
+    }
+    if (open_path) {
+        pc_buf bytes = PC_BUF_INIT;
+        pc_io_import_result imported = {0};
+        pc_status status = pc_file_read(open_path, PC_MAX_ALLOC, &bytes, &err);
+        if (status == PC_OK) {
+            status = pc_io_import(open_path, bytes.data, bytes.len, &imported, &err);
+        }
+        if (status == PC_OK) {
+            size_t index;
+            status = pc_engine_session_add_document(pc_ui_shell_app_session(a), &imported.document, open_path,
+                                                    &index, &err);
+        }
+        if (status == PC_OK) {
+            pc_engine_session_active_mut(pc_ui_shell_app_session(a))->source_read_only =
+                imported.source_read_only;
+        }
+        pc_buf_fini(&bytes);
+        pc_io_import_result_fini(&imported);
+        if (status != PC_OK) {
+            (void)fail("open", err.msg);
+            goto done;
+        }
     }
     if (set_theme) {
         pc_ui_shell_app_state(a)->theme = theme;

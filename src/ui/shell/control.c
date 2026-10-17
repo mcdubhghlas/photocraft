@@ -1,6 +1,8 @@
 /* ui.* control-channel handler: see control.h. */
 #include "control.h"
 
+#include <float.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -10,6 +12,7 @@
 #include "codecs/codecs.h"
 #include "codecs/image.h"
 #include "ui/menus.h"
+#include "ui/canvas.h"
 #include "ui/shortcuts.h"
 
 /* The ui.set fields, byte-for-byte from control.rs UI_SET_FIELDS, so an unknown field gives the same
@@ -113,6 +116,10 @@ static void add_json_value(yyjson_mut_doc *d, yyjson_mut_val *o, const char *key
 
 pc_status pc_ui_control_inspect(pc_ui_shell_app *a, pc_json_value *out, pc_error *err)
 {
+    pc_status sync = pc_ui_shell_app_sync_views(a, err);
+    if (sync != PC_OK) {
+        return sync;
+    }
     pc_engine_session *s = pc_ui_shell_app_session(a);
     const pc_ui_state *ui = pc_ui_shell_app_state(a);
     yyjson_mut_doc *d = yyjson_mut_doc_new(NULL);
@@ -132,7 +139,11 @@ pc_status pc_ui_control_inspect(pc_ui_shell_app *a, pc_json_value *out, pc_error
     yyjson_mut_obj_add_strcpy(d, root, "tool", pc_ui_tool_serde(ui->tool));
     yyjson_mut_obj_add_val(d, root, "panels", panels_json(d, &ui->panels));
     yyjson_mut_obj_add_val(d, root, "extras", extras_json(d, &ui->extras));
-    yyjson_mut_obj_add_val(d, root, "view", view_json(d, ui->n_views > 0 ? &ui->views[0] : &(pc_ui_view){.zoom = 1.0f}));
+    size_t active_view = 0;
+    (void)pc_engine_session_active_index(s, &active_view);
+    yyjson_mut_obj_add_val(
+        d, root, "view",
+        view_json(d, active_view < ui->n_views ? &ui->views[active_view] : &(pc_ui_view){.zoom = 1.0f}));
 
     yyjson_mut_val *views = yyjson_mut_arr(d);
     for (size_t i = 0; i < ui->n_views; i++) {
@@ -285,7 +296,7 @@ static pc_status ui_set(pc_ui_shell_app *a, yyjson_val *p, pc_json_value *out, p
         double zoom = 0;
         bool set_zoom = false;
         if ((v = pc_json_get(p, "zoom")) != NULL) {
-            if (!pc_json_as_f64(v, &zoom) || !(zoom > 0.0)) {
+            if (!pc_json_as_f64(v, &zoom) || !isfinite(zoom) || zoom > FLT_MAX || !(zoom > 0.0)) {
                 return pc_fail(err, PC_ERR_INVALID, "zoom must be a positive number");
             }
             set_zoom = true;
@@ -293,10 +304,23 @@ static pc_status ui_set(pc_ui_shell_app *a, yyjson_val *p, pc_json_value *out, p
         double rotation = 0;
         bool set_rot = false;
         if ((v = pc_json_get(p, "rotation")) != NULL) {
-            if (!pc_json_as_f64(v, &rotation)) {
+            if (!pc_json_as_f64(v, &rotation) || !isfinite(rotation) || fabs(rotation) > FLT_MAX) {
                 return pc_fail(err, PC_ERR_INVALID, "rotation must be a number");
             }
             set_rot = true;
+        }
+        double cx = 0, cy = 0;
+        yyjson_val *center = pc_json_get(p, "center");
+        if (center && (!yyjson_is_arr(center) || yyjson_arr_size(center) != 2 ||
+                       !pc_json_as_f64(yyjson_arr_get(center, 0), &cx) ||
+                       !pc_json_as_f64(yyjson_arr_get(center, 1), &cy) || !isfinite(cx) || !isfinite(cy) ||
+                       fabs(cx) > FLT_MAX || fabs(cy) > FLT_MAX)) {
+            return pc_fail(err, PC_ERR_INVALID, "center must be two finite numbers representable as f32");
+        }
+        bool fit = false;
+        yyjson_val *fit_value = pc_json_get(p, "fit");
+        if (fit_value && !pc_json_as_bool(fit_value, &fit)) {
+            return pc_fail(err, PC_ERR_INVALID, "fit must be a boolean");
         }
         /* Fields whose state this build does not model yet: a clear error, no partial apply. */
         static const char *unsupported[] = {"dock",         "dockWidth",      "brushPicker",
@@ -312,6 +336,9 @@ static pc_status ui_set(pc_ui_shell_app *a, yyjson_val *p, pc_json_value *out, p
                                "`%s` is not available in this build yet", unsupported[i]);
             }
         }
+
+        pc_status sync = pc_ui_shell_app_sync_views(a, err);
+        if (sync != PC_OK) { return sync; }
 
         /* Apply (nothing above failed). */
         if (set_tool) {
@@ -346,28 +373,26 @@ static pc_status ui_set(pc_ui_shell_app *a, yyjson_val *p, pc_json_value *out, p
                 }
             }
         }
-        if (set_zoom || set_rot || pc_json_get(p, "center") != NULL || pc_json_get(p, "fit") != NULL) {
-            pc_ui_view *view = ui->n_views > 0 ? &ui->views[0] : NULL;
-            if (view != NULL) {
-                if (set_zoom) {
-                    view->zoom = (float)zoom;
-                }
-                if (set_rot) {
-                    view->rotation = (float)rotation;
-                }
-                if ((v = pc_json_get(p, "center")) != NULL && yyjson_is_arr(v) &&
-                    yyjson_arr_size(v) == 2) {
-                    double cx, cy;
-                    if (pc_json_as_f64(yyjson_arr_get(v, 0), &cx) &&
-                        pc_json_as_f64(yyjson_arr_get(v, 1), &cy)) {
-                        view->center[0] = (float)cx;
-                        view->center[1] = (float)cy;
-                    }
-                }
-                bool fit;
-                if ((v = pc_json_get(p, "fit")) != NULL && pc_json_as_bool(v, &fit) && fit) {
-                    view->fit_pending = true;
-                }
+        size_t active = 0;
+        (void)pc_engine_session_active_index(pc_ui_shell_app_session(a), &active);
+        pc_ui_view *view = active < ui->n_views ? &ui->views[active] : NULL;
+        if (view) {
+            if (set_zoom) {
+                view->zoom = pc_ui_zoom_clamp((float)zoom, view->doc_size);
+            }
+            if (set_rot) {
+                view->rotation = pc_ui_rotation_wrap((float)rotation);
+            }
+            if (center) {
+                view->center[0] = (float)cx;
+                view->center[1] = (float)cy;
+            }
+            if (set_zoom || center) {
+                view->fit_pending = false;
+                view->fill_pending = false;
+            }
+            if (fit_value) {
+                view->fit_pending = fit;
             }
         }
     }

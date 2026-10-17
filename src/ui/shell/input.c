@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "shell_internal.h"
+#include "base/num.h"
 #include "ui/shortcut_dispatch.h"
 #include "ui/shortcuts.h"
 
@@ -111,16 +112,19 @@ void pc_ui_shell_input_event(pc_ui_shell_app *a, const SDL_Event *e)
     if (c == NULL || e == NULL) {
         return;
     }
+    if (pc_ui_shell_canvas_event(a, e)) {
+        return;
+    }
     switch (e->type) {
     case SDL_EVENT_MOUSE_MOTION:
-        nk_input_motion(c, (int)to_ui(a, e->motion.x), (int)to_ui(a, e->motion.y));
+        nk_input_motion(c, pc_f32_to_i32(to_ui(a, e->motion.x)), pc_f32_to_i32(to_ui(a, e->motion.y)));
         break;
     case SDL_EVENT_MOUSE_BUTTON_DOWN:
     case SDL_EVENT_MOUSE_BUTTON_UP: {
         enum nk_buttons b = e->button.button == SDL_BUTTON_RIGHT    ? NK_BUTTON_RIGHT
                             : e->button.button == SDL_BUTTON_MIDDLE ? NK_BUTTON_MIDDLE
                                                                     : NK_BUTTON_LEFT;
-        int x = (int)to_ui(a, e->button.x), y = (int)to_ui(a, e->button.y);
+        int x = pc_f32_to_i32(to_ui(a, e->button.x)), y = pc_f32_to_i32(to_ui(a, e->button.y));
         if (b == NK_BUTTON_LEFT && e->button.clicks > 1 && e->button.down) {
             nk_input_button(c, NK_BUTTON_DOUBLE, x, y, true);
         }
@@ -132,6 +136,7 @@ void pc_ui_shell_input_event(pc_ui_shell_app *a, const SDL_Event *e)
         break;
     case SDL_EVENT_TEXT_INPUT: {
         const char *t = e->text.text;
+        if (t == NULL) { break; }
         int len = (int)strlen(t), i = 0;
         while (i < len) {
             nk_rune r = 0;

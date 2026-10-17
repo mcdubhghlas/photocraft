@@ -2,6 +2,8 @@
  * SDL video, so there is no GL context — the non-screenshot methods run against the app + UiState,
  * and ui.screenshot takes the CPU capture path and still yields a valid PNG. Asserts the request /
  * response shapes of docs/control-protocol.md and that bad input is an error, never a crash. */
+#include <SDL3/SDL.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -11,6 +13,7 @@
 #include "harness.h"
 #include "ui/shell/app.h"
 #include "ui/shell/control.h"
+#include "ui/shell/shell_internal.h"
 
 /* Call a control method with JSON params text (NULL = none). Fills *out_text with the serialised
  * result on success; returns the pc_status. */
@@ -216,6 +219,157 @@ static void test_resize(void)
     pc_ui_shell_app_free(a);
 }
 
+static void test_document_cameras(void)
+{
+    pc_ui_shell_app *a = NULL;
+    pc_error err;
+    CHECK(pc_ui_shell_app_new(&a, &err) == PC_OK);
+    CHECK(call(a, "engine.execute", "{\"command\":\"file.new\",\"params\":{\"width\":80,\"height\":60}}",
+               NULL) == PC_OK);
+    CHECK(call(a, "ui.set", "{\"zoom\":8,\"center\":[12,23],\"rotation\":45}", NULL) == PC_OK);
+    pc_ui_state *ui = pc_ui_shell_app_state(a);
+    CHECK(ui->n_views == 1);
+    CHECK_NEAR(ui->views[0].zoom, 8, 0);
+    CHECK(call(a, "engine.execute", "{\"command\":\"file.new\",\"params\":{\"width\":40,\"height\":30}}",
+               NULL) == PC_OK);
+    CHECK(call(a, "ui.set", "{\"zoom\":2,\"center\":[7,9]}", NULL) == PC_OK);
+    CHECK(ui->n_views == 2);
+    CHECK_NEAR(ui->views[0].zoom, 8, 0);
+    CHECK_NEAR(ui->views[1].zoom, 2, 0);
+    pc_buf b = PC_BUF_INIT;
+    CHECK(call(a, "ui.inspect", NULL, &b) == PC_OK);
+    yyjson_doc *inspected = NULL;
+    CHECK(pc_json_parse(pc_buf_cstr(&b), b.len, &inspected, &err) == PC_OK);
+    double current_zoom = 0;
+    CHECK(pc_json_as_f64(pc_json_get(pc_json_get(yyjson_doc_get_root(inspected), "view"), "zoom"),
+                         &current_zoom));
+    CHECK_NEAR(current_zoom, 2, 0);
+    yyjson_doc_free(inspected);
+    pc_buf_fini(&b);
+    size_t moved;
+    CHECK(pc_engine_session_move_document(pc_ui_shell_app_session(a), 0, 1, &moved));
+    CHECK(pc_ui_shell_app_sync_views(a, &err) == PC_OK);
+    CHECK_NEAR(ui->views[0].zoom, 2, 0);
+    CHECK_NEAR(ui->views[1].zoom, 8, 0);
+    CHECK(pc_engine_session_close(pc_ui_shell_app_session(a), 0));
+    CHECK(pc_ui_shell_app_sync_views(a, &err) == PC_OK);
+    CHECK(ui->n_views == 1);
+    CHECK_NEAR(ui->views[0].zoom, 8, 0);
+    CHECK(call(a, "ui.menu.invoke", "{\"id\":\"view.zoomOut\"}", NULL) == PC_OK);
+    CHECK_NEAR(ui->views[0].zoom, 7, 0);
+    pc_buf reset = PC_BUF_INIT;
+    CHECK(call(a, "ui.menu.invoke", "{\"id\":\"view.resetView\"}", &reset) == PC_OK);
+    CHECK_CONTAINS(pc_buf_cstr(&reset),"\"rotation\":0.0");
+    CHECK_CONTAINS(pc_buf_cstr(&reset),"\"zoom\":7.0");
+    pc_buf_fini(&reset);
+    CHECK_NEAR(ui->views[0].rotation, 0, 0);
+    pc_ui_shell_app_free(a);
+}
+
+static void test_camera_rejects_atomically(void)
+{
+    pc_ui_shell_app *a = NULL;
+    pc_error err;
+    CHECK(pc_ui_shell_app_new(&a, &err) == PC_OK);
+    CHECK(call(a, "engine.execute", "{\"command\":\"file.new\",\"params\":{\"width\":80,\"height\":60}}",
+               NULL) == PC_OK);
+    CHECK(pc_ui_shell_app_state(a)->n_views==0);
+    CHECK(call(a,"ui.set","{\"zoom\":1e100}",NULL)!=PC_OK);
+    CHECK(pc_ui_shell_app_state(a)->n_views==0);
+    CHECK(call(a, "ui.set", "{\"zoom\":2,\"center\":[10,20]}", NULL) == PC_OK);
+    const char *bad[] = {"{\"zoom\":1e100,\"tool\":\"Brush\"}", "{\"center\":[1e100,0],\"zoom\":3}",
+                         "{\"center\":[1],\"zoom\":3}", "{\"rotation\":1e100,\"zoom\":3}",
+                         "{\"fit\":7,\"zoom\":3}"};
+    pc_ui_state *ui = pc_ui_shell_app_state(a);
+    pc_ui_tool original = ui->tool;
+    for (size_t i = 0; i < sizeof bad / sizeof bad[0]; i++) {
+        CHECK(call(a, "ui.set", bad[i], NULL) != PC_OK);
+        CHECK_NEAR(ui->views[0].zoom, 2, 0);
+        CHECK_NEAR(ui->views[0].center[0], 10, 0);
+        CHECK(ui->tool == original);
+    }
+    CHECK(call(a, "ui.set", "{\"zoom\":1000,\"rotation\":450}", NULL) == PC_OK);
+    CHECK_NEAR(ui->views[0].zoom, 128, 0);
+    CHECK_NEAR(ui->views[0].rotation, 90, 0);
+    pc_ui_shell_app_free(a);
+}
+
+/* Opt-in real GL integration: run PC_TEST_GL=1 SDL_VIDEO_DRIVER=offscreen. The ordinary test
+ * suite remains display-independent; the opt-in run also works under ASan with Mesa leaks off. */
+static void test_gl_canvas(void)
+{
+    if (!getenv("PC_TEST_GL")) {
+        return;
+    }
+    CHECK(SDL_Init(SDL_INIT_VIDEO));
+    pc_ui_shell_app *a = NULL;
+    pc_error err;
+    CHECK(pc_ui_shell_app_new(&a, &err) == PC_OK);
+    pc_document doc;
+    CHECK(pc_document_with_background(&doc, "red", pc_size_make(128, 96), PC_COLOR_MODE_RGB,
+                                      PC_SAMPLE_TYPE_F32, pc_color_rgb(1, 0, 0), &err) == PC_OK);
+    size_t index;
+    CHECK(pc_engine_session_add_document(pc_ui_shell_app_session(a), &doc, NULL, &index, &err) == PC_OK);
+    CHECK(pc_ui_shell_app_open_window(a, "assets/fonts/Inter-Regular.ttf", 1, true, &err) == PC_OK);
+    for (int rotation = 0; rotation < 4; rotation++) {
+        char params[80];
+        (void)snprintf(params, sizeof params, "{\"zoom\":2,\"center\":[64,48],\"rotation\":%d}",
+                       rotation * 90);
+        CHECK(call(a, "ui.set", params, NULL) == PC_OK);
+        uint8_t *rgba = NULL;
+        int w = 0, h = 0;
+        pc_status rc = pc_ui_shell_app_capture(a, &rgba, &w, &h, &err);
+        if (rc != PC_OK) {
+            PC_T_FAIL("GL capture: %s", err.msg);
+        }
+        CHECK(rc == PC_OK);
+        if (rgba && w > 500 && h > 450) {
+            const uint8_t *center = rgba + ((size_t)429 * (size_t)w + 490) * 4;
+            CHECK(center[0] > 250 && center[1] < 3 && center[2] < 3);
+        }
+        free(rgba);
+    }
+    CHECK(call(a, "ui.set", "{\"tool\":\"Hand\",\"rotation\":0,\"center\":[64,48],\"zoom\":2}", NULL) ==
+          PC_OK);
+    SDL_Event event;
+    memset(&event, 0, sizeof event);
+    event.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+    event.button.button = SDL_BUTTON_LEFT;
+    event.button.down = true;
+    event.button.x = 490;
+    event.button.y = 429;
+    pc_ui_shell_input_event(a, &event);
+    memset(&event, 0, sizeof event);
+    event.type = SDL_EVENT_MOUSE_MOTION;
+    event.motion.x = 510;
+    event.motion.y = 429;
+    pc_ui_shell_input_event(a, &event);
+    event.motion.x = 530;
+    pc_ui_shell_input_event(a, &event);
+    pc_ui_state *ui = pc_ui_shell_app_state(a);
+    CHECK_NEAR(ui->views[0].center[0], 44, 1e-3);
+    CHECK_NEAR(ui->views[0].center[1], 48, 1e-3);
+    memset(&event, 0, sizeof event);
+    event.type = SDL_EVENT_MOUSE_BUTTON_UP;
+    event.button.button = SDL_BUTTON_LEFT;
+    event.button.down = false;
+    event.button.x = 530;
+    event.button.y = 429;
+    pc_ui_shell_input_event(a, &event);
+    memset(&event,0,sizeof event); event.type=SDL_EVENT_MOUSE_MOTION;
+    event.motion.x=INFINITY; event.motion.y=NAN; pc_ui_shell_input_event(a,&event);
+    memset(&event,0,sizeof event); event.type=SDL_EVENT_TEXT_INPUT;
+    event.text.text=NULL; pc_ui_shell_input_event(a,&event);
+    CHECK(call(a, "ui.menu.invoke", "{\"id\":\"view.rulers\"}", NULL) == PC_OK);
+    CHECK(ui->extras.rulers);
+    uint8_t *ruled = NULL;
+    int rw = 0, rh = 0;
+    CHECK(pc_ui_shell_app_capture(a, &ruled, &rw, &rh, &err) == PC_OK);
+    free(ruled);
+    pc_ui_shell_app_free(a);
+    SDL_Quit();
+}
+
 int main(int argc, char **argv)
 {
     (void)argc;
@@ -229,5 +383,8 @@ int main(int argc, char **argv)
     RUN(test_screenshot_png);
     RUN(test_unknown_method);
     RUN(test_resize);
+    RUN(test_gl_canvas);
+    RUN(test_document_cameras);
+    RUN(test_camera_rejects_atomically);
     return pc_t_finish();
 }

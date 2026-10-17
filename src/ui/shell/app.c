@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include "base/mem.h"
+#include "canvas_view.h"
 #include "codecs/codecs.h"
 #include "codecs/image.h"
 #include "compose/compose.h"
@@ -29,6 +30,7 @@ struct pc_ui_shell_app {
     pc_ui_state ui;             /* U1 UiState */
     pc_ui_tokens tokens;        /* tokens for ui.theme */
     pc_ui_menu_nav nav;
+    pc_ui_canvas_view canvas;   /* U4: camera, revision cache and display texture */
     pc_ui_notices notices;      /* U3: lower-right notice stack */
     uint64_t frame;
     float win_w, win_h; /* UI units (logical) */
@@ -92,6 +94,7 @@ void pc_ui_shell_app_free(pc_ui_shell_app *a)
         return;
     }
     free_menu_items(a);
+    pc_ui_canvas_view_fini(&a->canvas, a->gl_ready ? &a->gl : NULL);
     if (a->ctx_ready) {
         nk_free(&a->ctx);
     }
@@ -212,6 +215,14 @@ pc_status pc_ui_shell_app_invoke(pc_ui_shell_app *a, const char *id, yyjson_val 
         return pc_fail(err, PC_ERR_INVALID, "missing `command`");
     }
     a->menu_dirty = true;
+    pc_status sync = pc_ui_canvas_sync(a, &a->canvas, err);
+    if (sync != PC_OK) {
+        return sync;
+    }
+    pc_status camera = pc_ui_canvas_view_command(a, id, params, out, err);
+    if (camera != PC_ERR_NOT_FOUND) {
+        return camera;
+    }
     if (pc_engine_command_find(id) != NULL) {
         return pc_engine_session_execute(a->session, id, params, out, err);
     }
@@ -329,42 +340,41 @@ static size_t *group_tab_slot(pc_ui_shell_app *a, pc_ui_group g)
     }
 }
 
-/* The active document's canvas surround (the real canvas tiles/rulers/zoom are U4). */
+/* Canvas display: the CPU oracle is cached by revision; the GL camera draws the document. */
 static void draw_canvas_body(pc_ui_shell_app *a)
 {
     struct nk_context *c = &a->ctx;
-    char line[256];
-    size_t ndocs = 0;
-    const pc_engine_doc_state *docs = pc_engine_session_documents(a->session, &ndocs);
-    size_t active = 0;
-    bool has_active = pc_engine_session_active_index(a->session, &active);
-
-    nk_layout_row_dynamic(c, 22, 1);
-    (void)snprintf(line, sizeof line, "PhotoCraft \xc2\xb7 %s \xc2\xb7 Tool: %s \xc2\xb7 %zu open",
-                   pc_ui_theme_kind_label(a->ui.theme), pc_ui_tool_label(a->ui.tool), ndocs);
-    nk_label(c, line, NK_TEXT_LEFT);
-
+    size_t n = 0;
+    const pc_engine_doc_state *docs = pc_engine_session_documents(a->session, &n);
+    nk_layout_row_dynamic(c, 24, n > 0 && n < 8 ? (int)n : 1);
+    for (size_t i = 0; i < n; i++) {
+        const pc_document *doc = pc_doc_arc_get(docs[i].doc);
+        char tab[160];
+        (void)snprintf(tab, sizeof tab, "%.120s%s", pc_str_c(&doc->name),
+                       pc_engine_doc_state_is_dirty(&docs[i]) ? " *" : "");
+        if (nk_button_label(c, tab)) {
+            (void)pc_engine_session_set_active(a->session, i);
+            a->menu_dirty = true;
+        }
+    }
     struct nk_rect r = nk_window_get_content_region(c);
-    r.y += 26.0f;
-    r.h -= 26.0f;
-    if (r.h < 40.0f) {
-        r.h = 40.0f;
+    r.y += 28.f;
+    r.h -= 28.f;
+    if (r.w < 1.f || r.h < 1.f) {
+        return;
     }
     struct nk_command_buffer *cv = nk_window_get_canvas(c);
     nk_fill_rect(cv, r, 0, pc_ui_nk_color(a->tokens.canvas));
-    if (has_active && active < ndocs) {
-        const pc_document *doc = pc_doc_arc_get(docs[active].doc);
-        (void)snprintf(line, sizeof line, "%u \xc3\x97 %u px", doc->size.width, doc->size.height);
-        float cw = r.w * 0.6f, ch = r.h * 0.6f;
-        struct nk_rect card = nk_rect(r.x + (r.w - cw) * 0.5f, r.y + (r.h - ch) * 0.5f, cw, ch);
-        nk_fill_rect(cv, card, a->tokens.radius, nk_rgb(255, 255, 255));
-        nk_stroke_rect(cv, card, a->tokens.radius, 1.0f, pc_ui_nk_color(a->tokens.card_border));
-        nk_draw_text(cv, nk_rect(card.x + 8, card.y + 8, card.w - 16, 20), line, (int)strlen(line),
-                     &a->font.nk, nk_rgb(255, 255, 255), pc_ui_nk_color(a->tokens.text));
+    if (n) {
+        pc_error err;
+        if (pc_ui_canvas_view_draw(a, &a->canvas, &a->gl, r, &err) != PC_OK) {
+            nk_draw_text(cv, nk_rect(r.x + 16, r.y + 16, r.w - 32, 24), err.msg, (int)strlen(err.msg),
+                         &a->font.nk, pc_ui_nk_color(a->tokens.canvas), pc_ui_nk_color(a->tokens.danger));
+        }
     } else {
         const char *hint = "Open or create a document (File > New)";
-        nk_draw_text(cv, nk_rect(r.x + 16, r.y + 16, r.w - 32, 20), hint, (int)strlen(hint),
-                     &a->font.nk, pc_ui_nk_color(a->tokens.canvas), pc_ui_nk_color(a->tokens.text_dim));
+        nk_draw_text(cv, nk_rect(r.x + 16, r.y + 16, r.w - 32, 20), hint, (int)strlen(hint), &a->font.nk,
+                     pc_ui_nk_color(a->tokens.canvas), pc_ui_nk_color(a->tokens.text_dim));
     }
 }
 
@@ -788,3 +798,13 @@ int pc_ui_shell_app_run(pc_ui_shell_app *a)
 struct nk_context *pc_ui_shell_app_nk(pc_ui_shell_app *a) { return a->ctx_ready ? &a->ctx : NULL; }
 SDL_Window *pc_ui_shell_app_sdl_window(pc_ui_shell_app *a) { return a->win; }
 float pc_ui_shell_app_ui_scale(const pc_ui_shell_app *a) { return a->ui_scale; }
+
+pc_status pc_ui_shell_app_sync_views(pc_ui_shell_app *a, pc_error *err)
+{
+    return pc_ui_canvas_sync(a, &a->canvas, err);
+}
+
+bool pc_ui_shell_canvas_event(pc_ui_shell_app *a, const SDL_Event *e)
+{
+    return pc_ui_canvas_view_event(a, &a->canvas, e);
+}

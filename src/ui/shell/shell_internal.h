@@ -13,6 +13,8 @@
  * the frame loop between nk_input_begin/end. Never crashes on any event. */
 void pc_ui_shell_input_event(pc_ui_shell_app *a, const SDL_Event *e);
 
+bool pc_ui_shell_canvas_event(pc_ui_shell_app *a, const SDL_Event *event);
+
 /* Release the lazily-built shortcut binding table (the interactive loop builds it on first key). */
 void pc_ui_shell_input_cleanup(void);
 

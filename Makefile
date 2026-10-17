@@ -379,4 +379,4 @@ install: all
 clean:
 	rm -rf build
 
--include $(OBJS:.o=.d) $(SPIKE_OBJS:.o=.d) $(APP_OBJS:.o=.d) $(TEST_BINS:=.d)
+-include $(OBJS:.o=.d) $(SPIKE_OBJS:.o=.d) $(SNAP_OBJS:.o=.d) $(UISHELL_OBJS:.o=.d) $(APP_OBJS:.o=.d) $(TEST_BINS:=.d)
