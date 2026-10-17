@@ -50,11 +50,25 @@ pc_status pc_engine_transform_layer(const pc_surface *doc_sel, pc_locks group, p
 pc_status pc_engine_transform_composite_over_native(pc_surface *dst, const pc_surface *top,
                                                     pc_error *err);
 
+/* transform_cmds::split_selected: split a layer surface by a selection into (selected pixels,
+ * everything else), both converted to `surf`'s format with alpha. *lifted and *rest are
+ * initialised on success (caller frees with pc_surface_fini). Used by the distort warps
+ * (edit.puppetWarp / edit.perspectiveWarp, distort_cmds) to lift the selected pixels, deform them
+ * and composite them back over the rest. Never crashes. */
+pc_status pc_engine_transform_split_selected(const pc_surface *surf, const pc_surface *sel,
+                                             pc_surface *lifted, pc_surface *rest, pc_error *err);
+
 /* transform_cmds::warp_gray. Warp a single-channel surface whose pixels outside the content read
  * as its default (a layer mask, an alpha channel, a selection) by `h`: the vacated area reads as
  * the default again. *out is initialised on success (pc_surface_fini); never crashes. */
 pc_status pc_engine_transform_warp_gray(const pc_surface *s, const pc_algo_homography *h,
                                         pc_algo_interp interp, pc_surface *out, pc_error *err);
+
+/* Refuse a warp of the content inside `src` by `h` whose result would exceed the pixel budget,
+ * before anything is built (transform_cmds::check_budget). PC_OK when within budget or the map is
+ * degenerate; the caller then handles the degenerate map. Used by select.transformSelection. */
+pc_status pc_engine_transform_check_budget(pc_rect src, const pc_algo_homography *h, const char *what,
+                                           pc_error *err);
 
 /* The locks `id` inherits from the groups around it (transform_cmds::group_locks): the union of
  * every enclosing group's locks. Default locks when `id` is absent. */

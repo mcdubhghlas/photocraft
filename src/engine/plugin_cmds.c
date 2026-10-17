@@ -12,6 +12,7 @@
 
 #include "base/buf.h"
 #include "channel_cmds.h" /* pc_engine_channel_surface_for_filter (channel/mask target) */
+#include "distort_cmds.h" /* GAP: Liquify/Puppet/Perspective smart-filter re-apply */
 #include "engine_internal.h"
 #include "layer_cmds.h" /* pc_engine_layer_param */
 #include "plugins/plugins.h"
@@ -154,6 +155,12 @@ pc_status pc_engine_hook_filter_subtype(const char *id, yyjson_val *params, cons
 {
     (void)bounds;
     *applied = false;
+    /* E4 distort: Liquify / Puppet Warp / Perspective Warp re-render on the placed source
+     * (distort_cmds.c). Leaves *applied false for ids it does not own. */
+    pc_status drc = pc_engine_distort_apply_to_surface(id, params, surf, canvas, out, applied, err);
+    if (drc != PC_OK || *applied) {
+        return drc;
+    }
     /* ET5: Lens Correction / Adaptive Wide Angle / Camera Raw Filter re-render on the placed
      * source (lens_cmds.c). Leaves *applied false for ids it does not own. */
     pc_status lrc = pc_engine_lens_apply_to_surface(id, params, surf, canvas, out, applied, err);

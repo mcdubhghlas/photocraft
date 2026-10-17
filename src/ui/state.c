@@ -403,6 +403,7 @@ void pc_ui_state_fini(pc_ui_state *s)
     free(s->workspace);
     free(s->status);
     free(s->gpu_fallback_notice);
+    pc_ui_dock_layout_fini(&s->dock);
     memset(s, 0, sizeof *s);
 }
 
@@ -615,6 +616,11 @@ pc_status pc_ui_state_to_json(const pc_ui_state *s, yyjson_mut_doc *doc, yyjson_
     yyjson_mut_obj_add_uint(doc, o, "next_id", s->next_id);
     yyjson_mut_obj_add_val(doc, o, "camera_raw_scope", cr_scope_json(doc, &s->camera_raw_scope));
     yyjson_mut_obj_add_val(doc, o, "camera_raw_preview", cr_preview_json(doc, &s->camera_raw_preview));
+    yyjson_mut_val *dock = NULL;
+    if (pc_ui_dock_layout_to_json(&s->dock, doc, &dock, err) != PC_OK) {
+        return err ? err->code : PC_ERR_NOMEM;
+    }
+    yyjson_mut_obj_add_val(doc, o, "dock", dock);
     *out = o;
     return PC_OK;
 }
@@ -692,6 +698,7 @@ pc_status pc_ui_state_from_json(pc_ui_state *s, yyjson_val *o, pc_error *err)
     }
     yyjson_val *cp = pc_json_get(o, "color_panel");
     if (cp && pc_json_as_bool(pc_json_get(cp, "background"), &b)) { s->color_panel.background = b; }
+    pc_ui_dock_layout_from_json(&s->dock, pc_json_get(o, "dock"));
     /* views */
     yyjson_val *vs = pc_json_get(o, "views");
     if (vs && yyjson_is_arr(vs)) {

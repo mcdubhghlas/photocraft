@@ -37,7 +37,11 @@ static bool indicates_param(yyjson_val *v, pc_color_indicates *out)
 
 static pc_status append_channel(pc_document *doc, pc_alpha_channel *ch, pc_error *err)
 {
-    pc_alpha_channel *g = realloc(doc->channels, (doc->nchannels + 1) * sizeof *doc->channels);
+    if (doc->nchannels >= SIZE_MAX - 1) {
+        return pc_fail(err, PC_ERR_LIMIT, "too many channels");
+    }
+    size_t count = doc->nchannels + 1;
+    pc_alpha_channel *g = realloc(doc->channels, count * sizeof *doc->channels);
     if (g == NULL) {
         return pc_fail(err, PC_ERR_NOMEM, "channels");
     }

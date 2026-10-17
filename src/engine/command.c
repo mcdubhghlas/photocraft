@@ -31,6 +31,7 @@
 #include "layerstyle_gap_cmds.h"    /* GAP: blending options + global light + scale effects */
 #include "fill_layer_gap_cmds.h"    /* GAP: new fill layer (solid color + gradient) */
 #include "flatten_gap_cmds.h"       /* GAP: flatten all layer effects / all masks */
+#include "distort_cmds.h"           /* GAP: Filter>Liquify, Edit>Puppet/Perspective Warp (+smart) */
 
 /* ---- owned JSON results ------------------------------------------------------------------- */
 
@@ -818,6 +819,8 @@ static void register_modules(pc_engine_command **arr, size_t *n, size_t *cap)
     (void)append_specs(arr, n, cap, layerstyle_copy, m);
     const pc_engine_command *flatten_gap = pc_engine_flatten_gap_specs(&m); /* GAP: flatten effects/masks */
     (void)append_specs(arr, n, cap, flatten_gap, m);
+    const pc_engine_command *distort = pc_engine_distort_specs(&m); /* GAP: Liquify/Puppet/Perspective */
+    (void)append_specs(arr, n, cap, distort, m);
     /* E3..E12: append your module's specs() here. */
 }
 

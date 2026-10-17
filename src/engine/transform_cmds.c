@@ -288,6 +288,13 @@ fail:
     return rc;
 }
 
+/* Public wrapper over split_selected for the distort warps (distort_cmds). */
+pc_status pc_engine_transform_split_selected(const pc_surface *surf, const pc_surface *sel,
+                                             pc_surface *lifted, pc_surface *rest, pc_error *err)
+{
+    return split_selected(surf, sel, lifted, rest, err);
+}
+
 /* transform_cmds::warp_gray. */
 pc_status pc_engine_transform_warp_gray(const pc_surface *s, const pc_algo_homography *h,
                                         pc_algo_interp interp, pc_surface *out, pc_error *err)
@@ -555,6 +562,13 @@ static pc_status check_budget(pc_rect src, const pc_algo_homography *h, const ch
         return pc_engine_alloc_error(err, "transforming pixels", detail);
     }
     return PC_OK;
+}
+
+/* Public wrapper over check_budget for select.transformSelection (select_extra_cmds). */
+pc_status pc_engine_transform_check_budget(pc_rect src, const pc_algo_homography *h, const char *what,
+                                           pc_error *err)
+{
+    return check_budget(src, h, what, err);
 }
 
 /* ---- locks -------------------------------------------------------------------------------- */

@@ -1619,6 +1619,610 @@ static pc_status has_layer_mask(const pc_engine_session *s, pc_error *reason)
 #include "channel_cmds_manage.inc"
 
 /* ============================================================================================
+ * Apply Image / Calculations (channel_cmds::{apply_image, calculations})
+ * ========================================================================================== */
+
+static double get_f64(yyjson_val *p, const char *key, double def)
+{
+    double d;
+    yyjson_val *v = pc_json_get(p, key);
+    if (v != NULL && pc_json_as_f64(v, &d) && isfinite(d)) {
+        return d;
+    }
+    return def;
+}
+
+static double clampd(double v, double lo, double hi)
+{
+    return v < lo ? lo : (v > hi ? hi : v);
+}
+
+/* Apply Image / Calculations blending: separable layer modes plus Add and Subtract. */
+typedef enum { BLEND_MODE, BLEND_ADD, BLEND_SUBTRACT } blending_kind;
+typedef struct {
+    blending_kind kind;
+    pc_blend_mode mode;
+    float scale, offset;
+} blending;
+
+static pc_status blending_parse(yyjson_val *p, const char *cmd, blending *out, pc_error *err)
+{
+    size_t nl = 0;
+    const char *name = get_str(p, "blending", &nl);
+    char buf[32];
+    if (name == NULL) {
+        name = "multiply";
+        nl = strlen(name);
+    }
+    out->scale = (float)clampd(get_f64(p, "scale", 1.0), 1.0, 2.0);
+    out->offset = (float)(clampd(get_f64(p, "offset", 0.0), -255.0, 255.0) / 255.0);
+    if (nl < sizeof buf) {
+        memcpy(buf, name, nl);
+        buf[nl] = '\0';
+        for (size_t i = 0; i < nl; i++) {
+            if (buf[i] >= 'A' && buf[i] <= 'Z') {
+                buf[i] = (char)(buf[i] - 'A' + 'a');
+            }
+        }
+        if (strcmp(buf, "add") == 0) {
+            out->kind = BLEND_ADD;
+            return PC_OK;
+        }
+        if (strcmp(buf, "subtract") == 0) {
+            out->kind = BLEND_SUBTRACT;
+            return PC_OK;
+        }
+    }
+    pc_blend_mode m;
+    if (pc_engine_blend_from_str(name, nl, &m) && pc_blend_is_separable(m) && m != PC_BLEND_DISSOLVE &&
+        m != PC_BLEND_PASS_THROUGH) {
+        out->kind = BLEND_MODE;
+        out->mode = m;
+        return PC_OK;
+    }
+    return pc_engine_err_bad_params(err, cmd, "unsupported blending `%.*s`", (int)nl, name);
+}
+
+static float blending_apply(const blending *b, float base, float top)
+{
+    float r;
+    switch (b->kind) {
+    case BLEND_ADD:
+        r = (base + top) / b->scale + b->offset;
+        break;
+    case BLEND_SUBTRACT:
+        r = (base - top) / b->scale + b->offset;
+        break;
+    default:
+        r = pc_blend_channel(b->mode, base, top);
+        break;
+    }
+    return r < 0.0f ? 0.0f : (r > 1.0f ? 1.0f : r);
+}
+
+/* Resolve a source spec: the nested `key` object, or a flat-form object built from
+ * `<prefix>Document`/`Layer`/`Channel`/`Invert`. *scratch (owned yyjson_doc, free) is set when a
+ * flat doc was built; *out is the spec val, or NULL when absent (= use defaults). */
+static yyjson_val *source_spec(yyjson_val *p, const char *key, const char *prefix, yyjson_doc **scratch)
+{
+    *scratch = NULL;
+    yyjson_val *nested = pc_json_get(p, key);
+    if (nested != NULL) {
+        return nested;
+    }
+    yyjson_mut_doc *md = yyjson_mut_doc_new(NULL);
+    if (md == NULL) {
+        return NULL;
+    }
+    yyjson_mut_val *obj = yyjson_mut_obj(md);
+    if (obj == NULL) {
+        yyjson_mut_doc_free(md);
+        return NULL;
+    }
+    static const char *const keys[4] = {"document", "layer", "channel", "invert"};
+    static const char *const fields[4] = {"Document", "Layer", "Channel", "Invert"};
+    bool any = false;
+    for (size_t i = 0; i < 4; i++) {
+        char fk[48];
+        (void)snprintf(fk, sizeof fk, "%s%s", prefix, fields[i]);
+        yyjson_val *fv = pc_json_get(p, fk);
+        if (fv == NULL || yyjson_is_null(fv)) {
+            continue;
+        }
+        if (yyjson_is_str(fv)) {
+            size_t sl = 0;
+            const char *sv = pc_json_as_str(fv, &sl);
+            if (sv != NULL && (sl == 0 || (strcmp(keys[i], "layer") == 0 && str_is(sv, sl, "merged")))) {
+                continue;
+            }
+        }
+        yyjson_mut_val *copy = yyjson_val_mut_copy(md, fv);
+        if (copy == NULL || !yyjson_mut_obj_add_val(md, obj, keys[i], copy)) {
+            yyjson_mut_doc_free(md);
+            return NULL;
+        }
+        any = true;
+    }
+    if (!any) {
+        yyjson_mut_doc_free(md);
+        return NULL;
+    }
+    yyjson_mut_doc_set_root(md, obj);
+    yyjson_doc *imut = yyjson_mut_doc_imut_copy(md, NULL);
+    yyjson_mut_doc_free(md);
+    if (imut == NULL) {
+        return NULL;
+    }
+    *scratch = imut;
+    return yyjson_doc_get_root(imut);
+}
+
+/* The mask plane for Apply Image / Calculations, or none. *out owned (free), *has set. */
+static pc_status mask_plane(pc_engine_session *s, yyjson_val *p, const char *cmd, float **out,
+                            size_t *outn, bool *has, pc_error *err)
+{
+    *out = NULL;
+    *outn = 0;
+    *has = false;
+    yyjson_doc *scratch = NULL;
+    yyjson_val *m = source_spec(p, "mask", "mask", &scratch);
+    if (m == NULL || yyjson_is_null(m)) {
+        if (scratch != NULL) {
+            yyjson_doc_free(scratch);
+        }
+        return PC_OK;
+    }
+    bool bv;
+    if (pc_json_as_bool(m, &bv) && !bv) {
+        if (scratch != NULL) {
+            yyjson_doc_free(scratch);
+        }
+        return PC_OK;
+    }
+    yyjson_val *cv = pc_json_get(m, "channel");
+    if (cv == NULL) {
+        if (scratch != NULL) {
+            yyjson_doc_free(scratch);
+        }
+        return PC_OK;
+    }
+    size_t cl = 0;
+    const char *cs = pc_json_as_str(cv, &cl);
+    if (cs != NULL && str_is(cs, cl, "none")) {
+        if (scratch != NULL) {
+            yyjson_doc_free(scratch);
+        }
+        return PC_OK;
+    }
+    plane_list pl = {0};
+    pc_status rc = source_planes(s, m, cmd, true, &pl, err);
+    if (scratch != NULL) {
+        yyjson_doc_free(scratch);
+    }
+    if (rc != PC_OK) {
+        return rc;
+    }
+    if (pl.planes == NULL || pl.count == 0 || pl.planes[0] == NULL) {
+        plane_list_fini(&pl);
+        return PC_OK; /* no usable mask plane (source has no channels): treat as no mask */
+    }
+    /* Take plane 0 (gray) and free the rest. */
+    *out = pl.planes[0];
+    *outn = pl.n;
+    pl.planes[0] = NULL;
+    plane_list_fini(&pl);
+    *has = true;
+    return PC_OK;
+}
+
+static pc_status has_apply_target(const pc_engine_session *s, pc_error *reason)
+{
+    if (pc_engine_edits_channel(s)) {
+        return PC_OK;
+    }
+    const pc_engine_doc_state *d = pc_engine_session_active(s);
+    if (d == NULL) {
+        return pc_fail(reason, PC_ERR_INVALID, "no document open");
+    }
+    const pc_layer *l = d->has_active_layer ? pc_document_layer(pc_doc_arc_get(d->doc), d->active_layer)
+                                            : NULL;
+    if (l == NULL) {
+        return pc_fail(reason, PC_ERR_INVALID, "no active layer");
+    }
+    if (l->content.kind == PC_LAYER_RASTER) {
+        return PC_OK;
+    }
+    return pc_fail(reason, PC_ERR_INVALID,
+                   "Apply Image needs a pixel layer (active layer is %s %s layer)",
+                   pc_layer_content_article(&l->content), pc_layer_content_kind_name(&l->content));
+}
+
+struct apply_image_ctx {
+    const blending *bl;
+    float opacity;
+    bool preserve;
+    const plane_list *src;
+    const float *mask; /* NULL = none */
+    bool has_layer;
+    pc_layer_id layer;
+    yyjson_val *p;
+};
+
+static pc_status apply_image_edit(pc_document *doc, bool *ha, pc_layer_id *active, void *vctx,
+                                  pc_error *err)
+{
+    (void)ha;
+    (void)active;
+    struct apply_image_ctx *c = vctx;
+    pc_rect area = pc_document_bounds(doc);
+    float *sel = NULL;
+    size_t seln = 0;
+    pc_status rc = pc_algo_selection_mask_from_surface(doc->has_selection ? &doc->selection : NULL, area,
+                                                       &sel, &seln, err);
+    if (rc != PC_OK) {
+        return rc;
+    }
+    /* weight(i) */
+#define WEIGHT(i) (c->opacity * (c->mask != NULL ? c->mask[i] : 1.0f) * (sel != NULL ? sel[i] : 1.0f))
+    if (pc_engine_is_channel_target(c->p)) {
+        pc_surface *surf = NULL;
+        bool lock = false;
+        rc = pc_engine_target_surface(doc, false, 0, c->p, &surf, &lock, err);
+        if (rc != PC_OK) {
+            free(sel);
+            return rc;
+        }
+        float *base = NULL;
+        size_t basen = 0;
+        rc = read_plane(surf, area, &base, &basen, err);
+        if (rc != PC_OK) {
+            free(sel);
+            return rc;
+        }
+        /* One source plane per target pixel (the mean of the source's planes), fully populated
+         * over `basen` so every read below is initialised. */
+        float *srcp = malloc((basen ? basen : 1) * sizeof *srcp);
+        if (srcp == NULL) {
+            free(base);
+            free(sel);
+            return pc_fail(err, PC_ERR_NOMEM, "apply image");
+        }
+        size_t sc = c->src->count;
+        for (size_t i = 0; i < basen; i++) {
+            float sum = 0.0f;
+            for (size_t k = 0; k < sc; k++) {
+                sum += (i < c->src->n) ? c->src->planes[k][i] : 0.0f;
+            }
+            srcp[i] = sc > 0 ? sum / (float)sc : 0.0f;
+        }
+        for (size_t i = 0; i < basen; i++) {
+            float b = base[i];
+            base[i] = b + (blending_apply(c->bl, b, srcp[i]) - b) * WEIGHT(i);
+        }
+        pc_surface newsurf;
+        rc = plane_surface(base, basen, area, pc_surface_format(surf), &newsurf, err);
+        free(base);
+        free(srcp);
+        free(sel);
+        if (rc != PC_OK) {
+            return rc;
+        }
+        pc_surface_fini(surf);
+        *surf = newsurf;
+        return PC_OK;
+    }
+    if (!c->has_layer) {
+        free(sel);
+        return pc_engine_err_other(err, "no active layer");
+    }
+    pc_pixel_format fmt = pc_document_pixel_format(doc);
+    pc_surface *surf = NULL;
+    rc = pc_engine_paint_surface(doc, c->layer, NULL, &surf, err);
+    if (rc != PC_OK) {
+        free(sel);
+        return rc;
+    }
+    pc_pixel_format sf = pc_surface_format(surf);
+    if (sf.mode != fmt.mode || sf.sample != fmt.sample || sf.alpha != fmt.alpha) {
+        free(sel);
+        return pc_engine_err_other(err, "the target layer's format doesn't match the document");
+    }
+    size_t n = pc_pixel_format_channels(sf);
+    size_t colors = pc_color_mode_channels(sf.mode);
+    if (n == 0 || colors == 0) {
+        free(sel);
+        return PC_OK;
+    }
+    float *v = NULL;
+    size_t vlen = 0;
+    rc = pc_surface_read_region(surf, area, &v, &vlen, err);
+    if (rc != PC_OK) {
+        free(sel);
+        return rc;
+    }
+    size_t count = vlen / n;
+    for (size_t i = 0; i < count; i++) {
+        float *px = &v[i * n];
+        float base_a = sf.alpha ? px[colors] : 1.0f;
+        base_a = base_a < 0.0f ? 0.0f : (base_a > 1.0f ? 1.0f : base_a);
+        float w = WEIGHT(i);
+        if (c->preserve) {
+            w *= base_a;
+        }
+        if (w <= 0.0f) {
+            continue;
+        }
+        float out_a = c->preserve ? base_a : w + base_a * (1.0f - w);
+        for (size_t ch = 0; ch < colors; ch++) {
+            float top = ch < c->src->count ? c->src->planes[ch][i] : c->src->planes[0][i];
+            float blended = top + (blending_apply(c->bl, px[ch], top) - top) * base_a;
+            px[ch] = c->preserve ? px[ch] + (blended - px[ch]) * w
+                                 : (w * blended + base_a * (1.0f - w) * px[ch]) / out_a;
+        }
+        if (sf.alpha) {
+            px[colors] = out_a;
+        }
+    }
+    rc = pc_surface_write_region(surf, area, v, vlen, err);
+    free(v);
+    free(sel);
+    if (rc != PC_OK) {
+        return rc;
+    }
+    pc_surface_prune(surf);
+    return PC_OK;
+#undef WEIGHT
+}
+
+static pc_status run_apply_image(pc_engine_session *s, yyjson_val *p, pc_json_value *out, pc_error *err)
+{
+    const char *cmd = "image.applyImage";
+    blending bl;
+    pc_status rc = blending_parse(p, cmd, &bl, err);
+    if (rc != PC_OK) {
+        return rc;
+    }
+    float opacity = (float)(clampd(get_f64(p, "opacity", 100.0), 0.0, 100.0) / 100.0);
+    bool preserve = get_bool(p, "preserveTransparency", false);
+    yyjson_doc *scratch = NULL;
+    yyjson_val *spec = source_spec(p, "source", "source", &scratch);
+    plane_list src = {0};
+    rc = source_planes(s, spec, cmd, false, &src, err);
+    if (scratch != NULL) {
+        yyjson_doc_free(scratch);
+    }
+    if (rc != PC_OK) {
+        return rc;
+    }
+    float *mask = NULL;
+    size_t maskn = 0;
+    bool has_mask = false;
+    rc = mask_plane(s, p, cmd, &mask, &maskn, &has_mask, err);
+    if (rc != PC_OK) {
+        plane_list_fini(&src);
+        return rc;
+    }
+    (void)maskn;
+    const pc_engine_doc_state *d = pc_engine_session_active(s);
+    struct apply_image_ctx c = {&bl,
+                                opacity,
+                                preserve,
+                                &src,
+                                has_mask ? mask : NULL,
+                                d != NULL && d->has_active_layer,
+                                d != NULL ? d->active_layer : 0,
+                                p};
+    rc = pc_engine_session_edit(s, "Apply Image", apply_image_edit, &c, err);
+    plane_list_fini(&src);
+    free(mask);
+    if (rc != PC_OK) {
+        return rc;
+    }
+    pc_json_value_fini(out);
+    return PC_OK;
+}
+
+struct calc_new_ctx {
+    const char *name; /* NULL = auto */
+    const float *out;
+    size_t n;
+    size_t index; /* result */
+};
+
+static pc_status calc_new_channel_edit(pc_document *doc, bool *ha, pc_layer_id *active, void *vctx,
+                                       pc_error *err)
+{
+    (void)ha;
+    (void)active;
+    struct calc_new_ctx *c = vctx;
+    char nm[128];
+    if (c->name != NULL) {
+        (void)snprintf(nm, sizeof nm, "%s", c->name);
+    } else {
+        next_alpha_name(doc, "Alpha", nm, sizeof nm);
+    }
+    pc_rect area = pc_document_bounds(doc);
+    pc_surface surf;
+    pc_status rc = plane_surface(c->out, c->n, area, channel_format(doc), &surf, err);
+    if (rc != PC_OK) {
+        return rc;
+    }
+    pc_alpha_channel ch;
+    rc = pc_alpha_channel_init(&ch, nm, &surf, err);
+    if (rc != PC_OK) {
+        pc_surface_fini(&surf);
+        return rc;
+    }
+    rc = append_channel(doc, &ch, err);
+    if (rc != PC_OK) {
+        pc_alpha_channel_fini(&ch);
+        return rc;
+    }
+    c->index = doc->nchannels - 1;
+    return PC_OK;
+}
+
+static pc_status calc_selection_edit(pc_document *doc, bool *ha, pc_layer_id *active, void *vctx,
+                                     pc_error *err)
+{
+    (void)ha;
+    (void)active;
+    struct calc_new_ctx *c = vctx;
+    pc_rect area = pc_document_bounds(doc);
+    pc_surface combined;
+    bool some = false;
+    pc_status rc = pc_algo_selection_combine(NULL, c->out, c->n, area, PC_ALGO_SELECTION_REPLACE,
+                                             &combined, &some, err);
+    if (rc != PC_OK) {
+        return rc;
+    }
+    if (doc->has_selection) {
+        pc_surface_fini(&doc->selection);
+    }
+    if (some) {
+        doc->selection = combined;
+        doc->has_selection = true;
+    } else {
+        pc_surface_fini(&combined);
+        doc->has_selection = false;
+    }
+    c->index = some ? 1 : 0;
+    return PC_OK;
+}
+
+static pc_status run_calculations(pc_engine_session *s, yyjson_val *p, pc_json_value *out, pc_error *err)
+{
+    const char *cmd = "image.calculations";
+    blending bl;
+    pc_status rc = blending_parse(p, cmd, &bl, err);
+    if (rc != PC_OK) {
+        return rc;
+    }
+    float opacity = (float)(clampd(get_f64(p, "opacity", 100.0), 0.0, 100.0) / 100.0);
+    yyjson_doc *sc1 = NULL, *sc2 = NULL;
+    yyjson_val *spec1 = source_spec(p, "source1", "source1", &sc1);
+    plane_list s1 = {0};
+    rc = source_planes(s, spec1, cmd, true, &s1, err);
+    if (sc1 != NULL) {
+        yyjson_doc_free(sc1);
+    }
+    if (rc != PC_OK) {
+        return rc;
+    }
+    yyjson_val *spec2 = source_spec(p, "source2", "source2", &sc2);
+    plane_list s2 = {0};
+    rc = source_planes(s, spec2, cmd, true, &s2, err);
+    if (sc2 != NULL) {
+        yyjson_doc_free(sc2);
+    }
+    if (rc != PC_OK) {
+        plane_list_fini(&s1);
+        return rc;
+    }
+    float *mask = NULL;
+    size_t maskn = 0;
+    bool has_mask = false;
+    rc = mask_plane(s, p, cmd, &mask, &maskn, &has_mask, err);
+    if (rc != PC_OK) {
+        plane_list_fini(&s1);
+        plane_list_fini(&s2);
+        return rc;
+    }
+    (void)maskn;
+    /* Source 1 is blended onto Source 2. */
+    size_t n = s2.n < s1.n ? s2.n : s1.n;
+    float *result = malloc((n ? n : 1) * sizeof *result);
+    if (result == NULL) {
+        plane_list_fini(&s1);
+        plane_list_fini(&s2);
+        free(mask);
+        return pc_fail(err, PC_ERR_NOMEM, cmd);
+    }
+    for (size_t i = 0; i < n; i++) {
+        float b = s2.planes[0][i], t = s1.planes[0][i];
+        float m = has_mask && mask != NULL ? mask[i] : 1.0f;
+        result[i] = b + (blending_apply(&bl, b, t) - b) * opacity * m;
+    }
+    plane_list_fini(&s1);
+    plane_list_fini(&s2);
+    free(mask);
+
+    size_t rl = 0;
+    const char *resname = get_str(p, "result", &rl);
+    char nmbuf[128];
+    const char *name = NULL;
+    size_t nml = 0;
+    const char *nm = get_str(p, "name", &nml);
+    if (nm != NULL && nml < sizeof nmbuf) {
+        memcpy(nmbuf, nm, nml);
+        nmbuf[nml] = '\0';
+        name = nmbuf;
+    }
+    yyjson_mut_doc *rd = NULL;
+    if (resname == NULL || str_is(resname, rl, "newChannel")) {
+        struct calc_new_ctx c = {name, result, n, 0};
+        rc = pc_engine_session_edit(s, "Calculations", calc_new_channel_edit, &c, err);
+        free(result);
+        if (rc != PC_OK) {
+            return rc;
+        }
+        if (pc_engine_result_doc(out, &rd, err) != PC_OK) {
+            return PC_ERR_NOMEM;
+        }
+        yyjson_mut_val *root = yyjson_mut_obj(rd);
+        yyjson_mut_obj_add_uint(rd, root, "channel", c.index);
+        yyjson_mut_doc_set_root(rd, root);
+        return PC_OK;
+    }
+    if (str_is(resname, rl, "newDocument")) {
+        const pc_engine_doc_state *d = pc_engine_session_active(s);
+        if (d == NULL) {
+            free(result);
+            return pc_engine_err_no_document(err);
+        }
+        pc_document nd;
+        rc = gray_document(name != NULL ? name : "Untitled", pc_doc_arc_get(d->doc), result, n, &nd,
+                           err);
+        free(result);
+        if (rc != PC_OK) {
+            return rc;
+        }
+        size_t di = 0;
+        rc = pc_engine_session_add_document(s, &nd, NULL, &di, err);
+        if (rc != PC_OK) {
+            pc_document_fini(&nd);
+            return rc;
+        }
+        if (pc_engine_result_doc(out, &rd, err) != PC_OK) {
+            return PC_ERR_NOMEM;
+        }
+        yyjson_mut_val *root = yyjson_mut_obj(rd);
+        yyjson_mut_obj_add_uint(rd, root, "document", di);
+        yyjson_mut_doc_set_root(rd, root);
+        return PC_OK;
+    }
+    if (str_is(resname, rl, "selection")) {
+        struct calc_new_ctx c = {NULL, result, n, 0};
+        rc = pc_engine_session_edit(s, "Calculations", calc_selection_edit, &c, err);
+        free(result);
+        if (rc != PC_OK) {
+            return rc;
+        }
+        if (pc_engine_result_doc(out, &rd, err) != PC_OK) {
+            return PC_ERR_NOMEM;
+        }
+        yyjson_mut_val *root = yyjson_mut_obj(rd);
+        yyjson_mut_obj_add_bool(rd, root, "selected", c.index != 0);
+        yyjson_mut_doc_set_root(rd, root);
+        return PC_OK;
+    }
+    free(result);
+    return pc_engine_err_bad_params(err, cmd,
+                                    "unknown result `%.*s` (newChannel|newDocument|selection)",
+                                    (int)rl, resname != NULL ? resname : "");
+}
+
+/* ============================================================================================
  * Registry
  * ========================================================================================== */
 
@@ -1634,6 +2238,18 @@ static const pc_engine_command SPECS[] = {
      has_doc, run_load_selection, true},
     {"select.editInQuickMaskMode", "Edit in Quick Mask Mode", (const char *const[]){"Select"}, 1, "Q",
      "{\"on\":bool?=toggle}", has_doc, run_quick_mask, true},
+    {"image.applyImage", "Apply Image…", (const char *const[]){"Image"}, 1, NULL,
+     "{\"source\":{\"document\":index?,\"layer\":id|name|\"merged\"=\"merged\",\"channel\":"
+     "\"composite\"|\"red|…\"|index|\"selection\"|\"transparency\"|\"mask\"=\"composite\",\"invert\":"
+     "bool=false},\"blending\":\"normal|multiply|screen|…|add|subtract\"=\"multiply\",\"opacity\":0.."
+     "100=100,\"scale\":1..2=1,\"offset\":-255..255=0,\"preserveTransparency\":bool=false,\"mask\":"
+     "{\"document\",\"layer\",\"channel\",\"invert\"}?}",
+     has_apply_target, run_apply_image, true},
+    {"image.calculations", "Calculations…", (const char *const[]){"Image"}, 1, NULL,
+     "{\"source1\":{\"document\",\"layer\",\"channel\",\"invert\"},\"source2\":{…},\"blending\":"
+     "\"multiply|…\"=\"multiply\",\"opacity\":0..100=100,\"scale\":1..2=1,\"offset\":-255..255=0,"
+     "\"mask\":{…}?,\"result\":\"newChannel|newDocument|selection\"=\"newChannel\",\"name\":str?}",
+     has_doc, run_calculations, true},
     {"channel.new", "New Channel…", NULL, 0, NULL,
      "{\"name\":str?,\"fill\":\"black|white|selection\"=\"black\",\"color\":\"#rrggbb\"=\"#ff0000\","
      "\"opacity\":0..100=50,\"indicates\":\"masked|selected\"=\"masked\"}",

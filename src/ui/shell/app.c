@@ -16,16 +16,20 @@
 #include "photocraft_nuklear.h"
 #include "render.h" /* spike helper */
 #include "shell_internal.h"
+#include "ui/dock.h"
 #include "ui/menus.h"
+#include "ui/notices.h"
+#include "ui/tab_strip.h"
 #include "ui/widgets.h"
 
-enum { DEFAULT_W = 1280, DEFAULT_H = 800, MENU_BAR_H = 26 };
+enum { DEFAULT_W = 1280, DEFAULT_H = 800, MENU_BAR_H = 26, DOCK_W = 300, STRIP_H = 28 };
 
 struct pc_ui_shell_app {
     pc_engine_session *session; /* owned */
     pc_ui_state ui;             /* U1 UiState */
     pc_ui_tokens tokens;        /* tokens for ui.theme */
     pc_ui_menu_nav nav;
+    pc_ui_notices notices;      /* U3: lower-right notice stack */
     uint64_t frame;
     float win_w, win_h; /* UI units (logical) */
 
@@ -64,6 +68,7 @@ pc_status pc_ui_shell_app_new(pc_ui_shell_app **out, pc_error *err)
         return err ? err->code : PC_ERR_NOMEM;
     }
     pc_ui_state_init(&a->ui);
+    pc_ui_notices_init(&a->notices);
     a->tokens = pc_ui_tokens_for_kind(a->ui.theme);
     pc_ui_menu_nav_reset(&a->nav);
     a->win_w = (float)DEFAULT_W;
@@ -103,6 +108,7 @@ void pc_ui_shell_app_free(pc_ui_shell_app *a)
         SDL_DestroyWindow(a->win);
     }
     free(a->font_path);
+    pc_ui_notices_fini(&a->notices);
     pc_ui_state_fini(&a->ui);
     pc_engine_session_free(a->session);
     free(a);
@@ -263,7 +269,10 @@ static void draw_menu_for(pc_ui_shell_app *a, const char *top)
             if (nk_menu_item_label(c, label, NK_TEXT_LEFT)) {
                 pc_json_value r = PC_JSON_VALUE_INIT;
                 pc_error e;
-                (void)pc_ui_shell_app_invoke(a, it->id, NULL, &r, &e);
+                e.msg[0] = '\0';
+                if (pc_ui_shell_app_invoke(a, it->id, NULL, &r, &e) != PC_OK && e.msg[0] != '\0') {
+                    (void)pc_ui_notices_post(&a->notices, e.msg, NULL, 0, true, NULL);
+                }
                 pc_json_value_fini(&r);
             }
         } else {
@@ -290,9 +299,38 @@ static void draw_menu_bar(pc_ui_shell_app *a)
     nk_menubar_end(c);
 }
 
-/* The work area: the active document's name and size, or an empty-canvas hint. The real canvas
- * (tiles, rulers, zoom) is U4; this placeholder shows the active document per the task. */
-static void draw_work_area(pc_ui_shell_app *a, float w, float h)
+/* Is group `g`'s panel currently shown? (panels.<key>) */
+static bool group_shown(const pc_ui_shell_app *a, pc_ui_group g)
+{
+    const pc_ui_panels *p = &a->ui.panels;
+    switch (g) {
+    case PC_UI_GROUP_COLOR: return p->color;
+    case PC_UI_GROUP_PROPERTIES: return p->properties;
+    case PC_UI_GROUP_CHARACTER: return p->character;
+    case PC_UI_GROUP_NAVIGATOR: return p->navigator;
+    case PC_UI_GROUP_HISTORY: return p->history;
+    case PC_UI_GROUP_LAYERS: return p->layers;
+    default: return false;
+    }
+}
+
+/* The selected-tab slot for group `g` in UiState.dock_tabs. */
+static size_t *group_tab_slot(pc_ui_shell_app *a, pc_ui_group g)
+{
+    pc_ui_dock_tabs *t = &a->ui.dock_tabs;
+    switch (g) {
+    case PC_UI_GROUP_COLOR: return &t->color;
+    case PC_UI_GROUP_PROPERTIES: return &t->properties;
+    case PC_UI_GROUP_CHARACTER: return &t->character;
+    case PC_UI_GROUP_NAVIGATOR: return &t->navigator;
+    case PC_UI_GROUP_HISTORY: return &t->history;
+    case PC_UI_GROUP_LAYERS: return &t->layers;
+    default: return &t->layers;
+    }
+}
+
+/* The active document's canvas surround (the real canvas tiles/rulers/zoom are U4). */
+static void draw_canvas_body(pc_ui_shell_app *a)
 {
     struct nk_context *c = &a->ctx;
     char line[256];
@@ -301,42 +339,186 @@ static void draw_work_area(pc_ui_shell_app *a, float w, float h)
     size_t active = 0;
     bool has_active = pc_engine_session_active_index(a->session, &active);
 
-    nk_layout_row_dynamic(c, 24, 1);
-    (void)snprintf(line, sizeof line, "PhotoCraft \xc2\xb7 %s \xc2\xb7 %zu document%s open",
-                   pc_ui_theme_kind_label(a->ui.theme), ndocs, ndocs == 1 ? "" : "s");
-    nk_label(c, line, NK_TEXT_LEFT);
-
     nk_layout_row_dynamic(c, 22, 1);
-    (void)snprintf(line, sizeof line, "Tool: %s", pc_ui_tool_label(a->ui.tool));
+    (void)snprintf(line, sizeof line, "PhotoCraft \xc2\xb7 %s \xc2\xb7 Tool: %s \xc2\xb7 %zu open",
+                   pc_ui_theme_kind_label(a->ui.theme), pc_ui_tool_label(a->ui.tool), ndocs);
     nk_label(c, line, NK_TEXT_LEFT);
 
-    /* The canvas surround fills the rest of the work area. */
-    float area = h - (float)MENU_BAR_H - 72.0f;
-    if (area < 80.0f) {
-        area = 80.0f;
+    struct nk_rect r = nk_window_get_content_region(c);
+    r.y += 26.0f;
+    r.h -= 26.0f;
+    if (r.h < 40.0f) {
+        r.h = 40.0f;
     }
-    nk_layout_row_dynamic(c, area, 1);
     struct nk_command_buffer *cv = nk_window_get_canvas(c);
-    struct nk_rect r;
-    if (nk_widget(&r, c) != NK_WIDGET_INVALID) {
-        nk_fill_rect(cv, r, 0, pc_ui_nk_color(a->tokens.canvas));
-        if (has_active && active < ndocs) {
-            const pc_document *doc = pc_doc_arc_get(docs[active].doc);
-            (void)snprintf(line, sizeof line, "%u \xc3\x97 %u px", doc->size.width, doc->size.height);
-            /* A document card centred in the surround. */
-            float cw = r.w * 0.6f, ch = r.h * 0.6f;
-            struct nk_rect card = nk_rect(r.x + (r.w - cw) * 0.5f, r.y + (r.h - ch) * 0.5f, cw, ch);
-            nk_fill_rect(cv, card, a->tokens.radius, nk_rgb(255, 255, 255));
-            nk_stroke_rect(cv, card, a->tokens.radius, 1.0f, pc_ui_nk_color(a->tokens.card_border));
-            nk_draw_text(cv, nk_rect(card.x + 8, card.y + 8, card.w - 16, 20), line, (int)strlen(line),
-                         &a->font.nk, nk_rgb(255, 255, 255), pc_ui_nk_color(a->tokens.text));
-        } else {
-            const char *hint = "Open or create a document (File > New)";
-            nk_draw_text(cv, nk_rect(r.x + 16, r.y + 16, r.w - 32, 20), hint, (int)strlen(hint),
-                         &a->font.nk, pc_ui_nk_color(a->tokens.canvas), pc_ui_nk_color(a->tokens.text_dim));
+    nk_fill_rect(cv, r, 0, pc_ui_nk_color(a->tokens.canvas));
+    if (has_active && active < ndocs) {
+        const pc_document *doc = pc_doc_arc_get(docs[active].doc);
+        (void)snprintf(line, sizeof line, "%u \xc3\x97 %u px", doc->size.width, doc->size.height);
+        float cw = r.w * 0.6f, ch = r.h * 0.6f;
+        struct nk_rect card = nk_rect(r.x + (r.w - cw) * 0.5f, r.y + (r.h - ch) * 0.5f, cw, ch);
+        nk_fill_rect(cv, card, a->tokens.radius, nk_rgb(255, 255, 255));
+        nk_stroke_rect(cv, card, a->tokens.radius, 1.0f, pc_ui_nk_color(a->tokens.card_border));
+        nk_draw_text(cv, nk_rect(card.x + 8, card.y + 8, card.w - 16, 20), line, (int)strlen(line),
+                     &a->font.nk, nk_rgb(255, 255, 255), pc_ui_nk_color(a->tokens.text));
+    } else {
+        const char *hint = "Open or create a document (File > New)";
+        nk_draw_text(cv, nk_rect(r.x + 16, r.y + 16, r.w - 32, 20), hint, (int)strlen(hint),
+                     &a->font.nk, pc_ui_nk_color(a->tokens.canvas), pc_ui_nk_color(a->tokens.text_dim));
+    }
+}
+
+/* One dock group: its tab strip (document tabs fitted to the width) and the active tab's body. */
+static void draw_dock_group(pc_ui_shell_app *a, pc_ui_group g, float w)
+{
+    struct nk_context *c = &a->ctx;
+    bool pro = pc_ui_theme_kind_is_pro(a->ui.theme);
+    bool collapsed = pc_ui_dock_is_collapsed(&a->ui.dock, g);
+    size_t vis[PC_UI_DOCK_MAX_TABS];
+    size_t nvis = pc_ui_dock_visible_tabs(&a->ui.dock, g, pro, vis);
+    size_t ntabs = 0;
+    const char *const *tabs = pc_ui_group_tabs(g, pro, &ntabs);
+    size_t *selected = group_tab_slot(a, g);
+
+    /* Tab strip row: fit tab widths into the width less a 22 px panel-menu button. */
+    float natural[PC_UI_DOCK_MAX_TABS];
+    for (size_t i = 0; i < nvis && i < PC_UI_TAB_MAX; i++) {
+        natural[i] = (float)strlen(tabs[vis[i]]) * 7.0f + 20.0f;
+    }
+    size_t sel_vis = 0;
+    for (size_t i = 0; i < nvis; i++) {
+        if (vis[i] == *selected) {
+            sel_vis = i;
         }
     }
-    (void)w;
+    pc_ui_tab_fit fit = pc_ui_tab_fit_compute(natural, nvis, sel_vis, w - 26.0f, 44.0f, PC_UI_TAB_CHEVRON_W);
+
+    nk_layout_row_begin(c, NK_STATIC, (float)STRIP_H - 6.0f, (int)fit.n_shown + 1);
+    for (size_t i = 0; i < fit.n_shown; i++) {
+        size_t tab = vis[fit.shown[i].index];
+        nk_layout_row_push(c, fit.shown[i].width);
+        bool is_sel = tab == *selected && !collapsed;
+        struct nk_style_button sb = c->style.button;
+        if (is_sel) {
+            c->style.button.normal = nk_style_item_color(pc_ui_nk_color(a->tokens.card));
+            c->style.button.text_normal = pc_ui_nk_color(a->tokens.text);
+        }
+        if (nk_button_label(c, tabs[tab])) {
+            *selected = tab;
+        }
+        c->style.button = sb;
+    }
+    /* Panel menu / collapse toggle. */
+    nk_layout_row_push(c, 22.0f);
+    if (nk_button_label(c, collapsed ? ">" : "v")) {
+        pc_ui_dock_set_collapsed(&a->ui.dock, g, !collapsed);
+    }
+    nk_layout_row_end(c);
+
+    if (!collapsed) {
+        /* Body: a placeholder naming the active panel (the real bodies land with U5+). */
+        char line[128];
+        size_t cur = *selected < ntabs ? *selected : 0;
+        (void)snprintf(line, sizeof line, "%s", tabs[cur]);
+        nk_layout_row_dynamic(c, 20, 1);
+        nk_label(c, line, NK_TEXT_LEFT);
+    }
+}
+
+/* The content below the menu bar: the canvas on the left, the right dock column on the right. */
+static void draw_content(pc_ui_shell_app *a)
+{
+    struct nk_context *c = &a->ctx;
+    struct nk_rect reg = nk_window_get_content_region(c);
+    float aw = reg.w, ah = reg.h;
+    if (aw < 1.0f || ah < 1.0f) {
+        return;
+    }
+    float dock_w = (float)DOCK_W;
+    if (dock_w > aw * 0.5f) {
+        dock_w = aw * 0.5f;
+    }
+    float canvas_w = aw - dock_w;
+
+    /* Which groups are shown, in display order; their heights fill the column. */
+    pc_ui_group order[PC_UI_GROUP_N];
+    pc_ui_dock_order(&a->ui.dock, order);
+    pc_ui_group shown[PC_UI_GROUP_N];
+    size_t nshown = 0;
+    for (size_t i = 0; i < PC_UI_GROUP_N; i++) {
+        if (group_shown(a, order[i])) {
+            shown[nshown++] = order[i];
+        }
+    }
+    float heights[PC_UI_GROUP_N];
+    pc_ui_dock_heights_for(&a->ui.dock, shown, nshown, ah, (float)STRIP_H, heights);
+
+    nk_layout_space_begin(c, NK_STATIC, ah, (int)nshown + 1);
+    nk_layout_space_push(c, nk_rect(0, 0, canvas_w, ah));
+    if (nk_group_begin(c, "work-area", NK_WINDOW_NO_SCROLLBAR)) {
+        draw_canvas_body(a);
+        nk_group_end(c);
+    }
+    float y = 0.0f;
+    for (size_t i = 0; i < nshown; i++) {
+        float gh = heights[i];
+        if (gh < 1.0f) {
+            gh = 1.0f;
+        }
+        nk_layout_space_push(c, nk_rect(canvas_w, y, dock_w, gh));
+        char id[32];
+        (void)snprintf(id, sizeof id, "dock-%s", pc_ui_group_key(shown[i]));
+        if (nk_group_begin_titled(c, id, "", NK_WINDOW_BORDER | NK_WINDOW_NO_SCROLLBAR)) {
+            draw_dock_group(a, shown[i], dock_w);
+            nk_group_end(c);
+        }
+        y += gh + PC_UI_DOCK_GAP;
+    }
+    nk_layout_space_end(c);
+}
+
+/* The lower-right notice stack (toasts/banners). */
+static void draw_notices(pc_ui_shell_app *a, float w, float h)
+{
+    if (a->notices.n == 0) {
+        return;
+    }
+    struct nk_context *c = &a->ctx;
+    float cw = 320.0f;
+    if (cw > w - 24.0f) {
+        cw = w - 24.0f;
+    }
+    float x = w - cw - 16.0f;
+    float y = h - 44.0f;
+    for (size_t i = a->notices.n; i-- > 0;) {
+        const pc_ui_notice *n = &a->notices.items[i];
+        pc_buf title = PC_BUF_INIT;
+        pc_ui_notice_text(n, n->title, &title);
+        size_t extra = n->n_lines < PC_UI_NOTICE_MAX_LINES ? n->n_lines : PC_UI_NOTICE_MAX_LINES;
+        float ch = 30.0f + (float)extra * 16.0f;
+        y -= ch + 6.0f;
+        if (nk_begin(c, pc_buf_cstr(&title),
+                     nk_rect(x, y, cw, ch),
+                     NK_WINDOW_BORDER | NK_WINDOW_NO_SCROLLBAR)) {
+            struct nk_command_buffer *cv = nk_window_get_canvas(c);
+            struct nk_rect b = nk_window_get_bounds(c);
+            nk_fill_rect(cv, b, a->tokens.radius, pc_ui_nk_color(a->tokens.card));
+            nk_stroke_rect(cv, b, a->tokens.radius, 1.0f,
+                           pc_ui_nk_color(n->error ? a->tokens.warning : a->tokens.card_border));
+            nk_layout_row_dynamic(c, 18, 1);
+            nk_label_colored(c, pc_buf_cstr(&title), NK_TEXT_LEFT,
+                             pc_ui_nk_color(n->error ? a->tokens.warning : a->tokens.text));
+            for (size_t l = 0; l < extra; l++) {
+                pc_buf line = PC_BUF_INIT;
+                pc_ui_notice_text(n, n->lines[l], &line);
+                nk_layout_row_dynamic(c, 15, 1);
+                nk_label_colored(c, pc_buf_cstr(&line), NK_TEXT_LEFT, pc_ui_nk_color(a->tokens.text_dim));
+                pc_buf_fini(&line);
+            }
+        }
+        nk_end(c);
+        pc_buf_fini(&title);
+    }
 }
 
 static void build_ui(pc_ui_shell_app *a, float w, float h)
@@ -346,9 +528,14 @@ static void build_ui(pc_ui_shell_app *a, float w, float h)
     struct nk_context *c = &a->ctx;
     if (nk_begin(c, "PhotoCraft", nk_rect(0, 0, w, h), NK_WINDOW_NO_SCROLLBAR)) {
         draw_menu_bar(a);
-        draw_work_area(a, w, h);
+        draw_content(a);
     }
     nk_end(c);
+    draw_notices(a, w, h);
+    /* Auto-hide notices once their delay is up (the shell has no input time; use the frame as a
+     * coarse clock so the stack clears on its own in the interactive loop). */
+    bool has_next;
+    (void)pc_ui_notices_expire(&a->notices, (double)a->frame / 60.0, false, false, true, 6.0, &has_next);
 }
 
 pc_status pc_ui_shell_app_render_frame(pc_ui_shell_app *a, int fb_w, int fb_h, pc_error *err)

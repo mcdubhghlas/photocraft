@@ -18,6 +18,7 @@
 #include <yyjson.h>
 
 #include "base/status.h"
+#include "ui/dock.h"
 #include "ui/theme.h"
 
 /* ---- Tool (state.rs Tool) ---- */
@@ -237,6 +238,8 @@ typedef struct pc_ui_state {
 
     double crop_angle;
     uint64_t next_id;
+
+    pc_ui_dock_layout dock; /* U3: right-dock group layout (serde "dock") */
 
     /* EXTENSION REGION (later chunks): tool_options (U6/U7), dock/docking layout (U3),
      * per-panel state (U5), in-progress gestures (transform/text_edit/pen/magnetic/polygon),

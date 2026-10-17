@@ -181,7 +181,7 @@ static void test_parity(void)
      * is a port in progress: its registered commands cover CURRENT_LIVE at this point, and this
      * guard rises toward PC_UI_PARITY_FLOOR as later engine/UI chunks register the remaining
      * commands. Never lower CURRENT_LIVE; raise it when coverage grows. */
-    enum { CURRENT_LIVE = 592 };
+    enum { CURRENT_LIVE = 600 };
     CHECK(p.total == 631);
     CHECK(p.live >= CURRENT_LIVE);
     CHECK(p.live <= PC_UI_PARITY_FLOOR);
