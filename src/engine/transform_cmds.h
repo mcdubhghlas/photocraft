@@ -25,6 +25,11 @@
 /* The command specs for register_modules() (command.c). */
 const pc_engine_command *pc_engine_transform_specs(size_t *n);
 
+/* Resolve the exact source frame and locks used by edit.transform without editing the document.
+ * The UI uses this for the same pixel, linked/unlinked-mask and channel target semantics. */
+pc_status pc_engine_transform_frame(const pc_engine_session *session, yyjson_val *params,
+                                    pc_rect *out, bool *type_layer, pc_error *err);
+
 /* ---- cross-module primitives (Rust transform_cmds::{transform_layer, warp_gray}) ---------- */
 
 /* The largest result (px) a single Free Transform warp may build: 2^30, the bound Puppet Warp

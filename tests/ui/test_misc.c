@@ -42,6 +42,13 @@ static void test_sizing(void)
     CHECK(!pc_ui_is_sizing("file.open"));
     CHECK_EQ_STR(PC_UI_SIZING_UNITS[0][0], "px");
     CHECK_EQ_STR(PC_UI_SIZING_ANCHORS[4], "center");
+    const char *preferences[] = {"bicubicAutomatic", "nearestNeighbor", "bilinear",       "bicubic",
+                                 "bicubicSmoother",  "bicubicSharper",  "preserveDetails"};
+    const char *commands[] = {"automatic",       "nearest",        "bilinear",       "bicubic",
+                              "bicubicSmoother", "bicubicSharper", "preserveDetails"};
+    for (size_t i = 0; i < 7; i++)
+        CHECK_EQ_STR(pc_ui_resample_preference(preferences[i]), commands[i]);
+    CHECK_EQ_STR(pc_ui_resample_preference(NULL), "automatic");
 }
 
 static void test_proxy(void)
@@ -97,8 +104,8 @@ static void test_brand(void)
     CHECK(pc_ui_brand_icon_rgba(&rgba, &w, &h, NULL) == PC_OK);
     CHECK(w == 128 && h == 128);
     if (rgba) {
-        CHECK_EQ_UINT(rgba[3], 0);                           /* top-left corner alpha */
-        CHECK_EQ_UINT(rgba[(64 * 128 + 64) * 4 + 3], 255);   /* centre alpha */
+        CHECK_EQ_UINT(rgba[3], 0);                         /* top-left corner alpha */
+        CHECK_EQ_UINT(rgba[(64 * 128 + 64) * 4 + 3], 255); /* centre alpha */
         free(rgba);
     }
 }

@@ -100,6 +100,8 @@ typedef struct pc_engine_session pc_engine_session;
 
 /* Read a preference by dotted path ("" = everything) into *out (owned). PC_ERR_NOT_FOUND when the
  * path is unknown. */
+pc_status pc_engine_prefs_defaults(pc_json_value *out, pc_error *err);
+uint64_t pc_engine_prefs_revision(const pc_engine_session *session);
 pc_status pc_engine_prefs_get(const pc_engine_session *s, const char *path, pc_json_value *out,
                               pc_error *err);
 

@@ -38,6 +38,7 @@
 #include "layer_cmds.h"
 #include "smart_cmds.h"
 #include "transform_cmds.h"
+#include "preview.h"
 #include "type_cmds.h"
 #include "vector_cmds.h"
 
@@ -209,8 +210,7 @@ static pc_status composite_over_native(pc_surface *dst, const pc_surface *top, p
     return rc;
 }
 
-pc_status pc_engine_transform_composite_over_native(pc_surface *dst, const pc_surface *top,
-                                                    pc_error *err)
+pc_status pc_engine_transform_composite_over_native(pc_surface *dst, const pc_surface *top, pc_error *err)
 {
     return composite_over_native(dst, top, err);
 }
@@ -317,7 +317,8 @@ pc_status pc_engine_transform_warp_gray(const pc_surface *s, const pc_algo_homog
     if (rc != PC_OK) {
         goto done;
     }
-    rc = pc_engine_alloc_filled(vlen * 2, sizeof(float), "transforming a mask or channel", (void **)&lifted, err);
+    rc = pc_engine_alloc_filled(vlen * 2, sizeof(float), "transforming a mask or channel", (void **)&lifted,
+                                err);
     if (rc != PC_OK) {
         goto done;
     }
@@ -351,12 +352,14 @@ pc_status pc_engine_transform_warp_gray(const pc_surface *s, const pc_algo_homog
     if (!pc_rect_is_empty(b)) {
         float *pw = NULL;
         size_t pl = 0;
-        rc = pc_engine_alloc_read_region(&warped, b, "flattening a transformed mask or channel", &pw, &pl, err);
+        rc = pc_engine_alloc_read_region(&warped, b, "flattening a transformed mask or channel", &pw, &pl,
+                                         err);
         if (rc != PC_OK) {
             goto done;
         }
         size_t fc = pl / 2;
-        rc = pc_engine_alloc_filled(fc, sizeof(float), "flattening a transformed mask or channel", (void **)&flat, err);
+        rc = pc_engine_alloc_filled(fc, sizeof(float), "flattening a transformed mask or channel",
+                                    (void **)&flat, err);
         if (rc != PC_OK) {
             free(pw);
             goto done;
@@ -388,9 +391,8 @@ done:
 
 /* transform_cmds::warp_gray_selected: only the selected values of a single grey channel move (the
  * vacated area reads as the default); whole-surface warp_gray for anything that is not one. */
-static pc_status warp_gray_selected(const pc_surface *s, const pc_surface *sel,
-                                    const pc_algo_homography *h, pc_algo_interp interp,
-                                    pc_surface *out, pc_error *err)
+static pc_status warp_gray_selected(const pc_surface *s, const pc_surface *sel, const pc_algo_homography *h,
+                                    pc_algo_interp interp, pc_surface *out, pc_error *err)
 {
     pc_pixel_format fmt = pc_surface_format(s);
     if (fmt.alpha || pc_pixel_format_channels(fmt) != 1) {
@@ -417,11 +419,13 @@ static pc_status warp_gray_selected(const pc_surface *s, const pc_surface *sel,
     if (rc != PC_OK) {
         goto fail;
     }
-    rc = pc_engine_alloc_filled(vlen * 2, sizeof(float), "transforming a selected mask or channel", (void **)&lp, err);
+    rc = pc_engine_alloc_filled(vlen * 2, sizeof(float), "transforming a selected mask or channel",
+                                (void **)&lp, err);
     if (rc != PC_OK) {
         goto fail;
     }
-    rc = pc_engine_alloc_filled(vlen, sizeof(float), "transforming a selected mask or channel", (void **)&rp, err);
+    rc = pc_engine_alloc_filled(vlen, sizeof(float), "transforming a selected mask or channel", (void **)&rp,
+                                err);
     if (rc != PC_OK) {
         goto fail;
     }
@@ -457,12 +461,15 @@ static pc_status warp_gray_selected(const pc_surface *s, const pc_surface *sel,
         if (!pc_rect_is_empty(b)) {
             float *moved = NULL, *under = NULL, *flat = NULL;
             size_t ml = 0, ul = 0;
-            rc = pc_engine_alloc_read_region(&warped, b, "compositing transformed mask pixels", &moved, &ml, err);
+            rc = pc_engine_alloc_read_region(&warped, b, "compositing transformed mask pixels", &moved, &ml,
+                                             err);
             if (rc == PC_OK) {
-                rc = pc_engine_alloc_read_region(out, b, "compositing transformed mask pixels", &under, &ul, err);
+                rc = pc_engine_alloc_read_region(out, b, "compositing transformed mask pixels", &under, &ul,
+                                                 err);
             }
             if (rc == PC_OK) {
-                rc = pc_engine_alloc_filled(ul, sizeof(float), "compositing transformed mask pixels", (void **)&flat, err);
+                rc = pc_engine_alloc_filled(ul, sizeof(float), "compositing transformed mask pixels",
+                                            (void **)&flat, err);
             }
             if (rc == PC_OK) {
                 for (size_t i = 0; i < ul; i++) {
@@ -635,8 +642,8 @@ bool pc_engine_transform_locked(const pc_document *doc, pc_layer_id id)
 /* check_budget for every warp transform_layer would make of `l` (for a group, of every layer
  * inside it), so a transform that does not fit is refused before any layer is built
  * (transform_cmds::check_layer_budget). */
-static pc_status check_layer_budget_rec(const pc_surface *sel, const pc_layer *l,
-                                        const pc_algo_homography *h, pc_error *err)
+static pc_status check_layer_budget_rec(const pc_surface *sel, const pc_layer *l, const pc_algo_homography *h,
+                                        pc_error *err)
 {
     switch (l->content.kind) {
     case PC_LAYER_GROUP: {
@@ -695,8 +702,8 @@ static pc_status check_layer_budget_rec(const pc_surface *sel, const pc_layer *l
 }
 
 static pc_status apply_transform(const pc_surface *doc_sel, pc_locks group, pc_layer *l,
-                                 const pc_algo_homography *h, const pc_affine *affine,
-                                 pc_algo_interp interp, pc_error *err)
+                                 const pc_algo_homography *h, const pc_affine *affine, pc_algo_interp interp,
+                                 pc_error *err)
 {
     pc_status rc = pc_engine_alloc_checkpoint("transforming pixels", err);
     if (rc != PC_OK) {
@@ -891,15 +898,17 @@ static void refresh_rec(const pc_document *snapshot, pc_layer *l)
  * Command surface.
  * ======================================================================================= */
 
-#define TRANSFORM_PARAMS                                                                            \
-    "{\"layer\":id?,\"rect\":[x0,y0,x1,y1]? (source frame; default = layer content \xE2\x88\xA9 "   \
-    "selection),\"quad\":[[x,y]\xC3\x97" "4]? (where the frame's corners go, clockwise from "        \
-    "top-left),\"matrix\":[a,b,c,d,e,f]? (affine alternative),\"scaleX\":%?,\"scaleY\":%?,"         \
-    "\"rotate\":deg?,\"dx\":px?,\"dy\":px? (relative alternative: scale and rotate about the "      \
-    "frame's centre, then move, as a Photoshop action records a Free Transform),"                   \
-    "\"interpolation\":\"bicubic|bilinear|nearest\"=\"bicubic\",\"target\":\"pixels\"|\"mask\"|"    \
-    "\"quickMask\"|{\"channel\":i}=Channels panel target (an unlinked mask, an alpha channel or "   \
-    "the Quick Mask transforms alone; a linked mask moves with its layer)}"
+#define TRANSFORM_PARAMS                                                                                     \
+    "{\"layer\":id?,\"rect\":[x0,y0,x1,y1]? (source frame; default = layer content \xE2\x88\xA9 "            \
+    "selection),\"quad\":[[x,y]\xC3\x97"                                                                     \
+    "4]? (where the frame's corners go, clockwise from "                                                     \
+    "top-left),\"matrix\":[a,b,c,d,e,f]? (affine alternative),\"scaleX\":%?,\"scaleY\":%?,"                  \
+    "\"rotate\":deg?,\"dx\":px?,\"dy\":px? (relative alternative: scale and rotate about the "               \
+    "frame's centre, then move, as a Photoshop action records a Free Transform),"                            \
+    "\"interpolation\":\"bicubic|bilinear|nearest\"=\"bicubic\",\"target\":\"pixels\"|\"mask\"|"             \
+    "\"quickMask\"|{\"channel\":i}=Channels panel target (an unlinked mask, an alpha channel or "            \
+    "the Quick Mask transforms alone; a linked mask moves with its layer),\"copy\":bool=false "              \
+    "(duplicate the active layer or selected pixels and transform it as one history step)}"
 
 static pc_status bad(pc_error *err, const char *msg)
 {
@@ -908,7 +917,7 @@ static pc_status bad(pc_error *err, const char *msg)
 
 /* The effective transform target: the explicit "target" param, or - when neither a target nor a
  * layer is named - the Channels panel's targeted alpha channel / Quick Mask (#2835). */
-static void effective_target(pc_engine_session *s, yyjson_val *p, pc_engine_pixel_target *tgt,
+static void effective_target(const pc_engine_session *s, yyjson_val *p, pc_engine_pixel_target *tgt,
                              size_t *alpha_idx)
 {
     size_t ai = 0;
@@ -983,10 +992,59 @@ static pc_rect target_bounds(const pc_document *doc, const pc_surface *surf)
     return content;
 }
 
+pc_status pc_engine_transform_frame(const pc_engine_session *s, yyjson_val *params, pc_rect *out,
+                                    bool *type_layer, pc_error *err)
+{
+    const pc_engine_doc_state *state = pc_engine_session_active(s);
+    if (!state || !out || !type_layer)
+        return pc_fail(err, PC_ERR_INVALID, "transform needs an open document and output frame");
+    const pc_document *doc = pc_doc_arc_get(state->doc);
+    size_t depth = 0;
+    pc_status status = pc_document_max_group_depth(doc, &depth, err);
+    if (status != PC_OK)
+        return status;
+    if (depth > 100)
+        return pc_fail(err, PC_ERR_LIMIT, "transform group depth exceeds 100");
+    bool explicit_layer = false;
+    pc_layer_id id = 0;
+    status = pc_engine_explicit_layer(s, params, &explicit_layer, &id, err);
+    if (status != PC_OK)
+        return status;
+    bool has_layer = explicit_layer || state->has_active_layer;
+    if (!explicit_layer && has_layer)
+        id = state->active_layer;
+    pc_engine_pixel_target target;
+    size_t alpha = 0;
+    effective_target(s, params, &target, &alpha);
+    const pc_surface *surface = NULL;
+    status = lone_target(doc, has_layer, id, target, alpha, &surface, err);
+    if (status != PC_OK)
+        return status;
+    pc_rect frame;
+    bool type = false;
+    if (surface)
+        frame = target_bounds(doc, surface);
+    else {
+        const pc_layer *layer = has_layer ? pc_document_layer(doc, id) : NULL;
+        if (!layer)
+            return pc_fail(err, PC_ERR_INVALID, "no active layer to transform");
+        if (pc_engine_transform_locked(doc, id))
+            return pc_fail(err, PC_ERR_INVALID,
+                           "Could not complete the Free Transform command because the layer is locked.");
+        frame = pc_engine_hook_transform_bounds(doc, layer);
+        type = layer->content.kind == PC_LAYER_TEXT;
+    }
+    if (pc_rect_is_empty(frame))
+        return pc_fail(err, PC_ERR_INVALID, "Could not transform: the layer is empty");
+    *out = frame;
+    *type_layer = type;
+    return PC_OK;
+}
+
 /* The relative form (scaleX, scaleY in %, rotate in degrees cw, dx, dy in px), as Photoshop
  * records a Free Transform. *present is false when none is given. */
-static pc_status relative_matrix(yyjson_val *p, const double rect[4], pc_algo_homography *out,
-                                 bool *present, pc_error *err)
+static pc_status relative_matrix(yyjson_val *p, const double rect[4], pc_algo_homography *out, bool *present,
+                                 pc_error *err)
 {
     *present = false;
     double vals[5];
@@ -1135,9 +1193,8 @@ static pc_status transform_edit(pc_document *doc, bool *has_active, pc_layer_id 
             return rc;
         }
         pc_surface w;
-        rc = doc->has_selection
-                 ? warp_gray_selected(surf, &doc->selection, &c->h, c->interp, &w, err)
-                 : pc_engine_transform_warp_gray(surf, &c->h, c->interp, &w, err);
+        rc = doc->has_selection ? warp_gray_selected(surf, &doc->selection, &c->h, c->interp, &w, err)
+                                : pc_engine_transform_warp_gray(surf, &c->h, c->interp, &w, err);
         if (rc != PC_OK) {
             return rc;
         }
@@ -1162,8 +1219,7 @@ static pc_status transform_edit(pc_document *doc, bool *has_active, pc_layer_id 
         return pc_engine_err_no_layer(err, c->id);
     }
     const pc_surface *sel = doc->has_selection ? &doc->selection : NULL;
-    pc_status rc =
-        pc_engine_transform_layer(is_group ? NULL : sel, group, l, &c->h, affine, c->interp, err);
+    pc_status rc = pc_engine_transform_layer(is_group ? NULL : sel, group, l, &c->h, affine, c->interp, err);
     if (rc != PC_OK) {
         return rc;
     }
@@ -1203,8 +1259,93 @@ static pc_status transform_result(pc_json_value *out, const double rect[4], pc_e
     return PC_OK;
 }
 
+typedef struct transform_copy_result {
+    const pc_document *doc;
+    bool has_active;
+    pc_layer_id active;
+} transform_copy_result;
+static pc_status adopt_transform_copy(pc_document *doc, bool *has_active, pc_layer_id *active, void *context,
+                                      pc_error *err)
+{
+    const transform_copy_result *result = context;
+    pc_document copy = {0};
+    pc_status status = pc_document_clone(result->doc, &copy, err);
+    if (status == PC_OK) {
+        pc_document_fini(doc);
+        *doc = copy;
+        *has_active = result->has_active;
+        *active = result->active;
+    }
+    return status;
+}
+static pc_status transform_copy(pc_engine_session *s, yyjson_val *params, pc_json_value *out, pc_error *err)
+{
+    const pc_engine_doc_state *source = pc_engine_session_active(s);
+    if (!source || !source->has_active_layer)
+        return pc_engine_err_no_document(err);
+    bool explicit_layer = false;
+    pc_layer_id id = 0;
+    pc_status status = pc_engine_explicit_layer(s, params, &explicit_layer, &id, err);
+    if (status != PC_OK)
+        return status;
+    if (explicit_layer && id != source->active_layer)
+        return pc_fail(err, PC_ERR_INVALID, "transform a copy needs the active layer");
+    pc_engine_pixel_target target;
+    size_t alpha = 0;
+    effective_target(s, params, &target, &alpha);
+    if (target != PC_ENGINE_PIXTGT_PIXELS)
+        return pc_fail(err, PC_ERR_INVALID, "transform a copy needs layer pixels");
+    pc_engine_session *prepared = NULL;
+    status = pc_engine_preview_clone(s, &prepared, err);
+    if (status != PC_OK)
+        return status;
+    prepared->authorize = s->authorize; /* Synchronous constituent commands preserve owner policy. */
+    pc_json_value ignored = PC_JSON_VALUE_INIT, reply = PC_JSON_VALUE_INIT;
+    status = pc_engine_session_execute_json(
+        prepared, pc_doc_arc_get(source->doc)->has_selection ? "layer.new.layerViaCopy" : "layer.duplicate",
+        "{\"inPlace\":true}", &ignored, err);
+    pc_json_value_fini(&ignored);
+    yyjson_mut_doc *d = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *p = d ? yyjson_val_mut_copy(d, params) : NULL;
+    if (status == PC_OK && !p)
+        status = pc_fail(err, PC_ERR_NOMEM, "copy transform parameters");
+    pc_buf text = PC_BUF_INIT;
+    yyjson_doc *parsed = NULL;
+    if (status == PC_OK) {
+        yyjson_mut_obj_remove_key(p, "copy");
+        yyjson_mut_obj_remove_key(p, "layer");
+        status = pc_json_write(p, 0, &text, err);
+    }
+    if (status == PC_OK)
+        status = pc_json_parse(pc_buf_cstr(&text), text.len, &parsed, err);
+    if (status == PC_OK)
+        status =
+            pc_engine_session_execute(prepared, "edit.transform", yyjson_doc_get_root(parsed), &reply, err);
+    if (status == PC_OK) {
+        const pc_engine_doc_state *state = pc_engine_session_active(prepared);
+        transform_copy_result result = {pc_doc_arc_get(state->doc), state->has_active_layer,
+                                        state->active_layer};
+        status = pc_engine_session_edit(s, "Free Transform a Copy", adopt_transform_copy, &result, err);
+    }
+    if (status == PC_OK) {
+        pc_json_value_fini(out);
+        *out = reply;
+        reply = (pc_json_value)PC_JSON_VALUE_INIT;
+    }
+    pc_json_value_fini(&reply);
+    pc_buf_fini(&text);
+    yyjson_doc_free(parsed);
+    yyjson_mut_doc_free(d);
+    pc_engine_session_free(prepared);
+    return status;
+}
 static pc_status run_transform(pc_engine_session *s, yyjson_val *p, pc_json_value *out, pc_error *err)
 {
+    bool copy = false;
+    if (pc_json_get(p, "copy") && !pc_json_as_bool(pc_json_get(p, "copy"), &copy))
+        return pc_fail(err, PC_ERR_INVALID, "copy must be a boolean");
+    if (copy)
+        return transform_copy(s, p, out, err);
     const pc_engine_doc_state *d = pc_engine_session_active(s);
     if (d == NULL) {
         return pc_engine_err_no_document(err);
@@ -1277,7 +1418,7 @@ static pc_status run_transform(pc_engine_session *s, yyjson_val *p, pc_json_valu
     yyjson_val *mv = pc_json_get(p, "matrix");
     bool rel_present = false;
     if (quad_param(p, q)) {
-        if (!pc_algo_homography_rect_to_quad(rect, (const double(*)[2])q, &h)) {
+        if (!pc_algo_homography_rect_to_quad(rect, (const double (*)[2])q, &h)) {
             return bad(err, "degenerate quad");
         }
     } else if (mv != NULL && yyjson_is_arr(mv) && yyjson_arr_size(mv) == 6) {
@@ -1316,8 +1457,8 @@ static pc_status run_transform(pc_engine_session *s, yyjson_val *p, pc_json_valu
     const double *hm = h.m;
     if (fabs(hm[6]) < 1e-12 && fabs(hm[7]) < 1e-12) {
         ctx.has_affine = true;
-        ctx.affine = (pc_affine){{hm[0] / hm[8], hm[3] / hm[8], hm[1] / hm[8], hm[4] / hm[8],
-                                  hm[2] / hm[8], hm[5] / hm[8]}};
+        ctx.affine = (pc_affine){
+            {hm[0] / hm[8], hm[3] / hm[8], hm[1] / hm[8], hm[4] / hm[8], hm[2] / hm[8], hm[5] / hm[8]}};
     }
     yyjson_val *iv = pc_json_get(p, "interpolation");
     size_t ilen = 0;
@@ -1334,8 +1475,8 @@ static pc_status run_transform(pc_engine_session *s, yyjson_val *p, pc_json_valu
 /* ---- frame-based presets (extra_cmds.rs::transform_preset, deferred there until now) ------ */
 
 /* Dispatch a 90/180-degree turn or a flip to edit.transform as an exact pixel permutation. */
-static pc_status transform_preset(pc_engine_session *s, yyjson_val *p, const char *kind,
-                                  pc_json_value *out, pc_error *err)
+static pc_status transform_preset(pc_engine_session *s, yyjson_val *p, const char *kind, pc_json_value *out,
+                                  pc_error *err)
 {
     const pc_engine_doc_state *d = pc_engine_session_active(s);
     if (d == NULL) {
@@ -1393,24 +1534,48 @@ static pc_status transform_preset(pc_engine_session *s, yyjson_val *p, const cha
     double cx = sx / 2.0, cy = sy / 2.0;
     double m[6];
     if (strcmp(kind, "rotate180") == 0) {
-        m[0] = -1.0; m[1] = 0.0; m[2] = 0.0; m[3] = -1.0; m[4] = sx; m[5] = sy;
+        m[0] = -1.0;
+        m[1] = 0.0;
+        m[2] = 0.0;
+        m[3] = -1.0;
+        m[4] = sx;
+        m[5] = sy;
     } else if (strcmp(kind, "rotate90Cw") == 0) {
-        m[0] = 0.0; m[1] = 1.0; m[2] = -1.0; m[3] = 0.0; m[4] = round(cx + cy); m[5] = round(cy - cx);
+        m[0] = 0.0;
+        m[1] = 1.0;
+        m[2] = -1.0;
+        m[3] = 0.0;
+        m[4] = round(cx + cy);
+        m[5] = round(cy - cx);
     } else if (strcmp(kind, "rotate90Ccw") == 0) {
-        m[0] = 0.0; m[1] = -1.0; m[2] = 1.0; m[3] = 0.0; m[4] = round(cx - cy); m[5] = round(cx + cy);
+        m[0] = 0.0;
+        m[1] = -1.0;
+        m[2] = 1.0;
+        m[3] = 0.0;
+        m[4] = round(cx - cy);
+        m[5] = round(cx + cy);
     } else if (strcmp(kind, "flipHorizontal") == 0) {
-        m[0] = -1.0; m[1] = 0.0; m[2] = 0.0; m[3] = 1.0; m[4] = sx; m[5] = 0.0;
+        m[0] = -1.0;
+        m[1] = 0.0;
+        m[2] = 0.0;
+        m[3] = 1.0;
+        m[4] = sx;
+        m[5] = 0.0;
     } else { /* flipVertical */
-        m[0] = 1.0; m[1] = 0.0; m[2] = 0.0; m[3] = -1.0; m[4] = 0.0; m[5] = sy;
+        m[0] = 1.0;
+        m[1] = 0.0;
+        m[2] = 0.0;
+        m[3] = -1.0;
+        m[4] = 0.0;
+        m[5] = sy;
     }
     char mbuf[6][PC_JSON_NUM_MAX];
     for (int i = 0; i < 6; i++) {
         (void)pc_json_format_f64(m[i], mbuf[i]);
     }
     char params[384];
-    (void)snprintf(params, sizeof params,
-                   "{%s\"matrix\":[%s,%s,%s,%s,%s,%s],\"interpolation\":\"nearest\"}", target_json,
-                   mbuf[0], mbuf[1], mbuf[2], mbuf[3], mbuf[4], mbuf[5]);
+    (void)snprintf(params, sizeof params, "{%s\"matrix\":[%s,%s,%s,%s,%s,%s],\"interpolation\":\"nearest\"}",
+                   target_json, mbuf[0], mbuf[1], mbuf[2], mbuf[3], mbuf[4], mbuf[5]);
     return pc_engine_session_execute_json(s, "edit.transform", params, out, err);
 }
 
@@ -1435,8 +1600,8 @@ static pc_status run_flip_v(pc_engine_session *s, yyjson_val *p, pc_json_value *
     return transform_preset(s, p, "flipVertical", out, err);
 }
 
-#define PRESET_PARAMS                                                                              \
-    "{\"target\":\"pixels\"|\"mask\"|\"quickMask\"|{\"channel\":i}=Channels panel target (an "     \
+#define PRESET_PARAMS                                                                                        \
+    "{\"target\":\"pixels\"|\"mask\"|\"quickMask\"|{\"channel\":i}=Channels panel target (an "               \
     "unlinked mask, an alpha channel or the Quick Mask turns alone)}"
 
 static const char *const MENU_EDIT_TRANSFORM[] = {"Edit", "Transform"};
@@ -1450,10 +1615,10 @@ const pc_engine_command *pc_engine_transform_specs(size_t *n)
          pc_engine_has_layer, run_rotate180, true},
         {"edit.transform.rotate90Cw", "Rotate 90\xC2\xB0 Clockwise", MENU_EDIT_TRANSFORM, 2, NULL,
          PRESET_PARAMS, pc_engine_has_layer, run_rotate90cw, true},
-        {"edit.transform.rotate90Ccw", "Rotate 90\xC2\xB0 Counter Clockwise", MENU_EDIT_TRANSFORM, 2,
-         NULL, PRESET_PARAMS, pc_engine_has_layer, run_rotate90ccw, true},
-        {"edit.transform.flipHorizontal", "Flip Horizontal", MENU_EDIT_TRANSFORM, 2, NULL,
-         PRESET_PARAMS, pc_engine_has_layer, run_flip_h, true},
+        {"edit.transform.rotate90Ccw", "Rotate 90\xC2\xB0 Counter Clockwise", MENU_EDIT_TRANSFORM, 2, NULL,
+         PRESET_PARAMS, pc_engine_has_layer, run_rotate90ccw, true},
+        {"edit.transform.flipHorizontal", "Flip Horizontal", MENU_EDIT_TRANSFORM, 2, NULL, PRESET_PARAMS,
+         pc_engine_has_layer, run_flip_h, true},
         {"edit.transform.flipVertical", "Flip Vertical", MENU_EDIT_TRANSFORM, 2, NULL, PRESET_PARAMS,
          pc_engine_has_layer, run_flip_v, true},
     };

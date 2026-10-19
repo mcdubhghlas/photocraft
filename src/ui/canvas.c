@@ -6,6 +6,10 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#include "base/num.h"
+#include "compose/effects.h"
+#include "compose/masks.h"
+#include "doc/tree.h"
 
 static const float ladder[] = {
     .001f, .002f,  .003f,      .004f, .005f,     .007f, .01f,      .015f, .02f,      .03f, .04f,
@@ -300,6 +304,14 @@ double pc_ui_ruler_nice_step(double minimum, bool whole)
     return minimum;
 }
 
+uint32_t pc_ui_canvas_render_key(void)
+{
+    float gamma = pc_psblend_text_gamma();
+    uint32_t bits = 0;
+    memcpy(&bits, &gamma, sizeof bits);
+    return bits;
+}
+
 void pc_ui_canvas_cache_fini(pc_ui_canvas_cache *c)
 {
     if (c) {
@@ -308,15 +320,128 @@ void pc_ui_canvas_cache_fini(pc_ui_canvas_cache *c)
     }
 }
 
+static bool local_effect(const pc_effect *effect)
+{
+    if (!pc_effect_enabled(effect))
+        return true;
+    switch (effect->kind) {
+    case PC_FX_GRADIENT_OVERLAY:
+    case PC_FX_PATTERN_OVERLAY:
+        return false; /* A changing shape bound can move the entire paint frame. */
+    case PC_FX_STROKE:
+        return effect->u.stroke.paint.kind == PC_FX_PAINT_COLOR;
+    case PC_FX_INNER_GLOW:
+    case PC_FX_OUTER_GLOW:
+        return effect->u.glow.paint.kind == PC_FX_PAINT_COLOR;
+    case PC_FX_BEVEL_EMBOSS:
+        return !effect->u.bevel.has_texture;
+    default:
+        return true;
+    }
+}
+bool pc_ui_canvas_cache_damage_rect(const pc_ui_canvas_cache *c, const pc_engine_doc_state *state,
+                                    pc_rect *out)
+{
+    if (!c || !state || !state->doc || !c->valid || c->revision == UINT64_MAX ||
+        c->revision + 1 != state->revision || !state->has_last_damage ||
+        c->render_key != pc_ui_canvas_render_key())
+        return false;
+    const pc_document *doc = pc_doc_arc_get(state->doc);
+    if (c->document != doc->id || !pc_rect_eq(c->image.rect, c->source_rect))
+        return false; /* Area-averaged previews require a complete resample. */
+    pc_doc_iter it;
+    pc_doc_iter_init(&it, doc->layers, doc->nlayers);
+    const pc_layer *layer = NULL;
+    int next;
+    bool local = true;
+    int64_t halo = 0;
+    while ((next = pc_doc_iter_next(&it, &layer)) > 0) {
+        if (pc_compose_has_feather(layer)) {
+            local = false;
+            break;
+        }
+        if (pc_compose_has_effects(layer)) {
+            if (!pc_compose_fx_maps_are_local(layer)) {
+                local = false;
+                break;
+            }
+            for (size_t i = 0; i < layer->effects.nitems; i++)
+                local = local && local_effect(&layer->effects.items[i]);
+            halo += pc_compose_effects_margin(layer);
+            if (!local || halo > INT32_MAX) {
+                local = false;
+                break;
+            }
+        }
+    }
+    pc_doc_iter_fini(&it);
+    if (!local || next < 0)
+        return false;
+    pc_rect damage = pc_rect_is_empty(state->last_damage)
+                         ? PC_RECT_EMPTY
+                         : pc_rect_inflate(state->last_damage, (int32_t)halo);
+    if (out)
+        *out = pc_rect_intersect(c->source_rect, damage);
+    return true;
+}
+bool pc_ui_canvas_cache_can_damage(const pc_ui_canvas_cache *c, const pc_engine_doc_state *state)
+{
+    return pc_ui_canvas_cache_damage_rect(c, state, NULL);
+}
+static void premultiply(pc_compose_buffer *image)
+{
+    for (size_t i = 0; i < image->len; i++) {
+        float *p = image->px[i];
+        p[3] = isfinite(p[3]) ? fminf(1, fmaxf(0, p[3])) : 0;
+        for (size_t j = 0; j < 3; j++)
+            p[j] = isfinite(p[j]) ? p[j] * p[3] : 0;
+    }
+}
+static pc_status update_damage(pc_ui_canvas_cache *c, const pc_engine_doc_state *state,
+                               pc_gpu_compositor *gpu, pc_error *err)
+{
+    pc_rect damage;
+    if (!pc_ui_canvas_cache_damage_rect(c, state, &damage))
+        return pc_fail(err, PC_ERR_INVALID, "canvas damage is no longer bounded");
+    pc_compose_buffer patch = {0};
+    pc_status status = PC_OK;
+    if (!pc_rect_is_empty(damage))
+        status = pc_ui_canvas_compose(pc_doc_arc_get(state->doc), damage, gpu, &patch, err);
+    if (status != PC_OK)
+        return status;
+    if (!pc_rect_is_empty(damage) && (!patch.px || !c->image.px)) {
+        pc_compose_buffer_fini(&patch);
+        return pc_fail(err, PC_ERR_IO, "missing canvas damage pixels");
+    }
+    premultiply(&patch);
+    size_t width = pc_rect_width(c->source_rect), patch_width = pc_rect_width(damage);
+    for (size_t row = 0; patch.px && row < pc_rect_height(damage); row++) {
+        size_t offset =
+            ((size_t)(damage.y0 - c->source_rect.y0) + row) * width + (size_t)(damage.x0 - c->source_rect.x0);
+        memcpy(c->image.px + offset, patch.px + row * patch_width, patch_width * sizeof *patch.px);
+    }
+    pc_compose_buffer_fini(&patch);
+    if (!pc_rect_is_empty(damage))
+        c->generation++;
+    c->revision = state->revision;
+    c->last_render = damage;
+    c->partial = true;
+    return PC_OK;
+}
+
 pc_status pc_ui_canvas_cache_update(pc_ui_canvas_cache *c, const pc_engine_doc_state *state, pc_error *err)
 {
     if (!c || !state || !state->doc) {
         return pc_fail(err, PC_ERR_INVALID, "no canvas document");
     }
     const pc_document *doc = pc_doc_arc_get(state->doc);
-    if (c->valid && c->document == doc->id && c->revision == state->revision) {
+    if (c->valid && c->document == doc->id && c->revision == state->revision &&
+        c->render_key == pc_ui_canvas_render_key() && !c->region) {
         return PC_OK;
     }
+    if (!c->region && pc_rect_eq(c->source_rect, pc_document_bounds(doc)) &&
+        pc_ui_canvas_cache_can_damage(c, state))
+        return update_damage(c, state, NULL, err);
     pc_compose_buffer image = {0};
     pc_status rc = pc_compose_thumbnail_buffer(doc, 4096, &image, err);
     if (rc != PC_OK) {
@@ -333,7 +458,226 @@ pc_status pc_ui_canvas_cache_update(pc_ui_canvas_cache *c, const pc_engine_doc_s
     c->image = image;
     c->document = doc->id;
     c->revision = state->revision;
+    c->render_key = pc_ui_canvas_render_key();
     c->generation++;
+    c->source_rect = pc_document_bounds(doc);
+    c->last_render = c->source_rect;
+    c->partial = false;
+    c->region = false;
     c->valid = true;
     return PC_OK;
+}
+
+pc_status pc_ui_canvas_cache_update_view(pc_ui_canvas_cache *c, const pc_engine_doc_state *state,
+                                         const pc_ui_canvas_xform *xf, pc_error *err)
+{
+    return pc_ui_canvas_cache_update_view_gpu(c, state, xf, NULL, err);
+}
+pc_status pc_ui_canvas_compose(const pc_document *doc, pc_rect rect, pc_gpu_compositor *gpu,
+                               pc_compose_buffer *out, pc_error *err)
+{
+    if (gpu && pc_gpu_compositor_healthy(gpu) && pc_gpu_render(gpu, doc, rect, out, NULL) == PC_OK) {
+        return PC_OK;
+    }
+    return pc_compose_render(doc, rect, out, err);
+}
+pc_status pc_ui_canvas_cache_update_view_gpu(pc_ui_canvas_cache *c, const pc_engine_doc_state *state,
+                                             const pc_ui_canvas_xform *xf, pc_gpu_compositor *gpu,
+                                             pc_error *err)
+{
+    if (!c || !state || !state->doc || !valid_xform(xf)) {
+        return pc_fail(err, PC_ERR_INVALID, "invalid canvas viewport");
+    }
+    const pc_document *doc = pc_doc_arc_get(state->doc);
+    if ((doc->size.width <= 4096 && doc->size.height <= 4096 && !gpu) || xf->zoom < .5f) {
+        return pc_ui_canvas_cache_update(c, state, err);
+    }
+    double lo[2] = {INFINITY, INFINITY}, hi[2] = {-INFINITY, -INFINITY};
+    for (unsigned corner = 0; corner < 4; corner++) {
+        float p[2];
+        if (pc_ui_canvas_to_doc(xf, xf->x + ((corner & 1) ? xf->width : 0),
+                                xf->y + ((corner & 2) ? xf->height : 0), p) != PC_OK) {
+            return pc_fail(err, PC_ERR_INVALID, "invalid canvas viewport");
+        }
+        for (size_t axis = 0; axis < 2; axis++) {
+            lo[axis] = fmin(lo[axis], p[axis]);
+            hi[axis] = fmax(hi[axis], p[axis]);
+        }
+    }
+    pc_rect bounds = pc_document_bounds(doc);
+    /* 256-pixel tile padding: small pans reuse the same texture and never rescan a surface. */
+    pc_rect area = pc_rect_make(pc_f64_to_i32(fmax(0, floor(lo[0] / 256) * 256 - 256)),
+                                pc_f64_to_i32(fmax(0, floor(lo[1] / 256) * 256 - 256)),
+                                pc_f64_to_i32(fmin(bounds.x1, (floor(hi[0] / 256) + 2) * 256)),
+                                pc_f64_to_i32(fmin(bounds.y1, (floor(hi[1] / 256) + 2) * 256)));
+    area = pc_rect_intersect(area, bounds);
+    if (pc_rect_is_empty(area) || pc_rect_width(area) > 4096 || pc_rect_height(area) > 4096) {
+        return pc_ui_canvas_cache_update(c, state, err);
+    }
+    if (c->valid && c->region && c->document == doc->id && c->revision == state->revision &&
+        c->render_key == pc_ui_canvas_render_key() && pc_rect_eq(c->source_rect, area)) {
+        return PC_OK;
+    }
+    if (c->region && pc_rect_eq(c->source_rect, area) && pc_ui_canvas_cache_can_damage(c, state))
+        return update_damage(c, state, gpu, err);
+    pc_compose_buffer image = {0};
+    pc_status rc = pc_ui_canvas_compose(doc, area, gpu, &image, err);
+    if (rc != PC_OK) {
+        return rc;
+    }
+    for (size_t i = 0; i < image.len; i++) {
+        float *p = image.px[i];
+        p[3] = isfinite(p[3]) ? fminf(1, fmaxf(0, p[3])) : 0;
+        for (size_t j = 0; j < 3; j++) {
+            p[j] = isfinite(p[j]) ? p[j] * p[3] : 0;
+        }
+    }
+    pc_compose_buffer_fini(&c->image);
+    c->image = image;
+    c->document = doc->id;
+    c->revision = state->revision;
+    c->render_key = pc_ui_canvas_render_key();
+    c->generation++;
+    c->source_rect = area;
+    c->last_render = area;
+    c->partial = false;
+    c->region = true;
+    c->valid = true;
+    return PC_OK;
+}
+
+pc_status pc_ui_canvas_cache_update_plane(pc_ui_canvas_cache *c, const pc_engine_doc_state *state,
+                                          const pc_ui_canvas_xform *xf, pc_gpu_compositor *gpu, pc_error *err)
+{
+    if (!c || !state || !state->doc || !valid_xform(xf))
+        return pc_fail(err, PC_ERR_INVALID, "invalid crop viewport");
+    double lo[2] = {INFINITY, INFINITY}, hi[2] = {-INFINITY, -INFINITY};
+    for (unsigned corner = 0; corner < 4; corner++) {
+        float point[2];
+        if (pc_ui_canvas_to_doc(xf, xf->x + ((corner & 1) ? xf->width : 0),
+                                xf->y + ((corner & 2) ? xf->height : 0), point) != PC_OK)
+            return pc_fail(err, PC_ERR_INVALID, "invalid crop viewport");
+        for (size_t a = 0; a < 2; a++) {
+            lo[a] = fmin(lo[a], point[a]);
+            hi[a] = fmax(hi[a], point[a]);
+        }
+    }
+    if (lo[0] < -1000000 || lo[1] < -1000000 || hi[0] > 1000000 || hi[1] > 1000000)
+        return pc_fail(err, PC_ERR_LIMIT, "crop viewport exceeds the coordinate budget");
+    pc_rect area =
+        pc_rect_make((int32_t)(floor(lo[0] / 256) * 256 - 256), (int32_t)(floor(lo[1] / 256) * 256 - 256),
+                     (int32_t)((floor(hi[0] / 256) + 2) * 256), (int32_t)((floor(hi[1] / 256) + 2) * 256));
+    const pc_document *doc = pc_doc_arc_get(state->doc);
+    uint32_t width = pc_rect_width(area), height = pc_rect_height(area),
+             longest = width > height ? width : height;
+    uint32_t k = longest / 8192;
+    bool proxy = k >= 2 && pc_compose_proxy_faithful(doc);
+    if (proxy) {
+        area =
+            pc_rect_make((int32_t)(floor((double)area.x0 / k) * k), (int32_t)(floor((double)area.y0 / k) * k),
+                         (int32_t)(ceil((double)area.x1 / k) * k), (int32_t)(ceil((double)area.y1 / k) * k));
+        width = pc_rect_width(area);
+        height = pc_rect_height(area);
+        longest = width > height ? width : height;
+    }
+    if (c->valid && c->region && c->document == doc->id && c->revision == state->revision &&
+        c->render_key == pc_ui_canvas_render_key() && pc_rect_eq(c->source_rect, area))
+        return PC_OK;
+    pc_compose_buffer image = {0};
+    pc_status status;
+    if (longest <= 4096)
+        status = pc_ui_canvas_compose(doc, area, gpu, &image, err);
+    else {
+        double factor = 4096. / longest;
+        uint32_t w = (uint32_t)fmax(1, round(width * factor)), h = (uint32_t)fmax(1, round(height * factor));
+        if (proxy) {
+            pc_document reduced_doc = {0};
+            status = pc_compose_proxy_document(doc, k, &reduced_doc, err);
+            if (status == PC_OK) {
+                pc_rect reduced = pc_rect_make(area.x0 / (int32_t)k, area.y0 / (int32_t)k,
+                                               area.x1 / (int32_t)k, area.y1 / (int32_t)k);
+                status = pc_compose_render_reduced_rect(&reduced_doc, reduced, w, h, &image, err);
+                pc_document_fini(&reduced_doc);
+            }
+        } else if ((uint64_t)width * height > PC_COMPOSE_MAX_PIXELS)
+            return pc_fail(err, PC_ERR_LIMIT, "crop viewport reduction exceeds the pixel budget");
+        else
+            status = pc_compose_render_reduced_rect(doc, area, w, h, &image, err);
+    }
+    if (status != PC_OK)
+        return status;
+    premultiply(&image);
+    pc_compose_buffer_fini(&c->image);
+    c->image = image;
+    c->document = doc->id;
+    c->revision = state->revision;
+    c->render_key = pc_ui_canvas_render_key();
+    c->generation++;
+    c->source_rect = area;
+    c->last_render = area;
+    c->partial = false;
+    c->region = true;
+    c->valid = true;
+    return PC_OK;
+}
+
+pc_status pc_ui_canvas_gesture(pc_ui_view *view, const pc_ui_canvas_xform *xf, const float from[2],
+                               const float to[2], float zoom_factor, float rotation_delta, float ppp)
+{
+    if (!view || !from || !to || !valid_xform(xf) || !isfinite(ppp) || ppp <= 0 || !isfinite(zoom_factor) ||
+        zoom_factor <= 0 || !isfinite(rotation_delta)) {
+        return PC_ERR_INVALID;
+    }
+    float before[2], after[2];
+    if (pc_ui_canvas_to_doc(xf, from[0], from[1], before) != PC_OK) {
+        return PC_ERR_INVALID;
+    }
+    pc_ui_view next = *view;
+    next.zoom = pc_ui_zoom_clamp(pc_f64_to_f32((double)view->zoom * zoom_factor), view->doc_size);
+    next.rotation = pc_ui_rotation_wrap(view->rotation + (xf->flip ? -rotation_delta : rotation_delta));
+    pc_ui_canvas_xform updated = *xf;
+    updated.zoom = next.zoom / ppp;
+    updated.rotation = next.rotation;
+    if (pc_ui_canvas_to_doc(&updated, to[0], to[1], after) != PC_OK) {
+        return PC_ERR_INVALID;
+    }
+    next.center[0] += before[0] - after[0];
+    next.center[1] += before[1] - after[1];
+    if (!isfinite(next.center[0]) || !isfinite(next.center[1])) {
+        return PC_ERR_INVALID;
+    }
+    next.fit_pending = next.fill_pending = false;
+    *view = next;
+    return PC_OK;
+}
+
+bool pc_ui_canvas_clip_line(const pc_ui_canvas_xform *xf, float a[2], float b[2])
+{
+    if (!xf || !a || !b || !isfinite(xf->x) || !isfinite(xf->y) || !isfinite(xf->width) ||
+        !isfinite(xf->height) || xf->width <= 0 || xf->height <= 0)
+        return false;
+    double lo[2] = {fmax(-32760, xf->x), fmax(-32760, xf->y)},
+           hi[2] = {fmin(32760, (double)xf->x + xf->width), fmin(32760, (double)xf->y + xf->height)};
+    if (hi[0] < lo[0] || hi[1] < lo[1])
+        return false;
+    double t0 = 0, t1 = 1, start[2] = {a[0], a[1]}, delta[2] = {(double)b[0] - a[0], (double)b[1] - a[1]};
+    for (size_t axis = 0; axis < 2; axis++) {
+        if (!isfinite(start[axis]) || !isfinite(delta[axis]))
+            return false;
+        if (delta[axis] == 0) {
+            if (start[axis] < lo[axis] || start[axis] > hi[axis])
+                return false;
+        } else {
+            double u = (lo[axis] - start[axis]) / delta[axis], v = (hi[axis] - start[axis]) / delta[axis];
+            t0 = fmax(t0, fmin(u, v));
+            t1 = fmin(t1, fmax(u, v));
+        }
+    }
+    if (t0 > t1)
+        return false;
+    for (size_t axis = 0; axis < 2; axis++) {
+        a[axis] = (float)fmin(hi[axis], fmax(lo[axis], start[axis] + t0 * delta[axis]));
+        b[axis] = (float)fmin(hi[axis], fmax(lo[axis], start[axis] + t1 * delta[axis]));
+    }
+    return true;
 }

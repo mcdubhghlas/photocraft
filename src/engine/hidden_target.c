@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "engine_internal.h"
+#include "channel_cmds.h"
 
 static const char *const HIDDEN = "Could not complete your request because the target layer is hidden.";
 
@@ -38,6 +39,7 @@ static bool shown(const pc_document *doc, pc_layer_id id)
 
 const char *pc_engine_hidden_target_refusal(const pc_engine_session *s, const char *id, yyjson_val *params)
 {
+    if(pc_engine_is_channel_target(params)) { return NULL; }
     bool gated = false;
     for (size_t i = 0; i < sizeof GATED / sizeof GATED[0]; i++) {
         if (strcmp(id, GATED[i]) == 0) {

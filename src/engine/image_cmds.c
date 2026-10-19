@@ -1523,9 +1523,15 @@ static void remap_comp(pc_layer_comp *comp, const id_pair *pairs, size_t n)
 }
 
 /* Assigns fresh ids to every layer of a copied document and updates comp references. */
-static void reidentify_copied_layers(pc_document *doc)
+pc_status pc_engine_reidentify_copied_layers(pc_document *doc, pc_error *err)
 {
-    reid_ctx c = {NULL, 0, 0, true};
+    pc_walk walk = {0};
+    pc_status rc = pc_document_walk(doc, &walk, err);
+    if (rc != PC_OK) { return rc; }
+    size_t count = walk.len; pc_walk_fini(&walk);
+    id_pair *pairs = pc_malloc_array(count ? count : 1, sizeof *pairs);
+    if (!pairs) { return pc_fail(err, PC_ERR_NOMEM, "copied layer ids"); }
+    reid_ctx c = {pairs, 0, count, true};
     for_each_layer(doc->layers, doc->nlayers, reid_cb, &c);
     if (c.ok) {
         for (size_t i = 0; i < doc->nlayer_comps; i++) {
@@ -1536,6 +1542,7 @@ static void reidentify_copied_layers(pc_document *doc)
         }
     }
     free(c.pairs);
+    return PC_OK;
 }
 
 static pc_status run_duplicate(pc_engine_session *s, yyjson_val *p, pc_json_value *out, pc_error *err)
@@ -1640,7 +1647,8 @@ static pc_status run_duplicate(pc_engine_session *s, yyjson_val *p, pc_json_valu
             doc.has_last_document_state = false;
         }
     }
-    reidentify_copied_layers(&doc);
+    pc_status identified = pc_engine_reidentify_copied_layers(&doc, err);
+    if (identified != PC_OK) { pc_document_fini(&doc); return identified; }
     /* Keep the name for the result before the document is moved into the session. */
     char name_copy[512];
     (void)snprintf(name_copy, sizeof name_copy, "%s", pc_str_c(&doc.name));

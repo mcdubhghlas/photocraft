@@ -13,6 +13,7 @@
 #include "algo/filter.h"
 #include "base/mem.h"
 #include "engine_internal.h"
+#include "gallery_catalog.h"
 
 /* ---- colour parsing ----------------------------------------------------------------------- */
 
@@ -117,8 +118,7 @@ static pc_status effect_from_json(pc_algo_gallery_filter f, yyjson_val *p, yyjso
 }
 
 /* The effect stack of a filterGallery params object (NULL `effects` -> empty, not an error). */
-static pc_status effects_from_json(yyjson_val *p, pc_algo_gallery_effect **out, size_t *count,
-                                   pc_error *err)
+static pc_status effects_from_json(yyjson_val *p, pc_algo_gallery_effect **out, size_t *count, pc_error *err)
 {
     *out = NULL;
     *count = 0;
@@ -277,8 +277,8 @@ static pc_status check_choices(pc_algo_gallery_filter f, yyjson_val *p, const ch
             char choices[PC_ALGO_GALLERY_MAX_CHOICES * (PC_ALGO_GALLERY_NAME_MAX + 1)];
             size_t off = 0;
             for (size_t c = 0; c < params[i].nchoices; c++) {
-                int w = snprintf(choices + off, sizeof choices - off, "%s%s", c ? "|" : "",
-                                 params[i].choices[c]);
+                int w =
+                    snprintf(choices + off, sizeof choices - off, "%s%s", c ? "|" : "", params[i].choices[c]);
                 if (w < 0 || (size_t)w >= sizeof choices - off) {
                     break;
                 }
@@ -300,8 +300,7 @@ pc_status pc_engine_gallery_validate(const char *id, yyjson_val *p, pc_error *er
         size_t n = yyjson_arr_size(list);
         for (size_t i = 0; i < n; i++) {
             yyjson_val *item = yyjson_arr_get(list, i);
-            yyjson_val *fv =
-                (item != NULL && yyjson_is_obj(item)) ? yyjson_obj_get(item, "filter") : NULL;
+            yyjson_val *fv = (item != NULL && yyjson_is_obj(item)) ? yyjson_obj_get(item, "filter") : NULL;
             pc_algo_gallery_filter f;
             if (fv == NULL || !yyjson_is_str(fv) ||
                 !pc_algo_gallery_filter_from_key(yyjson_get_str(fv), yyjson_get_len(fv), &f)) {
@@ -329,7 +328,7 @@ pc_status pc_engine_gallery_validate(const char *id, yyjson_val *p, pc_error *er
 
 /* ---- the catalogue ------------------------------------------------------------------------ */
 
-static pc_status catalogue(pc_json_value *out, pc_error *err)
+pc_status pc_engine_gallery_catalogue(pc_json_value *out, pc_error *err)
 {
     yyjson_mut_doc *rd = NULL;
     if (pc_engine_result_doc(out, &rd, err) != PC_OK) {
@@ -424,7 +423,7 @@ static pc_status run_filter_gallery(pc_engine_session *s, yyjson_val *p, pc_json
     yyjson_val *lv = (p != NULL && yyjson_is_obj(p)) ? yyjson_obj_get(p, "list") : NULL;
     bool list;
     if (lv != NULL && pc_json_as_bool(lv, &list) && list) {
-        return catalogue(out, err);
+        return pc_engine_gallery_catalogue(out, err);
     }
     pc_algo_gallery_effect *eff = NULL;
     size_t n = 0;
@@ -451,29 +450,31 @@ static pc_status run_filter_gallery(pc_engine_session *s, yyjson_val *p, pc_json
  * indexed by the enum value, keeps the ids in lockstep with photocraft_algo. */
 static const char *const MENU_FILTER[] = {"Filter"};
 
-#define GAL_THUNK(i)                                                                               \
-    static pc_status gal_run_##i(pc_engine_session *s, yyjson_val *p, pc_json_value *out,           \
-                                 pc_error *err)                                                     \
-    {                                                                                              \
-        return run_gallery_id(s, pc_algo_gallery_filter_command_id((pc_algo_gallery_filter)(i)), p, \
-                              out, err);                                                            \
+#define GAL_THUNK(i)                                                                                         \
+    static pc_status gal_run_##i(pc_engine_session *s, yyjson_val *p, pc_json_value *out, pc_error *err)     \
+    {                                                                                                        \
+        return run_gallery_id(s, pc_algo_gallery_filter_command_id((pc_algo_gallery_filter)(i)), p, out,     \
+                              err);                                                                          \
     }
 
-GAL_THUNK(0) GAL_THUNK(1) GAL_THUNK(2) GAL_THUNK(3) GAL_THUNK(4) GAL_THUNK(5) GAL_THUNK(6)
-GAL_THUNK(7) GAL_THUNK(8) GAL_THUNK(9) GAL_THUNK(10) GAL_THUNK(11) GAL_THUNK(12) GAL_THUNK(13)
-GAL_THUNK(14) GAL_THUNK(15) GAL_THUNK(16) GAL_THUNK(17) GAL_THUNK(18) GAL_THUNK(19) GAL_THUNK(20)
-GAL_THUNK(21) GAL_THUNK(22) GAL_THUNK(23) GAL_THUNK(24) GAL_THUNK(25) GAL_THUNK(26) GAL_THUNK(27)
-GAL_THUNK(28) GAL_THUNK(29) GAL_THUNK(30) GAL_THUNK(31) GAL_THUNK(32) GAL_THUNK(33) GAL_THUNK(34)
-GAL_THUNK(35) GAL_THUNK(36) GAL_THUNK(37) GAL_THUNK(38) GAL_THUNK(39) GAL_THUNK(40) GAL_THUNK(41)
-GAL_THUNK(42) GAL_THUNK(43) GAL_THUNK(44) GAL_THUNK(45) GAL_THUNK(46)
+GAL_THUNK(0)
+GAL_THUNK(1) GAL_THUNK(2) GAL_THUNK(3) GAL_THUNK(4) GAL_THUNK(5) GAL_THUNK(6) GAL_THUNK(7) GAL_THUNK(8)
+    GAL_THUNK(9) GAL_THUNK(10) GAL_THUNK(11) GAL_THUNK(12) GAL_THUNK(13) GAL_THUNK(14) GAL_THUNK(15)
+        GAL_THUNK(16) GAL_THUNK(17) GAL_THUNK(18) GAL_THUNK(19) GAL_THUNK(20) GAL_THUNK(21) GAL_THUNK(22)
+            GAL_THUNK(23) GAL_THUNK(24) GAL_THUNK(25) GAL_THUNK(26) GAL_THUNK(27) GAL_THUNK(28) GAL_THUNK(29)
+                GAL_THUNK(30) GAL_THUNK(31) GAL_THUNK(32) GAL_THUNK(33) GAL_THUNK(34) GAL_THUNK(35)
+                    GAL_THUNK(36) GAL_THUNK(37) GAL_THUNK(38) GAL_THUNK(39) GAL_THUNK(40) GAL_THUNK(41)
+                        GAL_THUNK(42) GAL_THUNK(43) GAL_THUNK(44) GAL_THUNK(45) GAL_THUNK(46)
 
-static const pc_engine_run_fn GAL_THUNKS[PC_ALGO_GALLERY_FILTERS] = {
-    gal_run_0,  gal_run_1,  gal_run_2,  gal_run_3,  gal_run_4,  gal_run_5,  gal_run_6,  gal_run_7,
-    gal_run_8,  gal_run_9,  gal_run_10, gal_run_11, gal_run_12, gal_run_13, gal_run_14, gal_run_15,
-    gal_run_16, gal_run_17, gal_run_18, gal_run_19, gal_run_20, gal_run_21, gal_run_22, gal_run_23,
-    gal_run_24, gal_run_25, gal_run_26, gal_run_27, gal_run_28, gal_run_29, gal_run_30, gal_run_31,
-    gal_run_32, gal_run_33, gal_run_34, gal_run_35, gal_run_36, gal_run_37, gal_run_38, gal_run_39,
-    gal_run_40, gal_run_41, gal_run_42, gal_run_43, gal_run_44, gal_run_45, gal_run_46};
+                            static const pc_engine_run_fn GAL_THUNKS[PC_ALGO_GALLERY_FILTERS] = {
+                                gal_run_0,  gal_run_1,  gal_run_2,  gal_run_3,  gal_run_4,  gal_run_5,
+                                gal_run_6,  gal_run_7,  gal_run_8,  gal_run_9,  gal_run_10, gal_run_11,
+                                gal_run_12, gal_run_13, gal_run_14, gal_run_15, gal_run_16, gal_run_17,
+                                gal_run_18, gal_run_19, gal_run_20, gal_run_21, gal_run_22, gal_run_23,
+                                gal_run_24, gal_run_25, gal_run_26, gal_run_27, gal_run_28, gal_run_29,
+                                gal_run_30, gal_run_31, gal_run_32, gal_run_33, gal_run_34, gal_run_35,
+                                gal_run_36, gal_run_37, gal_run_38, gal_run_39, gal_run_40, gal_run_41,
+                                gal_run_42, gal_run_43, gal_run_44, gal_run_45, gal_run_46};
 
 #define GALLERY_SPEC_CAP (PC_ALGO_GALLERY_FILTERS + 1)
 static pc_engine_command g_specs[GALLERY_SPEC_CAP];
@@ -482,10 +483,16 @@ static bool g_built;
 const pc_engine_command *pc_engine_gallery_specs(size_t *n)
 {
     if (!g_built) {
-        g_specs[0] = (pc_engine_command){
-            "filter.filterGallery", "Filter Gallery\xE2\x80\xA6", MENU_FILTER, 1, NULL,
-            "{\"effects\":json,\"foreground\":json,\"background\":json,\"list\":bool}",
-            pc_engine_filterable, run_filter_gallery, true};
+        g_specs[0] =
+            (pc_engine_command){"filter.filterGallery",
+                                "Filter Gallery\xE2\x80\xA6",
+                                MENU_FILTER,
+                                1,
+                                NULL,
+                                "{\"effects\":json,\"foreground\":json,\"background\":json,\"list\":bool}",
+                                pc_engine_filterable,
+                                run_filter_gallery,
+                                true};
         for (int i = 0; i < PC_ALGO_GALLERY_FILTERS; i++) {
             pc_algo_gallery_filter f = (pc_algo_gallery_filter)i;
             g_specs[i + 1] = (pc_engine_command){pc_algo_gallery_filter_command_id(f),

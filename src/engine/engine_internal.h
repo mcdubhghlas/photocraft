@@ -28,8 +28,8 @@ pc_status pc_engine_err_cancelled(pc_error *err);
 /* ---- journal ------------------------------------------------------------------------------ */
 
 typedef struct pc_engine_journal_entry {
-    char *id;              /* owned */
-    pc_json_value params;  /* owned */
+    char *id;             /* owned */
+    pc_json_value params; /* owned */
 } pc_engine_journal_entry;
 
 /* ---- background jobs (jobs.c) ------------------------------------------------------------- */
@@ -44,7 +44,7 @@ typedef struct pc_engine_job_shared {
     char message[256];
 } pc_engine_job_shared;
 
-struct pc_engine_job_ctx { /* the typedef name is declared in engine.h */
+struct pc_engine_job_ctx {        /* the typedef name is declared in engine.h */
     pc_engine_job_shared *shared; /* never NULL once initialised */
 };
 
@@ -68,7 +68,7 @@ typedef struct pc_engine_jobs {
     pthread_t *draining;
     bool *draining_joined;
     size_t ndraining, cap_draining;
-    bool has_inline;               /* the ctx inline job work runs under */
+    bool has_inline; /* the ctx inline job work runs under */
     pc_engine_job_ctx inline_ctx;
 } pc_engine_jobs;
 
@@ -81,8 +81,8 @@ void pc_engine_jobs_fini(pc_engine_jobs *j); /* cancels running jobs, joins drai
  * inline. A command module calls this from its run(). */
 pc_status pc_engine_run_job(pc_engine_session *s, const char *label, bool lock_document,
                             pc_engine_job_work_fn work, void *ud, void (*free_ud)(void *),
-                            void (*free_payload)(void *), pc_engine_job_apply_fn apply,
-                            pc_json_value *out, pc_error *err);
+                            void (*free_payload)(void *), pc_engine_job_apply_fn apply, pc_json_value *out,
+                            pc_error *err);
 
 /* ---- preferences (prefs.c) ---------------------------------------------------------------- */
 
@@ -125,7 +125,7 @@ typedef struct pc_engine_link_stamp {
 /* ET2: a custom shape (Edit > Define Custom Shape), usable by the Custom Shape tool and the Shapes
  * panel (edit_menu_cmds::CustomShape). */
 typedef struct pc_engine_custom_shape {
-    char *name;  /* owned */
+    char *name;   /* owned */
     pc_path path; /* owned */
 } pc_engine_custom_shape;
 
@@ -140,6 +140,8 @@ struct pc_engine_session {
     char *coalesce_request; /* coalescing key of the command being executed (owned), or NULL */
     /* Untrusted sessions gate every command. NULL runs everything. */
     pc_status (*authorize)(const char *id, yyjson_val *params, pc_error *err);
+    pc_engine_shell_dispatch shell_dispatch;
+    void *shell_dispatch_ctx;
     pc_engine_jobs jobs;
     /* A canvas-size map (crop/Canvas Size/Image Size/rotation) the next edit applies to Color
      * Sampler points, and how many were dropped since last read. Consumed by session.c edit()
@@ -150,6 +152,8 @@ struct pc_engine_session {
     size_t samplers_removed;
     /* A single colour channel the running command may change (channel_cmds, E7); SIZE_MAX = none. */
     size_t color_restrict;
+    struct pc_engine_live_stroke *live_commit;
+    uint64_t live_commit_reuses;
     /* --- EXTENSION REGION: clipboard (E4), color (E8), smart_links (E6), prefs (E2), patterns
      * (E10), analysis (E8), presets (E2), actions (E12), preset_store (E2), subject/object caches
      * (E7), live_commit (E10), ... are added here by the owning chunk with a surgical edit. */
@@ -215,13 +219,13 @@ struct pc_engine_session {
     /* E12: File-menu session state shared by slice_cmds (View > Lock Slices), automate_cmds and
      * web_cmds (automate_cmds::FileMenuState). Not saved, not history. The dynamic members
      * (image_assets, event_log, last_print/last_web JSON) are owned and released in session_free. */
-    bool slices_locked;        /* View > Lock Slices */
-    pc_doc_id *image_assets;   /* documents with File > Generate > Image Assets on */
+    bool slices_locked;      /* View > Lock Slices */
+    pc_doc_id *image_assets; /* documents with File > Generate > Image Assets on */
     size_t nimage_assets;
-    bool firing;               /* set while event scripts run (no recursive events) */
-    pc_json_value last_print;  /* File > Print settings used last (null = none) */
-    pc_json_value last_web;    /* Save for Web settings used last (null = none) */
-    pc_json_value *event_log;  /* recent script-event results, newest last, capped */
+    bool firing;              /* set while event scripts run (no recursive events) */
+    pc_json_value last_print; /* File > Print settings used last (null = none) */
+    pc_json_value last_web;   /* Save for Web settings used last (null = none) */
+    pc_json_value *event_log; /* recent script-event results, newest last, capped */
     size_t nevent_log;
     /* E12: Window > Actions recorded-action state (actions_cmds.c). Opaque (the full type is in
      * actions_cmds.h); lazily allocated, released by pc_engine_actions_session_fini. */
@@ -273,6 +277,10 @@ void pc_engine_type_defaults_fini(pc_engine_session *s);
 
 /* Internal session helpers (session.c). */
 void pc_engine_fix_selection(pc_engine_doc_state *st);
+void pc_engine_snapshots_fini(pc_engine_doc_state *st);
+void pc_engine_inspect_snapshots(yyjson_mut_doc *doc, yyjson_mut_val *root, const pc_engine_doc_state *st);
+pc_status pc_engine_reidentify_copied_layers(pc_document *doc, pc_error *err);
+const pc_engine_command *pc_engine_history_specs(size_t *n);
 /* Append one journal entry (id + owned copy of params; params may be NULL). */
 pc_status pc_engine_journal_push(pc_engine_session *s, const char *id, yyjson_val *params, pc_error *err);
 pc_status pc_engine_doc_state_init(pc_engine_doc_state *st, pc_document *doc, const char *path,
@@ -281,10 +289,13 @@ void pc_engine_doc_state_fini(pc_engine_doc_state *st);
 /* E7: free a DocState's Channels-panel view state (channel_cmds.c). NULL-safe. Declared here so
  * session.c can release it in doc_state_fini without including channel_cmds.h. */
 void pc_engine_channel_view_free(struct pc_engine_channel_view *v);
+pc_status pc_engine_channel_view_clone(const struct pc_engine_channel_view *source,
+                                       struct pc_engine_channel_view **out, pc_error *err);
 /* E10: free a DocState's painting symmetry (symmetry_cmds.c). NULL-safe. Declared here so
  * session.c can release it in doc_state_fini without including symmetry_cmds.h. */
 void pc_engine_symmetry_free(struct pc_engine_symmetry *sym);
 /* E10: deep-clone a DocState's painting symmetry, or NULL -> NULL (symmetry_cmds.c). */
+bool pc_engine_symmetry_equal(const struct pc_engine_symmetry *a, const struct pc_engine_symmetry *b);
 struct pc_engine_symmetry *pc_engine_symmetry_clone(const struct pc_engine_symmetry *sym);
 /* E4: free a DocState's floating selection (float_cmds.c). NULL-safe. Declared here so session.c
  * can release it in doc_state_fini without including float_cmds internals. */
@@ -314,6 +325,7 @@ pc_status pc_engine_dispatch(pc_engine_session *s, const char *id, yyjson_val *p
                              bool *out_is_job, uint64_t *out_job_id, pc_json_value *out, pc_error *err);
 
 /* jobs.c helpers used by session.c / command.c. */
+bool pc_engine_job_record_command(pc_engine_session *s, uint64_t id);
 bool pc_engine_active_job(const pc_engine_session *s); /* a job locks the active document */
 bool pc_engine_job_on(const pc_engine_session *s, pc_doc_id doc);
 void pc_engine_cancel_jobs_on(pc_engine_session *s, pc_doc_id doc);
@@ -379,8 +391,7 @@ pc_status pc_engine_save_doc(const pc_document *doc, const char *path, const pc_
                              pc_io_warnings *warnings, pc_error *err);
 /* The flattened image of `doc` as a surface in `fmt` at the origin (file_cmds::flattened). On OOM
  * returns a valid empty surface and fills err. */
-pc_status pc_engine_flattened(const pc_document *doc, pc_pixel_format fmt, pc_surface *out,
-                              pc_error *err);
+pc_status pc_engine_flattened(const pc_document *doc, pc_pixel_format fmt, pc_surface *out, pc_error *err);
 /* The XMP to embed for a Save for Web metadata choice (mode: 0 none, 1 copyright, 2 copyright +
  * contact, 3 all) given a document's XMP packet (`xmp`/`xl`; NULL/0 for a document with none).
  * *out is a new NUL-terminated string to embed, or NULL (embed nothing). Port of
@@ -448,8 +459,8 @@ pc_status pc_engine_clone_resolve(const pc_engine_session *s, yyjson_val *p, dou
                                   const char *cmd, pc_clone_mapping *out, bool *has_anchor, double anchor[2],
                                   pc_error *err);
 /* pc_engine_clone_resolve, then remember the anchor in the active slot (mutates the session). */
-pc_status pc_engine_clone_mapping(pc_engine_session *s, yyjson_val *p, double fx, double fy,
-                                  const char *cmd, pc_clone_mapping *out, pc_error *err);
+pc_status pc_engine_clone_mapping(pc_engine_session *s, yyjson_val *p, double fx, double fy, const char *cmd,
+                                  pc_clone_mapping *out, pc_error *err);
 /* Bilinear resample of `src` (covering pc_engine_clone_source_rect) onto `dst`, premultiplying by
  * the alpha channel `alpha` when has_alpha. *out is a fresh region (pc_paint_region_fini). */
 pc_status pc_engine_clone_resample(const struct pc_paint_region *src, pc_rect dst,
@@ -548,15 +559,15 @@ pc_status pc_engine_ext_validate(const char *id, yyjson_val *params, pc_error *e
  * the image (pc_algo_image_fini after the filter run) and `f`'s params borrow it. `require` (the
  * command path) errors when no map is given or it is empty; without it (smart re-render) a missing
  * or empty map leaves the pixels alone. Never crashes on hostile params. */
-pc_status pc_engine_filters_resolve_map(pc_engine_session *s, pc_algo_filter *f, yyjson_val *p,
-                                        bool require, pc_algo_image *map_out, bool *has_map,
-                                        pc_error *err);
+pc_status pc_engine_filters_resolve_map(pc_engine_session *s, pc_algo_filter *f, yyjson_val *p, bool require,
+                                        pc_algo_image *map_out, bool *has_map, pc_error *err);
 
 /* E10 painting modules (brush_cmds.c, symmetry_cmds.c, brush_key_cmds.c). */
 const pc_engine_command *pc_engine_brush_specs(size_t *n);
 const pc_engine_command *pc_engine_symmetry_specs(size_t *n);
 const pc_engine_command *pc_engine_brush_key_specs(size_t *n);
 const pc_engine_command *pc_engine_redeye_specs(size_t *n);
+const pc_engine_command *pc_engine_move_specs(size_t *n);
 const pc_engine_command *pc_engine_pick_specs(size_t *n);
 /* E10 fills/erasers (pattern_cmds.c, paint_cmds.c, gradient_fill_cmds.c, eraser_cmds.c,
  * retouch_cmds.c). */
@@ -568,8 +579,8 @@ const pc_engine_command *pc_engine_retouch_specs(size_t *n);
 /* E7 (selection_cmds.c): straight RGBA8 of the active layer (all_layers false) or the visible
  * composite over the canvas; *area gets the canvas bounds, *out an owned array (free()) of *len
  * pixels. Used by the Paint Bucket (paint_cmds) and Magic Eraser (eraser_cmds). */
-pc_status pc_engine_sample_rgba8(pc_engine_session *s, bool all_layers, pc_rect *area,
-                                 uint8_t (**out)[4], size_t *len, pc_error *err);
+pc_status pc_engine_sample_rgba8(pc_engine_session *s, bool all_layers, pc_rect *area, uint8_t (**out)[4],
+                                 size_t *len, pc_error *err);
 
 /* E11 vector module (vector_specs.c): shape.*, path.*, layer.vectorMask.*. */
 const pc_engine_command *pc_engine_vector_specs(size_t *n);
@@ -588,6 +599,7 @@ void pc_engine_analysis_fini(pc_engine_session *s);
  * (type_caret_cmds.c), Check Spelling + Insert Glyph (type_spell_cmds.c), Character/Paragraph
  * Styles (type_styles_cmds.c), and point-level path edits (path_edit_cmds.inc). */
 const pc_engine_command *pc_engine_type_specs(size_t *n);
+const pc_engine_command *pc_engine_type_mask_specs(size_t *n);
 const pc_engine_command *pc_engine_type_extra_specs(size_t *n);
 const pc_engine_command *pc_engine_type_caret_specs(size_t *n);
 const pc_engine_command *pc_engine_type_spell_specs(size_t *n);
@@ -605,6 +617,8 @@ const pc_engine_command *pc_engine_slice_specs(size_t *n);
  * Called from the automate after-command hook (slice_cmds::refresh). NULL-safe on no document. */
 void pc_engine_slices_refresh(pc_engine_session *s);
 const pc_engine_command *pc_engine_variables_specs(size_t *n);
+const pc_engine_command *pc_engine_variables_edit_specs(size_t *n);
+const pc_engine_command *pc_engine_export_specs(size_t *n);
 const pc_engine_command *pc_engine_video_specs(size_t *n);
 const pc_engine_command *pc_engine_web_specs(size_t *n);
 const pc_engine_command *pc_engine_plugin_specs(size_t *n);
@@ -637,8 +651,8 @@ void pc_engine_edit_state_fini(pc_engine_session *s);
 /* The path Edit > Define Custom Shape / shape.presets.new use: `spec` = "work", a saved path name,
  * or NULL (work path, the active shape layer, its vector mask, else the last saved path). Writes an
  * owned non-empty path into *out and returns true; false (nothing written) when there is none. */
-bool pc_engine_current_path(const pc_document *doc, bool has_active, pc_layer_id active,
-                            const char *spec, pc_path *out);
+bool pc_engine_current_path(const pc_document *doc, bool has_active, pc_layer_id active, const char *spec,
+                            pc_path *out);
 
 /* A byte range of a Find-and-Replace match (edit_menu_cmds::find_matches). */
 typedef struct pc_text_match {
@@ -703,16 +717,17 @@ pc_status pc_engine_color_settings_load(pc_color_state *cs, yyjson_val *obj, pc_
 pc_status pc_engine_color_settings_get(const pc_color_state *cs, const char *subpath, pc_json_value *out,
                                        pc_error *err);
 /* prefs.set: apply a colorSettings subpath ("" = whole-object value) into `next`. */
-pc_status pc_engine_color_settings_set_path(pc_color_settings *next, const char *subpath,
-                                            yyjson_val *value, pc_error *err);
+pc_status pc_engine_color_settings_set_path(pc_color_settings *next, const char *subpath, yyjson_val *value,
+                                            pc_error *err);
 /* prefs.reset: reset one colorSettings key ("" = the whole object) to its default in `next`. */
 pc_status pc_engine_color_settings_reset_key(pc_color_settings *next, const char *key, pc_error *err);
 
 /* param helpers (command.c), shared with command modules. */
-bool pc_engine_param_int(yyjson_val *p, const char *key, int64_t *out);       /* accepts floats; rounds */
+bool pc_engine_param_int(yyjson_val *p, const char *key, int64_t *out); /* accepts floats; rounds */
 pc_status pc_engine_param_int_i32(const char *cmd, yyjson_val *p, const char *key, bool *present,
                                   int32_t *out, pc_error *err);
-pc_status pc_engine_param_u32_id(const char *cmd, const char *key, yyjson_val *v, uint32_t *out, pc_error *err);
+pc_status pc_engine_param_u32_id(const char *cmd, const char *key, yyjson_val *v, uint32_t *out,
+                                 pc_error *err);
 void pc_engine_param_color(yyjson_val *p, const char *key, const float def[4], float out[4]);
 bool pc_engine_parse_hex(const char *s, size_t len, float out[4]);
 yyjson_mut_val *pc_engine_inject_kind(const char *id, yyjson_mut_doc *doc, yyjson_val *params);
@@ -725,8 +740,8 @@ pc_surface pc_engine_remap_surface(const pc_surface *s,
                                    pc_error *err);
 /* E5 (pixels.c): composite the visible layers of `solo` into a tiled surface (effects included);
  * `background` is three channels or NULL. On OOM returns a valid empty surface and fills err. */
-pc_status pc_engine_composite_layers(const pc_document *solo, pc_pixel_format fmt,
-                                     const float *background, pc_surface *out, pc_error *err);
+pc_status pc_engine_composite_layers(const pc_document *solo, pc_pixel_format fmt, const float *background,
+                                     pc_surface *out, pc_error *err);
 /* E5 (pixels.c): Merge Down -- `upper` onto `lower` into one raster layer keeping the lower
  * layer's id, blend and locks at full opacity. *out untouched on error. */
 pc_status pc_engine_merge_down(const pc_document *doc, const pc_layer *lower, const pc_layer *upper,
@@ -741,7 +756,8 @@ void pc_engine_translate_layer(const pc_document *doc, pc_layer *l, int32_t dx, 
 pc_status pc_engine_try_fill_surface(pc_surface *s, pc_rect area, const float color[4],
                                      const pc_surface *selection, bool lock_transparency, pc_error *err);
 /* Clear (make transparent) `area` of `s` through the selection's coverage (E4, try_clear_surface). */
-pc_status pc_engine_try_clear_surface(pc_surface *s, pc_rect area, const pc_surface *selection, pc_error *err);
+pc_status pc_engine_try_clear_surface(pc_surface *s, pc_rect area, const pc_surface *selection,
+                                      pc_error *err);
 /* E8 (pixels.c): apply an adjustment destructively to a surface, weighted by an optional selection
  * (NULL = fully covered); `mode` is the document's colour model (the tone transfer). Any colour
  * model and bit depth, routed through compose adjust (pixels::adjust_surface). Best-effort on OOM
@@ -752,9 +768,8 @@ void pc_engine_adjust_surface(pc_surface *s, const pc_adjustment *adj, const pc_
  * caller owns it). `kind` is the id with its "image.adjustments." prefix stripped. *applied is
  * false (out untouched) for a kind that is not a per-pixel adjustment or whose params no longer
  * parse (Rust `adjust_as_filter` None), as for an unknown filter. Never crashes. */
-pc_status pc_engine_adjust_apply_to_surface(const char *kind, yyjson_val *params,
-                                            const pc_surface *surf, pc_surface *out, bool *applied,
-                                            pc_error *err);
+pc_status pc_engine_adjust_apply_to_surface(const char *kind, yyjson_val *params, const pc_surface *surf,
+                                            pc_surface *out, bool *applied, pc_error *err);
 /* E8 (pixels.c): apply an adjustment to a layer mask through the selection (grayscale). Without a
  * selection the mask's default value is adjusted too, so Invert turns reveal-all into hide-all
  * (pixels::adjust_mask). */
@@ -763,9 +778,8 @@ void pc_engine_adjust_mask(pc_surface *s, const pc_adjustment *adj, const pc_sur
  * the selection's coverage, encoded in `fmt` into *out (an owned float array the caller free()s,
  * *out_len values). pixels::mix_through_selection. */
 pc_status pc_engine_mix_through_selection(pc_pixel_format fmt, pc_rect r, const float (*orig)[4],
-                                          const float (*edited)[4], size_t count,
-                                          const pc_surface *selection, float **out, size_t *out_len,
-                                          pc_error *err);
+                                          const float (*edited)[4], size_t count, const pc_surface *selection,
+                                          float **out, size_t *out_len, pc_error *err);
 
 /* Scale a layer's effects by k (Image Size's Scale Styles; image_cmds.c), reused by Layer > Layer
  * Style > Scale Effects. */
@@ -808,8 +822,7 @@ void pc_engine_transform_geometry(pc_document *doc, const pc_affine *a);
 void pc_engine_transform_layer_geometry(pc_layer *l, const pc_affine *a, bool content, float dpi);
 /* image_cmds::translate_doc: move the whole document (every surface, channel, selection, geometry)
  * by (dx, dy), refused (unchanged) when a pixel would leave the 32-bit range. Used by artboards. */
-pc_status pc_engine_translate_doc(pc_document *doc, const char *cmd, int32_t dx, int32_t dy,
-                                  pc_error *err);
+pc_status pc_engine_translate_doc(pc_document *doc, const char *cmd, int32_t dx, int32_t dy, pc_error *err);
 /* commands::layer_copy: deep-copy layer `id` with fresh ids and a "copy" name (*out initialised on
  * success). Used by Duplicate Artboard (artboard_cmds, ET3). */
 pc_status pc_engine_layer_copy(const pc_document *doc, pc_layer_id id, pc_layer *out, pc_error *err);
@@ -836,8 +849,8 @@ const pc_engine_command *pc_engine_batch_specs(size_t *n);
  * through the execute / edit entry points. Used by the rotated Crop (image_cmds) and Straighten
  * Layer (analysis_cmds). Never crashes. */
 typedef pc_status (*pc_engine_compound_fn)(pc_engine_session *s, void *ctx, pc_error *err);
-pc_status pc_engine_compound(pc_engine_session *s, const char *label, pc_engine_compound_fn f,
-                             void *ctx, pc_error *err);
+pc_status pc_engine_compound(pc_engine_session *s, const char *label, pc_engine_compound_fn f, void *ctx,
+                             pc_error *err);
 /* Document-level marks: paths, work path, notes, count/ruler marks, slices and guides. */
 void pc_engine_transform_doc_marks(pc_document *doc, const pc_affine *a);
 /* Turn or flip the whole canvas: pixels and caches remapped exactly, geometry through the map. */
@@ -853,8 +866,8 @@ pc_status pc_engine_turn_canvas(pc_document *doc, pc_engine_turn turn, pc_error 
 
 /* Fill in the Channels-panel target on `params` (a mutable value in `doc`) for a pixel command
  * (channel_cmds, E7). Returns the (possibly new) value. Default: return params unchanged. */
-yyjson_mut_val *pc_engine_hook_inject_target(const pc_engine_session *s, const char *id,
-                                             yyjson_mut_doc *doc, yyjson_mut_val *params);
+yyjson_mut_val *pc_engine_hook_inject_target(const pc_engine_session *s, const char *id, yyjson_mut_doc *doc,
+                                             yyjson_mut_val *params);
 /* Validate params against the spec's documented shape (param_check, later). Default: PC_OK. */
 pc_status pc_engine_hook_param_check(const pc_engine_command *spec, yyjson_val *params, pc_error *err);
 /* Filter menu: last-filter redirect and param validation (filters, E9). *redirect=false default. */
@@ -875,8 +888,8 @@ pc_status pc_engine_hook_float_before_command(pc_engine_session *s, const char *
 /* Colour-channel restriction for id (channel_cmds, E7). Returns SIZE_MAX = none (default). */
 size_t pc_engine_hook_color_restriction(const pc_engine_session *s, const char *id, yyjson_val *params);
 /* In edit(): restrict a just-made change to one colour channel (channel_cmds, E7). Default: noop. */
-void pc_engine_hook_restrict_to_color(const pc_document *before, pc_document *after, pc_layer_id id,
-                                      size_t channel);
+pc_status pc_engine_hook_restrict_to_color(const pc_document *before, pc_document *after, pc_layer_id id,
+                                           size_t channel, pc_error *err);
 /* In edit()/undo()/redo(): keep channel-view state valid after a document change (E7). Default: noop. */
 void pc_engine_hook_fix_view(pc_engine_doc_state *st);
 /* Pixels an edit can have changed, as undo would report them (layer_multi_cmds::step_damage, E5).
@@ -887,11 +900,11 @@ void pc_engine_hook_step_damage(const pc_document *before, const pc_document *af
  * Default: false. */
 bool pc_engine_hook_replayable(const char *id);
 /* Post-command bookkeeping hooks (default: noop). */
-void pc_engine_hook_mask_view_fix(pc_engine_doc_state *st);                 /* E5 */
-void pc_engine_hook_edit_menu_after_command(pc_engine_session *s, const char *id);  /* E4 */
-void pc_engine_hook_automate_after_command(pc_engine_session *s, const char *id);   /* E12 */
-void pc_engine_hook_sync_preset_store(pc_engine_session *s);                /* E2 */
-void pc_engine_hook_smart_on_close(pc_engine_session *s, size_t index);     /* E6 */
+void pc_engine_hook_mask_view_fix(pc_engine_doc_state *st);                        /* E5 */
+void pc_engine_hook_edit_menu_after_command(pc_engine_session *s, const char *id); /* E4 */
+void pc_engine_hook_automate_after_command(pc_engine_session *s, const char *id);  /* E12 */
+void pc_engine_hook_sync_preset_store(pc_engine_session *s);                       /* E2 */
+void pc_engine_hook_smart_on_close(pc_engine_session *s, size_t index);            /* E6 */
 /* Coalesce a gesture's journal entries into one (brush_cmds, E10). Default: false (don't). */
 bool pc_engine_hook_coalesce_journal(pc_engine_session *s, const char *id, yyjson_val *params);
 /* hidden_target: why a paint/move command must not run (its target layer is hidden). Returns the
@@ -909,11 +922,11 @@ void pc_engine_hook_inspect_adjustment(yyjson_mut_doc *doc, yyjson_mut_val *obj,
 pc_rect pc_engine_hook_transform_bounds(const pc_document *doc, const pc_layer *l);
 
 /* canvas_geom: move the non-pixel geometry of vector/text/smart content (E4/E6/E11). Defaults noop. */
-void pc_engine_hook_transform_shape(pc_layer *l, const pc_affine *a);                 /* E11 vector */
-void pc_engine_hook_transform_text(pc_layer *l, const pc_affine *a, float dpi);       /* E11 type */
-void pc_engine_hook_transform_smart(pc_layer *l, const pc_affine *a);                 /* E6 smart */
-void pc_engine_hook_refresh_shape(const pc_document *snapshot, pc_layer *l);          /* E11 */
-void pc_engine_hook_refresh_text(const pc_document *snapshot, pc_layer *l);           /* E11 */
-void pc_engine_hook_refresh_smart(const pc_document *snapshot, pc_layer *l);          /* E6 */
+void pc_engine_hook_transform_shape(pc_layer *l, const pc_affine *a);           /* E11 vector */
+void pc_engine_hook_transform_text(pc_layer *l, const pc_affine *a, float dpi); /* E11 type */
+void pc_engine_hook_transform_smart(pc_layer *l, const pc_affine *a);           /* E6 smart */
+void pc_engine_hook_refresh_shape(const pc_document *snapshot, pc_layer *l);    /* E11 */
+void pc_engine_hook_refresh_text(const pc_document *snapshot, pc_layer *l);     /* E11 */
+void pc_engine_hook_refresh_smart(const pc_document *snapshot, pc_layer *l);    /* E6 */
 
 #endif /* PC_ENGINE_INTERNAL_H */

@@ -61,8 +61,7 @@ static void test_define_apply_visibility_text(void)
     CHECK_EQ_STR(text_of(s, title), "Old");
 
     pc_json_value r = PC_JSON_VALUE_INIT;
-    CHECK(pc_engine_session_execute_json(s, "image.applyDataSet", "{\"name\":\"A\"}", &r, NULL) ==
-          PC_OK);
+    CHECK(pc_engine_session_execute_json(s, "image.applyDataSet", "{\"name\":\"A\"}", &r, NULL) == PC_OK);
     CHECK_EQ_STR(yyjson_mut_get_str(yyjson_mut_obj_get(pc_json_value_root(&r), "applied")), "A");
     pc_json_value_fini(&r);
     CHECK(!visible(s, badge));
@@ -84,8 +83,7 @@ static void test_list_and_import(void)
     CHECK(ex(s, "layer.new.layer", "{}") == PC_OK);
     pc_layer_id a = pc_engine_session_active(s)->active_layer;
     char buf[160];
-    snprintf(buf, sizeof buf,
-             "{\"defs\":[{\"name\":\"show\",\"layer\":%llu,\"type\":\"visibility\"}]}",
+    snprintf(buf, sizeof buf, "{\"defs\":[{\"name\":\"show\",\"layer\":%llu,\"type\":\"visibility\"}]}",
              (unsigned long long)a);
     CHECK(ex(s, "image.variables.define", buf) == PC_OK);
     pc_json_value l = PC_JSON_VALUE_INIT;
@@ -101,15 +99,14 @@ static void test_bad_and_adversarial(void)
     CHECK(pc_engine_session_new(&s, NULL) == PC_OK);
     CHECK(ex(s, "image.variables.define", "{}") != PC_OK); /* no doc */
     CHECK(ex(s, "file.new", "{\"width\":8,\"height\":8}") == PC_OK);
-    CHECK(ex(s, "image.variables.define", "{}") != PC_OK); /* need defs */
+    CHECK(ex(s, "image.variables.define", "{}") != PC_OK);                            /* need defs */
     CHECK(ex(s, "image.variables.define", "{\"defs\":[{\"name\":\"x\"}]}") != PC_OK); /* need layer */
     CHECK(ex(s, "image.applyDataSet", "{}") != PC_OK);
     CHECK(ex(s, "image.applyDataSet", "{\"name\":\"nope\"}") != PC_OK);
-    const char *ids[] = {"image.variables.define",     "image.variables.dataSets",
-                         "image.applyDataSet",         "file.import.variableDataSets",
-                         "file.export.dataSetsAsFiles", "variables.list"};
-    const char *ps[] = {"{}",          "[]",         "null",      "123",
-                        "{\"defs\":5}", "{\"dataSets\":[{}]}", "{\"name\":5}", "{\"index\":-1}"};
+    const char *ids[] = {"image.variables.define",       "image.variables.dataSets",    "image.applyDataSet",
+                         "file.import.variableDataSets", "file.export.dataSetsAsFiles", "variables.list"};
+    const char *ps[] = {
+        "{}", "[]", "null", "123", "{\"defs\":5}", "{\"dataSets\":[{}]}", "{\"name\":5}", "{\"index\":-1}"};
     for (size_t i = 0; i < sizeof ids / sizeof ids[0]; i++) {
         for (size_t j = 0; j < sizeof ps / sizeof ps[0]; j++) {
             (void)ex(s, ids[i], ps[j]); /* must not crash */
@@ -118,10 +115,63 @@ static void test_bad_and_adversarial(void)
     pc_engine_session_free(s);
 }
 
+static unsigned path_checks;
+static pc_status deny_pixels(const char *id, yyjson_val *params, pc_error *err)
+{
+    if (!strcmp(id, "image.applyDataSet") && pc_json_get(params, "path")) {
+        path_checks++;
+        return pc_fail(err, PC_ERR_INVALID, "pixel file denied");
+    }
+    return PC_OK;
+}
+static void test_atomic_dialog_commit_and_failed_application(void)
+{
+    pc_engine_session *s = NULL;
+    CHECK(pc_engine_session_new(&s, NULL) == PC_OK);
+    CHECK(ex(s, "file.new", "{\"width\":8,\"height\":8}") == PC_OK);
+    CHECK(ex(s, "layer.new.layer", "{}") == PC_OK);
+    pc_layer_id layer = pc_engine_session_active(s)->active_layer;
+    char params[1024];
+    snprintf(params, sizeof params,
+             "{\"defs\":[{\"name\":\"show\",\"layer\":%llu,\"type\":\"visibility\"}],"
+             "\"dataSets\":[{\"name\":\"Hidden\",\"values\":[{\"variable\":\"show\","
+             "\"kind\":\"visibility\",\"value\":false}]}],\"apply\":\"Hidden\"}",
+             (unsigned long long)layer);
+    size_t history = pc_history_past_len(pc_engine_session_active(s)->history), journal = s->njournal;
+    CHECK(ex(s, "image.variables.edit", params) == PC_OK);
+    CHECK(!visible(s, layer));
+    CHECK(pc_history_past_len(pc_engine_session_active(s)->history) == history + 1);
+    CHECK(s->njournal == journal + 1);
+    CHECK_EQ_STR(s->journal[journal].id, "image.variables.edit");
+    CHECK(pc_engine_session_undo(s));
+    CHECK(visible(s, layer));
+    CHECK(doc_of(s)->variables.ndefs == 0);
+    pc_doc_arc *before = pc_doc_arc_retain(pc_engine_session_active(s)->doc);
+    uint64_t revision = pc_engine_session_active(s)->revision;
+    CHECK(ex(s, "image.variables.edit", "{\"defs\":[],\"dataSets\":[{}]}") != PC_OK);
+    CHECK(ex(s, "image.variables.edit", "{\"defs\":[],\"dataSets\":[],\"apply\":\"missing\"}") != PC_OK);
+    CHECK(pc_engine_session_active(s)->doc == before);
+    CHECK(pc_engine_session_active(s)->revision == revision);
+    snprintf(params, sizeof params,
+             "{\"defs\":[{\"name\":\"pixels\",\"layer\":%llu,\"type\":\"pixelReplacement\"}],"
+             "\"dataSets\":[{\"name\":\"A\",\"values\":[{\"variable\":\"pixels\","
+             "\"kind\":\"pixels\",\"value\":\"/denied.png\"}]}],\"apply\":\"A\"}",
+             (unsigned long long)layer);
+    s->authorize = deny_pixels;
+    path_checks = 0;
+    CHECK(ex(s, "image.variables.edit", params) != PC_OK);
+    CHECK(path_checks == 1);
+    CHECK(pc_engine_session_active(s)->doc == before);
+    CHECK(pc_engine_session_active(s)->revision == revision);
+    pc_doc_arc_release(before);
+    pc_engine_session_free(s);
+}
+
 int main(int argc, char **argv)
 {
     RUN(test_define_apply_visibility_text);
     RUN(test_list_and_import);
+    RUN(test_atomic_dialog_commit_and_failed_application);
     RUN(test_bad_and_adversarial);
     return pc_t_finish();
 }

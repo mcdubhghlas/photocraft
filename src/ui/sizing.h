@@ -14,6 +14,8 @@ extern const char *const PC_UI_SIZING_ANCHORS[9];
 
 /* Does `command` open the Image Size / Canvas Size dialog? */
 bool pc_ui_is_sizing(const char *command);
+/* Canonical engine interpolation id for a saved General preference (static lifetime). */
+const char *pc_ui_resample_preference(const char *preference);
 
 /* Pixels -> display unit (orig = the original pixel dimension, res = resolution in ppi). */
 double pc_ui_to_unit(double px, const char *unit, double orig, double res);

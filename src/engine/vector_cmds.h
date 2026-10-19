@@ -46,6 +46,15 @@ pc_status pc_engine_map_path(const pc_path *path, const pc_algo_homography *h, c
 pc_status pc_engine_map_shape(pc_shape_layer *sh, const pc_algo_homography *h, const pc_warp *warp,
                               pc_error *err);
 
+/* Parse geometry-only or full engine stroke parameters; null/false disables a stroke. */
+pc_status pc_engine_parse_shape_stroke(yyjson_val *value, const pc_shape_stroke *base,
+                                       const float foreground[4], bool *present, pc_shape_stroke *out,
+                                       pc_error *err);
+
+/* Exact shape.create geometry/fill/stroke preparation, without a document edit or pixel cache. */
+pc_status pc_engine_shape_from_params(const float foreground[4], yyjson_val *params, pc_shape_layer *out,
+                                      pc_error *err);
+
 /* vector_cmds::{parse_path, path_json}. Parse a `{subpaths,fillRule,inverted}` path value into
  * *out (false with emsg set on error), and serialise a path to that same JSON (for the Shapes
  * panel / shape.presets.place, which build shape.create params). */

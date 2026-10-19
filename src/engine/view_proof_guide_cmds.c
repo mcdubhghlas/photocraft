@@ -11,18 +11,9 @@
  *   - view.newGuide / view.clearGuides: add or clear ruler guides (edit_cmds::guide_cmd).
  *   - view.newGuideLayout: columns, rows, margins and gutters of guides (guide_layout::calculate).
  *
- * DEFERRED, matching color_cmds.h's E8 note (REWRITE_PLAN.md §8): the display-LUT / dichromat /
- * plate / Legacy-Mac / 32-bit-preview SIMULATION *rendering* (proof_sim::display_lut and the
- * srgb/dichromat math) is a UI-canvas concern linked by no engine command; it stays unported.
- * These commands still set the proof *faithfully*: pc_proof_setup.kind, which color_cmds.c only
- * ever left at 0 (Profile), now carries one distinct value per reference ProofKind id, and
- * view.proofSetup.* sets it and enables Proof Colors exactly as set_kind does. The proof view is
- * the Session's pc_color_state (color_cmds.h); its lookup/create helper is private to color_cmds.c
- * (static color_proof_mut), so the same tiny lookup-or-default is reproduced below (vpg_proof_mut)
- * rather than editing the shared color_cmds.c. The 32-bit preview options have no storage field in
- * pc_color_state (that field is part of the deferred display path and color_cmds.h is a shared
- * file), so the merged per-document HDR state is kept in this module's own small table; the command
- * validates, clamps and reports the values just as preview_32 does.
+ * Display rendering is implemented by display_color.c, shared by the canvas and headless
+ * tests. Proof state and HDR previews live in the session's pc_color_state; no process-global
+ * view settings. Guide edits preserve per-position colours and commit one undo step.
  *
  * Never crash on hostile params (AGENTS.md rule 9): every enabled()/run() validates params and doc
  * state and returns an error, never aborts. */
@@ -251,47 +242,15 @@ static pc_status has_doc(const pc_engine_session *s, pc_error *reason)
 
 /* ---- 32-bit Preview Options (proof_sim::preview_32) ---------------------------------------- */
 
-/* Merged per-document HDR preview state. The reference keeps this in ColorState::hdr; here it is a
- * small module table because pc_color_state has no HDR field (it is part of the deferred display
- * path and color_cmds.h is a shared file). Bounded: at most VPG_HDR_MAX documents, oldest reused. */
-typedef struct {
-    pc_doc_id doc;
-    bool used;
-    bool highlight_compression;
-    float exposure;
-    float gamma;
-} vpg_hdr_entry;
-
-enum { VPG_HDR_MAX = 256 };
-static vpg_hdr_entry g_hdr[VPG_HDR_MAX];
-static size_t g_hdr_next; /* round-robin slot for a brand-new document */
-
-static vpg_hdr_entry *hdr_slot(pc_doc_id id)
+/* HDR state is session-owned: closing one app cannot change another app's preview. */
+static pc_hdr_preview *hdr_slot(pc_engine_session *s,pc_doc_id id,pc_error *err)
 {
-    for (size_t i = 0; i < VPG_HDR_MAX; i++) {
-        if (g_hdr[i].used && g_hdr[i].doc == id) {
-            return &g_hdr[i];
-        }
-    }
-    for (size_t i = 0; i < VPG_HDR_MAX; i++) {
-        if (!g_hdr[i].used) {
-            g_hdr[i].used = true;
-            g_hdr[i].doc = id;
-            g_hdr[i].highlight_compression = false;
-            g_hdr[i].exposure = 0.0f;
-            g_hdr[i].gamma = 1.0f;
-            return &g_hdr[i];
-        }
-    }
-    /* Full: reuse a slot round-robin (its old document's options reset to the default). */
-    vpg_hdr_entry *e = &g_hdr[g_hdr_next];
-    g_hdr_next = (g_hdr_next + 1) % VPG_HDR_MAX;
-    e->used = true;
-    e->doc = id;
-    e->highlight_compression = false;
-    e->exposure = 0.0f;
-    e->gamma = 1.0f;
-    return e;
+    for(size_t i=0;i<s->color.nhdr;i++){if(s->color.hdr[i].doc==id){return &s->color.hdr[i].view;}}
+    pc_hdr_entry *next=pc_grow_array(s->color.hdr,&s->color.cap_hdr,s->color.nhdr+1,sizeof *next);
+    if(!next){(void)pc_fail(err,PC_ERR_NOMEM,"HDR preview");return NULL;}
+    s->color.hdr=next;
+    pc_hdr_entry *entry=&next[s->color.nhdr++];entry->doc=id;
+    entry->view=(pc_hdr_preview){.gamma=1};return &entry->view;
 }
 
 static pc_status is_32(const pc_engine_session *s, pc_error *reason)
@@ -318,7 +277,8 @@ static pc_status preview_32(pc_engine_session *s, yyjson_val *p, pc_json_value *
     }
     pc_doc_id id = pc_doc_arc_get(st->doc)->id;
     /* Read the merged state into locals first, so a bad param leaves the stored state untouched. */
-    vpg_hdr_entry *e = hdr_slot(id);
+    pc_hdr_preview *e = hdr_slot(s,id,err);
+    if(!e){return PC_ERR_NOMEM;}
     bool hc = e->highlight_compression;
     float exposure = e->exposure;
     float gamma = e->gamma;
@@ -642,6 +602,41 @@ static pc_status run_new_guide(pc_engine_session *s, yyjson_val *p, pc_json_valu
     }
     return pc_engine_result_null(out, err);
 }
+
+struct edit_guide_ctx { bool vertical,remove,has_position;size_t index;double position; };
+static pc_status edit_guide(pc_document *doc,bool *has,pc_layer_id *active,void *ctx,pc_error *err)
+{
+    (void)has;(void)active;
+    struct edit_guide_ctx *c=ctx;
+    double *values=c->vertical?doc->guides.vertical:doc->guides.horizontal;
+    size_t *count=c->vertical?&doc->guides.nvertical:&doc->guides.nhorizontal;
+    if(c->index>=*count){return pc_engine_err_other(err,"no such guide");}
+    if(c->remove){memmove(values+c->index,values+c->index+1,(*count-c->index-1)*sizeof *values);--*count;}
+    else {
+        if(!c->has_position){return pc_engine_err_other(err,"missing `position`");}
+        uint8_t rgb[3];bool color=pc_guides_color(&doc->guides,c->vertical,values[c->index],rgb);
+        values[c->index]=c->position;
+        if(color){pc_status rc=pc_guides_set_color(&doc->guides,c->vertical,c->position,rgb,err);if(rc!=PC_OK){return rc;}}
+    }
+    pc_guides_prune_colors(&doc->guides);return PC_OK;
+}
+static pc_status guide_edit_run(pc_engine_session *s,yyjson_val *p,pc_json_value *out,bool remove,pc_error *err)
+{
+    if(!pc_engine_session_active(s)){return pc_engine_err_no_document(err);}
+    const char *orientation=yyjson_get_str(pc_json_get(p,"orientation"));
+    uint64_t index=UINT64_MAX;
+    (void)pc_json_as_u64(pc_json_get(p,"index"),&index);
+    if(index>SIZE_MAX){return pc_engine_err_other(err,"no such guide");}
+    struct edit_guide_ctx c={.vertical=orientation && strcmp(orientation,"vertical")==0,
+        .remove=remove,.index=(size_t)index};
+    pc_status rc=guide_position(s,p,c.vertical,&c.has_position,&c.position,err);
+    if(rc==PC_OK){rc=pc_engine_session_edit(s,remove?"Delete Guide":"Move Guide",edit_guide,&c,err);}
+    return rc==PC_OK?pc_engine_result_null(out,err):rc;
+}
+static pc_status run_move_guide(pc_engine_session *s,yyjson_val *p,pc_json_value *out,pc_error *err)
+{return guide_edit_run(s,p,out,false,err);}
+static pc_status run_delete_guide(pc_engine_session *s,yyjson_val *p,pc_json_value *out,pc_error *err)
+{return guide_edit_run(s,p,out,true,err);}
 
 static pc_status run_clear_guides(pc_engine_session *s, yyjson_val *p, pc_json_value *out, pc_error *err)
 {
@@ -1119,6 +1114,10 @@ static const pc_engine_command SPECS[] = {
      "{\"method\":\"exposureGamma|highlightCompression\"=\"exposureGamma\",\"exposure\":-20..20=0,"
      "\"gamma\":0.1..9.99=1}",
      is_32, preview_32, false},
+    {"view.moveGuide","Move Guide",NULL,0,NULL,
+     "{\"orientation\":\"horizontal|vertical\",\"index\":n,\"position\":px or length}",has_doc,run_move_guide,true},
+    {"view.deleteGuide","Delete Guide",NULL,0,NULL,
+     "{\"orientation\":\"horizontal|vertical\",\"index\":n}",has_doc,run_delete_guide,true},
     {"view.clearGuides", "Clear Guides", MENU_VIEW, 1, NULL, "{}", has_doc, run_clear_guides, true},
     {"view.newGuide", "New Guide\xE2\x80\xA6", MENU_VIEW, 1, NULL,
      "{\"orientation\":\"horizontal|vertical\",\"position\":px or \"<number><unit>\",\"color\":"

@@ -10,6 +10,9 @@
 
 #include "engine_internal.h"
 
+pc_status pc_engine_deletion_neighbours(const pc_document *doc, pc_layer_id target, pc_layer_id **out,
+                                        size_t *count, pc_error *err);
+
 /* ---- layer-targeting helpers (port of commands::explicit_layer / layer_param) -------------- *
  *
  * The `"layer"` param names a layer by id or by name (the topmost layer of that name, as
@@ -18,11 +21,10 @@
 
 /* The layer `p["layer"]` names: *present=false (and *out untouched) when the param is absent or
  * null. A bad value or a missing named layer is an error. */
-pc_status pc_engine_explicit_layer(const pc_engine_session *s, yyjson_val *p, bool *present,
-                                   pc_layer_id *out, pc_error *err);
+pc_status pc_engine_explicit_layer(const pc_engine_session *s, yyjson_val *p, bool *present, pc_layer_id *out,
+                                   pc_error *err);
 /* explicit_layer, else the active layer (error when there is none). */
-pc_status pc_engine_layer_param(const pc_engine_session *s, yyjson_val *p, pc_layer_id *out,
-                                pc_error *err);
+pc_status pc_engine_layer_param(const pc_engine_session *s, yyjson_val *p, pc_layer_id *out, pc_error *err);
 
 /* ---- multi-layer selection (layer_multi_cmds.c) ------------------------------------------- */
 
@@ -34,14 +36,18 @@ pc_status pc_engine_selected(const pc_engine_session *s, pc_layer_id **out, size
  * selection; `active` (has_active false = derive from the top of ids) the active layer; `anchor`
  * (has_anchor false = the active layer) the Shift-click anchor. PC_ERR_NOT_FOUND if any id is
  * stale. Bumps the revision, keeps a clean document clean, marks an empty damage rect. */
-pc_status pc_engine_set_selection(pc_engine_session *s, const pc_layer_id *ids, size_t n,
-                                  bool has_active, pc_layer_id active, bool has_anchor,
-                                  pc_layer_id anchor, pc_error *err);
+pc_status pc_engine_set_selection(pc_engine_session *s, const pc_layer_id *ids, size_t n, bool has_active,
+                                  pc_layer_id active, bool has_anchor, pc_layer_id anchor, pc_error *err);
+
+/* Preserve structural-command layer selection in the current history target. */
+void pc_engine_reselect(pc_engine_session *s, const pc_layer_id *ids, size_t n, bool has_active,
+                        pc_layer_id active);
+const pc_engine_command *pc_engine_layer_move_to_specs(size_t *n);
 
 /* Ids in `ids` (n) with no ancestor also in `ids`, bottom-to-top (top_level). *out is an owned
  * array (free()) of *nout ids. */
-pc_status pc_engine_top_level(const pc_document *doc, const pc_layer_id *ids, size_t n,
-                              pc_layer_id **out, size_t *nout, pc_error *err);
+pc_status pc_engine_top_level(const pc_document *doc, const pc_layer_id *ids, size_t n, pc_layer_id **out,
+                              size_t *nout, pc_error *err);
 
 /* Content bounds used by Align/Distribute: the layer's pixels (type/shape use rendered pixels) or
  * the union of a group's children; false (fill/adjustment/empty) = none. */

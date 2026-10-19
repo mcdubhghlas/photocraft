@@ -124,9 +124,9 @@ static bool parse_kind(yyjson_val *v, pc_var_kind *out)
             static const struct {
                 const char *id;
                 pc_pixel_align a;
-            } T[] = {{"topLeft", PC_ALIGN_TOP_LEFT},        {"topCenter", PC_ALIGN_TOP_CENTER},
-                     {"topRight", PC_ALIGN_TOP_RIGHT},      {"centerLeft", PC_ALIGN_CENTER_LEFT},
-                     {"centerRight", PC_ALIGN_CENTER_RIGHT}, {"bottomLeft", PC_ALIGN_BOTTOM_LEFT},
+            } T[] = {{"topLeft", PC_ALIGN_TOP_LEFT},           {"topCenter", PC_ALIGN_TOP_CENTER},
+                     {"topRight", PC_ALIGN_TOP_RIGHT},         {"centerLeft", PC_ALIGN_CENTER_LEFT},
+                     {"centerRight", PC_ALIGN_CENTER_RIGHT},   {"bottomLeft", PC_ALIGN_BOTTOM_LEFT},
                      {"bottomCenter", PC_ALIGN_BOTTOM_CENTER}, {"bottomRight", PC_ALIGN_BOTTOM_RIGHT}};
             for (size_t i = 0; i < sizeof T / sizeof T[0]; i++) {
                 if (str_eq(as, al, T[i].id)) {
@@ -721,8 +721,7 @@ static pc_status apply_to_doc(pc_document *doc, const pc_variables *vars, const 
     (void)err;
     for (size_t i = 0; i < set->nvalues; i++) {
         const pc_data_value *dv = &set->values[i];
-        const pc_variable_def *def = pc_variables_def(vars, pc_str_c(&dv->variable),
-                                                      dv->variable.len);
+        const pc_variable_def *def = pc_variables_def(vars, pc_str_c(&dv->variable), dv->variable.len);
         if (def == NULL) {
             continue;
         }
@@ -777,8 +776,7 @@ static pc_status resolve_set(pc_engine_session *s, yyjson_val *p, const char *cm
     yyjson_val *iv = pc_json_get(p, "index");
     if (iv != NULL && pc_json_as_u64(iv, &i)) {
         if (i >= v->ndata_sets) {
-            return pc_engine_err_bad_params(err, cmd, "no data set at index %llu",
-                                            (unsigned long long)i);
+            return pc_engine_err_bad_params(err, cmd, "no data set at index %llu", (unsigned long long)i);
         }
         *idx = (size_t)i;
         return pc_data_set_clone(&v->data_sets[(size_t)i], set, err);
@@ -796,8 +794,7 @@ static void mut_active(pc_variables *v, void *ctx)
     v->active = ((active_ctx *)ctx)->idx;
 }
 
-static pc_status run_apply_data_set(pc_engine_session *s, yyjson_val *p, pc_json_value *out,
-                                    pc_error *err)
+static pc_status run_apply_data_set(pc_engine_session *s, yyjson_val *p, pc_json_value *out, pc_error *err)
 {
     const char *CMD = "image.applyDataSet";
     pc_data_set set;
@@ -807,29 +804,29 @@ static pc_status run_apply_data_set(pc_engine_session *s, yyjson_val *p, pc_json
     if (rc != PC_OK) {
         return rc;
     }
-    /* untrusted session: gate each pixel path */
+    /* Every pixel path must be authorized, including when preparing the request fails. */
     if (s->authorize != NULL) {
         for (size_t i = 0; i < set.nvalues; i++) {
-            if (set.values[i].kind == PC_DATA_PIXELS) {
-                yyjson_mut_doc *pd = yyjson_mut_doc_new(NULL);
-                if (pd != NULL) {
-                    yyjson_mut_val *po = yyjson_mut_obj(pd);
-                    yyjson_mut_obj_add_strcpy(pd, po, "path", pc_str_c(&set.values[i].text));
-                    yyjson_mut_doc_set_root(pd, po);
-                    char *txt = yyjson_mut_write(pd, 0, NULL);
-                    yyjson_mut_doc_free(pd);
-                    if (txt != NULL) {
-                        yyjson_doc *jd = yyjson_read(txt, strlen(txt), 0);
-                        free(txt);
-                        pc_status arc = s->authorize(CMD, jd != NULL ? yyjson_doc_get_root(jd) : NULL,
-                                                     err);
-                        yyjson_doc_free(jd);
-                        if (arc != PC_OK) {
-                            pc_data_set_fini(&set);
-                            return arc;
-                        }
-                    }
-                }
+            if (set.values[i].kind != PC_DATA_PIXELS)
+                continue;
+            yyjson_mut_doc *request = yyjson_mut_doc_new(NULL);
+            yyjson_mut_val *object = request ? yyjson_mut_obj(request) : NULL;
+            pc_buf text = PC_BUF_INIT;
+            yyjson_doc *parsed = NULL;
+            pc_status check =
+                object && yyjson_mut_obj_add_strcpy(request, object, "path", pc_str_c(&set.values[i].text))
+                    ? pc_json_write(object, 0, &text, err)
+                    : pc_fail(err, PC_ERR_NOMEM, "data set authorization");
+            if (check == PC_OK)
+                check = pc_json_parse(pc_buf_cstr(&text), text.len, &parsed, err);
+            if (check == PC_OK)
+                check = s->authorize(CMD, yyjson_doc_get_root(parsed), err);
+            yyjson_doc_free(parsed);
+            pc_buf_fini(&text);
+            yyjson_mut_doc_free(request);
+            if (check != PC_OK) {
+                pc_data_set_fini(&set);
+                return check;
             }
         }
     }
@@ -966,8 +963,8 @@ static bool blank(const pc_str *s)
     return true;
 }
 
-static pc_status import_data_sets_text(pc_engine_session *s, const char *text, size_t len,
-                                       yyjson_val *p, pc_json_value *out, pc_error *err)
+static pc_status import_data_sets_text(pc_engine_session *s, const char *text, size_t len, yyjson_val *p,
+                                       pc_json_value *out, pc_error *err)
 {
     const char *CMD = "file.import.variableDataSets";
     char delim = ',';
@@ -1021,9 +1018,9 @@ static pc_status import_data_sets_text(pc_engine_session *s, const char *text, s
                 if (nheader == 0 && header == NULL) {
                     header = fields;
                     nheader = nf;
-                    named = nheader > 0 && (blank(&header[0]) || pc_str_eq_c(&header[0], "DataSet") ||
-                                            pc_str_eq_c(&header[0], "dataset") ||
-                                            pc_str_eq_c(&header[0], "Dataset"));
+                    named = nheader > 0 &&
+                            (blank(&header[0]) || pc_str_eq_c(&header[0], "DataSet") ||
+                             pc_str_eq_c(&header[0], "dataset") || pc_str_eq_c(&header[0], "Dataset"));
                     if (nheader == 0) {
                         free_fields(fields, nf);
                         rc = pc_engine_err_bad_params(err, CMD, "empty CSV");
@@ -1385,8 +1382,8 @@ static const pc_engine_command SPECS[] = {
      "{dir, format?:png, dataSets?[names], naming?:\"{name}|{index}|{document}\"} \xE2\x86\x92 "
      "{files,count}",
      var_has_doc, run_export, true},
-    {"variables.list", "List Variables", NULL, 0, NULL, "{} \xE2\x86\x92 {defs,dataSets,active}",
-     var_has_doc, run_list, false},
+    {"variables.list", "List Variables", NULL, 0, NULL, "{} \xE2\x86\x92 {defs,dataSets,active}", var_has_doc,
+     run_list, false},
 };
 
 const pc_engine_command *pc_engine_variables_specs(size_t *n)

@@ -10,8 +10,6 @@
  * DEFERRED in this build (graceful PC_ERR_* / UNSUPPORTED, never a crash), with owners:
  *   - a smart object records the adjustment as a smart filter -> E9-full (apply_filter_to_surface)
  *     + E6 add_smart_filter; here a smart-object target is edited destructively only if raster.
- *   - a targeted alpha / Quick Mask channel for a destructive adjustment -> needs the mutable
- *     channel surface (E7 channel_surface_for_filter export); reported unsupported.
  *   - the Levels/Curves eyedropper -> needs the merged-composite sampler (E10 sample_cmds).
  *   - a "path" vector mask for a new adjustment layer -> needs vector path parsing export (E11).
  *   - Match Color `sourceLayer` -> needs single-layer render export. */
@@ -20,6 +18,7 @@
 #include <string.h>
 
 #include "adjust_params.h"
+#include "adjust_eyedropper.h"
 #include "algo/selection.h"
 #include "algo/tone.h"
 #include "base/mem.h"
@@ -269,11 +268,13 @@ static pc_status new_adjustment(pc_engine_session *s, const pc_adjustment *adj, 
 
 /* ---- destructive adjustment --------------------------------------------------------------- */
 
-enum adj_target { ADJ_PIXELS, ADJ_MASK };
+enum adj_target { ADJ_PIXELS, ADJ_MASK, ADJ_CHANNEL };
 
 struct dadj_ctx {
     const pc_adjustment *adj;
     enum adj_target target;
+    yyjson_val *params;
+    bool has_layer;
     pc_layer_id id;
     pc_color_mode mode;
 };
@@ -285,6 +286,18 @@ static pc_status edit_destructive(pc_document *doc, bool *has_active, pc_layer_i
     (void)active;
     struct dadj_ctx *c = vctx;
     const pc_surface *sel = doc->has_selection ? &doc->selection : NULL;
+    if (c->target == ADJ_CHANNEL) {
+        pc_surface *channel = NULL;
+        pc_status status =
+            pc_engine_channel_surface_for_filter(doc, c->has_layer, c->id, c->params, &channel, err);
+        if (status != PC_OK)
+            return status;
+        if (!channel)
+            return pc_fail(err, PC_ERR_INVALID, "missing adjustment channel");
+        pc_engine_adjust_mask(channel, c->adj, sel);
+        pc_surface_prune(channel);
+        return PC_OK;
+    }
     if (c->target == ADJ_MASK) {
         pc_layer *l = pc_document_layer_mut(doc, c->id);
         if (l == NULL) {
@@ -308,22 +321,24 @@ static pc_status edit_destructive(pc_document *doc, bool *has_active, pc_layer_i
 static pc_status destructive_adjust(pc_engine_session *s, const char *label, const pc_adjustment *adj,
                                     yyjson_val *p, pc_json_value *out, pc_error *err)
 {
-    struct dadj_ctx ctx;
+    struct dadj_ctx ctx = {0};
+    ctx.params = p;
+    const pc_engine_doc_state *state = pc_engine_session_active(s);
+    ctx.has_layer = state && state->has_active_layer;
     ctx.adj = adj;
     ctx.mode = doc_mode(s);
     if (pc_engine_is_mask_target(p)) {
         ctx.target = ADJ_MASK;
     } else if (pc_engine_is_channel_target(p)) {
-        return pc_engine_err_other(
-            err,
-            "adjusting a targeted alpha / Quick Mask channel is not yet supported in this build "
-            "(E7 channel surface)");
+        ctx.target = ADJ_CHANNEL;
     } else {
         ctx.target = ADJ_PIXELS;
     }
-    if (pc_engine_layer_param(s, NULL, &ctx.id, err) != PC_OK) {
+    if (ctx.target != ADJ_CHANNEL && pc_engine_layer_param(s, NULL, &ctx.id, err) != PC_OK) {
         return err != NULL ? err->code : PC_ERR_INVALID;
     }
+    if (ctx.target == ADJ_CHANNEL && state && ctx.has_layer)
+        ctx.id = state->active_layer;
     pc_status rc = pc_engine_session_edit(s, label, edit_destructive, &ctx, err);
     if (rc != PC_OK) {
         return rc;
@@ -352,8 +367,7 @@ struct smart_adj_ctx {
     bool consumed;
 };
 
-static pc_status edit_record_smart_adj(pc_document *doc, bool *ha, pc_layer_id *al, void *vctx,
-                                       pc_error *err)
+static pc_status edit_record_smart_adj(pc_document *doc, bool *ha, pc_layer_id *al, void *vctx, pc_error *err)
 {
     (void)ha;
     (void)al;
@@ -410,14 +424,11 @@ static pc_status run_new_adjustment_layer(pc_engine_session *s, yyjson_val *p, p
                                           pc_error *err)
 {
     const char *kind = kind_of(p);
-    if ((strcmp(kind, "levels") == 0 || strcmp(kind, "curves") == 0) && p != NULL &&
-        yyjson_is_obj(p) && yyjson_obj_get(p, "eyedropper") != NULL) {
-        return pc_engine_err_bad_params(err, "eyedropper",
-                                        "the Levels/Curves eyedropper is not yet supported in this "
-                                        "build (E10 sampler)");
-    }
-    pc_adjustment adj;
-    pc_status rc = pc_engine_adjustment_from_params(kind, p, NULL, doc_mode(s), &adj, err);
+    pc_adjustment adj = {0};
+    bool picked = false;
+    pc_status rc = pc_engine_adjustment_eyedropper(s, kind, p, NULL, false, 0, &picked, &adj, err);
+    if (rc == PC_OK && !picked)
+        rc = pc_engine_adjustment_from_params(kind, p, NULL, doc_mode(s), &adj, err);
     if (rc != PC_OK) {
         return rc;
     }
@@ -426,18 +437,14 @@ static pc_status run_new_adjustment_layer(pc_engine_session *s, yyjson_val *p, p
     return rc;
 }
 
-static pc_status run_image_adjustment(pc_engine_session *s, yyjson_val *p, pc_json_value *out,
-                                      pc_error *err)
+static pc_status run_image_adjustment(pc_engine_session *s, yyjson_val *p, pc_json_value *out, pc_error *err)
 {
     const char *kind = kind_of(p);
-    if ((strcmp(kind, "levels") == 0 || strcmp(kind, "curves") == 0) && p != NULL &&
-        yyjson_is_obj(p) && yyjson_obj_get(p, "eyedropper") != NULL) {
-        return pc_engine_err_bad_params(err, "eyedropper",
-                                        "the Levels/Curves eyedropper is not yet supported in this "
-                                        "build (E10 sampler)");
-    }
-    pc_adjustment adj;
-    pc_status rc = pc_engine_adjustment_from_params(kind, p, NULL, doc_mode(s), &adj, err);
+    pc_adjustment adj = {0};
+    bool picked = false;
+    pc_status rc = pc_engine_adjustment_eyedropper(s, kind, p, NULL, false, 0, &picked, &adj, err);
+    if (rc == PC_OK && !picked)
+        rc = pc_engine_adjustment_from_params(kind, p, NULL, doc_mode(s), &adj, err);
     if (rc != PC_OK) {
         return rc;
     }
@@ -445,7 +452,24 @@ static pc_status run_image_adjustment(pc_engine_session *s, yyjson_val *p, pc_js
     /* A smart object records the adjustment as a smart filter (Photoshop), which re-runs from the
      * source whenever the object re-renders. Only a mask/channel target edits pixels there. */
     if (active_is_smart(s) && !pc_engine_is_mask_target(p) && !pc_engine_is_channel_target(p)) {
-        rc = record_smart_adjustment(s, kind, label, p, err);
+        if (picked) {
+            yyjson_mut_doc *d = yyjson_mut_doc_new(NULL);
+            yyjson_mut_val *values = NULL;
+            pc_buf text = PC_BUF_INIT;
+            yyjson_doc *resolved = NULL;
+            rc = d ? pc_engine_adjustment_to_params(&adj, d, &values, err)
+                   : pc_fail(err, PC_ERR_NOMEM, "resolved smart adjustment");
+            if (rc == PC_OK)
+                rc = pc_json_write(values, 0, &text, err);
+            if (rc == PC_OK)
+                rc = pc_json_parse(pc_buf_cstr(&text), text.len, &resolved, err);
+            if (rc == PC_OK)
+                rc = record_smart_adjustment(s, kind, label, yyjson_doc_get_root(resolved), err);
+            yyjson_doc_free(resolved);
+            pc_buf_fini(&text);
+            yyjson_mut_doc_free(d);
+        } else
+            rc = record_smart_adjustment(s, kind, label, p, err);
         pc_adjustment_fini(&adj);
         if (rc != PC_OK) {
             return rc;
@@ -463,6 +487,7 @@ struct set_adj_ctx {
     yyjson_val *p;
     pc_color_mode mode;
     pc_layer_id id;
+    const pc_adjustment *picked;
 };
 
 static pc_status edit_set_adjustment(pc_document *doc, bool *has_active, pc_layer_id *active, void *vctx,
@@ -485,7 +510,9 @@ static pc_status edit_set_adjustment(pc_document *doc, bool *has_active, pc_laye
     const char *kind = pc_engine_adjustment_kind(adj);
     pc_adjustment next;
     pc_status rc;
-    if (pc_engine_adjustment_user_keys_empty(c->p)) {
+    if (c->picked) {
+        rc = pc_adjustment_clone(c->picked, &next, err);
+    } else if (pc_engine_adjustment_user_keys_empty(c->p)) {
         rc = pc_engine_adjustment_default_for(kind, c->mode, &next, err);
     } else {
         rc = pc_engine_adjustment_from_params(kind, c->p, adj, c->mode, &next, err);
@@ -506,13 +533,22 @@ static pc_status run_set_adjustment(pc_engine_session *s, yyjson_val *p, pc_json
     if (pc_engine_layer_param(s, p, &ctx.id, err) != PC_OK) {
         return err != NULL ? err->code : PC_ERR_INVALID;
     }
-    /* The Levels/Curves eyedropper for layer.setAdjustment is deferred (E10 sampler). */
-    if (p != NULL && yyjson_is_obj(p) && yyjson_obj_get(p, "eyedropper") != NULL) {
-        return pc_engine_err_bad_params(err, "eyedropper",
-                                        "the Levels/Curves eyedropper is not yet supported in this "
-                                        "build (E10 sampler)");
+    const pc_engine_doc_state *state = pc_engine_session_active(s);
+    const pc_layer *layer = state ? pc_document_layer(pc_doc_arc_get(state->doc), ctx.id) : NULL;
+    pc_adjustment picked = {0};
+    bool has_pick = false;
+    pc_status rc = PC_OK;
+    if (pc_json_get(p, "eyedropper")) {
+        if (!layer || layer->content.kind != PC_LAYER_ADJUSTMENT)
+            return pc_engine_err_other(err, "eyedropper needs an adjustment layer");
+        rc = pc_engine_adjustment_eyedropper(s, pc_engine_adjustment_kind(&layer->content.u.adjustment), p,
+                                             &layer->content.u.adjustment, true, ctx.id, &has_pick, &picked,
+                                             err);
     }
-    pc_status rc = pc_engine_session_edit(s, "Modify Adjustment", edit_set_adjustment, &ctx, err);
+    ctx.picked = has_pick ? &picked : NULL;
+    if (rc == PC_OK)
+        rc = pc_engine_session_edit(s, "Modify Adjustment", edit_set_adjustment, &ctx, err);
+    pc_adjustment_fini(&picked);
     if (rc != PC_OK) {
         return rc;
     }
@@ -568,8 +604,8 @@ static pc_status process_surface(pc_surface *surf, const pc_surface *sel, rgba_f
         free(raw);
         return PC_OK;
     }
-    float(*orig)[4] = pc_malloc_array(count, sizeof *orig);
-    float(*px)[4] = pc_malloc_array(count, sizeof *px);
+    float (*orig)[4] = pc_malloc_array(count, sizeof *orig);
+    float (*px)[4] = pc_malloc_array(count, sizeof *px);
     if (orig == NULL || px == NULL) {
         free(raw);
         free(orig);
@@ -588,8 +624,8 @@ static pc_status process_surface(pc_surface *surf, const pc_surface *sel, rgba_f
     f(px, count, w, h, r, sel, fctx);
     float *mixed = NULL;
     size_t mlen = 0;
-    pc_status rc = pc_engine_mix_through_selection(fmt, r, (const float(*)[4])orig,
-                                                   (const float(*)[4])px, count, sel, &mixed, &mlen, err);
+    pc_status rc = pc_engine_mix_through_selection(fmt, r, (const float (*)[4])orig, (const float (*)[4])px,
+                                                   count, sel, &mixed, &mlen, err);
     free(orig);
     free(px);
     if (rc == PC_OK && mixed != NULL) {
@@ -599,8 +635,7 @@ static pc_status process_surface(pc_surface *surf, const pc_surface *sel, rgba_f
     return rc;
 }
 
-static pc_status edit_rgba(pc_document *doc, bool *has_active, pc_layer_id *active, void *vctx,
-                           pc_error *err)
+static pc_status edit_rgba(pc_document *doc, bool *has_active, pc_layer_id *active, void *vctx, pc_error *err)
 {
     (void)has_active;
     (void)active;
@@ -618,9 +653,9 @@ static pc_status rgba_edit(pc_engine_session *s, const char *label, yyjson_val *
                            pc_json_value *out, pc_error *err)
 {
     if (pc_engine_is_channel_target(p) || pc_engine_is_mask_target(p)) {
-        return pc_engine_err_other(
-            err, "this adjustment on a channel or mask is not yet supported in this build "
-                 "(E7 channel surface)");
+        return pc_engine_err_other(err,
+                                   "this adjustment on a channel or mask is not yet supported in this build "
+                                   "(E7 channel surface)");
     }
     struct rgba_ctx ctx = {f, fctx, 0};
     if (pc_engine_layer_param(s, NULL, &ctx.id, err) != PC_OK) {
@@ -634,8 +669,7 @@ static pc_status rgba_edit(pc_engine_session *s, const char *label, yyjson_val *
 }
 
 /* Shadows/Highlights */
-static void sh_fn(float (*px)[4], size_t n, size_t w, size_t h, pc_rect r, const pc_surface *sel,
-                  void *ctx)
+static void sh_fn(float (*px)[4], size_t n, size_t w, size_t h, pc_rect r, const pc_surface *sel, void *ctx)
 {
     (void)r;
     (void)sel;
@@ -667,9 +701,8 @@ static pc_status run_shadows_highlights(pc_engine_session *s, yyjson_val *p, pc_
 
 /* E-tail: re-run an image.adjustments.<kind> smart filter on a copy of `surf` (adjust_as_filter).
  * A kind / params that no longer parse leave the pixels alone, like an unknown filter. */
-pc_status pc_engine_adjust_apply_to_surface(const char *kind, yyjson_val *params,
-                                            const pc_surface *surf, pc_surface *out, bool *applied,
-                                            pc_error *err)
+pc_status pc_engine_adjust_apply_to_surface(const char *kind, yyjson_val *params, const pc_surface *surf,
+                                            pc_surface *out, bool *applied, pc_error *err)
 {
     *applied = false;
     if (kind == NULL || surf == NULL || out == NULL) {
@@ -759,7 +792,7 @@ static void match_fn(float (*px)[4], size_t n, size_t w, size_t h, pc_rect r, co
         (void)pc_algo_selection_mask_from_surface(sel, r, &mask, &mlen, NULL);
     }
     pc_algo_lab_stats target;
-    if (!pc_algo_lab_stats_compute((const float(*)[4])px, n, mask, mlen, &target)) {
+    if (!pc_algo_lab_stats_compute((const float (*)[4])px, n, mask, mlen, &target)) {
         free(mask);
         return;
     }
@@ -780,7 +813,7 @@ static bool source_stats(const pc_document *doc, bool use_selection, pc_algo_lab
     if (use_selection && doc->has_selection) {
         (void)pc_algo_selection_mask_from_surface(&doc->selection, buf.rect, &mask, &mlen, NULL);
     }
-    bool ok = pc_algo_lab_stats_compute((const float(*)[4])buf.px, buf.len, mask, mlen, out);
+    bool ok = pc_algo_lab_stats_compute((const float (*)[4])buf.px, buf.len, mask, mlen, out);
     free(mask);
     pc_compose_buffer_fini(&buf);
     return ok;
@@ -800,8 +833,8 @@ static pc_status run_match_color(pc_engine_session *s, yyjson_val *p, pc_json_va
     if (p != NULL && yyjson_is_obj(p)) {
         yyjson_val *sl = yyjson_obj_get(p, "sourceLayer");
         if (sl != NULL && !yyjson_is_null(sl)) {
-            return pc_engine_err_bad_params(
-                err, cmd, "a Match Color `sourceLayer` is not yet supported in this build");
+            return pc_engine_err_bad_params(err, cmd,
+                                            "a Match Color `sourceLayer` is not yet supported in this build");
         }
         yyjson_val *src = yyjson_obj_get(p, "source");
         if (src != NULL && yyjson_is_num(src) && yyjson_get_num(src) >= 0) {
@@ -828,8 +861,7 @@ struct hdr_ctx {
     size_t curve_len;
 };
 
-static pc_status edit_hdr(pc_document *doc, bool *has_active, pc_layer_id *active, void *vctx,
-                          pc_error *err)
+static pc_status edit_hdr(pc_document *doc, bool *has_active, pc_layer_id *active, void *vctx, pc_error *err)
 {
     struct hdr_ctx *c = vctx;
     pc_compose_buffer buf;
@@ -940,7 +972,7 @@ static pc_status run_hdr_toning(pc_engine_session *s, yyjson_val *p, pc_json_val
                     c.curve[k][1] = (float)yyjson_get_num(b) / 255.0f;
                     k++;
                 }
-                c.h.curve = (const float(*)[2])c.curve;
+                c.h.curve = (const float (*)[2])c.curve;
                 c.h.curve_len = k;
             }
         }
@@ -979,75 +1011,83 @@ static pc_status run_list_looks(pc_engine_session *s, yyjson_val *p, pc_json_val
 static const char *const MENU_IMAGE_ADJ[2] = {"Image", "Adjustments"};
 static const char *const MENU_LAYER_NEW_ADJ[2] = {"Layer", "New Adjustment Layer"};
 
-#define NLP                                                                                             \
-    "\"path\":\"work\"|saved path name|{…path}? (the active path: becomes the vector mask; else the "   \
+#define NLP                                                                                                  \
+    "\"path\":\"work\"|saved path name|{…path}? (the active path: becomes the vector mask; else the "        \
     "selection is the layer mask, or white with no selection)"
 
 /* per-kind image params */
 #define P_BRIGHTNESS "{\"brightness\":-150..150=0,\"contrast\":-50..100=0,\"legacy\":bool=false}"
-#define P_LEVELS                                                                                        \
-    "{\"inBlack\":0..253=0,\"gamma\":0.01..9.99=1,\"inWhite\":2..255=255,\"outBlack\":0..255=0,"         \
-    "\"outWhite\":0..255=255,\"red\":json,\"green\":json,\"blue\":json,\"eyedropper\":json} (top "      \
-    "level = composite; per channel {\"inBlack\",\"gamma\",\"inWhite\",\"outBlack\",\"outWhite\"} "      \
-    "under red/green/blue, gray, cyan/magenta/yellow/black or lightness/a/b; eyedropper = the "         \
-    "dialog's Set Black/Neutral Gray/White Point picker "                                               \
-    "{\"point\":\"black|gray|white\",\"at\":[x,y],\"size\":1..101=1} or {\"point\",…,\"color\":[r,g,b] " \
-    "0..1}: black/white set each channel's input black/white to the sample, gray each channel's "       \
-    "gamma so the sample turns neutral at its luma; RGB and Grayscale (no gray) only, applied over "    \
+#define P_LEVELS                                                                                             \
+    "{\"inBlack\":0..253=0,\"gamma\":0.01..9.99=1,\"inWhite\":2..255=255,\"outBlack\":0..255=0,"             \
+    "\"outWhite\":0..255=255,\"red\":json,\"green\":json,\"blue\":json,\"eyedropper\":json} (top "           \
+    "level = composite; per channel {\"inBlack\",\"gamma\",\"inWhite\",\"outBlack\",\"outWhite\"} "          \
+    "under red/green/blue, gray, cyan/magenta/yellow/black or lightness/a/b; eyedropper = the "              \
+    "dialog's Set Black/Neutral Gray/White Point picker "                                                    \
+    "{\"point\":\"black|gray|white\",\"at\":[x,y],\"size\":1..101=1} or {\"point\",…,\"color\":[r,g,b] "     \
+    "0..1}: black/white set each channel's input black/white to the sample, gray each channel's "            \
+    "gamma so the sample turns neutral at its luma; RGB and Grayscale (no gray) only, applied over "         \
     "the given levels)"
-#define P_CURVES                                                                                        \
-    "{\"points\":json,\"red\":json,\"green\":json,\"blue\":json,\"pencil\":bool=false,\"smooth\":0..10" \
-    "=0,\"eyedropper\":json} (curves as [[in,out],…] in 0..255, 2..19 points: points = composite; "     \
-    "red/green/blue, gray, cyan/magenta/yellow/black or lightness/a/b per channel; pencil = drawn "     \
-    "curves (Draw to modify the curve): each curve is 256 output levels in 0..255 (point curves "       \
-    "given are drawn in, and turning pencil off fits points to the drawing); smooth = Smooth passes "   \
-    "over the drawn curves; eyedropper = the dialog's Set Black/Neutral Gray/White Point picker "       \
-    "{\"point\":\"black|gray|white\",\"at\":[x,y],\"size\":1..101=1} or {\"point\",…,\"color\":[r,g,b] " \
+#define P_CURVES                                                                                             \
+    "{\"points\":json,\"red\":json,\"green\":json,\"blue\":json,\"pencil\":bool=false,\"smooth\":0..10"      \
+    "=0,\"eyedropper\":json} (curves as [[in,out],…] in 0..255, 2..19 points: points = composite; "          \
+    "red/green/blue, gray, cyan/magenta/yellow/black or lightness/a/b per channel; pencil = drawn "          \
+    "curves (Draw to modify the curve): each curve is 256 output levels in 0..255 (point curves "            \
+    "given are drawn in, and turning pencil off fits points to the drawing); smooth = Smooth passes "        \
+    "over the drawn curves; eyedropper = the dialog's Set Black/Neutral Gray/White Point picker "            \
+    "{\"point\":\"black|gray|white\",\"at\":[x,y],\"size\":1..101=1} or {\"point\",…,\"color\":[r,g,b] "     \
     "0..1}, RGB and Grayscale (no gray) only, applied over the given curves)"
 #define P_EXPOSURE "{\"exposure\":-20..20=0,\"offset\":-0.5..0.5=0,\"gamma\":0.01..9.99=1}"
 #define P_VIBRANCE "{\"vibrance\":-100..100=0,\"saturation\":-100..100=0}"
-#define P_HUESAT                                                                                        \
-    "{\"hue\":-180..180=0,\"saturation\":-100..100=0,\"lightness\":-100..100=0,\"colorize\":bool=false" \
-    ",\"reds\":json,\"yellows\":json,\"greens\":json,\"cyans\":json,\"blues\":json,\"magentas\":json} " \
-    "(per range {\"hue\",\"saturation\",\"lightness\",\"range\":[4 hue degrees]}; colorize: hue "       \
+#define P_HUESAT                                                                                             \
+    "{\"hue\":-180..180=0,\"saturation\":-100..100=0,\"lightness\":-100..100=0,\"colorize\":bool=false"      \
+    ",\"reds\":json,\"yellows\":json,\"greens\":json,\"cyans\":json,\"blues\":json,\"magentas\":json} "      \
+    "(per range {\"hue\",\"saturation\",\"lightness\",\"range\":[4 hue degrees]}; colorize: hue "            \
     "0..360, saturation 0..100)"
-#define P_COLORBAL                                                                                      \
-    "{\"shadows\":json,\"midtones\":json,\"highlights\":json,\"preserveLuminosity\":bool=true} (each "  \
+#define P_COLORBAL                                                                                           \
+    "{\"shadows\":json,\"midtones\":json,\"highlights\":json,\"preserveLuminosity\":bool=true} (each "       \
     "tone [cyan-red, magenta-green, yellow-blue] in -100..100)"
-#define P_BLACKWHITE                                                                                    \
-    "{\"reds\":-200..300=40,\"yellows\":-200..300=60,\"greens\":-200..300=40,\"cyans\":-200..300=60,"   \
+#define P_BLACKWHITE                                                                                         \
+    "{\"reds\":-200..300=40,\"yellows\":-200..300=60,\"greens\":-200..300=40,\"cyans\":-200..300=60,"        \
     "\"blues\":-200..300=20,\"magentas\":-200..300=80,\"tint\":bool=false,\"tintColor\":\"#rrggbb\"}"
-#define P_PHOTOFILTER                                                                                   \
-    "{\"filter\":\"warming85|warmingLBA|warming81|cooling80|coolingLBB|cooling82|red|orange|yellow|"    \
-    "green|cyan|blue|violet|magenta|sepia|deepRed|deepBlue|deepEmerald|deepYellow|underwater\","        \
+#define P_PHOTOFILTER                                                                                        \
+    "{\"filter\":\"warming85|warmingLBA|warming81|cooling80|coolingLBB|cooling82|red|orange|yellow|"         \
+    "green|cyan|blue|violet|magenta|sepia|deepRed|deepBlue|deepEmerald|deepYellow|underwater\","             \
     "\"color\":\"#rrggbb\",\"density\":0..100=25,\"preserveLuminosity\":bool=true}"
-#define P_CHANNELMIXER                                                                                  \
-    "{\"red\":json,\"green\":json,\"blue\":json,\"gray\":json,\"monochrome\":bool=false} (per output "  \
+#define P_CHANNELMIXER                                                                                       \
+    "{\"red\":json,\"green\":json,\"blue\":json,\"gray\":json,\"monochrome\":bool=false} (per output "       \
     "channel [red %, green %, blue %, constant %] in -200..200; gray = the monochrome mix)"
 #define P_INVERT "{}"
 #define P_POSTERIZE "{\"levels\":2..255=4}"
 #define P_THRESHOLD "{\"level\":1..255=128}"
-#define P_GRADIENTMAP                                                                                   \
-    "{\"stops\":json,\"reverse\":bool=false,\"dither\":bool=false} (stops [[location 0..1, "            \
+#define P_GRADIENTMAP                                                                                        \
+    "{\"stops\":json,\"reverse\":bool=false,\"dither\":bool=false} (stops [[location 0..1, "                 \
     "\"#rrggbb\"], …], 2..64)"
-#define P_SELECTIVE                                                                                     \
-    "{\"method\":\"relative|absolute\"=\"relative\",\"colors\":\"reds|yellows|greens|cyans|blues|"      \
-    "magentas|whites|neutrals|blacks\"=\"reds\",\"cyan\":-100..100=0,\"magenta\":-100..100=0,"           \
-    "\"yellow\":-100..100=0,\"black\":-100..100=0,\"reds\":json} (per-range [c,m,y,k] arrays: reds "    \
+#define P_SELECTIVE                                                                                          \
+    "{\"method\":\"relative|absolute\"=\"relative\",\"colors\":\"reds|yellows|greens|cyans|blues|"           \
+    "magentas|whites|neutrals|blacks\"=\"reds\",\"cyan\":-100..100=0,\"magenta\":-100..100=0,"               \
+    "\"yellow\":-100..100=0,\"black\":-100..100=0,\"reds\":json} (per-range [c,m,y,k] arrays: reds "         \
     "yellows greens cyans blues magentas whites neutrals blacks)"
-#define P_COLORLOOKUP                                                                                   \
-    "{\"lut\":\"none|warm|cool|tealOrange|bleachBypass|fadedFilm|dayForNight|monoContrast|crossProcess" \
-    "\"=\"none\",\"file\":text,\"interpolation\":\"trilinear|tetrahedral\"=\"trilinear\",\"dither\":"    \
+#define P_COLORLOOKUP                                                                                        \
+    "{\"lut\":\"none|warm|cool|tealOrange|bleachBypass|fadedFilm|dayForNight|monoContrast|crossProcess"      \
+    "\"=\"none\",\"file\":text,\"interpolation\":\"trilinear|tetrahedral\"=\"trilinear\",\"dither\":"        \
     "bool=false,\"data\":json} (file: .cube/.3dl/.look path; data: file text + \"fileName\")"
 
 #define LAYER_P(P) P " + {" NLP "}"
 
-#define ADJ_PAIR(kind, label, params, shortcut)                                                         \
-    {"layer.newAdjustmentLayer." kind, label, MENU_LAYER_NEW_ADJ, 2, NULL, LAYER_P(params),             \
-     pc_engine_has_doc, run_new_adjustment_layer, true},                                                \
-    {                                                                                                   \
-        "image.adjustments." kind, label, MENU_IMAGE_ADJ, 2, shortcut, params, has_adjustable,          \
-            run_image_adjustment, true                                                                  \
+#define ADJ_PAIR(kind, label, params, shortcut)                                                              \
+    {                                                                                                        \
+        "layer.newAdjustmentLayer." kind,                                                                    \
+        label,                                                                                               \
+        MENU_LAYER_NEW_ADJ,                                                                                  \
+        2,                                                                                                   \
+        NULL,                                                                                                \
+        LAYER_P(params),                                                                                     \
+        pc_engine_has_doc,                                                                                   \
+        run_new_adjustment_layer,                                                                            \
+        true},                                                                                               \
+    {                                                                                                        \
+        "image.adjustments." kind, label, MENU_IMAGE_ADJ, 2, shortcut, params, has_adjustable,               \
+            run_image_adjustment, true                                                                       \
     }
 
 static const pc_engine_command SPECS[] = {
@@ -1075,8 +1115,8 @@ static const pc_engine_command SPECS[] = {
      "Point, sampling the image below the layer, RGB and Grayscale (no gray) only)",
      pc_engine_has_layer, run_set_adjustment, true},
     /* Desaturate (Image > Adjustments). */
-    {"image.adjustments.desaturate", "Desaturate", MENU_IMAGE_ADJ, 2, "Cmd+Shift+U", "{}",
-     has_pixel_layer, run_desaturate, true},
+    {"image.adjustments.desaturate", "Desaturate", MENU_IMAGE_ADJ, 2, "Cmd+Shift+U", "{}", has_pixel_layer,
+     run_desaturate, true},
     /* Destructive-only adjustments (Image > Adjustments). */
     {"image.adjustments.shadowsHighlights", "Shadows/Highlights…", MENU_IMAGE_ADJ, 2, NULL,
      "{\"shadowAmount\":0..100=35,\"shadowTone\":0..100=50,\"shadowRadius\":0..2500=30,"
@@ -1099,8 +1139,8 @@ static const pc_engine_command SPECS[] = {
      "\"detail\":-100..300=30,\"shadow\":-100..100=0,\"highlight\":-100..100=0,\"vibrance\":-100..100"
      "=0,\"saturation\":-100..100=20,\"curve\":[[in,out],…] 0..255} (flattens the image)",
      pc_engine_has_doc, run_hdr_toning, true},
-    {"image.adjustments.colorLookup.list", "List Color Lookup Looks", NULL, 0, NULL, "{}",
-     pc_engine_always, run_list_looks, false},
+    {"image.adjustments.colorLookup.list", "List Color Lookup Looks", NULL, 0, NULL, "{}", pc_engine_always,
+     run_list_looks, false},
 };
 
 const pc_engine_command *pc_engine_adjust_specs(size_t *n)

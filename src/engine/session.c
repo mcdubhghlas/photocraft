@@ -8,7 +8,9 @@
 
 #include "base/mem.h"
 #include "engine_internal.h"
+#include "live_stroke.h"
 #include "prefs.h"
+#include "actions_cmds.h"
 #include "preset_store.h" /* E2b: free the attached brush-preset store */
 
 /* ---- small owned-string helpers ----------------------------------------------------------- */
@@ -118,6 +120,7 @@ pc_status pc_engine_doc_state_init(pc_engine_doc_state *st, pc_document *doc, co
         pc_layer_target_fini(&tgt);
     }
     st->path = dup_cstr(path);
+    st->next_snapshot = 1;
     st->revision = 1;
     st->saved_revision = 1;
     return PC_OK;
@@ -128,6 +131,7 @@ void pc_engine_doc_state_fini(pc_engine_doc_state *st)
     if (st == NULL) {
         return;
     }
+    pc_engine_snapshots_fini(st);
     pc_doc_arc_release(st->doc);
     pc_history_free(st->history);
     free(st->selected_layers);
@@ -307,6 +311,7 @@ void pc_engine_session_free(pc_engine_session *s)
         return;
     }
     pc_engine_jobs_fini(&s->jobs);
+    pc_engine_session_clear_live_stroke(s);
     pc_engine_prefs_fini(&s->prefs); /* E2 */
     pc_engine_preset_store_free(s->preset_store); /* E2b */
     s->preset_store = NULL;
@@ -407,6 +412,23 @@ bool pc_engine_session_journal_at(const pc_engine_session *s, size_t i, const ch
     return true;
 }
 
+void pc_engine_session_set_shell_dispatch(pc_engine_session *s, pc_engine_shell_dispatch dispatch,
+                                           void *ctx)
+{
+    if (s) {
+        s->shell_dispatch = dispatch;
+        s->shell_dispatch_ctx = dispatch ? ctx : NULL;
+    }
+}
+pc_status pc_engine_session_record_view(pc_engine_session *s, const char *id, yyjson_val *params,
+                                         pc_error *err)
+{
+    if (!s || !id || !pc_engine_actions_shell_view_command(id)) {
+        return pc_fail(err, PC_ERR_INVALID, "unsupported shell view command");
+    }
+    return pc_engine_journal_push(s, id, params, err);
+}
+
 /* Record one journal entry (id + owned params copy). */
 pc_status pc_engine_journal_push(pc_engine_session *s, const char *id, yyjson_val *params, pc_error *err)
 {
@@ -420,7 +442,12 @@ pc_status pc_engine_journal_push(pc_engine_session *s, const char *id, yyjson_va
     e->id = dup_cstr(id);
     memset(&e->params, 0, sizeof e->params);
     if (params != NULL) {
-        (void)pc_json_value_from_val(params, &e->params, NULL);
+        pc_status rc = pc_json_value_from_val(params, &e->params, err);
+        if (rc != PC_OK) {
+            free(e->id);
+            e->id = NULL;
+            return rc;
+        }
     }
     if (e->id == NULL) {
         pc_json_value_fini(&e->params);
@@ -627,7 +654,8 @@ pc_status pc_engine_session_edit(pc_engine_session *s, const char *label, pc_eng
         return rc;
     }
     if (s->color_restrict != SIZE_MAX && has_active) {
-        pc_engine_hook_restrict_to_color(pc_doc_arc_get(before), &doc, active, s->color_restrict);
+        rc=pc_engine_hook_restrict_to_color(pc_doc_arc_get(before), &doc, active, s->color_restrict,err);
+        if(rc!=PC_OK) { pc_document_fini(&doc);pc_layer_target_fini(&prior);pc_doc_arc_release(before);return rc; }
     }
     pc_doc_arc *newarc = NULL;
     if (pc_doc_arc_new(&doc, &newarc, err) != PC_OK) { /* moves doc on success */

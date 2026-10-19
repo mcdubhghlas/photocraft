@@ -1,8 +1,7 @@
 /* Select menu and selection tools (port of crates/engine/src/selection_cmds.rs, E7): Magic Wand,
  * Modify, Grow, Similar, Lasso.
  *
- * Color Range (select.colorRange) needs the composite ICC profile and the gamut mask from
- * color_cmds (E8); it is deferred to E8 (see §8). */
+ * Color Range compares samples through the document composite profile in CIE Lab D50. */
 #include <float.h>
 #include <math.h>
 #include <stdlib.h>
@@ -16,6 +15,11 @@
 
 #include "channel_cmds.h"
 #include "selection_cmds.h"
+#include "brush_cmds.h"
+#include "cms/gamut.h"
+#include "cms/transform.h"
+#include "cms/builtin.h"
+#include "base/mem.h"
 
 /* ---- param helpers ----------------------------------------------------------------------- */
 
@@ -54,8 +58,7 @@ static pc_algo_selection_mode pmode(yyjson_val *p)
 
 static pc_status has_doc(const pc_engine_session *s, pc_error *reason)
 {
-    return pc_engine_session_active(s) != NULL ? PC_OK
-                                               : pc_fail(reason, PC_ERR_INVALID, "no document open");
+    return pc_engine_session_active(s) != NULL ? PC_OK : pc_fail(reason, PC_ERR_INVALID, "no document open");
 }
 
 static pc_status has_selection(const pc_engine_session *s, pc_error *reason)
@@ -64,8 +67,7 @@ static pc_status has_selection(const pc_engine_session *s, pc_error *reason)
     if (d == NULL) {
         return pc_fail(reason, PC_ERR_INVALID, "no document open");
     }
-    return pc_doc_arc_get(d->doc)->has_selection ? PC_OK
-                                                 : pc_fail(reason, PC_ERR_INVALID, "no selection");
+    return pc_doc_arc_get(d->doc)->has_selection ? PC_OK : pc_fail(reason, PC_ERR_INVALID, "no selection");
 }
 
 /* ---- combine helpers --------------------------------------------------------------------- */
@@ -85,8 +87,8 @@ static pc_status combine_mask_edit(pc_document *doc, bool *ha, pc_layer_id *a, v
     struct combine_mask_ctx *c = vctx;
     pc_surface out;
     bool some = false;
-    pc_status rc = pc_algo_selection_combine(doc->has_selection ? &doc->selection : NULL, c->m, c->n,
-                                             c->area, c->mode, &out, &some, err);
+    pc_status rc = pc_algo_selection_combine(doc->has_selection ? &doc->selection : NULL, c->m, c->n, c->area,
+                                             c->mode, &out, &some, err);
     if (rc != PC_OK) {
         return rc;
     }
@@ -104,9 +106,8 @@ static pc_status combine_mask_edit(pc_document *doc, bool *ha, pc_layer_id *a, v
     return PC_OK;
 }
 
-static pc_status set_mask_selection(pc_engine_session *s, const char *label, pc_rect area,
-                                    const float *mask, size_t n, pc_algo_selection_mode mode,
-                                    pc_json_value *out, pc_error *err)
+static pc_status set_mask_selection(pc_engine_session *s, const char *label, pc_rect area, const float *mask,
+                                    size_t n, pc_algo_selection_mode mode, pc_json_value *out, pc_error *err)
 {
     struct combine_mask_ctx c = {mask, n, area, mode, false};
     pc_status rc = pc_engine_session_edit(s, label, combine_mask_edit, &c, err);
@@ -129,16 +130,15 @@ struct combine_region_ctx {
     bool out_some;
 };
 
-static pc_status combine_region_edit(pc_document *doc, bool *ha, pc_layer_id *a, void *vctx,
-                                     pc_error *err)
+static pc_status combine_region_edit(pc_document *doc, bool *ha, pc_layer_id *a, void *vctx, pc_error *err)
 {
     (void)ha;
     (void)a;
     struct combine_region_ctx *c = vctx;
     pc_surface out;
     bool some = false;
-    pc_status rc = pc_algo_selection_combine_region(doc->has_selection ? &doc->selection : NULL,
-                                                    c->region, c->mode, &out, &some, err);
+    pc_status rc = pc_algo_selection_combine_region(doc->has_selection ? &doc->selection : NULL, c->region,
+                                                    c->mode, &out, &some, err);
     if (rc != PC_OK) {
         return rc;
     }
@@ -160,8 +160,8 @@ static pc_status combine_region_edit(pc_document *doc, bool *ha, pc_layer_id *a,
 
 /* Straight RGBA8 of the active layer (all_layers false) or the composite over the canvas. *out
  * owned (free()). */
-static pc_status sample_rgba8(pc_engine_session *s, bool all_layers, pc_rect *area_out,
-                              uint8_t (**out)[4], size_t *len, pc_error *err)
+static pc_status sample_rgba8(pc_engine_session *s, bool all_layers, pc_rect *area_out, uint8_t (**out)[4],
+                              size_t *len, pc_error *err)
 {
     const pc_engine_doc_state *d = pc_engine_session_active(s);
     if (d == NULL) {
@@ -201,15 +201,15 @@ static pc_status sample_rgba8(pc_engine_session *s, bool all_layers, pc_rect *ar
 
 /* Public wrapper over sample_rgba8 for the Paint Bucket / Magic Eraser (paint_cmds, eraser_cmds).
  * Straight RGBA8 of the active layer (all_layers false) or the composite; *out owned (free()). */
-pc_status pc_engine_sample_rgba8(pc_engine_session *s, bool all_layers, pc_rect *area_out,
-                                 uint8_t (**out)[4], size_t *len, pc_error *err)
+pc_status pc_engine_sample_rgba8(pc_engine_session *s, bool all_layers, pc_rect *area_out, uint8_t (**out)[4],
+                                 size_t *len, pc_error *err)
 {
     return sample_rgba8(s, all_layers, area_out, out, len, err);
 }
 
 /* RGBA float pixels of the active layer (all_layers false) or composite. *out owned (free()). */
-static pc_status sample_pixels(pc_engine_session *s, bool all_layers, pc_rect *area_out,
-                               float (**out)[4], size_t *len, pc_error *err)
+static pc_status sample_pixels(pc_engine_session *s, bool all_layers, pc_rect *area_out, float (**out)[4],
+                               size_t *len, pc_error *err)
 {
     const pc_engine_doc_state *d = pc_engine_session_active(s);
     if (d == NULL) {
@@ -267,8 +267,7 @@ static bool shown_gray(pc_engine_session *s, pc_rect *area_out, uint8_t (**out)[
     /* The active layer's shown mask (E5 DocState fields). */
     const pc_surface *mask_surf = NULL;
     int mask_mode = -1;
-    if (st->has_layer_mask_view && st->has_active_layer &&
-        st->active_layer == st->layer_mask_view_layer) {
+    if (st->has_layer_mask_view && st->has_active_layer && st->active_layer == st->layer_mask_view_layer) {
         const pc_layer *l = pc_document_layer(doc, st->active_layer);
         if (l != NULL && l->has_mask) {
             mask_surf = &l->mask.surface;
@@ -332,9 +331,9 @@ static pc_status run_magic_wand(pc_engine_session *s, yyjson_val *p, pc_json_val
         }
     }
     pc_algo_region region;
-    pc_status rc = pc_algo_selection_wand_region((const uint8_t (*)[4])img, len, area, x, y, pf(p, "tolerance", 32.0f),
-                                                 pb(p, "contiguous", true), pb(p, "antiAlias", true),
-                                                 &region, err);
+    pc_status rc =
+        pc_algo_selection_wand_region((const uint8_t (*)[4])img, len, area, x, y, pf(p, "tolerance", 32.0f),
+                                      pb(p, "contiguous", true), pb(p, "antiAlias", true), &region, err);
     free(img);
     if (rc != PC_OK) {
         return rc;
@@ -445,8 +444,8 @@ static pc_status modify(pc_engine_session *s, yyjson_val *p, const char *op, pc_
     size_t w = pc_rect_width(area), h = pc_rect_height(area);
     float *m = NULL;
     size_t mn_len = 0;
-    pc_status rc = pc_algo_selection_mask_from_surface(doc->has_selection ? &doc->selection : NULL,
-                                                       area, &m, &mn_len, err);
+    pc_status rc = pc_algo_selection_mask_from_surface(doc->has_selection ? &doc->selection : NULL, area, &m,
+                                                       &mn_len, err);
     if (rc != PC_OK) {
         return rc;
     }
@@ -520,11 +519,11 @@ static pc_status modify(pc_engine_session *s, yyjson_val *p, const char *op, pc_
     return rc;
 }
 
-#define MODIFY_FN(name, opstr)                                                                       \
-    static pc_status run_modify_##name(pc_engine_session *s, yyjson_val *p, pc_json_value *out,       \
-                                       pc_error *err)                                                 \
-    {                                                                                                \
-        return modify(s, p, opstr, out, err);                                                        \
+#define MODIFY_FN(name, opstr)                                                                               \
+    static pc_status run_modify_##name(pc_engine_session *s, yyjson_val *p, pc_json_value *out,              \
+                                       pc_error *err)                                                        \
+    {                                                                                                        \
+        return modify(s, p, opstr, out, err);                                                                \
     }
 MODIFY_FN(border, "border")
 MODIFY_FN(smooth, "smooth")
@@ -548,8 +547,7 @@ static pc_status grow_similar(pc_engine_session *s, yyjson_val *p, bool contiguo
     const pc_document *doc = pc_doc_arc_get(pc_engine_session_active(s)->doc);
     float *m = NULL;
     size_t mn = 0;
-    rc = pc_algo_selection_mask_from_surface(doc->has_selection ? &doc->selection : NULL, area, &m, &mn,
-                                             err);
+    rc = pc_algo_selection_mask_from_surface(doc->has_selection ? &doc->selection : NULL, area, &m, &mn, err);
     if (rc != PC_OK) {
         free(px);
         return rc;
@@ -672,8 +670,8 @@ static pc_status run_similar(pc_engine_session *s, yyjson_val *p, pc_json_value 
 /* ---- Lasso / polygon --------------------------------------------------------------------- */
 
 pc_status pc_engine_polygon_selection(pc_engine_session *s, const char *cmd, const char *label,
-                                      const float (*pts)[2], size_t npts, yyjson_val *p,
-                                      pc_json_value *out, pc_error *err)
+                                      const float (*pts)[2], size_t npts, yyjson_val *p, pc_json_value *out,
+                                      pc_error *err)
 {
     float feather = pf(p, "feather", 0.0f);
     if (!(feather >= 0.0f && feather <= 1000.0f)) {
@@ -686,8 +684,7 @@ pc_status pc_engine_polygon_selection(pc_engine_session *s, const char *cmd, con
     pc_rect area = pc_document_bounds(pc_doc_arc_get(d->doc));
     float *mask = NULL;
     size_t mlen = 0;
-    pc_status rc = pc_algo_selection_polygon(pts, npts, area, pb(p, "antiAlias", true), &mask, &mlen,
-                                             err);
+    pc_status rc = pc_algo_selection_polygon(pts, npts, area, pb(p, "antiAlias", true), &mask, &mlen, err);
     if (rc != PC_OK) {
         return rc;
     }
@@ -727,7 +724,8 @@ static pc_status run_lasso(pc_engine_session *s, yyjson_val *p, pc_json_value *o
         }
         size_t i, max;
         yyjson_val *v;
-        yyjson_arr_foreach(arr, i, max, v) {
+        yyjson_arr_foreach(arr, i, max, v)
+        {
             double x, y;
             yyjson_val *vx = v != NULL && yyjson_is_arr(v) ? yyjson_arr_get(v, 0) : NULL;
             yyjson_val *vy = v != NULL && yyjson_is_arr(v) ? yyjson_arr_get(v, 1) : NULL;
@@ -742,14 +740,23 @@ static pc_status run_lasso(pc_engine_session *s, yyjson_val *p, pc_json_value *o
         free(pts);
         return pc_engine_err_bad_params(err, "select.lasso", "needs at least 3 points");
     }
-    pc_status rc = pc_engine_polygon_selection(s, "select.lasso", "Lasso", (const float (*)[2])pts, npts, p, out, err);
+    pc_status rc =
+        pc_engine_polygon_selection(s, "select.lasso", "Lasso", (const float (*)[2])pts, npts, p, out, err);
     free(pts);
     return rc;
 }
 
+#include "color_range.inc"
+
 /* ---- registry ---------------------------------------------------------------------------- */
 
 static const pc_engine_command SPECS[] = {
+    {"select.colorRange", "Color Range…", (const char *const[]){"Select"}, 1, NULL,
+     "{\"select\":\"sampledColors|reds|yellows|greens|cyans|blues|magentas|highlights|midtones|shadows|"
+     "outOfGamut\",\"fuzziness\":0..200=40,\"localized\":bool=false,\"range\":0..100=100,\"color\":color,"
+     "\"colors\":json,\"points\":json,\"subtractPoints\":json,\"order\":json,\"tonalRange\":json,\"invert\":"
+     "bool=false,\"sampleAllLayers\":bool=true,\"mode\":\"replace|add|subtract|intersect\"}",
+     has_doc, run_color_range, true},
     {"select.magicWand", "Magic Wand", NULL, 0, NULL,
      "{\"x\":px,\"y\":px,\"tolerance\":0..255=32,\"contiguous\":bool=true,\"antiAlias\":bool=true,"
      "\"sampleAllLayers\":bool=false,\"mode\":\"replace|add|subtract|intersect\"=\"replace\"}",
@@ -761,11 +768,9 @@ static const pc_engine_command SPECS[] = {
     {"select.modify.expand", "Expand…", (const char *const[]){"Select", "Modify"}, 2, NULL,
      "{\"radius\":1..500=1,\"applyAtCanvasBounds\":bool=false}", has_selection, run_modify_expand, true},
     {"select.modify.contract", "Contract…", (const char *const[]){"Select", "Modify"}, 2, NULL,
-     "{\"radius\":1..500=1,\"applyAtCanvasBounds\":bool=false}", has_selection, run_modify_contract,
-     true},
+     "{\"radius\":1..500=1,\"applyAtCanvasBounds\":bool=false}", has_selection, run_modify_contract, true},
     {"select.modify.feather", "Feather…", (const char *const[]){"Select", "Modify"}, 2, NULL,
-     "{\"radius\":0.1..1000=1,\"applyAtCanvasBounds\":bool=false}", has_selection, run_modify_feather,
-     true},
+     "{\"radius\":0.1..1000=1,\"applyAtCanvasBounds\":bool=false}", has_selection, run_modify_feather, true},
     {"select.grow", "Grow", (const char *const[]){"Select"}, 1, NULL,
      "{\"tolerance\":0..255=32,\"sampleAllLayers\":bool=false}", has_selection, run_grow, true},
     {"select.similar", "Similar", (const char *const[]){"Select"}, 1, NULL,

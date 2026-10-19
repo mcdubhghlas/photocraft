@@ -238,8 +238,7 @@ static void test_presets_exact(void)
 
 /* ---- lone targets ------------------------------------------------------------------------- */
 
-static pc_status paint_channel_edit(pc_document *doc, bool *ha, pc_layer_id *active, void *ctx,
-                                    pc_error *err)
+static pc_status paint_channel_edit(pc_document *doc, bool *ha, pc_layer_id *active, void *ctx, pc_error *err)
 {
     (void)ha;
     (void)active;
@@ -267,8 +266,7 @@ static void test_lone_alpha_channel(void)
     pc_engine_session_free(s);
 }
 
-static pc_status mask_hide_edit(pc_document *doc, bool *ha, pc_layer_id *active, void *ctx,
-                                pc_error *err)
+static pc_status mask_hide_edit(pc_document *doc, bool *ha, pc_layer_id *active, void *ctx, pc_error *err)
 {
     (void)ha;
     (void)err;
@@ -343,9 +341,10 @@ static void test_huge_scale_refused_unchanged(void)
     uint64_t rev0 = pc_engine_session_active(s)->revision;
     /* A 10000x scale about the frame centre: ~200000 x 100000 px of output, far past the 2^30 px
      * budget, but each side stays under the +-2^20 coordinate window. */
-    CHECK(exj_err(s, "edit.transform", "{\"scaleX\":1000000,\"scaleY\":1000000,\"interpolation\":\"nearest\"}"));
-    CHECK(doc_of(s) == before);                                  /* same Arc: nothing committed */
-    CHECK_EQ_UINT(pc_engine_session_active(s)->revision, rev0);  /* no history step */
+    CHECK(exj_err(s, "edit.transform",
+                  "{\"scaleX\":1000000,\"scaleY\":1000000,\"interpolation\":\"nearest\"}"));
+    CHECK(doc_of(s) == before);                                 /* same Arc: nothing committed */
+    CHECK_EQ_UINT(pc_engine_session_active(s)->revision, rev0); /* no history step */
     pc_rect b = active_bounds(s);
     CHECK_EQ_INT(b.x0, 10); /* still where it was */
     CHECK_EQ_INT(b.x1, 30);
@@ -355,18 +354,18 @@ static void test_huge_scale_refused_unchanged(void)
 static void test_adversarial_edit_transform(void)
 {
     const char *bad[] = {
-        "{\"matrix\":[1,0,0,1,0,0,0]}",                  /* wrong length */
-        "{\"matrix\":[1,0,0,1,0]}",                      /* wrong length */
-        "{\"matrix\":\"x\"}",                            /* wrong type */
-        "{\"quad\":[[0,0],[0,0],[0,0],[0,0]]}",          /* degenerate */
-        "{\"quad\":[[0,0],[1,0]]}",                      /* too few corners -> treated absent -> no transform */
-        "{\"matrix\":[1e300,0,0,1e300,0,0]}",            /* overflow scale */
-        "{\"matrix\":[0,0,0,0,0,0]}",                    /* singular */
-        "{\"scaleX\":0,\"scaleY\":0}",                   /* zero scale */
-        "{\"rotate\":\"x\"}",                            /* non-number */
-        "{\"scaleX\":1e308,\"dx\":1e308}",               /* huge relative */
-        "{}",                                            /* nothing to do */
-        "{\"matrix\":[1,0,0,1,0,0],\"target\":\"mask\"}",   /* no mask */
+        "{\"matrix\":[1,0,0,1,0,0,0]}",         /* wrong length */
+        "{\"matrix\":[1,0,0,1,0]}",             /* wrong length */
+        "{\"matrix\":\"x\"}",                   /* wrong type */
+        "{\"quad\":[[0,0],[0,0],[0,0],[0,0]]}", /* degenerate */
+        "{\"quad\":[[0,0],[1,0]]}",             /* too few corners -> treated absent -> no transform */
+        "{\"matrix\":[1e300,0,0,1e300,0,0]}",   /* overflow scale */
+        "{\"matrix\":[0,0,0,0,0,0]}",           /* singular */
+        "{\"scaleX\":0,\"scaleY\":0}",          /* zero scale */
+        "{\"rotate\":\"x\"}",                   /* non-number */
+        "{\"scaleX\":1e308,\"dx\":1e308}",      /* huge relative */
+        "{}",                                   /* nothing to do */
+        "{\"matrix\":[1,0,0,1,0,0],\"target\":\"mask\"}",        /* no mask */
         "{\"matrix\":[1,0,0,1,0,0],\"target\":{\"channel\":9}}", /* no such channel */
         "{\"matrix\":[1,0,0,1,0,0],\"target\":\"quickMask\"}",   /* not in quick mask */
     };
@@ -391,8 +390,12 @@ static void test_adversarial_presets(void)
     const char *ids[] = {"edit.transform.rotate180", "edit.transform.rotate90Cw",
                          "edit.transform.rotate90Ccw", "edit.transform.flipHorizontal",
                          "edit.transform.flipVertical"};
-    const char *params[] = {"{}", "{\"target\":\"mask\"}", "{\"target\":{\"channel\":9}}",
-                            "{\"target\":\"quickMask\"}", "{\"target\":7}", "{\"layer\":999999}"};
+    const char *params[] = {"{}",
+                            "{\"target\":\"mask\"}",
+                            "{\"target\":{\"channel\":9}}",
+                            "{\"target\":\"quickMask\"}",
+                            "{\"target\":7}",
+                            "{\"layer\":999999}"};
     for (size_t i = 0; i < sizeof ids / sizeof ids[0]; i++) {
         for (size_t j = 0; j < sizeof params / sizeof params[0]; j++) {
             pc_engine_session *s = session();
@@ -420,8 +423,77 @@ static void test_locked_for_transform_export(void)
     pc_engine_session_free(s);
 }
 
+static void test_frame_query_matches_targets_and_preserves_history(void)
+{
+    pc_engine_session *s = session();
+    size_t history = pc_history_past_len(pc_engine_session_active(s)->history);
+    uint64_t revision = pc_engine_session_active(s)->revision;
+    pc_rect frame = PC_RECT_EMPTY;
+    bool type = false;
+    CHECK(pc_engine_transform_frame(s, NULL, &frame, &type, NULL) == PC_OK);
+    CHECK(frame.x0 == 10 && frame.x1 == 30 && frame.y0 == 10 && frame.y1 == 20 && !type);
+    exj(s, "select.rect", "{\"x\":10,\"y\":10,\"width\":10,\"height\":10}");
+    CHECK(pc_engine_transform_frame(s, NULL, &frame, &type, NULL) == PC_OK);
+    CHECK(frame.x1 == 20);
+    exj(s, "select.deselect", "{}");
+    struct paint p = {pc_rect_make(10, 10, 30, 20), {1, 0, 0, 1}};
+    CHECK(pc_engine_session_edit(s, "paint", paint_edit, &p, NULL) == PC_OK);
+    yyjson_doc *parsed = NULL;
+    const char *bad = "{\"layer\":999999}";
+    CHECK(pc_json_parse(bad, strlen(bad), &parsed, NULL) == PC_OK);
+    pc_rect before = frame;
+    CHECK(pc_engine_transform_frame(s, yyjson_doc_get_root(parsed), &frame, &type, NULL) != PC_OK);
+    CHECK(!memcmp(&before, &frame, sizeof frame));
+    yyjson_doc_free(parsed);
+    CHECK(pc_engine_session_active(s)->revision == revision + 3);
+    CHECK(pc_history_past_len(pc_engine_session_active(s)->history) == history + 3);
+    exj(s, "type.create", "{\"x\":20,\"y\":60,\"text\":\"Hello\",\"size\":36}");
+    const pc_layer *layer = pc_document_layer(doc_of(s), active_id(s));
+    pc_rect whole = pc_surface_content_bounds(pc_layer_surface(layer));
+    exj(s, "select.rect", "{\"x\":20,\"y\":20,\"width\":2,\"height\":2}");
+    CHECK(pc_engine_transform_frame(s, NULL, &frame, &type, NULL) == PC_OK);
+    CHECK(type && !memcmp(&frame, &whole, sizeof frame));
+    pc_engine_session_free(s);
+}
+
+static void test_transform_copy_one_history_and_atomic_failure(void)
+{
+    pc_engine_session *s = session();
+    size_t history = pc_history_past_len(pc_engine_session_active(s)->history), layers = doc_of(s)->nlayers;
+    pc_layer_id original = active_id(s);
+    exj(s, "edit.transform", "{\"copy\":true,\"matrix\":[1,0,0,1,40,0],\"interpolation\":\"nearest\"}");
+    CHECK(doc_of(s)->nlayers == layers + 1 && active_id(s) != original);
+    CHECK(active_bounds(s).x0 == 50 && active_bounds(s).x1 == 70);
+    const pc_layer *source = pc_document_layer(doc_of(s), original);
+    CHECK(pc_surface_content_bounds(pc_layer_surface(source)).x0 == 10);
+    CHECK(pc_history_past_len(pc_engine_session_active(s)->history) == history + 1);
+    CHECK(pc_engine_session_undo(s));
+    CHECK(doc_of(s)->nlayers == layers && active_id(s) == original);
+    CHECK(pc_engine_session_redo(s));
+    CHECK(doc_of(s)->nlayers == layers + 1);
+    CHECK(pc_engine_session_undo(s));
+    exj(s, "select.rect", "{\"x\":10,\"y\":10,\"width\":10,\"height\":10}");
+    history = pc_history_past_len(pc_engine_session_active(s)->history);
+    exj(s, "edit.transform", "{\"copy\":true,\"matrix\":[1,0,0,1,40,0],\"interpolation\":\"nearest\"}");
+    CHECK(active_bounds(s).x0 == 50 && active_bounds(s).x1 == 60);
+    CHECK(pc_history_past_len(pc_engine_session_active(s)->history) == history + 1);
+    CHECK(pc_engine_session_undo(s));
+    const char *bad[] = {"{\"copy\":true,\"matrix\":[0,0,0,0,0,0]}",
+                         "{\"copy\":true,\"target\":\"mask\",\"matrix\":[1,0,0,1,0,0]}",
+                         "{\"copy\":true,\"layer\":999999,\"matrix\":[1,0,0,1,0,0]}",
+                         "{\"copy\":1,\"matrix\":[1,0,0,1,0,0]}"};
+    const pc_doc_arc *before = pc_engine_session_active(s)->doc;
+    for (size_t i = 0; i < sizeof bad / sizeof bad[0]; i++) {
+        CHECK(exj_err(s, "edit.transform", bad[i]));
+        CHECK(pc_engine_session_active(s)->doc == before && doc_of(s)->nlayers == layers);
+    }
+    pc_engine_session_free(s);
+}
+
 int main(int argc, char **argv)
 {
+    RUN(test_transform_copy_one_history_and_atomic_failure);
+    RUN(test_frame_query_matches_targets_and_preserves_history);
     RUN(test_affine_matrix_translate);
     RUN(test_scale_via_quad);
     RUN(test_perspective_quad);

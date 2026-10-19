@@ -149,6 +149,7 @@ pc_cencode_opts pc_cencode_opts_default(void)
     o.tiff_bigtiff = false;
     o.exr_compression = PC_EXR_ZIP16;
     o.dpx_bits = PC_DPX_BITS_AUTO;
+    o.tga_bits = 0;
     o.embed_icc = true;
     o.embed_metadata = true;
     return o;
@@ -228,7 +229,10 @@ cx_plan cx_plan_for(const pc_cimage *img, pc_cformat f, const pc_cencode_opts *o
     static const pc_clayout PFM[] = {PC_CL_GRAY, PC_CL_RGB};
     pc_ccaps c = pc_cformat_caps(f);
     cx_plan p;
-    if (f == PC_CF_PNM && pc_csample_is_float(img->sample)) {
+    if (f == PC_CF_TGA && (o->tga_bits == 24 || o->tga_bits == 32)) {
+        p.layout = o->tga_bits == 24 ? PC_CL_RGB : PC_CL_RGBA;
+        p.sample = PC_CS_U8;
+    } else if (f == PC_CF_PNM && pc_csample_is_float(img->sample)) {
         /* PNM: integer data can use any layout (PAM); float goes to PFM (gray and RGB only). */
         p.layout = pick_layout(img->layout, PFM, 2, false);
         p.sample = PC_CS_F32;

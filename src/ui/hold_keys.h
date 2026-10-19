@@ -11,6 +11,7 @@
 #include <stddef.h>
 
 #include "ui/state.h"
+#include "ui/shortcuts.h"
 
 /* A tool in effect only while its key is held. */
 typedef enum pc_ui_temporary {
@@ -40,4 +41,14 @@ bool pc_ui_is_temporary(const char *id);
  * vector_ui::is_shape_tool, needed by cmd_moves/repositions. */
 bool pc_ui_is_shape_tool(pc_ui_tool t);
 
+/* Input-neutral held-key resolver. Extra modifiers are accepted; the most specific binding
+ * wins. `blocked` means text input/modal editing owns the keys. `allow_move` excludes active
+ * transforms. The caller latches the result for the lifetime of a pointer gesture. */
+bool pc_ui_temporary_resolve(const pc_engine_session *session, pc_ui_tool tool,
+                              const bool keys[PC_KEY_EXCLAMATIONMARK + 1], unsigned mods,
+                              bool blocked, bool allow_move, pc_ui_temporary *out);
+bool pc_ui_erase_held(const pc_engine_session *session, pc_ui_tool tool,
+                       const bool keys[PC_KEY_EXCLAMATIONMARK + 1], unsigned mods, bool blocked);
+bool pc_ui_reposition_held(const pc_engine_session *session,
+                            const bool keys[PC_KEY_EXCLAMATIONMARK + 1], bool blocked);
 #endif /* PC_UI_HOLD_KEYS_H */

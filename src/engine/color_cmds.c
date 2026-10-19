@@ -16,6 +16,7 @@
 #include <string.h>
 
 #include "base/buf.h"
+#include "display_color.h"
 #include "base/file.h"
 #include "base/mem.h"
 #include "base/str.h"
@@ -34,6 +35,7 @@
 #include "raster/surface.h"
 
 #include "color_cmds.h"
+#include "display_color.h"
 #include "engine_internal.h"
 
 /* ============================================================== colour space helpers */
@@ -57,11 +59,20 @@ static uint32_t cs_space(pc_color_mode mode)
 static bool space_mode(uint32_t cs, pc_color_mode *out)
 {
     switch (cs) {
-    case PC_CS_RGB: *out = PC_COLOR_MODE_RGB; return true;
-    case PC_CS_GRAY: *out = PC_COLOR_MODE_GRAYSCALE; return true;
-    case PC_CS_CMYK: *out = PC_COLOR_MODE_CMYK; return true;
-    case PC_CS_LAB: *out = PC_COLOR_MODE_LAB; return true;
-    default: return false;
+    case PC_CS_RGB:
+        *out = PC_COLOR_MODE_RGB;
+        return true;
+    case PC_CS_GRAY:
+        *out = PC_COLOR_MODE_GRAYSCALE;
+        return true;
+    case PC_CS_CMYK:
+        *out = PC_COLOR_MODE_CMYK;
+        return true;
+    case PC_CS_LAB:
+        *out = PC_COLOR_MODE_LAB;
+        return true;
+    default:
+        return false;
     }
 }
 
@@ -69,17 +80,28 @@ static bool space_mode(uint32_t cs, pc_color_mode *out)
 static const char *cs_debug_name(uint32_t cs)
 {
     switch (cs) {
-    case PC_CS_RGB: return "Rgb";
-    case PC_CS_GRAY: return "Gray";
-    case PC_CS_CMYK: return "Cmyk";
-    case PC_CS_LAB: return "Lab";
-    case PC_CS_XYZ: return "Xyz";
-    case PC_CS_LUV: return "Luv";
-    case PC_CS_YCBCR: return "YCbCr";
-    case PC_CS_YXY: return "Yxy";
-    case PC_CS_HSV: return "Hsv";
-    case PC_CS_HLS: return "Hls";
-    default: return "Other";
+    case PC_CS_RGB:
+        return "Rgb";
+    case PC_CS_GRAY:
+        return "Gray";
+    case PC_CS_CMYK:
+        return "Cmyk";
+    case PC_CS_LAB:
+        return "Lab";
+    case PC_CS_XYZ:
+        return "Xyz";
+    case PC_CS_LUV:
+        return "Luv";
+    case PC_CS_YCBCR:
+        return "YCbCr";
+    case PC_CS_YXY:
+        return "Yxy";
+    case PC_CS_HSV:
+        return "Hsv";
+    case PC_CS_HLS:
+        return "Hls";
+    default:
+        return "Other";
     }
 }
 
@@ -294,9 +316,12 @@ pc_status pc_engine_resolve_profile(const pc_color_state *cs, const char *spec, 
 const char *pc_color_policy_id(pc_color_policy p)
 {
     switch (p) {
-    case PC_COLOR_POLICY_CONVERT: return "convert";
-    case PC_COLOR_POLICY_OFF: return "off";
-    default: return "preserve";
+    case PC_COLOR_POLICY_CONVERT:
+        return "convert";
+    case PC_COLOR_POLICY_OFF:
+        return "off";
+    default:
+        return "preserve";
     }
 }
 
@@ -442,7 +467,8 @@ pc_status pc_color_settings_validate(const pc_color_settings *c, pc_error *err)
         uint32_t sp = p.space;
         pc_profile_fini(&p);
         if (sp != PC_CS_RGB) {
-            return pc_fail(err, PC_ERR_INVALID, "monitor profile `%s` is %s, not RGB", mon, cs_debug_name(sp));
+            return pc_fail(err, PC_ERR_INVALID, "monitor profile `%s` is %s, not RGB", mon,
+                           cs_debug_name(sp));
         }
     }
     pc_intent dummy;
@@ -481,6 +507,7 @@ void pc_engine_color_fini(pc_color_state *cs)
         proof_setup_fini(&cs->proofs[i].view.setup);
     }
     free(cs->proofs);
+    free(cs->hdr);
     memset(cs, 0, sizeof *cs);
 }
 
@@ -697,9 +724,12 @@ static void for_each_surface(pc_layer *layers, size_t n, surface_cb cb, void *ct
 static pc_sample_kind sample_kind(pc_sample_type s)
 {
     switch (s) {
-    case PC_SAMPLE_TYPE_U16: return PC_SAMPLE_U16;
-    case PC_SAMPLE_TYPE_F32: return PC_SAMPLE_F32;
-    default: return PC_SAMPLE_U8;
+    case PC_SAMPLE_TYPE_U16:
+        return PC_SAMPLE_U16;
+    case PC_SAMPLE_TYPE_F32:
+        return PC_SAMPLE_F32;
+    default:
+        return PC_SAMPLE_U8;
     }
 }
 
@@ -1078,7 +1108,8 @@ typedef struct mode_edit_ctx {
     bool bpc;
 } mode_edit_ctx;
 
-static pc_status mode_edit_fn(pc_document *doc, bool *has_active, pc_layer_id *active, void *ctx, pc_error *err)
+static pc_status mode_edit_fn(pc_document *doc, bool *has_active, pc_layer_id *active, void *ctx,
+                              pc_error *err)
 {
     (void)has_active;
     (void)active;
@@ -1136,8 +1167,9 @@ pc_status pc_engine_color_convert_mode(pc_engine_session *s, pc_color_mode mode,
     }
     pc_color_mode dst_mode;
     if (!space_mode(dst.space, &dst_mode) || dst_mode != want) {
-        pc_status e = pc_engine_err_other(err, "profile `%.*s` is %s, not %s", (int)dst.description_len,
-                                          dst.description, cs_debug_name(dst.space), pc_color_mode_name(mode));
+        pc_status e =
+            pc_engine_err_other(err, "profile `%.*s` is %s, not %s", (int)dst.description_len,
+                                dst.description, cs_debug_name(dst.space), pc_color_mode_name(mode));
         pc_profile_fini(&dst);
         return e;
     }
@@ -1244,7 +1276,8 @@ static pc_color_mode dst_mode_of(const pc_profile *p)
     return space_mode(p->space, &m) ? m : PC_COLOR_MODE_RGB;
 }
 
-static pc_status run_convert_to_profile(pc_engine_session *s, yyjson_val *p, pc_json_value *out, pc_error *err)
+static pc_status run_convert_to_profile(pc_engine_session *s, yyjson_val *p, pc_json_value *out,
+                                        pc_error *err)
 {
     yyjson_val *pv = pc_json_get(p, "profile");
     const char *spec = pv != NULL ? yyjson_get_str(pv) : NULL;
@@ -1645,15 +1678,20 @@ pc_status pc_engine_color_settings_reset_key(pc_color_settings *next, const char
             pc_color_settings_fini(&tmp);
         }
     } else if (strcmp(key, "workingRgb") == 0) {
-        if (!set_string(&next->working_rgb, def.working_rgb)) rc = PC_ERR_NOMEM;
+        if (!set_string(&next->working_rgb, def.working_rgb))
+            rc = PC_ERR_NOMEM;
     } else if (strcmp(key, "workingCmyk") == 0) {
-        if (!set_string(&next->working_cmyk, def.working_cmyk)) rc = PC_ERR_NOMEM;
+        if (!set_string(&next->working_cmyk, def.working_cmyk))
+            rc = PC_ERR_NOMEM;
     } else if (strcmp(key, "workingGray") == 0) {
-        if (!set_string(&next->working_gray, def.working_gray)) rc = PC_ERR_NOMEM;
+        if (!set_string(&next->working_gray, def.working_gray))
+            rc = PC_ERR_NOMEM;
     } else if (strcmp(key, "monitorProfile") == 0) {
-        if (!set_string(&next->monitor_profile, def.monitor_profile)) rc = PC_ERR_NOMEM;
+        if (!set_string(&next->monitor_profile, def.monitor_profile))
+            rc = PC_ERR_NOMEM;
     } else if (strcmp(key, "intent") == 0) {
-        if (!set_string(&next->intent, def.intent)) rc = PC_ERR_NOMEM;
+        if (!set_string(&next->intent, def.intent))
+            rc = PC_ERR_NOMEM;
     } else if (strcmp(key, "policyRgb") == 0) {
         next->policy_rgb = def.policy_rgb;
     } else if (strcmp(key, "policyCmyk") == 0) {
@@ -1681,8 +1719,8 @@ pc_status pc_engine_color_settings_reset_key(pc_color_settings *next, const char
 
 /* prefs.set for a colorSettings path, into `next`: `subpath` is "" (a whole object value) or a
  * camelCase key. Returns an error on an invalid value. */
-pc_status pc_engine_color_settings_set_path(pc_color_settings *next, const char *subpath,
-                                            yyjson_val *value, pc_error *err)
+pc_status pc_engine_color_settings_set_path(pc_color_settings *next, const char *subpath, yyjson_val *value,
+                                            pc_error *err)
 {
     if (subpath[0] == '\0') {
         if (value == NULL || !yyjson_is_obj(value)) {
@@ -1690,7 +1728,8 @@ pc_status pc_engine_color_settings_set_path(pc_color_settings *next, const char 
         }
         size_t idx, max;
         yyjson_val *k, *v;
-        yyjson_obj_foreach(value, idx, max, k, v) {
+        yyjson_obj_foreach(value, idx, max, k, v)
+        {
             const char *key = yyjson_get_str(k);
             if (key != NULL && pc_engine_color_settings_apply(next, key, v, err) != PC_OK) {
                 return PC_ERR_INVALID;
@@ -1806,7 +1845,8 @@ pc_status pc_engine_color_settings_load(pc_color_state *cs, yyjson_val *obj, pc_
     }
     size_t idx, max;
     yyjson_val *k, *v;
-    yyjson_obj_foreach(obj, idx, max, k, v) {
+    yyjson_obj_foreach(obj, idx, max, k, v)
+    {
         const char *key = yyjson_get_str(k);
         if (key != NULL) {
             (void)pc_engine_color_settings_apply(&next, key, v, NULL); /* lenient */
@@ -1863,6 +1903,15 @@ static pc_status color_monitor(const pc_color_state *cs, pc_profile *out, const 
     return PC_OK;
 }
 
+pc_status pc_engine_display_monitor(const pc_engine_session *s, pc_profile *out, pc_error *err)
+{
+    const char *source = NULL, *reason = NULL;
+    if (!s || !out) {
+        return pc_fail(err, PC_ERR_INVALID, "missing display session/profile");
+    }
+    return color_monitor(&s->color, out, &source, &reason, err);
+}
+
 typedef struct cs_edit_ctx {
     pc_color_settings next; /* moved into the state on success */
 } cs_edit_ctx;
@@ -1877,10 +1926,10 @@ static pc_status run_color_settings(pc_engine_session *s, yyjson_val *p, pc_json
     } else if (pc_color_settings_clone(&s->color.settings, &next, err) != PC_OK) {
         return PC_ERR_NOMEM;
     }
-    static const char *const KEYS[] = {
-        "workingRgb", "workingCmyk", "workingGray", "monitorProfile", "policyRgb", "policyCmyk",
-        "policyGray", "askOnMismatch", "askOnPaste", "askOnMissing", "bpc", "dither", "intent",
-        "blendTextGamma"};
+    static const char *const KEYS[] = {"workingRgb", "workingCmyk",   "workingGray", "monitorProfile",
+                                       "policyRgb",  "policyCmyk",    "policyGray",  "askOnMismatch",
+                                       "askOnPaste", "askOnMissing",  "bpc",         "dither",
+                                       "intent",     "blendTextGamma"};
     for (size_t i = 0; i < sizeof KEYS / sizeof KEYS[0]; i++) {
         yyjson_val *v = pc_json_get(p, KEYS[i]);
         if (v != NULL) {
@@ -1903,6 +1952,12 @@ static pc_status run_color_settings(pc_engine_session *s, yyjson_val *p, pc_json
         pc_color_settings_fini(&next);
     }
 
+    return pc_engine_color_diagnostics(s, out, err);
+}
+pc_status pc_engine_color_diagnostics(const pc_engine_session *s, pc_json_value *out, pc_error *err)
+{
+    if (!s || !out)
+        return pc_fail(err, PC_ERR_INVALID, "missing color diagnostics output");
     /* Reply. */
     yyjson_mut_doc *d = NULL;
     if (pc_engine_result_doc(out, &d, err) != PC_OK) {

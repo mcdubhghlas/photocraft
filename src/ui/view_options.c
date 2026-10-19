@@ -279,6 +279,27 @@ pc_status pc_ui_view_options_command(pc_ui_view_options *o, const char *id, yyjs
     bool *flag = strcmp(id, "view.flipHorizontal") == 0               ? &o->flip_horizontal
                  : strcmp(id, "view.pixelAspectRatioCorrection") == 0 ? &o->pixel_aspect_correction
                                                                       : NULL;
+    bool group = false, group_value = false, show = false;
+    if (strcmp(id, "view.extras") == 0) {
+        flag = &o->extras;
+    } else if (strncmp(id, "view.show.", 10) == 0) {
+        show = true;
+        if (strcmp(id + 10, "all") == 0) {
+            group = true;
+            group_value = true;
+            flag = &group_value;
+        } else {
+            flag = pc_ui_view_show_flag(o, id + 10);
+        }
+    } else if (strncmp(id, "view.snapTo.", 12) == 0) {
+        if (strcmp(id + 12, "all") == 0 || strcmp(id + 12, "none") == 0) {
+            group = true;
+            group_value = strcmp(id + 12, "all") == 0;
+            flag = &group_value;
+        } else {
+            flag = pc_ui_view_snap_flag(o, id + 12);
+        }
+    }
     const char *text = NULL;
     pc_str *destination = NULL;
     const char *result_key = NULL;
@@ -329,7 +350,9 @@ pc_status pc_ui_view_options_command(pc_ui_view_options *o, const char *id, yyjs
         }
     }
     bool on = false;
-    if (flag && !pc_json_as_bool(pc_json_get(params, "on"), &on)) {
+    if (group) {
+        on = group_value;
+    } else if (flag && !pc_json_as_bool(pc_json_get(params, "on"), &on)) {
         on = !*flag;
     }
     yyjson_mut_doc *doc = yyjson_mut_doc_new(NULL);
@@ -350,6 +373,16 @@ pc_status pc_ui_view_options_command(pc_ui_view_options *o, const char *id, yyjs
     if (rc == PC_OK) {
         if (flag) {
             *flag = on;
+            if (group) {
+                bool *values = show ? o->show : o->snap_to;
+                size_t count = show ? PC_UI_SHOW_COUNT : PC_UI_SNAP_COUNT;
+                for (size_t i = 0; i < count; i++) {
+                    values[i] = on;
+                }
+            }
+            if (show && on) {
+                o->extras = true;
+            }
         } else {
             pc_str_fini(destination);
             *destination = next;

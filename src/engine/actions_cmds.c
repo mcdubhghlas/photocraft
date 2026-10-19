@@ -119,7 +119,9 @@ bool pc_engine_actions_shell_save_command(const char *id)
 bool pc_engine_actions_shell_view_command(const char *id)
 {
     return strcmp(id, "view.fitOnScreen") == 0 || strcmp(id, "view.actualPixels") == 0 ||
-           strcmp(id, "view.zoomIn") == 0 || strcmp(id, "view.zoomOut") == 0;
+           strcmp(id, "view.zoomIn") == 0 || strcmp(id, "view.zoomOut") == 0 ||
+           strcmp(id, "view.twoHundredPercent") == 0 || strcmp(id, "view.printSize") == 0 ||
+           strcmp(id, "view.fillScreen") == 0;
 }
 
 /* replayable: replay commands and named action calls, excluding action-editing commands and the
@@ -205,8 +207,7 @@ static bool num_of(yyjson_val *v, int64_t *out)
 }
 
 /* resolve "action" (name or index) into a list index. */
-static pc_status resolve(const pc_action_state *a, yyjson_val *p, const char *cmd, size_t *out,
-                         pc_error *err)
+static pc_status resolve(const pc_action_state *a, yyjson_val *p, const char *cmd, size_t *out, pc_error *err)
 {
     yyjson_val *v = p != NULL ? pc_json_get(p, "action") : NULL;
     if (v == NULL) {
@@ -250,11 +251,9 @@ static pc_status not_playing(const pc_action_state *a, const char *cmd, pc_error
 }
 
 /* Append a step (id + cloned params) to an action. */
-static pc_status action_push_step(pc_action *a, const char *id, const pc_json_value *params,
-                                  pc_error *err)
+static pc_status action_push_step(pc_action *a, const char *id, const pc_json_value *params, pc_error *err)
 {
-    pc_action_step *g =
-        pc_grow_array(a->steps, &a->cap_steps, a->nsteps + 1, sizeof *a->steps);
+    pc_action_step *g = pc_grow_array(a->steps, &a->cap_steps, a->nsteps + 1, sizeof *a->steps);
     if (g == NULL) {
         return pc_fail(err, PC_ERR_NOMEM, "actions");
     }
@@ -284,8 +283,7 @@ static pc_status flush_recording(pc_engine_session *s, pc_error *err)
     }
     size_t idx = a->rec_idx;
     if (idx >= a->nlist) {
-        return pc_engine_err_bad_params(err, "actions.stop",
-                                        "the action being recorded no longer exists");
+        return pc_engine_err_bad_params(err, "actions.stop", "the action being recorded no longer exists");
     }
     size_t from = a->rec_from;
     bool any = false;
@@ -475,8 +473,7 @@ static pc_status run_record(pc_engine_session *s, yyjson_val *p, pc_json_value *
             name[nl] = '\0';
             for (size_t k = 0; k < a->nlist; k++) {
                 if (a->list[k].name != NULL && strcmp(a->list[k].name, name) == 0) {
-                    return pc_engine_err_bad_params(err, CMD,
-                                                    "an action with this name already exists");
+                    return pc_engine_err_bad_params(err, CMD, "an action with this name already exists");
                 }
             }
         }
@@ -538,8 +535,8 @@ static pc_status run_stop(pc_engine_session *s, yyjson_val *p, pc_json_value *ou
 
 /* Run action `action` (a cloned snapshot) from step `from`; returns ran count and optional
  * failure object (owned, set into *failed). */
-static uint64_t run_recorded(pc_engine_session *s, const pc_action *action, size_t from,
-                             yyjson_mut_doc *rd, yyjson_mut_val **failed)
+static uint64_t run_recorded(pc_engine_session *s, const pc_action *action, size_t from, yyjson_mut_doc *rd,
+                             yyjson_mut_val **failed)
 {
     uint64_t ran = 0;
     *failed = NULL;
@@ -566,7 +563,9 @@ static uint64_t run_recorded(pc_engine_session *s, const pc_action *action, size
         }
         pc_json_value value = PC_JSON_VALUE_INIT;
         pc_error ee = {0};
-        pc_status rc = pc_engine_session_execute(s, id, prm, &value, &ee);
+        pc_status rc = pc_engine_actions_shell_view_command(id) && s->shell_dispatch
+                           ? s->shell_dispatch(s->shell_dispatch_ctx, id, prm, &value, &ee)
+                           : pc_engine_session_execute(s, id, prm, &value, &ee);
         yyjson_doc_free(imut);
         if (rc != PC_OK) {
             yyjson_mut_val *f = yyjson_mut_obj(rd);
@@ -665,8 +664,7 @@ static pc_status run_play(pc_engine_session *s, yyjson_val *p, pc_json_value *ou
     if (a->list[idx].ndisabled > 0) {
         snap.disabled = pc_malloc_array(a->list[idx].ndisabled, sizeof *snap.disabled);
         if (snap.disabled != NULL) {
-            memcpy(snap.disabled, a->list[idx].disabled,
-                   a->list[idx].ndisabled * sizeof *snap.disabled);
+            memcpy(snap.disabled, a->list[idx].disabled, a->list[idx].ndisabled * sizeof *snap.disabled);
             snap.ndisabled = a->list[idx].ndisabled;
         }
     }
@@ -680,8 +678,8 @@ static pc_status run_play(pc_engine_session *s, yyjson_val *p, pc_json_value *ou
     size_t rec_from = a->rec_from, rec_idx = a->rec_idx;
     a->has_recording = false;
     a->playing = (uint8_t)(a->playing + 1);
-    char **pg = pc_grow_array(a->playback_stack, &a->cap_playback, a->nplayback + 1,
-                              sizeof *a->playback_stack);
+    char **pg =
+        pc_grow_array(a->playback_stack, &a->cap_playback, a->nplayback + 1, sizeof *a->playback_stack);
     if (pg != NULL) {
         a->playback_stack = pg;
         a->playback_stack[a->nplayback++] = pc_strndup(aname, strlen(aname));
@@ -808,8 +806,7 @@ static pc_status run_move(pc_engine_session *s, yyjson_val *p, pc_json_value *ou
         pc_action_step moved = action->steps[step];
         memmove(&action->steps[step], &action->steps[step + 1],
                 (action->nsteps - step - 1) * sizeof *action->steps);
-        memmove(&action->steps[to + 1], &action->steps[to],
-                0); /* placeholder */
+        memmove(&action->steps[to + 1], &action->steps[to], 0); /* placeholder */
         /* reinsert at `to` */
         if (to < action->nsteps - 1) {
             memmove(&action->steps[to + 1], &action->steps[to],
@@ -900,8 +897,8 @@ static pc_status run_delete(pc_engine_session *s, yyjson_val *p, pc_json_value *
             if (action->disabled[i] == step) {
                 continue;
             }
-            action->disabled[w++] = action->disabled[i] > step ? action->disabled[i] - 1
-                                                               : action->disabled[i];
+            action->disabled[w++] =
+                action->disabled[i] > step ? action->disabled[i] - 1 : action->disabled[i];
         }
         action->ndisabled = w;
         w = 0;
@@ -909,8 +906,7 @@ static pc_status run_delete(pc_engine_session *s, yyjson_val *p, pc_json_value *
             if (action->dialogs[i] == step) {
                 continue;
             }
-            action->dialogs[w++] = action->dialogs[i] > step ? action->dialogs[i] - 1
-                                                             : action->dialogs[i];
+            action->dialogs[w++] = action->dialogs[i] > step ? action->dialogs[i] - 1 : action->dialogs[i];
         }
         action->ndialogs = w;
         touch(a);
@@ -1114,8 +1110,8 @@ static const pc_engine_command SPECS[] = {
     {"actions.move", "Move Action or Step", NULL, 0, NULL,
      "{\"action\":name|index, \"step\":index?, \"to\":index}", always, run_move, false},
     {"actions.list", "List Actions", NULL, 0, NULL,
-     "{} \xE2\x86\x92 {actions:[{name, steps:count, set:name|null}], recording:name|null}", always,
-     run_list, false},
+     "{} \xE2\x86\x92 {actions:[{name, steps:count, set:name|null}], recording:name|null}", always, run_list,
+     false},
     {"actions.get", "Get Action", NULL, 0, NULL,
      "{\"action\":name|index} \xE2\x86\x92 {name, steps:[[id, params]\xE2\x80\xA6], disabled, dialogs, set}",
      always, run_get, false},
@@ -1126,8 +1122,8 @@ static const pc_engine_command SPECS[] = {
     {"actions.stop", "Stop Recording", NULL, 0, NULL, "{} \xE2\x86\x92 {action, steps:count}", always,
      run_stop, false},
     {"actions.play", "Play Action", NULL, 0, NULL,
-     "{\"action\":name|index, \"from\":step?} \xE2\x86\x92 {action, ran, failed?:{step, id, error}}",
-     always, run_play, false},
+     "{\"action\":name|index, \"from\":step?} \xE2\x86\x92 {action, ran, failed?:{step, id, error}}", always,
+     run_play, false},
     {"actions.delete", "Delete Action", NULL, 0, NULL,
      "{\"action\":name|index, \"step\":index?} \xE2\x86\x92 {deleted} or {action, deletedStep, steps}",
      always, run_delete, false},

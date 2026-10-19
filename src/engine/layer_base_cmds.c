@@ -432,7 +432,7 @@ static pc_status run_duplicate(pc_engine_session *s, yyjson_val *p, pc_json_valu
 
 /* deletion_neighbours: next visible row below the target, then rows above in reverse (panel
  * order, group header before children). *out owned. */
-static pc_status deletion_neighbours(const pc_document *doc, pc_layer_id target, pc_layer_id **out,
+pc_status pc_engine_deletion_neighbours(const pc_document *doc, pc_layer_id target, pc_layer_id **out,
                                      size_t *n, pc_error *err)
 {
     *out = NULL;
@@ -535,7 +535,7 @@ static pc_status edit_delete(pc_document *doc, bool *ha, pc_layer_id *active, vo
     pc_layer_id around = ctx->multi ? ((*ha) ? *active : (pc_layer_id)0) : ids[0];
     bool have_around = ctx->multi ? *ha : true;
     if (have_around) {
-        if (deletion_neighbours(doc, around, &neighbours, &nneighbours, err) != PC_OK) {
+        if (pc_engine_deletion_neighbours(doc, around, &neighbours, &nneighbours, err) != PC_OK) {
             free(ids);
             return err != NULL ? err->code : PC_ERR_NOMEM;
         }

@@ -12,8 +12,9 @@ static void test_persistence(void)
     CHECK(o.extras && o.pixel_aspect_correction && !o.flip_horizontal);
     CHECK(pc_ui_view_standard(&o) && !pc_ui_view_hides_chrome(&o));
     CHECK(!o.show[0] && o.show[1] && !o.show[8]);
-    const char *text = "{\"screen_mode\":\"future\\u0000mode\",\"pixel_aspect\":\"custom:1.5:test\","
-                       "\"flip_horizontal\":true,\"show\":{\"pixel_grid\":false},\"guide_layout\":{\"columns\":3}}";
+    const char *text =
+        "{\"screen_mode\":\"future\\u0000mode\",\"pixel_aspect\":\"custom:1.5:test\","
+        "\"flip_horizontal\":true,\"show\":{\"pixel_grid\":false},\"guide_layout\":{\"columns\":3}}";
     yyjson_doc *doc = NULL;
     CHECK(pc_json_parse(text, strlen(text), &doc, NULL) == PC_OK);
     CHECK(pc_ui_view_options_from_json(yyjson_doc_get_root(doc), &o, NULL) == PC_OK);
@@ -65,6 +66,32 @@ static void test_commands(void)
     CHECK_NEAR(pc_ui_pixel_aspect_ratio("custom:0x2p0"), 1, 0);
     CHECK_NEAR(pc_ui_pixel_aspect_ratio("custom: 2"), 1, 0);
     CHECK_NEAR(pc_ui_pixel_aspect_ratio("custom:2e0:label"), 2, 0);
+    pc_ui_view_options_fini(&o);
+}
+
+static void test_overlay_flags(void)
+{
+    pc_ui_view_options o;
+    pc_ui_view_options_init(&o);
+    pc_json_value out = PC_JSON_VALUE_INIT;
+    CHECK(pc_ui_view_options_command(&o, "view.extras", NULL, &out, NULL) == PC_OK && !o.extras);
+    pc_json_value_fini(&out);
+    CHECK(pc_ui_view_options_command(&o, "view.show.layerEdges", NULL, &out, NULL) == PC_OK && o.extras &&
+          o.show[0]);
+    pc_json_value_fini(&out);
+    CHECK(pc_ui_view_options_command(&o, "view.show.all", NULL, &out, NULL) == PC_OK);
+    pc_json_value_fini(&out);
+    for (size_t i = 0; i < PC_UI_SHOW_COUNT; i++) {
+        CHECK(o.show[i]);
+    }
+    CHECK(pc_ui_view_options_command(&o, "view.snapTo.none", NULL, &out, NULL) == PC_OK);
+    pc_json_value_fini(&out);
+    for (size_t i = 0; i < PC_UI_SNAP_COUNT; i++) {
+        CHECK(!o.snap_to[i]);
+    }
+    CHECK(pc_ui_view_options_command(&o, "view.snapTo.documentBounds", NULL, &out, NULL) == PC_OK &&
+          o.snap_to[4]);
+    pc_json_value_fini(&out);
     pc_ui_view_options_fini(&o);
 }
 
@@ -127,6 +154,7 @@ int main(int argc, char **argv)
 {
     RUN(test_persistence);
     RUN(test_commands);
+    RUN(test_overlay_flags);
     RUN(test_scroll_gestures);
     return pc_t_finish();
 }

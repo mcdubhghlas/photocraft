@@ -13,6 +13,7 @@
 #include "doc/doc.h"
 #include "doc/slices.h"
 #include "engine_internal.h"
+#include "slice_ui.h"
 #include "layer_cmds.h" /* pc_engine_layer_param */
 
 /* ---- predicates --------------------------------------------------------------------------- */
@@ -45,8 +46,7 @@ static pc_status slice_has_slices(const pc_engine_session *s, pc_error *reason)
     }
     const pc_document *doc = pc_doc_arc_get(pc_engine_session_active(s)->doc);
     if (pc_slices_is_empty(&doc->slices)) {
-        return pc_fail(reason, PC_ERR_INVALID,
-                       "the document has no user or layer-based slices");
+        return pc_fail(reason, PC_ERR_INVALID, "the document has no user or layer-based slices");
     }
     return PC_OK;
 }
@@ -70,8 +70,7 @@ static pc_status slice_has_layer(const pc_engine_session *s, pc_error *reason)
         return pc_fail(reason, PC_ERR_INVALID, "adjustment layers have no bounds to slice");
     }
     if (pc_document_is_background(doc, d->active_layer)) {
-        return pc_fail(reason, PC_ERR_INVALID,
-                       "the Background layer can't have a layer-based slice");
+        return pc_fail(reason, PC_ERR_INVALID, "the Background layer can't have a layer-based slice");
     }
     for (size_t i = 0; i < doc->slices.len; i++) {
         if (doc->slices.list[i].has_layer && doc->slices.list[i].layer == d->active_layer) {
@@ -174,8 +173,7 @@ void pc_engine_slices_refresh(pc_engine_session *s)
         pc_rect r;
         if (!layer_slice_rect(cdoc, sl, &r)) {
             changes = true;
-        } else if (r.x0 != sl->rect.x0 || r.y0 != sl->rect.y0 || r.x1 != sl->rect.x1 ||
-                   r.y1 != sl->rect.y1) {
+        } else if (r.x0 != sl->rect.x0 || r.y0 != sl->rect.y0 || r.x1 != sl->rect.x1 || r.y1 != sl->rect.y1) {
             changes = true;
         }
     }
@@ -313,8 +311,7 @@ static pc_status apply_options(pc_slice *sl, yyjson_val *p, const char *cmd, pc_
     if (v != NULL && (sv = pc_json_as_str(v, &sl_len)) != NULL) {
         pc_slice_kind k;
         if (!pc_slice_kind_from_id(sv, sl_len, &k)) {
-            return pc_engine_err_bad_params(err, cmd,
-                                            "unknown slice type `%.*s` (image|noImage|table)",
+            return pc_engine_err_bad_params(err, cmd, "unknown slice type `%.*s` (image|noImage|table)",
                                             (int)sl_len, sv);
         }
         sl->kind = k;
@@ -322,8 +319,11 @@ static pc_status apply_options(pc_slice *sl, yyjson_val *p, const char *cmd, pc_
     struct {
         const char *key;
         pc_str *slot;
-    } texts[] = {{"url", &sl->url},         {"target", &sl->target},   {"message", &sl->message},
-                 {"alt", &sl->alt},         {"cellText", &sl->cell_text}};
+    } texts[] = {{"url", &sl->url},
+                 {"target", &sl->target},
+                 {"message", &sl->message},
+                 {"alt", &sl->alt},
+                 {"cellText", &sl->cell_text}};
     for (size_t i = 0; i < 5; i++) {
         if ((v = pc_json_get(p, texts[i].key)) != NULL && (sv = pc_json_as_str(v, &sl_len)) != NULL) {
             if (pc_str_set(texts[i].slot, sv, sl_len, err) != PC_OK) {
@@ -386,12 +386,12 @@ static pc_status apply_options(pc_slice *sl, yyjson_val *p, const char *cmd, pc_
 /* Target: a stored slice id, or an auto slice (its rect, not stored yet). */
 typedef struct {
     bool stored;
-    uint32_t id;    /* stored */
-    pc_rect rect;   /* auto */
+    uint32_t id;  /* stored */
+    pc_rect rect; /* auto */
 } slice_target;
 
-static pc_status find_target(const pc_engine_session *s, yyjson_val *p, const char *cmd,
-                             slice_target *out, pc_error *err)
+static pc_status find_target(const pc_engine_session *s, yyjson_val *p, const char *cmd, slice_target *out,
+                             pc_error *err)
 {
     const pc_engine_doc_state *d = pc_engine_session_active(s);
     if (d == NULL) {
@@ -1132,10 +1132,9 @@ static pc_status run_divide(pc_engine_session *s, yyjson_val *p, pc_json_value *
             err, CMD, "give \"horizontal\" (slices down) and/or \"vertical\" (slices across) > 1");
     }
     if (down * across > MAX_DIVIDE_PARTS) {
-        return pc_engine_err_bad_params(err, CMD,
-                                        "%lld x %lld = %lld parts is more than one division makes (%d)",
-                                        (long long)down, (long long)across,
-                                        (long long)(down * across), MAX_DIVIDE_PARTS);
+        return pc_engine_err_bad_params(
+            err, CMD, "%lld x %lld = %lld parts is more than one division makes (%d)", (long long)down,
+            (long long)across, (long long)(down * across), MAX_DIVIDE_PARTS);
     }
     /* slice rect for size check */
     pc_rect r;
@@ -1278,8 +1277,7 @@ static pc_status run_layer_based(pc_engine_session *s, yyjson_val *p, pc_json_va
     }
     pc_rect rect = slice_layer_bounds(l);
     if (pc_rect_is_empty(rect)) {
-        return pc_engine_err_other(
-            err, "Could not create a layer based slice because the layer is empty");
+        return pc_engine_err_other(err, "Could not create a layer based slice because the layer is empty");
     }
     lbs_ctx c = {.layer = layer, .p = p, .rect = rect, .id_out = 0};
     rc = pc_engine_session_edit(s, "New Layer Based Slice", edit_layer_based, &c, err);
@@ -1396,4 +1394,9 @@ const pc_engine_command *pc_engine_slice_specs(size_t *n)
 {
     *n = sizeof SPECS / sizeof SPECS[0];
     return SPECS;
+}
+
+bool pc_engine_slices_locked(const pc_engine_session *session)
+{
+    return session && session->slices_locked;
 }

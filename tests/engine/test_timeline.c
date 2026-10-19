@@ -135,8 +135,25 @@ static void test_navigation_without_timeline_errors(void)
     pc_engine_session_free(s);
 }
 
+static void test_navigation_invalidates_previous_damage(void)
+{
+    pc_engine_session *s = session(16, 16);
+    CHECK(ex(s, "timeline.create", "{}") == PC_OK);
+    pc_engine_doc_state *state = pc_engine_session_active_mut(s);
+    state->has_last_damage = true;
+    state->last_damage = PC_RECT_EMPTY;
+    CHECK(ex(s, "timeline.setFrame", "{\"frame\":1}") == PC_OK);
+    CHECK(!state->has_last_damage);
+    state->has_last_damage = true;
+    state->last_damage = pc_rect_make(0, 0, 1, 1);
+    CHECK(ex(s, "timeline.nextFrame", "{}") == PC_OK);
+    CHECK(!state->has_last_damage);
+    pc_engine_session_free(s);
+}
+
 int main(int argc, char **argv)
 {
+    RUN(test_navigation_invalidates_previous_damage);
     RUN(test_create_navigate_delete);
     RUN(test_create_rejects_out_of_range);
     RUN(test_set_props_rejects);

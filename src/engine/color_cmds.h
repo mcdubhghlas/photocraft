@@ -9,11 +9,9 @@
  * Conventions: src/doc/adjust.h. Owned strings are plain char* (free()); owned profiles are
  * pc_profile by value (pc_profile_fini). Nothing here is synchronised: one owner at a time.
  *
- * SCOPE (E8, 2026-10-14): the colour-managed canvas display path (display_color.rs, proof_sim.rs:
- * monitor-profile caching, canvas LUTs, 32-bit preview, plate/CVD proof simulation) is deferred;
- * it is a UI-canvas concern not linked by any engine command. The commands here report a headless
- * monitor status (no platform display reader -> sRGB), which matches the reference in a headless /
- * test session. See the chunk's REWRITE_PLAN.md §8 entry. */
+ * Canvas transforms, proof simulations and HDR preview are in display_color.h. Monitor status
+ * currently reports the explicit Color Settings profile or sRGB fallback; platform profile
+ * discovery belongs to the desktop services layer. */
 #ifndef PC_ENGINE_COLOR_CMDS_H
 #define PC_ENGINE_COLOR_CMDS_H
 
@@ -65,15 +63,15 @@ pc_intent pc_color_settings_intent(const pc_color_settings *c);
  * destination for the intent. PC_OK when valid; otherwise fills err with the reference wording. */
 pc_status pc_color_settings_validate(const pc_color_settings *c, pc_error *err);
 
-/* View > Proof Setup (Rust ProofSetup). The simulation `kind` beyond the plain profile proof
- * (plates / CVD / RGB display) is deferred to proof_sim.rs; this chunk only sets kind = 0. */
+/* View > Proof Setup (Rust ProofSetup); kind 0 is profile, 1..5 plates, 6 legacy Mac,
+ * 7 protanopia and 8 deuteranopia (display_color.h). */
 typedef struct pc_proof_setup {
     char *name;          /* owned: what the user asked for (built-in id or path) */
     pc_profile profile;  /* owned */
     pc_intent intent;
     bool bpc;
     bool simulate_paper;
-    int kind;            /* 0 = plain profile proof (proof_sim kinds deferred) */
+    int kind;            /* 0 = plain profile proof */
 } pc_proof_setup;
 
 /* View > Proof Setup / Proof Colors / Gamut Warning per document (Rust ProofView). */
@@ -89,13 +87,16 @@ typedef struct pc_color_proof_entry {
     pc_proof_view view;
 } pc_color_proof_entry;
 
-/* Session-wide colour settings and per-document proofing (Rust ColorState). The display caches,
- * monitor detection and 32-bit preview state are deferred (see the header note). */
+/* Session-wide colour settings, per-document proofing and HDR previews (Rust ColorState). */
+typedef struct pc_hdr_preview { bool highlight_compression;float exposure,gamma; } pc_hdr_preview;
+typedef struct pc_hdr_entry { pc_doc_id doc;pc_hdr_preview view; } pc_hdr_entry;
+
 typedef struct pc_color_state {
     pc_color_settings settings;
     pc_color_proof_entry *proofs;
     size_t nproofs;
     size_t cap_proofs;
+    pc_hdr_entry *hdr;size_t nhdr,cap_hdr;
 } pc_color_state;
 
 void pc_engine_color_init(pc_color_state *cs);  /* defaults; never fails fatally */

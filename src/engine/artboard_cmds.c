@@ -1,5 +1,4 @@
-/* Artboards: portable primitives (port of crates/engine/src/artboard_cmds.rs, E6). The commands
- * are deferred (see artboard_cmds.h); only the size presets and the raster-PDF writer are here. */
+/* Artboard commands, presets and raster-PDF export (C17 behavioral port). */
 #include <math.h>
 #include <stdarg.h>
 #include <stdint.h>
@@ -25,15 +24,20 @@
 #include "vector_cmds.h"
 
 /* Device/page size presets (name, width, height) in pixels (PRESETS). */
-static const struct {
-    const char *name;
-    uint32_t w, h;
-} PRESETS[] = {
-    {"iPhone 14", 390, 844},        {"iPhone 14 Pro Max", 430, 932}, {"Android 1080p", 360, 640},
-    {"iPad Pro 12.9", 1024, 1366},  {"Web 1280", 1280, 800},         {"Web 1366", 1366, 768},
-    {"Web 1920", 1920, 1080},       {"Instagram Post", 1080, 1080},  {"Letter", 612, 792},
-    {"A4", 595, 842},
+static const pc_engine_artboard_preset PRESETS[] = {
+    {"iPhone 14", 390, 844},     {"iPhone 14 Pro Max", 430, 932},
+    {"Android 1080p", 360, 640}, {"iPad Pro 12.9", 1024, 1366},
+    {"Web 1280", 1280, 800},     {"Web 1366", 1366, 768},
+    {"Web 1920", 1920, 1080},    {"Instagram Post", 1080, 1080},
+    {"Letter", 612, 792},        {"A4", 595, 842},
 };
+
+const pc_engine_artboard_preset *pc_engine_artboard_presets(size_t *count)
+{
+    if (count)
+        *count = sizeof PRESETS / sizeof *PRESETS;
+    return PRESETS;
+}
 
 bool pc_engine_artboard_preset_size(const char *name, uint32_t *w, uint32_t *h)
 {
@@ -64,34 +68,32 @@ static pc_status appendf(pc_buf *b, pc_error *err, const char *fmt, ...)
     return pc_buf_append(b, tmp, (size_t)n, err);
 }
 
-pc_status pc_engine_artboard_raster_pdf(const pc_engine_pdf_page *pages, size_t n, pc_buf *out,
-                                        pc_error *err)
+pc_status pc_engine_artboard_raster_pdf(const pc_engine_pdf_page *pages, size_t n, pc_buf *out, pc_error *err)
 {
     pc_buf_init(out);
     /* Objects: 1 catalog, 2 page tree, then per page: page, contents, image. */
     size_t nobj = 2 + n * 3;
     size_t *offsets = NULL;
-    if (n > (SIZE_MAX - 2) / 3 ||
-        (offsets = calloc(nobj > 0 ? nobj : 1, sizeof *offsets)) == NULL) {
+    if (n > (SIZE_MAX - 2) / 3 || (offsets = calloc(nobj > 0 ? nobj : 1, sizeof *offsets)) == NULL) {
         return pc_fail(err, PC_ERR_NOMEM, "out of memory");
     }
     size_t nused = 0;
     pc_status rc = pc_buf_append(out, "%PDF-1.4\n%\xe2\xe3\xcf\xd3\n", 14, err);
 
 /* Record an object's offset and number (1-based), appending its "k 0 obj\n". */
-#define OBJ_BEGIN()                                                                                \
-    do {                                                                                           \
-        offsets[nused] = out->len;                                                                 \
-        nused++;                                                                                   \
-        if (rc == PC_OK) {                                                                         \
-            rc = appendf(out, err, "%zu 0 obj\n", nused);                                          \
-        }                                                                                          \
+#define OBJ_BEGIN()                                                                                          \
+    do {                                                                                                     \
+        offsets[nused] = out->len;                                                                           \
+        nused++;                                                                                             \
+        if (rc == PC_OK) {                                                                                   \
+            rc = appendf(out, err, "%zu 0 obj\n", nused);                                                    \
+        }                                                                                                    \
     } while (0)
-#define OBJ_END()                                                                                  \
-    do {                                                                                           \
-        if (rc == PC_OK) {                                                                         \
-            rc = pc_buf_append(out, "\nendobj\n", 8, err);                                         \
-        }                                                                                          \
+#define OBJ_END()                                                                                            \
+    do {                                                                                                     \
+        if (rc == PC_OK) {                                                                                   \
+            rc = pc_buf_append(out, "\nendobj\n", 8, err);                                                   \
+        }                                                                                                    \
     } while (0)
 
     OBJ_BEGIN();
@@ -163,8 +165,8 @@ pc_status pc_engine_artboard_raster_pdf(const pc_engine_pdf_page *pages, size_t 
         rc = appendf(out, err, "%010zu 00000 n \n", offsets[i]);
     }
     if (rc == PC_OK) {
-        rc = appendf(out, err, "trailer\n<< /Size %zu /Root 1 0 R >>\nstartxref\n%zu\n%%%%EOF\n",
-                     nused + 1, xref);
+        rc = appendf(out, err, "trailer\n<< /Size %zu /Root 1 0 R >>\nstartxref\n%zu\n%%%%EOF\n", nused + 1,
+                     xref);
     }
     free(offsets);
     if (rc != PC_OK) {
@@ -258,7 +260,8 @@ static pc_status run_clear_artboard_guides(pc_engine_session *s, yyjson_val *p, 
         }
     }
     if (n > 0) {
-        pc_status rc = pc_engine_session_edit(s, "Clear Selected Artboard Guides", clear_guides_edit, &r, err);
+        pc_status rc =
+            pc_engine_session_edit(s, "Clear Selected Artboard Guides", clear_guides_edit, &r, err);
         if (rc != PC_OK) {
             return rc;
         }
@@ -276,8 +279,8 @@ static pc_status run_clear_artboard_guides(pc_engine_session *s, yyjson_val *p, 
 /* ============================================================== Layer > New > Artboard family,
  * artboard properties, Add Artboard Beside and File > Export > Artboards (ET3). */
 
-#define AB_GAP 100               /* gap Photoshop leaves between a new board and the last one */
-#define AB_MAX_DIM 300000        /* document_preset_cmds::MAX_DIMENSION */
+#define AB_GAP 100        /* gap Photoshop leaves between a new board and the last one */
+#define AB_MAX_DIM 300000 /* document_preset_cmds::MAX_DIMENSION */
 
 static pc_status ab_bad(pc_error *err, const char *cmd, const char *fmt, ...)
 {
@@ -322,8 +325,8 @@ static bool ab_color_parse(yyjson_val *v, pc_color *out)
 }
 
 /* The background param: *present stays false when neither "background" nor "color" is given. */
-static pc_status ab_background(yyjson_val *p, const char *cmd, bool *present,
-                              pc_artboard_background *bg, pc_error *err)
+static pc_status ab_background(yyjson_val *p, const char *cmd, bool *present, pc_artboard_background *bg,
+                               pc_error *err)
 {
     *present = false;
     bool has_custom = false;
@@ -625,8 +628,7 @@ typedef struct {
     pc_layer_id id; /* out */
 } new_artboard_ctx;
 
-static pc_status new_artboard_edit(pc_document *doc, bool *ha, pc_layer_id *active, void *vctx,
-                                   pc_error *err)
+static pc_status new_artboard_edit(pc_document *doc, bool *ha, pc_layer_id *active, void *vctx, pc_error *err)
 {
     (void)ha;
     new_artboard_ctx *c = vctx;
@@ -763,8 +765,7 @@ typedef struct {
     pc_rect rect; /* out */
 } from_group_ctx;
 
-static pc_status from_group_edit(pc_document *doc, bool *ha, pc_layer_id *active, void *vctx,
-                                 pc_error *err)
+static pc_status from_group_edit(pc_document *doc, bool *ha, pc_layer_id *active, void *vctx, pc_error *err)
 {
     (void)ha;
     from_group_ctx *c = vctx;
@@ -832,12 +833,11 @@ typedef struct {
     char name[256];
     bool has_bg;
     pc_artboard_background bg;
-    pc_layer_id id;   /* out */
-    pc_rect rect;     /* out */
+    pc_layer_id id; /* out */
+    pc_rect rect;   /* out */
 } from_layers_ctx;
 
-static pc_status from_layers_edit(pc_document *doc, bool *ha, pc_layer_id *active, void *vctx,
-                                  pc_error *err)
+static pc_status from_layers_edit(pc_document *doc, bool *ha, pc_layer_id *active, void *vctx, pc_error *err)
 {
     (void)ha;
     from_layers_ctx *c = vctx;
@@ -965,8 +965,7 @@ typedef struct {
     bool size_changed; /* rect size differs from the old one */
 } set_props_ctx;
 
-static pc_status set_props_edit(pc_document *doc, bool *ha, pc_layer_id *active, void *vctx,
-                                pc_error *err)
+static pc_status set_props_edit(pc_document *doc, bool *ha, pc_layer_id *active, void *vctx, pc_error *err)
 {
     (void)ha;
     (void)active;
@@ -1075,8 +1074,8 @@ static pc_status run_set_props(pc_engine_session *s, yyjson_val *p, pc_json_valu
                       "range; move it in smaller steps or pass \"moveContents\": false",
                       (long long)dx, (long long)dy);
     }
-    ctx.size_changed =
-        pc_rect_width(ctx.rect) != pc_rect_width(oldrect) || pc_rect_height(ctx.rect) != pc_rect_height(oldrect);
+    ctx.size_changed = pc_rect_width(ctx.rect) != pc_rect_width(oldrect) ||
+                       pc_rect_height(ctx.rect) != pc_rect_height(oldrect);
     rc = pc_engine_session_edit(s, "Edit Artboard", set_props_edit, &ctx, err);
     if (rc != PC_OK) {
         return rc;
@@ -1088,8 +1087,8 @@ static pc_status run_set_props(pc_engine_session *s, yyjson_val *p, pc_json_valu
 
 typedef struct {
     pc_layer_id id;
-    pc_rect rect;    /* placement before the document shift */
-    int32_t sx, sy;  /* document shift so the board fits from the origin */
+    pc_rect rect;   /* placement before the document shift */
+    int32_t sx, sy; /* document shift so the board fits from the origin */
     bool duplicate;
     pc_artboard_background bg;
     char preset[64];
@@ -1097,8 +1096,7 @@ typedef struct {
     pc_rect outrect; /* out (shifted) */
 } add_beside_ctx;
 
-static pc_status add_beside_edit(pc_document *doc, bool *ha, pc_layer_id *active, void *vctx,
-                                 pc_error *err)
+static pc_status add_beside_edit(pc_document *doc, bool *ha, pc_layer_id *active, void *vctx, pc_error *err)
 {
     (void)ha;
     add_beside_ctx *c = vctx;
@@ -1216,8 +1214,7 @@ static pc_status run_add_beside(pc_engine_session *s, yyjson_val *p, pc_json_val
         return ab_bad(err, cmd, "the layer is not an artboard");
     }
     ctx.bg = src->background;
-    (void)snprintf(ctx.preset, sizeof ctx.preset, "%s",
-                   src->preset.ptr != NULL ? src->preset.ptr : "");
+    (void)snprintf(ctx.preset, sizeof ctx.preset, "%s", src->preset.ptr != NULL ? src->preset.ptr : "");
     const char *side = ab_str(p, "side");
     if (side == NULL) {
         side = "right";
@@ -1305,8 +1302,8 @@ static pc_status run_add_beside(pc_engine_session *s, yyjson_val *p, pc_json_val
     }
     ctx.sx = (int32_t)sx;
     ctx.sy = (int32_t)sy;
-    rc = pc_engine_session_edit(s, ctx.duplicate ? "Duplicate Artboard" : "New Artboard",
-                                add_beside_edit, &ctx, err);
+    rc = pc_engine_session_edit(s, ctx.duplicate ? "Duplicate Artboard" : "New Artboard", add_beside_edit,
+                                &ctx, err);
     if (rc != PC_OK) {
         return rc;
     }
@@ -1319,8 +1316,8 @@ static pc_status run_add_beside(pc_engine_session *s, yyjson_val *p, pc_json_val
 
 /* One artboard as its own document (artboard_cmds::artboard_document). *present is false when `id`
  * is not an artboard; an error when the board is too far from the origin to move. */
-static pc_status artboard_document(const pc_document *doc, pc_layer_id id, bool *present,
-                                   pc_document *out, pc_error *err)
+static pc_status artboard_document(const pc_document *doc, pc_layer_id id, bool *present, pc_document *out,
+                                   pc_error *err)
 {
     *present = false;
     const pc_layer *l = pc_document_layer(doc, id);
@@ -1333,8 +1330,8 @@ static pc_status artboard_document(const pc_document *doc, pc_layer_id id, bool 
     }
     pc_rect r = ab->rect;
     if (r.x0 == INT32_MIN || r.y0 == INT32_MIN) {
-        return pc_engine_err_other(err, "artboard at (%d, %d) is too far from the origin to export",
-                                   r.x0, r.y0);
+        return pc_engine_err_other(err, "artboard at (%d, %d) is too far from the origin to export", r.x0,
+                                   r.y0);
     }
     int32_t dx = -r.x0, dy = -r.y0;
     pc_layer group;
@@ -1593,8 +1590,7 @@ static pc_status run_artboards_to_files(pc_engine_session *s, yyjson_val *p, pc_
     return PC_OK;
 }
 
-static pc_status run_artboards_to_pdf(pc_engine_session *s, yyjson_val *p, pc_json_value *out,
-                                      pc_error *err)
+static pc_status run_artboards_to_pdf(pc_engine_session *s, yyjson_val *p, pc_json_value *out, pc_error *err)
 {
     const char *cmd = "file.export.artboardsToPdf";
     const char *path = ab_str(p, "path");
@@ -1653,8 +1649,8 @@ static pc_status run_artboards_to_pdf(pc_engine_session *s, yyjson_val *p, pc_js
             break;
         }
         pc_document flat;
-        if (pc_document_init(&flat, one.name.ptr != NULL ? one.name.ptr : "page", one.size,
-                             PC_COLOR_MODE_RGB, PC_SAMPLE_TYPE_U8, err) != PC_OK) {
+        if (pc_document_init(&flat, one.name.ptr != NULL ? one.name.ptr : "page", one.size, PC_COLOR_MODE_RGB,
+                             PC_SAMPLE_TYPE_U8, err) != PC_OK) {
             pc_surface_fini(&surf);
             pc_document_fini(&one);
             rc = PC_ERR_NOMEM;

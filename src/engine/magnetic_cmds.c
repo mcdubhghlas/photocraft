@@ -13,6 +13,8 @@
 #include "raster/surface.h"
 
 #include "selection_cmds.h"
+#include "magnetic_source.h"
+#include "brush_cmds.h"
 
 #define CMD "select.magneticLasso"
 #define MAX_POINTS 100000u
@@ -64,6 +66,81 @@ static bool edge_fetch(void *vctx, pc_rect r, uint8_t (*out)[4], size_t n)
     return true;
 }
 
+struct pc_engine_magnetic_source {
+    pc_doc_arc *snapshot;
+    struct edge_src source;
+    pc_algo_magnetic_tracer *tracer;
+    pc_cmyk_space *cmyk;
+};
+pc_status pc_engine_magnetic_source_new(pc_engine_session *session, pc_engine_magnetic_source **out,
+                                        pc_error *err)
+{
+    const pc_engine_doc_state *state = pc_engine_session_active(session);
+    if (!state || !out)
+        return pc_fail(err, PC_ERR_INVALID, "no document for magnetic lasso");
+    if (session->authorize) {
+        pc_status status = session->authorize(CMD, NULL, err);
+        if (status != PC_OK)
+            return status;
+    }
+    pc_engine_magnetic_source *source = calloc(1, sizeof *source);
+    if (!source)
+        return pc_fail(err, PC_ERR_NOMEM, "magnetic source");
+    source->snapshot = pc_doc_arc_retain(state->doc);
+    source->cmyk = pc_engine_doc_cmyk_space(session);
+    source->source = (struct edge_src){.doc = pc_doc_arc_get(source->snapshot),
+                                       .has_layer = state->has_active_layer,
+                                       .layer = state->active_layer};
+    pc_status status =
+        pc_algo_magnetic_tracer_new(pc_document_bounds(source->source.doc), &source->tracer, err);
+    if (status != PC_OK) {
+        pc_engine_magnetic_source_free(source);
+        return status;
+    }
+    *out = source;
+    return PC_OK;
+}
+void pc_engine_magnetic_source_free(pc_engine_magnetic_source *source)
+{
+    if (!source)
+        return;
+    pc_algo_magnetic_tracer_free(source->tracer);
+    pc_doc_arc_release(source->snapshot);
+    pc_cmyk_space_release(source->cmyk);
+    free(source);
+}
+pc_status pc_engine_magnetic_source_snap(pc_engine_magnetic_source *source, const double p[2],
+                                         pc_algo_magnetic_settings settings, double out[2], pc_error *err)
+{
+    if (!source || !p || !out)
+        return pc_fail(err, PC_ERR_INVALID, "invalid magnetic source");
+    bool some = false;
+    pc_cmyk_space *prior = source->cmyk ? pc_cmyk_space_enter(source->cmyk) : NULL;
+    pc_status status =
+        pc_algo_magnetic_snap(source->tracer, edge_fetch, &source->source, p, settings, out, &some, err);
+    if (source->cmyk)
+        pc_cmyk_space_leave(prior);
+    if (status == PC_OK && !some) {
+        out[0] = p[0];
+        out[1] = p[1];
+    }
+    return status;
+}
+pc_status pc_engine_magnetic_source_trace(pc_engine_magnetic_source *source, const double from[2],
+                                          const double to[2], const double (*guide)[2], size_t nguide,
+                                          pc_algo_magnetic_settings settings, double (**out)[2], size_t *n,
+                                          pc_error *err)
+{
+    if (!source)
+        return pc_fail(err, PC_ERR_INVALID, "invalid magnetic source");
+    pc_cmyk_space *prior = source->cmyk ? pc_cmyk_space_enter(source->cmyk) : NULL;
+    pc_status status = pc_algo_magnetic_trace(source->tracer, edge_fetch, &source->source, from, to, guide,
+                                              nguide, settings, out, n, err);
+    if (source->cmyk)
+        pc_cmyk_space_leave(prior);
+    return status;
+}
+
 /* Parse `points` into finite [x,y] doubles. *out owned (free()). */
 static pc_status parse_points(yyjson_val *p, double (**out)[2], size_t *n, pc_error *err)
 {
@@ -83,13 +160,14 @@ static pc_status parse_points(yyjson_val *p, double (**out)[2], size_t *n, pc_er
     }
     size_t i, max, k = 0;
     yyjson_val *v;
-    yyjson_arr_foreach(arr, i, max, v) {
+    yyjson_arr_foreach(arr, i, max, v)
+    {
         double x, y;
-        yyjson_val *vx = (v != NULL && yyjson_is_arr(v) && yyjson_arr_size(v) == 2) ? yyjson_arr_get(v, 0)
-                                                                                    : NULL;
+        yyjson_val *vx =
+            (v != NULL && yyjson_is_arr(v) && yyjson_arr_size(v) == 2) ? yyjson_arr_get(v, 0) : NULL;
         yyjson_val *vy = vx != NULL ? yyjson_arr_get(v, 1) : NULL;
-        if (vx == NULL || vy == NULL || !pc_json_as_f64(vx, &x) || !pc_json_as_f64(vy, &y) ||
-            !isfinite(x) || !isfinite(y)) {
+        if (vx == NULL || vy == NULL || !pc_json_as_f64(vx, &x) || !pc_json_as_f64(vy, &y) || !isfinite(x) ||
+            !isfinite(y)) {
             free(pts);
             return pc_engine_err_bad_params(err, CMD, "bad point (want [x, y])");
         }
@@ -125,9 +203,9 @@ static double clampd(double v, double lo, double hi)
 }
 
 /* The closed border through the fastening points. *out owned (free()); *nout its length. */
-static pc_status trace_border(struct edge_src *src, pc_algo_magnetic_tracer *t,
-                              const double (*pts)[2], size_t npts, pc_algo_magnetic_settings st,
-                              bool straight, double (**out)[2], size_t *nout, pc_error *err)
+static pc_status trace_border(struct edge_src *src, pc_algo_magnetic_tracer *t, const double (*pts)[2],
+                              size_t npts, pc_algo_magnetic_settings st, bool straight, double (**out)[2],
+                              size_t *nout, pc_error *err)
 {
     pc_rect b = pc_algo_magnetic_tracer_bounds(t);
     /* ring = clamped points, closed, for the length check. */
@@ -177,29 +255,29 @@ static pc_status trace_border(struct edge_src *src, pc_algo_magnetic_tracer *t,
     double (*res)[2] = NULL;
     size_t nres = 0, cap = 0;
     bool oom = false;
-#define PUSH(px, py)                                                                                 \
-    do {                                                                                             \
-        if (nres == cap) {                                                                           \
-            size_t nc = cap ? cap * 2 : 64;                                                          \
-            double(*g)[2] = realloc(res, nc * sizeof(*g));                                           \
-            if (g == NULL) {                                                                         \
-                oom = true;                                                                          \
-                break;                                                                               \
-            }                                                                                        \
-            res = g;                                                                                 \
-            cap = nc;                                                                                \
-        }                                                                                            \
-        res[nres][0] = (px);                                                                         \
-        res[nres][1] = (py);                                                                         \
-        nres++;                                                                                      \
+#define PUSH(px, py)                                                                                         \
+    do {                                                                                                     \
+        if (nres == cap) {                                                                                   \
+            size_t nc = cap ? cap * 2 : 64;                                                                  \
+            double (*g)[2] = realloc(res, nc * sizeof(*g));                                                  \
+            if (g == NULL) {                                                                                 \
+                oom = true;                                                                                  \
+                break;                                                                                       \
+            }                                                                                                \
+            res = g;                                                                                         \
+            cap = nc;                                                                                        \
+        }                                                                                                    \
+        res[nres][0] = (px);                                                                                 \
+        res[nres][1] = (py);                                                                                 \
+        nres++;                                                                                              \
     } while (0)
 
     PUSH(anchors[0][0], anchors[0][1]);
     for (size_t i = 0; i + 1 < na && !oom; i++) {
         double (*seg)[2] = NULL;
         size_t ns = 0;
-        if (pc_algo_magnetic_trace(t, edge_fetch, src, anchors[i], anchors[i + 1], NULL, 0, st, &seg,
-                                   &ns, err) != PC_OK) {
+        if (pc_algo_magnetic_trace(t, edge_fetch, src, anchors[i], anchors[i + 1], NULL, 0, st, &seg, &ns,
+                                   err) != PC_OK) {
             free(res);
             free(anchors);
             return err != NULL ? err->code : PC_ERR_INVALID;
@@ -212,8 +290,8 @@ static pc_status trace_border(struct edge_src *src, pc_algo_magnetic_tracer *t,
     if (!straight && na > 0 && !oom) {
         double (*seg)[2] = NULL;
         size_t ns = 0;
-        if (pc_algo_magnetic_trace(t, edge_fetch, src, anchors[na - 1], anchors[0], NULL, 0, st, &seg,
-                                   &ns, err) != PC_OK) {
+        if (pc_algo_magnetic_trace(t, edge_fetch, src, anchors[na - 1], anchors[0], NULL, 0, st, &seg, &ns,
+                                   err) != PC_OK) {
             free(res);
             free(anchors);
             return err != NULL ? err->code : PC_ERR_INVALID;
@@ -267,8 +345,7 @@ static pc_status run_magnetic(pc_engine_session *s, yyjson_val *p, pc_json_value
     bool outline_owned = true;
     if (trace) {
         double width, contrast;
-        rc = number(p, "width", 10.0, PC_ALGO_MAGNETIC_WIDTH_MIN, PC_ALGO_MAGNETIC_WIDTH_MAX, &width,
-                    err);
+        rc = number(p, "width", 10.0, PC_ALGO_MAGNETIC_WIDTH_MIN, PC_ALGO_MAGNETIC_WIDTH_MAX, &width, err);
         if (rc == PC_OK) {
             rc = number(p, "contrast", 10.0, 1.0, 100.0, &contrast, err);
         }
@@ -331,8 +408,8 @@ static pc_status run_magnetic(pc_engine_session *s, yyjson_val *p, pc_json_value
     if (outline_owned) {
         free(outline);
     }
-    rc = pc_engine_polygon_selection(s, CMD, "Magnetic Lasso", (const float (*)[2])poly, noutline, p,
-                                     out, err);
+    rc = pc_engine_polygon_selection(s, CMD, "Magnetic Lasso", (const float (*)[2])poly, noutline, p, out,
+                                     err);
     free(poly);
     if (rc != PC_OK) {
         return rc;
@@ -348,8 +425,7 @@ static pc_status run_magnetic(pc_engine_session *s, yyjson_val *p, pc_json_value
 
 static pc_status has_doc(const pc_engine_session *s, pc_error *reason)
 {
-    return pc_engine_session_active(s) != NULL ? PC_OK
-                                               : pc_fail(reason, PC_ERR_INVALID, "no document open");
+    return pc_engine_session_active(s) != NULL ? PC_OK : pc_fail(reason, PC_ERR_INVALID, "no document open");
 }
 
 static const pc_engine_command SPECS[] = {

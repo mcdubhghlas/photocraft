@@ -9,6 +9,7 @@
  * This module also owns the float_before_command hook (its E1-safe default was deleted from hooks.c
  * when the module landed). */
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -21,6 +22,7 @@
 #include "brush_cmds.h"
 #include "engine_internal.h"
 #include "fill_cmds.h"
+#include "floating.h"
 
 /* A layer split by its selection: the layer with the selected pixels cut out, and the cut pixels. */
 typedef struct {
@@ -35,6 +37,7 @@ struct pc_engine_floating {
     int32_t ox, oy;
     uint64_t revision;
     cut_parts parts;
+    pc_doc_arc *display;
 };
 
 void pc_engine_floating_free(struct pc_engine_floating *f)
@@ -42,6 +45,7 @@ void pc_engine_floating_free(struct pc_engine_floating *f)
     if (f == NULL) {
         return;
     }
+    pc_doc_arc_release(f->display);
     pc_surface_fini(&f->parts.rest);
     pc_surface_fini(&f->parts.piece);
     free(f);
@@ -173,8 +177,7 @@ static pc_status cut_parts_new(const pc_document *doc, pc_layer_id layer, bool c
 }
 
 /* Put the piece, moved by (dx, dy), over the cut-out layer (or mask) of `doc` (CutParts::place). */
-static pc_status cut_parts_place(const cut_parts *cp, pc_document *doc, int32_t dx, int32_t dy,
-                                 pc_error *err)
+static pc_status cut_parts_place(const cut_parts *cp, pc_document *doc, int32_t dx, int32_t dy, pc_error *err)
 {
     pc_layer *l = pc_document_layer_mut(doc, cp->layer);
     if (l == NULL) {
@@ -334,6 +337,7 @@ static pc_status run_float(pc_engine_session *s, yyjson_val *p, pc_json_value *o
             pc_surface_fini(&parts.piece);
             return pc_fail(err, PC_ERR_NOMEM, "floating selection");
         }
+        f->display = NULL;
         f->layer = layer;
         f->ox = 0;
         f->oy = 0;
@@ -342,6 +346,8 @@ static pc_status run_float(pc_engine_session *s, yyjson_val *p, pc_json_value *o
         st->floating = f;
     }
     struct pc_engine_floating *f = st->floating;
+    pc_doc_arc_release(f->display);
+    f->display = NULL;
     f->ox = sat_add(f->ox, dx);
     f->oy = sat_add(f->oy, dy);
 
@@ -385,6 +391,100 @@ static pc_status drop_edit(pc_document *doc, bool *ha, pc_layer_id *active, void
     return PC_OK;
 }
 
+bool pc_engine_floating_can_move(const pc_engine_session *session)
+{
+    const pc_engine_doc_state *state = session ? pc_engine_session_active(session) : NULL;
+    if (!state || state->nselected > 1 || !state->has_active_layer ||
+        !pc_doc_arc_get(state->doc)->has_selection)
+        return false;
+    const pc_layer *layer = pc_document_layer(pc_doc_arc_get(state->doc), state->active_layer);
+    return layer && layer->visible && pc_engine_session_is_enabled(session, "select.float");
+}
+bool pc_engine_floating_offset(const pc_engine_session *session, int32_t offset[2])
+{
+    const pc_engine_doc_state *state = session ? pc_engine_session_active(session) : NULL;
+    struct pc_engine_floating *f = state ? current_floating(state) : NULL;
+    if (!f)
+        return false;
+    if (offset) {
+        offset[0] = f->ox;
+        offset[1] = f->oy;
+    }
+    return true;
+}
+pc_status pc_engine_floating_preview(const pc_engine_session *session, int32_t dx, int32_t dy, bool copy,
+                                     bool mask, pc_doc_arc **out, pc_error *err)
+{
+    if (!session || !out)
+        return pc_fail(err, PC_ERR_INVALID, "missing floating preview context");
+    dx = dx < -10000000 ? -10000000 : dx > 10000000 ? 10000000 : dx;
+    dy = dy < -10000000 ? -10000000 : dy > 10000000 ? 10000000 : dy;
+    if (session->authorize) {
+        char text[180];
+        (void)snprintf(text, sizeof text, "{\"dx\":%d,\"dy\":%d,\"copy\":%s,\"target\":\"%s\"}", dx, dy,
+                       copy ? "true" : "false", mask ? "mask" : "pixels");
+        yyjson_doc *params = NULL;
+        pc_status status = pc_json_parse(text, strlen(text), &params, err);
+        if (status == PC_OK)
+            status = session->authorize("select.float", yyjson_doc_get_root(params), err);
+        yyjson_doc_free(params);
+        if (status != PC_OK)
+            return status;
+    }
+    pc_status status = can_float(session, err);
+    if (status != PC_OK)
+        return status;
+    const pc_engine_doc_state *state = pc_engine_session_active(session);
+    struct pc_engine_floating *f = current_floating(state);
+    cut_parts owned = {0};
+    pc_cmyk_space *space = pc_engine_doc_cmyk_space(session);
+    pc_cmyk_space *prior = space ? pc_cmyk_space_enter(space) : NULL;
+    if (!f)
+        status = cut_parts_new(pc_doc_arc_get(state->doc), state->active_layer, copy,
+                               pc_engine_session_tools(session)->background, mask, &owned, err);
+    pc_document doc;
+    bool initialized = false;
+    if (status == PC_OK) {
+        status = pc_document_clone(pc_doc_arc_get(state->doc), &doc, err);
+        initialized = status == PC_OK;
+    }
+    if (status == PC_OK) {
+        struct drop_ctx context = {f ? &f->parts : &owned, f ? sat_add(f->ox, dx) : dx,
+                                   f ? sat_add(f->oy, dy) : dy};
+        bool has_active = state->has_active_layer;
+        pc_layer_id active = state->active_layer;
+        status = drop_edit(&doc, &has_active, &active, &context, err);
+        if (status == PC_OK)
+            status = pc_doc_arc_new(&doc, out, err);
+        if (status == PC_OK)
+            initialized = false;
+    }
+    if (initialized)
+        pc_document_fini(&doc);
+    pc_surface_fini(&owned.rest);
+    pc_surface_fini(&owned.piece);
+    if (space)
+        pc_cmyk_space_leave(prior);
+    pc_cmyk_space_release(space);
+    return status;
+}
+pc_status pc_engine_floating_document(pc_engine_session *session, pc_doc_arc **out, pc_error *err)
+{
+    if (!session || !out)
+        return pc_fail(err, PC_ERR_INVALID, "missing floating display context");
+    *out = NULL;
+    const pc_engine_doc_state *state = pc_engine_session_active(session);
+    struct pc_engine_floating *f = state ? current_floating(state) : NULL;
+    if (!f)
+        return PC_OK;
+    if (!f->display) {
+        pc_status status = pc_engine_floating_preview(session, 0, 0, false, f->parts.mask, &f->display, err);
+        if (status != PC_OK)
+            return status;
+    }
+    *out = f->display;
+    return PC_OK;
+}
 /* Drop the floating piece into its layer and move the selection with it (drop_floating). */
 static pc_status drop_floating(pc_engine_session *s, pc_json_value *out, pc_error *err)
 {
@@ -414,7 +514,7 @@ static pc_status drop_floating(pc_engine_session *s, pc_json_value *out, pc_erro
             struct drop_ctx ctx = {&owned->parts, dx, dy};
             pc_status rc = pc_engine_session_edit(s, "Move", drop_edit, &ctx, err);
             if (rc != PC_OK) {
-                pc_engine_floating_free(owned);
+                st->floating = owned;
                 return rc;
             }
         }

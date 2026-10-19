@@ -26,6 +26,7 @@
 
 #include "brush_cmds.h" /* pc_engine_target_surface (mutable channel/mask/pixel target) */
 #include "channel_cmds.h"
+#include "channel_display.h"
 
 /* ============================================================================================
  * View state (ChannelView)
@@ -51,6 +52,37 @@ void pc_engine_channel_view_free(struct pc_engine_channel_view *v)
     free(v->color_hidden);
     free(v->alpha_visible);
     free(v);
+}
+
+pc_status pc_engine_channel_view_clone(const struct pc_engine_channel_view *source,
+                                       struct pc_engine_channel_view **out, pc_error *err)
+{
+    if (!source) {
+        *out = NULL;
+        return PC_OK;
+    }
+    struct pc_engine_channel_view *next = calloc(1, sizeof *next);
+    if (!next)
+        return pc_fail(err, PC_ERR_NOMEM, "preview channels");
+    *next = *source;
+    next->color_hidden = NULL;
+    next->alpha_visible = NULL;
+    if (source->ncolor_hidden) {
+        next->color_hidden = pc_malloc_array(source->ncolor_hidden, sizeof(bool));
+        if (next->color_hidden)
+            memcpy(next->color_hidden, source->color_hidden, source->ncolor_hidden * sizeof(bool));
+    }
+    if (source->nalpha_visible) {
+        next->alpha_visible = pc_malloc_array(source->nalpha_visible, sizeof(bool));
+        if (next->alpha_visible)
+            memcpy(next->alpha_visible, source->alpha_visible, source->nalpha_visible * sizeof(bool));
+    }
+    if ((source->ncolor_hidden && !next->color_hidden) || (source->nalpha_visible && !next->alpha_visible)) {
+        pc_engine_channel_view_free(next);
+        return pc_fail(err, PC_ERR_NOMEM, "preview channels");
+    }
+    *out = next;
+    return PC_OK;
 }
 
 /* Ensure st->channel_view exists (default on first use). NULL on OOM. */
@@ -263,8 +295,8 @@ static pc_status read_plane(const pc_surface *s, pc_rect r, float **out, size_t 
 }
 
 /* A GRAY surface in fmt from clamped plane values over r. out initialised on success. */
-static pc_status plane_surface(const float *vals, size_t n, pc_rect r, pc_pixel_format fmt,
-                               pc_surface *out, pc_error *err)
+static pc_status plane_surface(const float *vals, size_t n, pc_rect r, pc_pixel_format fmt, pc_surface *out,
+                               pc_error *err)
 {
     pc_surface s;
     pc_surface_init(&s, fmt);
@@ -576,8 +608,7 @@ static void plane_list_fini(plane_list *pl)
 
 /* Planes of channel ref r (layer=has_layer/layer; active for transparency/mask defaults). */
 static pc_status ref_planes(const pc_document *doc, bool has_layer, pc_layer_id layer, bool has_active,
-                            pc_layer_id active, chan_ref r, const char *cmd, plane_list *out,
-                            pc_error *err)
+                            pc_layer_id active, chan_ref r, const char *cmd, plane_list *out, pc_error *err)
 {
     pc_rect area = pc_document_bounds(doc);
     size_t npx = (size_t)pc_rect_width(area) * (size_t)pc_rect_height(area);
@@ -659,8 +690,8 @@ static pc_status ref_planes(const pc_document *doc, bool has_layer, pc_layer_id 
         rc = read_plane(&doc->quick_mask.surface, area, &pl, &pln, err);
         break;
     case REF_SELECTION:
-        rc = pc_algo_selection_mask_from_surface(doc->has_selection ? &doc->selection : NULL, area, &pl,
-                                                 &pln, err);
+        rc = pc_algo_selection_mask_from_surface(doc->has_selection ? &doc->selection : NULL, area, &pl, &pln,
+                                                 err);
         break;
     case REF_TRANSPARENCY: {
         bool hl = has_layer ? true : has_active;
@@ -972,8 +1003,7 @@ pc_status pc_engine_read_target_surface(const pc_document *doc, bool has_layer, 
     switch (t) {
     case PC_ENGINE_PIXTGT_ALPHA:
         if (ai >= doc->nchannels) {
-            return pc_engine_err_other(err, "no alpha channel %zu (document has %zu)", ai,
-                                       doc->nchannels);
+            return pc_engine_err_other(err, "no alpha channel %zu (document has %zu)", ai, doc->nchannels);
         }
         *out = &doc->channels[ai].surface;
         return PC_OK;
@@ -1119,28 +1149,143 @@ bool pc_engine_channel_quick_mask_hidden(const pc_engine_doc_state *d)
  * Hooks relocated from hooks.c (E7)
  * ========================================================================================== */
 
+static bool channel_routed(const char *id)
+{
+    if (!id) {
+        return false;
+    }
+    if (!strncmp(id, "filter.", 7) || !strncmp(id, "image.adjustments.", 18)) {
+        return true;
+    }
+    static const char *const ids[] = {"plugin.run",
+                                      "paint.stroke",
+                                      "paint.pencil",
+                                      "paint.bucket",
+                                      "paint.gradient",
+                                      "paint.mixerBrush",
+                                      "edit.fill",
+                                      "image.applyImage",
+                                      "edit.fillForeground",
+                                      "edit.fillBackground",
+                                      "edit.fillForegroundPreserve",
+                                      "edit.fillBackgroundPreserve",
+                                      "edit.fillHistory",
+                                      "edit.copy",
+                                      "edit.paste",
+                                      "edit.pasteSpecial.pasteInPlace",
+                                      "edit.pasteSpecial.pasteInto",
+                                      "edit.pasteSpecial.pasteOutside",
+                                      "edit.transform.rotate180",
+                                      "edit.transform.rotate90Cw",
+                                      "edit.transform.rotate90Ccw",
+                                      "edit.transform.flipHorizontal",
+                                      "edit.transform.flipVertical",
+                                      "paint.cloneStamp",
+                                      "paint.patternStamp",
+                                      "paint.healingBrush",
+                                      "paint.spotHealing",
+                                      "paint.dodge",
+                                      "paint.burn",
+                                      "paint.sponge",
+                                      "paint.blur",
+                                      "paint.sharpen",
+                                      "paint.smudge",
+                                      "paint.historyBrush",
+                                      "paint.redEye",
+                                      "paint.remove"};
+    for (size_t i = 0; i < sizeof ids / sizeof *ids; i++) {
+        if (!strcmp(id, ids[i])) {
+            return true;
+        }
+    }
+    return false;
+}
+bool pc_engine_targeted_vector_mask(const pc_engine_session *s)
+{
+    const pc_engine_doc_state *state = pc_engine_session_active(s);
+    return state && state->channel_view && state->channel_view->target_kind == CT_VECTOR_MASK;
+}
+
+bool pc_engine_targeted_mask(const pc_engine_session *session)
+{
+    const pc_engine_doc_state *state = pc_engine_session_active(session);
+    if (!state) {
+        return false;
+    }
+    const struct pc_engine_channel_view *view = state->channel_view;
+    if (view && view->target_kind == CT_LAYER_MASK) {
+        return true;
+    }
+    return (!view || view->target_kind == CT_COMPOSITE) && state->has_layer_mask_view;
+}
+yyjson_mut_val *pc_engine_hook_inject_target(const pc_engine_session *session, const char *id,
+                                             yyjson_mut_doc *doc, yyjson_mut_val *params)
+{
+    if (!channel_routed(id) || yyjson_mut_obj_get(params, "target")) {
+        return params;
+    }
+    const pc_engine_doc_state *state = pc_engine_session_active(session);
+    if (!state) {
+        return params;
+    }
+    bool quick = false;
+    size_t index = 0;
+    yyjson_mut_val *target = NULL;
+    if (pc_engine_targeted_channel(session, &quick, &index)) {
+        if (quick) {
+            target = yyjson_mut_str(doc, "quickMask");
+        } else {
+            target = yyjson_mut_obj(doc);
+            if (!target || !yyjson_mut_obj_add_uint(doc, target, "channel", index)) {
+                return NULL;
+            }
+        }
+    } else if (pc_engine_targeted_mask(session)) {
+        target = yyjson_mut_str(doc, "mask");
+    } else {
+        return params;
+    }
+    if (!target) {
+        return NULL;
+    }
+    if (!yyjson_mut_is_obj(params)) {
+        params = yyjson_mut_obj(doc);
+    }
+    if (!params || !yyjson_mut_obj_add_val(doc, params, "target", target)) {
+        return NULL;
+    }
+    return params;
+}
+size_t pc_engine_hook_color_restriction(const pc_engine_session *session, const char *id, yyjson_val *params)
+{
+    if (!channel_routed(id) || pc_engine_is_channel_target(params) || pc_engine_is_mask_target(params)) {
+        return SIZE_MAX;
+    }
+    return pc_engine_targeted_color(session);
+}
+
 /* pc_engine_hook_restrict_to_color: after a pixel edit limited to colour channel k, restore the
  * other colour channels (and the layer's transparency) of layer `id` from `before`. Only changed
  * tiles are touched (COW tile-pointer comparison). */
-void pc_engine_hook_restrict_to_color(const pc_document *before, pc_document *after, pc_layer_id id,
-                                      size_t k)
+pc_status pc_engine_hook_restrict_to_color(const pc_document *before, pc_document *after, pc_layer_id id,
+                                           size_t k, pc_error *err)
 {
     const pc_layer *lo = pc_document_layer(before, id);
     pc_layer *ln = pc_document_layer_mut(after, id);
     if (lo == NULL || ln == NULL) {
-        return;
+        return PC_OK;
     }
     const pc_surface *old = pc_layer_surface(lo);
     pc_surface *new = pc_layer_surface_mut(ln);
     if (old == NULL || new == NULL) {
-        return;
+        return PC_OK;
     }
     if (!pc_pixel_format_eq(pc_surface_format(old), pc_surface_format(new))) {
-        return;
+        return PC_OK;
     }
     size_t n = pc_surface_channels(new);
     if (k >= n) {
-        return;
+        return PC_OK;
     }
     /* Collect changed tile coords: new tiles not shared with old, plus old tiles gone from new. */
     pc_tile *coords = NULL;
@@ -1156,7 +1301,7 @@ void pc_engine_hook_restrict_to_color(const pc_document *before, pc_document *af
                 pc_tile *g = realloc(coords, nc * sizeof(pc_tile));
                 if (g == NULL) {
                     free(coords);
-                    return;
+                    return pc_fail(err, PC_ERR_NOMEM, "channel restriction coordinates");
                 }
                 coords = g;
                 cap = nc;
@@ -1172,7 +1317,7 @@ void pc_engine_hook_restrict_to_color(const pc_document *before, pc_document *af
                 pc_tile *g = realloc(coords, nc * sizeof(pc_tile));
                 if (g == NULL) {
                     free(coords);
-                    return;
+                    return pc_fail(err, PC_ERR_NOMEM, "channel restriction coordinates");
                 }
                 coords = g;
                 cap = nc;
@@ -1185,12 +1330,16 @@ void pc_engine_hook_restrict_to_color(const pc_document *before, pc_document *af
         size_t npx = (size_t)pc_rect_width(r) * (size_t)pc_rect_height(r);
         float *o = NULL, *v = NULL;
         size_t ol = 0, vl = 0;
-        if (pc_surface_read_region(old, r, &o, &ol, NULL) != PC_OK) {
-            continue;
+        pc_status status = pc_surface_read_region(old, r, &o, &ol, err);
+        if (status != PC_OK) {
+            free(coords);
+            return status;
         }
-        if (pc_surface_read_region(new, r, &v, &vl, NULL) != PC_OK) {
+        status = pc_surface_read_region(new, r, &v, &vl, err);
+        if (status != PC_OK) {
             free(o);
-            continue;
+            free(coords);
+            return status;
         }
         for (size_t i = 0; i < npx; i++) {
             for (size_t ch = 0; ch < n; ch++) {
@@ -1199,12 +1348,17 @@ void pc_engine_hook_restrict_to_color(const pc_document *before, pc_document *af
                 }
             }
         }
-        (void)pc_surface_write_region(new, r, v, npx * n, NULL);
+        status = pc_surface_write_region(new, r, v, npx * n, err);
         free(o);
         free(v);
+        if (status != PC_OK) {
+            free(coords);
+            return status;
+        }
     }
     free(coords);
     pc_surface_prune(new);
+    return PC_OK;
 }
 
 /* pc_engine_hook_fix_view: keep the Channels-panel view valid after a document change (undo,
@@ -1331,8 +1485,7 @@ static yyjson_mut_val *target_json(yyjson_mut_doc *d, const struct pc_engine_cha
     return o;
 }
 
-void pc_engine_hook_inspect_channels(yyjson_mut_doc *d, yyjson_mut_val *obj,
-                                     const pc_engine_doc_state *st)
+void pc_engine_hook_inspect_channels(yyjson_mut_doc *d, yyjson_mut_val *obj, const pc_engine_doc_state *st)
 {
     const pc_document *doc = pc_doc_arc_get(st->doc);
     pc_color_mode mode = edit_mode(doc);
@@ -1492,8 +1645,7 @@ static pc_status set_target(pc_engine_session *s, int kind, size_t index, pc_err
 
 static pc_status has_doc(const pc_engine_session *s, pc_error *reason)
 {
-    return pc_engine_session_active(s) != NULL ? PC_OK
-                                               : pc_fail(reason, PC_ERR_INVALID, "no document open");
+    return pc_engine_session_active(s) != NULL ? PC_OK : pc_fail(reason, PC_ERR_INVALID, "no document open");
 }
 
 static pc_status has_channels(const pc_engine_session *s, pc_error *reason)
@@ -1513,8 +1665,7 @@ static pc_status has_selection(const pc_engine_session *s, pc_error *reason)
     if (d == NULL) {
         return pc_fail(reason, PC_ERR_INVALID, "no document open");
     }
-    return pc_doc_arc_get(d->doc)->has_selection ? PC_OK
-                                                 : pc_fail(reason, PC_ERR_INVALID, "no selection");
+    return pc_doc_arc_get(d->doc)->has_selection ? PC_OK : pc_fail(reason, PC_ERR_INVALID, "no selection");
 }
 
 static pc_status has_spot(const pc_engine_session *s, pc_error *reason)
@@ -1604,8 +1755,8 @@ static pc_status has_layer_mask(const pc_engine_session *s, pc_error *reason)
     if (st == NULL) {
         return pc_fail(reason, PC_ERR_INVALID, "no document open");
     }
-    const pc_layer *l = st->has_active_layer ? pc_document_layer(pc_doc_arc_get(st->doc), st->active_layer)
-                                             : NULL;
+    const pc_layer *l =
+        st->has_active_layer ? pc_document_layer(pc_doc_arc_get(st->doc), st->active_layer) : NULL;
     if (l == NULL) {
         return pc_fail(reason, PC_ERR_INVALID, "no active layer");
     }
@@ -1758,8 +1909,8 @@ static yyjson_val *source_spec(yyjson_val *p, const char *key, const char *prefi
 }
 
 /* The mask plane for Apply Image / Calculations, or none. *out owned (free), *has set. */
-static pc_status mask_plane(pc_engine_session *s, yyjson_val *p, const char *cmd, float **out,
-                            size_t *outn, bool *has, pc_error *err)
+static pc_status mask_plane(pc_engine_session *s, yyjson_val *p, const char *cmd, float **out, size_t *outn,
+                            bool *has, pc_error *err)
 {
     *out = NULL;
     *outn = 0;
@@ -1824,16 +1975,15 @@ static pc_status has_apply_target(const pc_engine_session *s, pc_error *reason)
     if (d == NULL) {
         return pc_fail(reason, PC_ERR_INVALID, "no document open");
     }
-    const pc_layer *l = d->has_active_layer ? pc_document_layer(pc_doc_arc_get(d->doc), d->active_layer)
-                                            : NULL;
+    const pc_layer *l =
+        d->has_active_layer ? pc_document_layer(pc_doc_arc_get(d->doc), d->active_layer) : NULL;
     if (l == NULL) {
         return pc_fail(reason, PC_ERR_INVALID, "no active layer");
     }
     if (l->content.kind == PC_LAYER_RASTER) {
         return PC_OK;
     }
-    return pc_fail(reason, PC_ERR_INVALID,
-                   "Apply Image needs a pixel layer (active layer is %s %s layer)",
+    return pc_fail(reason, PC_ERR_INVALID, "Apply Image needs a pixel layer (active layer is %s %s layer)",
                    pc_layer_content_article(&l->content), pc_layer_content_kind_name(&l->content));
 }
 
@@ -1848,8 +1998,7 @@ struct apply_image_ctx {
     yyjson_val *p;
 };
 
-static pc_status apply_image_edit(pc_document *doc, bool *ha, pc_layer_id *active, void *vctx,
-                                  pc_error *err)
+static pc_status apply_image_edit(pc_document *doc, bool *ha, pc_layer_id *active, void *vctx, pc_error *err)
 {
     (void)ha;
     (void)active;
@@ -2071,8 +2220,8 @@ static pc_status calc_selection_edit(pc_document *doc, bool *ha, pc_layer_id *ac
     pc_rect area = pc_document_bounds(doc);
     pc_surface combined;
     bool some = false;
-    pc_status rc = pc_algo_selection_combine(NULL, c->out, c->n, area, PC_ALGO_SELECTION_REPLACE,
-                                             &combined, &some, err);
+    pc_status rc =
+        pc_algo_selection_combine(NULL, c->out, c->n, area, PC_ALGO_SELECTION_REPLACE, &combined, &some, err);
     if (rc != PC_OK) {
         return rc;
     }
@@ -2181,8 +2330,7 @@ static pc_status run_calculations(pc_engine_session *s, yyjson_val *p, pc_json_v
             return pc_engine_err_no_document(err);
         }
         pc_document nd;
-        rc = gray_document(name != NULL ? name : "Untitled", pc_doc_arc_get(d->doc), result, n, &nd,
-                           err);
+        rc = gray_document(name != NULL ? name : "Untitled", pc_doc_arc_get(d->doc), result, n, &nd, err);
         free(result);
         if (rc != PC_OK) {
             return rc;
@@ -2217,8 +2365,7 @@ static pc_status run_calculations(pc_engine_session *s, yyjson_val *p, pc_json_v
         return PC_OK;
     }
     free(result);
-    return pc_engine_err_bad_params(err, cmd,
-                                    "unknown result `%.*s` (newChannel|newDocument|selection)",
+    return pc_engine_err_bad_params(err, cmd, "unknown result `%.*s` (newChannel|newDocument|selection)",
                                     (int)rl, resname != NULL ? resname : "");
 }
 
@@ -2262,26 +2409,26 @@ static const pc_engine_command SPECS[] = {
      "{\"channel\":index|name|\"red|…\"|\"composite\"|\"quickMask\",\"name\":str?,\"document\":index|"
      "\"new\"?=active,\"invert\":bool=false}",
      has_doc, run_duplicate_channel, true},
-    {"channel.delete", "Delete Channel", NULL, 0, NULL, "{\"channel\":index|name?=targeted}",
-     has_channels, run_delete_channel, true},
-    {"channel.rename", "Rename Channel", NULL, 0, NULL, "{\"channel\":index|name,\"name\":str}",
-     has_channels, run_rename_channel, true},
-    {"channel.move", "Reorder Channel", NULL, 0, NULL, "{\"channel\":index|name,\"to\":index}",
-     has_channels, run_move_channel, true},
+    {"channel.delete", "Delete Channel", NULL, 0, NULL, "{\"channel\":index|name?=targeted}", has_channels,
+     run_delete_channel, true},
+    {"channel.rename", "Rename Channel", NULL, 0, NULL, "{\"channel\":index|name,\"name\":str}", has_channels,
+     run_rename_channel, true},
+    {"channel.move", "Reorder Channel", NULL, 0, NULL, "{\"channel\":index|name,\"to\":index}", has_channels,
+     run_move_channel, true},
     {"channel.target", "Target Channel", NULL, 0, NULL,
      "{\"channel\":\"composite\"|\"mask\"|\"vectorMask\"|\"red|green|blue|…\"|index|name=\"composite\"}",
      has_doc, run_target_cmd, true},
     {"channel.setVisible", "Channel Visibility", NULL, 0, NULL,
-     "{\"channel\":\"composite\"|\"red|…\"|index|name|\"quickMask\",\"visible\":bool?=toggle}",
-     has_doc, run_set_visible, true},
+     "{\"channel\":\"composite\"|\"red|…\"|index|name|\"quickMask\",\"visible\":bool?=toggle}", has_doc,
+     run_set_visible, true},
     {"channel.options", "Channel Options…", NULL, 0, NULL,
      "{\"channel\":index|name|\"quickMask\",\"name\":str?,\"indicates\":\"masked|selected|spot\"?,"
      "\"color\":\"#rrggbb\"?,\"opacity\":0..100?,\"solidity\":0..100?}",
      has_doc, run_options, true},
     {"channel.mergeSpot", "Merge Spot Channel", NULL, 0, NULL,
      "{\"channel\":index|name?=targeted or first spot}", has_spot, run_merge_spot, true},
-    {"channel.split", "Split Channels", NULL, 0, NULL, "{\"closeOriginal\":bool=true}", can_split,
-     run_split, true},
+    {"channel.split", "Split Channels", NULL, 0, NULL, "{\"closeOriginal\":bool=true}", can_split, run_split,
+     true},
     {"channel.merge", "Merge Channels…", NULL, 0, NULL,
      "{\"mode\":\"rgb|cmyk|lab\"=\"rgb\",\"documents\":[index,…]?=open grayscale docs of the active "
      "size,\"name\":str?}",
@@ -2291,8 +2438,8 @@ static const pc_engine_command SPECS[] = {
      run_target_composite, true},
     {"channel.target.layerMask", "Target Layer Mask", NULL, 0, "Cmd+\\", "{}", has_layer_mask,
      run_target_layer_mask, true},
-    {"select.loadLuminosity", "Load Luminosity", NULL, 0, "Cmd+Alt+2", "{}", has_doc,
-     run_load_luminosity, true},
+    {"select.loadLuminosity", "Load Luminosity", NULL, 0, "Cmd+Alt+2", "{}", has_doc, run_load_luminosity,
+     true},
     {"channel.target.slot3", "Target Channel 3", NULL, 0, "Cmd+3", "{}", slot_ok3, run_slot3, true},
     {"channel.target.slot4", "Target Channel 4", NULL, 0, "Cmd+4", "{}", slot_ok4, run_slot4, true},
     {"channel.target.slot5", "Target Channel 5", NULL, 0, "Cmd+5", "{}", slot_ok5, run_slot5, true},
@@ -2306,4 +2453,40 @@ const pc_engine_command *pc_engine_channel_specs(size_t *n)
 {
     *n = sizeof SPECS / sizeof SPECS[0];
     return SPECS;
+}
+
+bool pc_engine_channel_color_shown(const pc_engine_doc_state *d, size_t index)
+{
+    return cv_color_visible(d ? d->channel_view : NULL, index);
+}
+uint64_t pc_engine_channel_display_key(const pc_engine_doc_state *d)
+{
+    if (!d) {
+        return 0;
+    }
+    uint64_t key = d->revision ^ d->active_layer;
+    const struct pc_engine_channel_view *v = d->channel_view;
+    if (v) {
+        for (size_t i = 0; i < v->ncolor_hidden; i++) {
+            key = (key ^ (uint64_t)v->color_hidden[i]) * UINT64_C(1099511628211);
+        }
+        for (size_t i = 0; i < v->nalpha_visible; i++) {
+            key = (key ^ (uint64_t)v->alpha_visible[i]) * UINT64_C(1099511628211);
+        }
+        key = (key ^ (uint64_t)v->quick_mask_hidden) * UINT64_C(1099511628211);
+    }
+    key ^= d->has_layer_mask_view ? (d->layer_mask_view_layer * UINT64_C(6364136223846793005)) ^
+                                        (uint64_t)d->layer_mask_view_mode
+                                  : 0;
+    return key;
+}
+
+void pc_engine_quick_mask_display(const pc_engine_session *session, float color[3], float *opacity)
+{
+    if (color) {
+        pc_color_to_rgb(&session->quick_mask_color, color);
+    }
+    if (opacity) {
+        *opacity = session->quick_mask_opacity;
+    }
 }

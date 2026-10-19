@@ -81,6 +81,7 @@ static pc_status with_timeline(pc_engine_session *s, tl_mut_fn mut, void *ctx, p
     }
     pc_engine_video_sync(doc);
     st->revision += 1;
+    st->has_last_damage = false; /* Video-frame synchronization can replace every visible pixel. */
     return info(s, out, err);
 }
 
@@ -100,8 +101,7 @@ static pc_status duration_param(const char *cmd, yyjson_val *p, bool *have, size
         *out = (size_t)d;
         return PC_OK;
     }
-    return pc_engine_err_bad_params(err, cmd,
-                                    "`duration` must be a whole number of frames from 1 to %zu",
+    return pc_engine_err_bad_params(err, cmd, "`duration` must be a whole number of frames from 1 to %zu",
                                     MAX_DURATION);
 }
 
@@ -277,14 +277,14 @@ static pc_status run_info(pc_engine_session *s, yyjson_val *p, pc_json_value *ou
 static const pc_engine_command SPECS[] = {
     {"timeline.create", "Create Video Timeline", NULL, 0, NULL,
      "{duration?:30, fps?:30} \xE2\x86\x92 {timeline}", tl_has_doc, run_create, false},
-    {"timeline.delete", "Delete Timeline", NULL, 0, NULL, "{} \xE2\x86\x92 {timeline:null}",
-     tl_has_timeline, run_delete, false},
-    {"timeline.setFrame", "Go to Frame", NULL, 0, NULL, "{frame} \xE2\x86\x92 {timeline}",
-     tl_has_timeline, run_set_frame, false},
+    {"timeline.delete", "Delete Timeline", NULL, 0, NULL, "{} \xE2\x86\x92 {timeline:null}", tl_has_timeline,
+     run_delete, false},
+    {"timeline.setFrame", "Go to Frame", NULL, 0, NULL, "{frame} \xE2\x86\x92 {timeline}", tl_has_timeline,
+     run_set_frame, false},
     {"timeline.nextFrame", "Next Frame", NULL, 0, NULL, "{} \xE2\x86\x92 {timeline}", tl_has_timeline,
      run_next, false},
-    {"timeline.previousFrame", "Previous Frame", NULL, 0, NULL, "{} \xE2\x86\x92 {timeline}",
-     tl_has_timeline, run_prev, false},
+    {"timeline.previousFrame", "Previous Frame", NULL, 0, NULL, "{} \xE2\x86\x92 {timeline}", tl_has_timeline,
+     run_prev, false},
     {"timeline.setProps", "Timeline Settings", NULL, 0, NULL,
      "{fps?, duration?, workStart?, workEnd?} \xE2\x86\x92 {timeline}", tl_has_timeline, run_set_props,
      false},

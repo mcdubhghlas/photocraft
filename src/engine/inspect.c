@@ -243,7 +243,7 @@ pc_status pc_engine_inspect_document(const pc_engine_doc_state *dst, pc_json_val
         yyjson_mut_arr_add_strcpy(d, hist, label != NULL ? pc_str_c(label) : "");
     }
     yyjson_mut_obj_add_val(d, root, "history", hist);
-    yyjson_mut_obj_add_val(d, root, "snapshots", yyjson_mut_arr(d)); /* E12 fills this */
+    pc_engine_inspect_snapshots(d, root, dst);
     yyjson_mut_obj_add_bool(d, root, "canUndo", pc_history_can_undo(dst->history));
     yyjson_mut_obj_add_bool(d, root, "canRedo", pc_history_can_redo(dst->history));
     yyjson_mut_obj_add_uint(d, root, "revision", dst->revision);

@@ -111,7 +111,7 @@ void pc_engine_type_refresh(const pc_document *doc, pc_text_layer *t)
 
 /* retag_text: rebuild a type layer's TySh for its current transform, keeping its pixels. Only
  * when the layer already carries PSD data. */
-static void retag_text(float dpi, pc_text_layer *t)
+void pc_engine_type_retag(float dpi, pc_text_layer *t)
 {
     if (t->psd_raw == NULL) {
         return;
@@ -436,7 +436,7 @@ void pc_engine_hook_transform_text(pc_layer *l, const pc_affine *a, float dpi)
     }
     pc_text_layer *t = &l->content.u.text;
     t->transform = pc_affine_mul(*a, t->transform);
-    retag_text(dpi, t);
+    pc_engine_type_retag(dpi, t);
 }
 
 void pc_engine_hook_refresh_text(const pc_document *snapshot, pc_layer *l)
@@ -1759,7 +1759,7 @@ static float clampf(float v, float lo, float hi) { return v < lo ? lo : v > hi ?
 
 /* Builds a new (not-yet-inserted) type layer from type.create's params. *out is left
  * uninitialised on error. */
-static pc_status new_text_layer(const pc_engine_session *s, yyjson_val *p, const char *cmd, pc_text_layer *out,
+pc_status pc_engine_type_new_layer(const pc_engine_session *s, yyjson_val *p, const char *cmd, pc_text_layer *out,
                                 pc_error *err)
 {
     pc_orientation orient = PC_ORIENT_HORIZONTAL;
@@ -1913,7 +1913,7 @@ static pc_status edit_insert_text(pc_document *doc, bool *ha, pc_layer_id *a, vo
 static pc_status run_create(pc_engine_session *s, yyjson_val *p, pc_json_value *out, pc_error *err)
 {
     pc_text_layer t = {0};
-    if (new_text_layer(s, p, "type.create", &t, err) != PC_OK) {
+    if (pc_engine_type_new_layer(s, p, "type.create", &t, err) != PC_OK) {
         return err != NULL ? err->code : PC_ERR_INVALID;
     }
     char autobuf[256];

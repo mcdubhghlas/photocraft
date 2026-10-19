@@ -26,6 +26,7 @@
 #include "doc/doc.h"
 #include "doc/vector.h"
 #include "prefs.h"
+#include "file_ui.h"
 #include "smart_cmds.h"
 #include "engine_internal.h"
 #include "format/read.h"
@@ -470,6 +471,56 @@ static yyjson_mut_val *fc_warnings_json(yyjson_mut_doc *jd, const pc_io_warnings
         yyjson_mut_arr_add_str(jd, arr, w->v[i] != NULL ? w->v[i] : "");
     }
     return arr;
+}
+
+bool pc_engine_file_can_write_back(const char *path)
+{
+    const char *ext=path ? strrchr(path,'.') : NULL;
+    if(!ext) { return false; }
+    char lower[16];size_t n=strlen(ext);
+    if(n>=sizeof lower) { return false; }
+    for(size_t i=0;i<=n;i++) { char c=ext[i];lower[i]=c>='A' && c<='Z' ? (char)(c+('a'-'A')) : c; }
+    return !strcmp(lower,".pcraft") || !strcmp(lower,".psd") || !strcmp(lower,".psb") || !strcmp(lower,".ora");
+}
+pc_status pc_engine_file_save_ui(pc_engine_session *session,yyjson_val *params,bool save_as,pc_json_value *out,pc_error *err)
+{
+    if(!session || !out) { return pc_fail(err,PC_ERR_INVALID,"missing Save context"); }
+    pc_engine_doc_state *state=pc_engine_session_active_mut(session);
+    if(!state) { return pc_engine_err_no_document(err); }
+    if(pc_engine_active_job(session)) { return pc_fail(err,PC_ERR_INVALID,"wait for the document job before saving"); }
+    size_t path_len=0;
+    yyjson_val *given=pc_json_get(params,"path");
+    const char *path=pc_json_as_str(given,&path_len);
+    if(given && (!path || !path_len || strlen(path)!=path_len || path_len>65536)) { return pc_fail(err,PC_ERR_INVALID,"invalid Save path"); }
+    if(!path && !save_as) { path=state->path; }
+    if(!path || !*path) { return pc_fail(err,PC_ERR_INVALID,"Save As needs a path"); }
+    bool layered=pc_engine_file_can_write_back(path);
+    if(!save_as && (!layered || state->source_read_only)) { return pc_fail(err,PC_ERR_INVALID,"choose Save As to preserve the source file"); }
+    char *owned=fc_strdup(path);
+    if(!owned) { return pc_fail(err,PC_ERR_NOMEM,"Save path"); }
+    pc_engine_save_opts options;
+    pc_status status=pc_engine_save_opts_from_params(session,params,save_as ? "file.saveAs" : "file.save",&options,err);
+    pc_buf bytes=PC_BUF_INIT;pc_io_warnings warnings=PC_IO_WARNINGS_INIT;
+    if(status==PC_OK) { status=pc_engine_encode(pc_doc_arc_get(state->doc),owned,&options,&bytes,&warnings,err); }
+    if(status==PC_OK && !save_as && warnings.n) { status=pc_fail(err,PC_ERR_INVALID,"this format cannot keep everything; choose Save As or Save a Copy"); }
+    bool saved=layered && !warnings.n;
+    yyjson_mut_doc *doc=status==PC_OK ? yyjson_mut_doc_new(NULL) : NULL;
+    if(status==PC_OK && !doc) { status=pc_fail(err,PC_ERR_NOMEM,"Save result"); }
+    pc_json_value result=PC_JSON_VALUE_INIT;
+    if(status==PC_OK) {
+        yyjson_mut_val *root=yyjson_mut_obj(doc);
+        yyjson_mut_obj_add_strcpy(doc,root,"path",owned);
+        yyjson_mut_obj_add_bool(doc,root,"saved",saved);
+        yyjson_mut_obj_add_val(doc,root,"warnings",fc_warnings_json(doc,&warnings));
+        status=pc_json_value_from_mut(root,&result,err);
+    }
+    if(status==PC_OK) { status=pc_engine_write_file(owned,bytes.data,bytes.len,err); }
+    if(status==PC_OK) {
+        if(saved) { free(state->path);state->path=owned;owned=NULL;state->saved_revision=state->revision;state->source_read_only=false; }
+        pc_json_value_fini(out);*out=result;result=(pc_json_value)PC_JSON_VALUE_INIT;
+    }
+    free(owned);pc_buf_fini(&bytes);pc_io_warnings_fini(&warnings);yyjson_mut_doc_free(doc);pc_json_value_fini(&result);
+    return status;
 }
 
 /* ---- predicates --------------------------------------------------------------------------- */

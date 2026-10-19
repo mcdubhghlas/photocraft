@@ -42,7 +42,10 @@ static bool exec_err(pc_engine_session *s, const char *id, const char *params)
     return true;
 }
 
-static yyjson_mut_val *root_of(pc_json_value *v) { return pc_json_value_root(v); }
+static yyjson_mut_val *root_of(pc_json_value *v)
+{
+    return pc_json_value_root(v);
+}
 
 /* ---------------------------------------------------------------- defaults */
 
@@ -74,8 +77,8 @@ static void test_defaults(void)
     /* Every dialog section is an object key of the whole JSON form. */
     CHECK(exec(s, "prefs.get", "{}", &out));
     yyjson_mut_val *all = root_of(&out);
-    static const char *const sections[] = {"general",     "interface",  "workspace",
-                                           "performance", "cursors",    "unitsAndRulers"};
+    static const char *const sections[] = {"general",     "interface", "workspace",
+                                           "performance", "cursors",   "unitsAndRulers"};
     for (size_t i = 0; i < sizeof sections / sizeof sections[0]; i++) {
         yyjson_mut_val *sec = yyjson_mut_obj_get(all, sections[i]);
         CHECK(sec != NULL && yyjson_mut_is_obj(sec));
@@ -102,8 +105,8 @@ static void test_get_set_reset(void)
 
     /* A new document inherits the preference too. */
     pc_document doc2;
-    CHECK(pc_document_with_background(&doc2, "D2", pc_size_make(8, 8), PC_COLOR_MODE_RGB,
-                                      PC_SAMPLE_TYPE_U8, pc_color_rgba(1, 1, 1, 1), NULL) == PC_OK);
+    CHECK(pc_document_with_background(&doc2, "D2", pc_size_make(8, 8), PC_COLOR_MODE_RGB, PC_SAMPLE_TYPE_U8,
+                                      pc_color_rgba(1, 1, 1, 1), NULL) == PC_OK);
     CHECK(pc_engine_session_add_document(s, &doc2, NULL, NULL, NULL) == PC_OK);
     CHECK(pc_history_max_states(pc_engine_session_active(s)->history) == 3);
 
@@ -134,8 +137,7 @@ static void test_set_validates_all_or_nothing(void)
     pc_json_value_fini(&out);
     /* A fully valid batch applies. */
     CHECK(exec(s, "prefs.set",
-               "{\"values\":{\"cursors.painting\":\"precise\",\"unitsAndRulers.rulers\":\"cm\"}}",
-               &out));
+               "{\"values\":{\"cursors.painting\":\"precise\",\"unitsAndRulers.rulers\":\"cm\"}}", &out));
     CHECK_EQ_STR(yyjson_mut_get_str(yyjson_mut_obj_get(root_of(&out), "cursors.painting")), "precise");
     pc_json_value_fini(&out);
     CHECK(exec(s, "prefs.get", "{\"path\":\"unitsAndRulers.rulers\"}", &out));
@@ -252,8 +254,8 @@ static void test_legacy_theme_migration(void)
 
 static void test_units(void)
 {
-    pc_pref_unit u[] = {PC_UNIT_PIXELS,  PC_UNIT_INCHES, PC_UNIT_CENTIMETERS, PC_UNIT_MILLIMETERS,
-                        PC_UNIT_POINTS,  PC_UNIT_PICAS,  PC_UNIT_PERCENT};
+    pc_pref_unit u[] = {PC_UNIT_PIXELS, PC_UNIT_INCHES, PC_UNIT_CENTIMETERS, PC_UNIT_MILLIMETERS,
+                        PC_UNIT_POINTS, PC_UNIT_PICAS,  PC_UNIT_PERCENT};
     for (size_t i = 0; i < sizeof u / sizeof u[0]; i++) {
         double v = pc_pref_unit_from_px(u[i], 450.0, 300.0, 900.0, 72.0);
         double back = pc_pref_unit_to_px(u[i], v, 300.0, 900.0, 72.0);
@@ -329,8 +331,8 @@ static void test_keyboard_shortcuts_command(void)
     pc_json_value_fini(&out);
 
     /* Keeping the duplicate reports a conflict. */
-    CHECK(exec(s, "edit.keyboardShortcuts",
-               "{\"set\":{\"edit.undo\":\"Cmd+Z\"},\"removeConflicts\":false}", &out));
+    CHECK(exec(s, "edit.keyboardShortcuts", "{\"set\":{\"edit.undo\":\"Cmd+Z\"},\"removeConflicts\":false}",
+               &out));
     conflicts = yyjson_mut_obj_get(root_of(&out), "conflicts");
     CHECK(conflicts != NULL && yyjson_mut_arr_size(conflicts) >= 1);
     yyjson_mut_val *c0 = yyjson_mut_arr_get(conflicts, 0);
@@ -355,7 +357,8 @@ static void test_keyboard_shortcuts_command(void)
     bool saw_hand = false, all_hold = true;
     size_t idx, max;
     yyjson_mut_val *row;
-    yyjson_mut_arr_foreach(cmds, idx, max, row) {
+    yyjson_mut_arr_foreach(cmds, idx, max, row)
+    {
         const char *id = yyjson_mut_get_str(yyjson_mut_obj_get(row, "id"));
         if (id != NULL && strcmp(id, "tools.temporary.hand") == 0) {
             saw_hand = true;
@@ -367,8 +370,7 @@ static void test_keyboard_shortcuts_command(void)
     }
     CHECK(saw_hand && all_hold);
     pc_json_value_fini(&out);
-    CHECK(exec(s, "edit.keyboardShortcuts", "{\"set\":{\"tools.temporary.zoomIn\":\"Ctrl+Space\"}}",
-               &out));
+    CHECK(exec(s, "edit.keyboardShortcuts", "{\"set\":{\"tools.temporary.zoomIn\":\"Ctrl+Space\"}}", &out));
     pc_json_value_fini(&out);
     CHECK(exec(s, "prefs.get", "{\"path\":\"shortcuts.tools.temporary.zoomIn\"}", &out));
     CHECK_EQ_STR(yyjson_mut_get_str(root_of(&out)), "Ctrl+Space");
@@ -428,8 +430,9 @@ static void test_sections_are_commands(void)
     static const struct {
         const char *id, *title;
     } sec[] = {
-        {"general", "General"}, {"interface", "Interface"}, {"performance", "Performance"},
-        {"rawDefaults", "Camera Raw Defaults"}, {"integrations", "Integrations"},
+        {"general", "General"},           {"interface", "Interface"},
+        {"performance", "Performance"},   {"rawDefaults", "Camera Raw Defaults"},
+        {"integrations", "Integrations"},
     };
     pc_json_value out = PC_JSON_VALUE_INIT;
     for (size_t i = 0; i < sizeof sec / sizeof sec[0]; i++) {
@@ -451,9 +454,9 @@ static void test_choice_and_range_cover_defaults(void)
     CHECK(pc_engine_session_new(&s, NULL) == PC_OK);
     pc_json_value whole = PC_JSON_VALUE_INIT;
     CHECK(exec(s, "prefs.get", "{}", &whole));
-    static const char *const ids[] = {"general",     "interface",  "performance", "cursors",
-                                      "transparencyAndGamut", "unitsAndRulers",
-                                      "guidesGridAndSlices", "rawDefaults"};
+    static const char *const ids[] = {
+        "general",        "interface",           "performance", "cursors", "transparencyAndGamut",
+        "unitsAndRulers", "guidesGridAndSlices", "rawDefaults"};
     for (size_t si = 0; si < sizeof ids / sizeof ids[0]; si++) {
         yyjson_mut_val *sec = yyjson_mut_obj_get(root_of(&whole), ids[si]);
         CHECK(sec != NULL && yyjson_mut_is_obj(sec));
@@ -503,11 +506,9 @@ static void test_rasterize_svg_bound(void)
     CHECK(exec(s, "prefs.get", "{\"path\":\"fileHandling.rasterizeSvgGroupsDeeperThan\"}", &out));
     CHECK(yyjson_mut_get_uint(root_of(&out)) == (uint64_t)PC_MAX_GROUP_DEPTH);
     pc_json_value_fini(&out);
-    CHECK(exec(s, "prefs.set",
-               "{\"path\":\"fileHandling.rasterizeSvgGroupsDeeperThan\",\"value\":4}", &out));
+    CHECK(exec(s, "prefs.set", "{\"path\":\"fileHandling.rasterizeSvgGroupsDeeperThan\",\"value\":4}", &out));
     pc_json_value_fini(&out);
-    CHECK(exec(s, "prefs.set",
-               "{\"path\":\"fileHandling.rasterizeSvgGroupsDeeperThan\",\"value\":0}", &out));
+    CHECK(exec(s, "prefs.set", "{\"path\":\"fileHandling.rasterizeSvgGroupsDeeperThan\",\"value\":0}", &out));
     pc_json_value_fini(&out);
     char over[96];
     snprintf(over, sizeof over, "{\"path\":\"%s\",\"value\":%d}", pref, PC_MAX_GROUP_DEPTH + 1);
@@ -521,7 +522,7 @@ static void test_pressure_curve(void)
 {
     pc_pressure_curve c;
     float linear[2][2] = {{0.0f, 0.0f}, {1.0f, 1.0f}};
-    pc_pressure_curve_init(&c, (const float(*)[2])linear, 2);
+    pc_pressure_curve_init(&c, (const float (*)[2])linear, 2);
     CHECK(pc_pressure_curve_is_linear(&c));
     float xs[] = {0.0f, 0.1f, 0.37f, 0.5f, 0.99f, 1.0f};
     for (size_t i = 0; i < sizeof xs / sizeof xs[0]; i++) {
@@ -529,7 +530,7 @@ static void test_pressure_curve(void)
     }
     /* A soft curve passes through its points and stays monotone. */
     float soft[4][2] = {{0.0f, 0.0f}, {0.25f, 0.5f}, {0.6f, 0.8f}, {1.0f, 1.0f}};
-    pc_pressure_curve_init(&c, (const float(*)[2])soft, 4);
+    pc_pressure_curve_init(&c, (const float (*)[2])soft, 4);
     for (int i = 0; i < 4; i++) {
         CHECK(fabsf(pc_pressure_curve_eval(&c, soft[i][0]) - soft[i][1]) < 1e-5f);
     }
@@ -542,12 +543,12 @@ static void test_pressure_curve(void)
     }
     /* Flat outside the points. */
     float ends[2][2] = {{0.2f, 0.3f}, {0.8f, 0.9f}};
-    pc_pressure_curve_init(&c, (const float(*)[2])ends, 2);
+    pc_pressure_curve_init(&c, (const float (*)[2])ends, 2);
     CHECK(fabsf(pc_pressure_curve_eval(&c, 0.0f) - 0.3f) < 1e-6f);
     CHECK(fabsf(pc_pressure_curve_eval(&c, 1.0f) - 0.9f) < 1e-6f);
     /* Two points at the same input: the later output wins. */
     float dup[4][2] = {{0.0f, 0.0f}, {0.5f, 0.2f}, {0.5f, 0.7f}, {1.0f, 1.0f}};
-    pc_pressure_curve_init(&c, (const float(*)[2])dup, 4);
+    pc_pressure_curve_init(&c, (const float (*)[2])dup, 4);
     CHECK(fabsf(pc_pressure_curve_eval(&c, 0.5f) - 0.7f) < 1e-6f);
 }
 
@@ -568,11 +569,11 @@ static void test_hostile_pressure_curve(void)
         const float (*pts)[2];
         size_t n;
     } cases[] = {{NULL, 0},
-                 {(const float(*)[2])single, 1},
-                 {(const float(*)[2])a, 3},
-                 {(const float(*)[2])b, 3},
-                 {(const float(*)[2])cc, 2},
-                 {(const float(*)[2])many, 100}};
+                 {(const float (*)[2])single, 1},
+                 {(const float (*)[2])a, 3},
+                 {(const float (*)[2])b, 3},
+                 {(const float (*)[2])cc, 2},
+                 {(const float (*)[2])many, 100}};
     for (size_t k = 0; k < sizeof cases / sizeof cases[0]; k++) {
         pc_pressure_curve c;
         pc_pressure_curve_init(&c, cases[k].pts, cases[k].n);
@@ -593,8 +594,8 @@ static void test_hostile_pressure_curve(void)
     pc_engine_session *s = NULL;
     CHECK(pc_engine_session_new(&s, NULL) == PC_OK);
     pc_json_value out = PC_JSON_VALUE_INIT;
-    CHECK(exec(s, "prefs.set",
-               "{\"path\":\"tools.pressureCurve\",\"value\":[[0.0,0.1],[0.5,0.7],[1.0,1.0]]}", &out));
+    CHECK(exec(s, "prefs.set", "{\"path\":\"tools.pressureCurve\",\"value\":[[0.0,0.1],[0.5,0.7],[1.0,1.0]]}",
+               &out));
     pc_json_value_fini(&out);
     CHECK(exec_err(s, "prefs.set", "{\"path\":\"tools.pressureCurve\",\"value\":\"linear\"}"));
     CHECK(exec_err(s, "prefs.set", "{\"path\":\"tools.pressureCurve\",\"value\":[[0.0,0.0]]}"));
@@ -610,8 +611,12 @@ static void test_hostile_params_never_crash(void)
 {
     pc_engine_session *s = white(16, 16);
     /* Adversarial params to every command E2 adds: all must return without crashing. */
-    static const char *const ids[] = {"prefs.get",  "prefs.set", "prefs.reset", "edit.menus",
-                                      "edit.toolbar", "edit.keyboardShortcuts",
+    static const char *const ids[] = {"prefs.get",
+                                      "prefs.set",
+                                      "prefs.reset",
+                                      "edit.menus",
+                                      "edit.toolbar",
+                                      "edit.keyboardShortcuts",
                                       "edit.preferences.general"};
     static const char *const params[] = {
         "{}",
@@ -665,8 +670,7 @@ static void test_hostile_params_never_crash(void)
         if (pc_engine_session_execute_json(t, "edit.menus", "{\"hide\":[\"x\"]}", &o2, &e2) == PC_OK) {
             pc_json_value_fini(&o2);
         }
-        if (pc_engine_session_execute_json(t, "edit.toolbar", "{\"hidden\":[\"y\"]}", &o2, &e2) ==
-            PC_OK) {
+        if (pc_engine_session_execute_json(t, "edit.toolbar", "{\"hidden\":[\"y\"]}", &o2, &e2) == PC_OK) {
             pc_json_value_fini(&o2);
         }
         pc_engine_session_free(t);
@@ -674,6 +678,33 @@ static void test_hostile_params_never_crash(void)
     pc_engine_session_free(s);
 }
 
+static void test_map_replacement_is_complete_validated_and_atomic(void)
+{
+    pc_engine_session *s = white(4, 4);
+    pc_json_value out = PC_JSON_VALUE_INIT;
+    CHECK(exec(s, "prefs.set",
+               "{\"values\":{\"shortcuts.edit.undo\":\"Ctrl+Z\",\"shortcuts.edit.redo\":\"Ctrl+Y\"}}", &out));
+    pc_json_value_fini(&out);
+    CHECK(exec(s, "prefs.set",
+               "{\"path\":\"shortcuts\",\"value\":{\"edit.undo\":\"alt+u\"},\"replace\":true}", &out));
+    pc_json_value_fini(&out);
+    CHECK(pc_engine_prefs_get(s, "shortcuts", &out, NULL) == PC_OK);
+    CHECK(yyjson_mut_obj_size(pc_json_value_root(&out)) == 1);
+    CHECK_EQ_STR(yyjson_mut_get_str(yyjson_mut_obj_get(pc_json_value_root(&out), "edit.undo")), "Alt+U");
+    pc_json_value_fini(&out);
+    CHECK(exec_err(
+        s, "prefs.set",
+        "{\"values\":{\"workspaceLocked\":true,\"shortcuts\":{\"edit.undo\":37}},\"replace\":true}"));
+    CHECK(pc_engine_prefs_get(s, "workspaceLocked", &out, NULL) == PC_OK);
+    CHECK(!yyjson_mut_get_bool(pc_json_value_root(&out)));
+    pc_json_value_fini(&out);
+    CHECK(exec(s, "prefs.set", "{\"path\":\"shortcuts\",\"value\":{},\"replace\":true}", &out));
+    pc_json_value_fini(&out);
+    CHECK(pc_engine_prefs_get(s, "shortcuts", &out, NULL) == PC_OK &&
+          !yyjson_mut_obj_size(pc_json_value_root(&out)));
+    pc_json_value_fini(&out);
+    pc_engine_session_free(s);
+}
 int main(int argc, char **argv)
 {
     RUN(test_defaults);
@@ -681,6 +712,7 @@ int main(int argc, char **argv)
     RUN(test_set_validates_all_or_nothing);
     RUN(test_whole_section_merge);
     RUN(test_theme_side_effect);
+    RUN(test_map_replacement_is_complete_validated_and_atomic);
     RUN(test_json_round_trip);
     RUN(test_legacy_theme_migration);
     RUN(test_units);

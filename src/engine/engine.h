@@ -93,6 +93,9 @@ typedef struct pc_engine_command {
     bool journal; /* record in the session journal (false for queries) */
 } pc_engine_command;
 
+/* Lenient engine blend-name parser (case/space/underscore/parenthesis insensitive). */
+bool pc_engine_blend_from_str(const char *name, size_t length, pc_blend_mode *out);
+
 /* An "always enabled" predicate (crate::commands::always). */
 pc_status pc_engine_always(const pc_engine_session *s, pc_error *reason);
 
@@ -171,18 +174,21 @@ typedef struct pc_engine_doc_state {
      * (free()) of ncolor_samplers points, or NULL. */
     double (*color_samplers)[2];
     size_t ncolor_samplers, cap_color_samplers;
+    struct pc_engine_snapshot *snapshots; /* History panel, session only; COW documents */
+    size_t nsnapshots, cap_snapshots;
+    uint64_t next_snapshot;
 } pc_engine_doc_state;
 
 /* How a shown layer mask is drawn (mask_view_cmds::MaskViewMode). */
 typedef enum pc_engine_mask_view_mode {
-    PC_ENGINE_MASK_VIEW_GRAY = 0,    /* the mask alone, as a grayscale image (⌥-click) */
-    PC_ENGINE_MASK_VIEW_OVERLAY = 1  /* composite with the mask as a red overlay (⇧⌥-click, `\`) */
+    PC_ENGINE_MASK_VIEW_GRAY = 0,   /* the mask alone, as a grayscale image (⌥-click) */
+    PC_ENGINE_MASK_VIEW_OVERLAY = 1 /* composite with the mask as a red overlay (⇧⌥-click, `\`) */
 } pc_engine_mask_view_mode;
 
 /* The selected layers in bottom-to-top document order, always including the active layer; robust
  * against stale ids. *out is a newly allocated array (free()) of *n ids (DocState::selected_layers). */
-pc_status pc_engine_doc_state_selected_layers(const pc_engine_doc_state *d, pc_layer_id **out,
-                                              size_t *n, pc_error *err);
+pc_status pc_engine_doc_state_selected_layers(const pc_engine_doc_state *d, pc_layer_id **out, size_t *n,
+                                              pc_error *err);
 bool pc_engine_doc_state_is_dirty(const pc_engine_doc_state *d);
 
 /* ---- app-wide tool state (port of ToolState) ---------------------------------------------- */
@@ -202,19 +208,19 @@ typedef struct pc_engine_tool_state {
     /* --- EXTENSION REGION (E10 painting): the session brush, brush presets, Mixer Brush paint,
      * the coalescing brush gesture, the current preset name, the mask/pixels target split and the
      * CMYK picks. Mirrors the Rust ToolState, whose types come from photocraft_paint. */
-    pc_paint_brush brush;             /* the session brush (BrushSettings) */
-    pc_paint_preset *presets;         /* built-ins plus user presets (owned) */
+    pc_paint_brush brush;     /* the session brush (BrushSettings) */
+    pc_paint_preset *presets; /* built-ins plus user presets (owned) */
     size_t npresets;
-    uint64_t presets_rev;             /* bumped by brush_presets_changed; the preset store syncs */
-    pc_paint_mixer_state mixer;       /* Mixer Brush paint carried between strokes */
+    uint64_t presets_rev;       /* bumped by brush_presets_changed; the preset store syncs */
+    pc_paint_mixer_state mixer; /* Mixer Brush paint carried between strokes */
     /* The coalescing key of the running tools.setBrush gesture and the brush before it, so the
      * gesture journals as one call (brush_cmds coalesce_journal). has_brush_gesture gates it. */
     bool has_brush_gesture;
-    char *brush_gesture_key;          /* owned */
+    char *brush_gesture_key; /* owned */
     pc_paint_brush brush_gesture_start;
-    char *current_preset;             /* name the current brush was picked from, or NULL (owned) */
-    bool mask_targeted;               /* a layer mask is the edit target (ToolState::target_mask) */
-    float other_colors[2][4];         /* the fg/bg pair of the target that isn't current */
+    char *current_preset;     /* name the current brush was picked from, or NULL (owned) */
+    bool mask_targeted;       /* a layer mask is the edit target (ToolState::target_mask) */
+    float other_colors[2][4]; /* the fg/bg pair of the target that isn't current */
     pc_engine_cmyk_pick cmyk_picks[PC_ENGINE_CMYK_PICKS]; /* newest last */
     size_t ncmyk_picks;
 } pc_engine_tool_state;
@@ -230,6 +236,8 @@ bool pc_engine_tool_state_picked_cmyk(const pc_engine_tool_state *t, const float
 /* Switch the edit target between layer pixels and a layer mask (ToolState::target_mask). Returns
  * whether the target changed; swaps the foreground/background pair with other_colors. */
 bool pc_engine_tool_state_target_mask(pc_engine_tool_state *t, bool mask);
+/* Shell target synchronization; preserves the separate pixel/mask color pairs. */
+bool pc_engine_session_target_mask(pc_engine_session *session, bool mask);
 
 /* ---- the session (port of Session) -------------------------------------------------------- */
 
@@ -255,11 +263,25 @@ bool pc_engine_session_close(pc_engine_session *s, size_t index);
  * range. Keeps the active document active. */
 bool pc_engine_session_move_document(pc_engine_session *s, size_t from, size_t to, size_t *out_to);
 
+/* Pixel dimensions of the current engine clipboard; false for an empty clipboard.
+ * This is a query and does not paste, copy pixels or record a journal entry. */
+bool pc_engine_session_clipboard_size(const pc_engine_session *session, pc_size *out);
+
 /* The session journal (executed commands) length (Session::journal.len()). */
 size_t pc_engine_session_journal_len(const pc_engine_session *s);
 /* Journal entry i: *id (borrowed) and *params (borrowed yyjson_mut_val of the stored value). */
 bool pc_engine_session_journal_at(const pc_engine_session *s, size_t i, const char **id,
                                   const yyjson_mut_val **params);
+
+/* Shell-owned View commands participate in action recording/playback. The engine retains no
+ * ownership of `ctx`; clear the callback before freeing it. Only the four supported navigation
+ * commands can be recorded this way. Playback without a shell still returns an unknown-command
+ * failure, preserving headless semantics. Calls run synchronously on the session owner thread. */
+typedef pc_status (*pc_engine_shell_dispatch)(void *ctx, const char *id, yyjson_val *params,
+                                              pc_json_value *out, pc_error *err);
+void pc_engine_session_set_shell_dispatch(pc_engine_session *s, pc_engine_shell_dispatch dispatch, void *ctx);
+pc_status pc_engine_session_record_view(pc_engine_session *s, const char *id, yyjson_val *params,
+                                        pc_error *err);
 
 /* Run a command by id with JSON params (object or NULL). Writes *out (owned) only on success;
  * runs synchronously (crate Session::execute). params may be NULL for "no params". */
@@ -277,10 +299,10 @@ bool pc_engine_session_disabled_reason(const pc_engine_session *s, const char *i
 /* Undoable edit of the active document (Session::edit). f edits a private copy; on PC_OK it is
  * committed as one history step named label, revision bumped. On error nothing changes. *has_active
  * / *active carry the active layer in and out. ctx is passed through. */
-typedef pc_status (*pc_engine_edit_fn)(pc_document *doc, bool *has_active, pc_layer_id *active,
-                                       void *ctx, pc_error *err);
-pc_status pc_engine_session_edit(pc_engine_session *s, const char *label, pc_engine_edit_fn f,
-                                 void *ctx, pc_error *err);
+typedef pc_status (*pc_engine_edit_fn)(pc_document *doc, bool *has_active, pc_layer_id *active, void *ctx,
+                                       pc_error *err);
+pc_status pc_engine_session_edit(pc_engine_session *s, const char *label, pc_engine_edit_fn f, void *ctx,
+                                 pc_error *err);
 
 /* Replace the active document's active layer without a history step (Session::select_layer). */
 pc_status pc_engine_session_select_layer(pc_engine_session *s, pc_layer_id id, pc_error *err);
@@ -340,8 +362,8 @@ typedef pc_status (*pc_engine_job_apply_fn)(pc_engine_session *s, void *payload,
 
 /* Run a command by id, in the background when it supports it (Session::start). On a started job
  * *out_is_job is true and *out_job_id its id; otherwise *out holds the inline result. */
-pc_status pc_engine_session_start(pc_engine_session *s, const char *id, yyjson_val *params,
-                                  bool *out_is_job, uint64_t *out_job_id, pc_json_value *out, pc_error *err);
+pc_status pc_engine_session_start(pc_engine_session *s, const char *id, yyjson_val *params, bool *out_is_job,
+                                  uint64_t *out_job_id, pc_json_value *out, pc_error *err);
 
 /* Start a job that isn't an engine command (an open, a shell op, a test). ud is passed to work;
  * free_ud frees it (may be NULL); free_payload frees a payload work produced but apply never
@@ -354,7 +376,8 @@ pc_status pc_engine_session_start_job(pc_engine_session *s, const char *command,
 
 /* Apply finished background jobs (on this thread) and return every job that ended since the last
  * call as an owned array of *n events (free with pc_engine_job_events_free). */
-pc_status pc_engine_session_poll_jobs(pc_engine_session *s, pc_engine_job_event **out, size_t *n, pc_error *err);
+pc_status pc_engine_session_poll_jobs(pc_engine_session *s, pc_engine_job_event **out, size_t *n,
+                                      pc_error *err);
 /* Block until job id ends, apply it, and return its result (PC_ERR_CANCELLED if it was cancelled). */
 pc_status pc_engine_session_wait_job(pc_engine_session *s, uint64_t id, pc_json_value *out, pc_error *err);
 bool pc_engine_session_cancel_job(pc_engine_session *s, uint64_t id);
@@ -371,9 +394,9 @@ void pc_engine_job_ctx_free(pc_engine_job_ctx *ctx);
 /* ---- build provenance (build_info) -------------------------------------------------------- */
 
 extern const char *const pc_engine_version; /* the workspace version, e.g. "0.8.2" */
-const char *pc_engine_git_sha(void);         /* full commit, or NULL */
-const char *pc_engine_build_date(void);      /* "YYYY-MM-DD", or NULL */
-const char *pc_engine_short_sha(void);       /* commit shortened to 9 chars, or NULL (static buffer) */
+const char *pc_engine_git_sha(void);        /* full commit, or NULL */
+const char *pc_engine_build_date(void);     /* "YYYY-MM-DD", or NULL */
+const char *pc_engine_short_sha(void);      /* commit shortened to 9 chars, or NULL (static buffer) */
 /* "0.8.2 (3f2a9c1d0, 2026-10-01)" or "0.8.2 (dev build)" into out[cap]; returns the length it
  * wanted (may exceed cap-1, truncated). */
 size_t pc_engine_long_version(char *out, size_t cap);
@@ -381,6 +404,7 @@ size_t pc_engine_long_version(char *out, size_t cap);
 /* ---- JSON views (inspect) ----------------------------------------------------------------- */
 
 pc_status pc_engine_inspect_session(const pc_engine_session *s, pc_json_value *out, pc_error *err);
+pc_status pc_engine_inspect_history(const pc_engine_doc_state *state, pc_json_value *out, pc_error *err);
 pc_status pc_engine_inspect_document(const pc_engine_doc_state *d, pc_json_value *out, pc_error *err);
 pc_status pc_engine_inspect_layer(const pc_layer *l, pc_json_value *out, pc_error *err);
 

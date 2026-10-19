@@ -6,10 +6,8 @@
  * jitter seed is `seed` or a hash of the points, so a journaled command replays to identical
  * pixels.
  *
- * The interactive live-preview helpers (LiveStroke / LiveCommit / LiveDab and the Session
- * live_commit seam) are a UI optimisation and are not ported here: the commit path always renders
- * the stroke fresh, which is byte-for-byte what the reference does when no live stroke was offered.
- * (Owed to an E10 follow-up.) */
+ * Incremental Brush/Pencil previews and matching commit reuse are implemented in live_stroke.inc.
+ * Sequential retouch previews are handled separately. */
 #include <float.h>
 #include <math.h>
 #include <stdlib.h>
@@ -35,6 +33,7 @@
 #include "raster/surface.h"
 
 #include "brush_cmds.h"
+#include "live_stroke.h"
 #include "channel_cmds.h"
 #include "engine_internal.h"
 #include "symmetry_cmds.h"
@@ -105,8 +104,7 @@ void pc_engine_tool_state_remember_cmyk(pc_engine_tool_state *t, const float rgb
     }
     t->ncmyk_picks = w;
     if (t->ncmyk_picks == PC_ENGINE_CMYK_PICKS) {
-        memmove(&t->cmyk_picks[0], &t->cmyk_picks[1],
-                (PC_ENGINE_CMYK_PICKS - 1) * sizeof t->cmyk_picks[0]);
+        memmove(&t->cmyk_picks[0], &t->cmyk_picks[1], (PC_ENGINE_CMYK_PICKS - 1) * sizeof t->cmyk_picks[0]);
         t->ncmyk_picks = PC_ENGINE_CMYK_PICKS - 1;
     }
     pc_engine_cmyk_pick *p = &t->cmyk_picks[t->ncmyk_picks++];
@@ -142,6 +140,11 @@ bool pc_engine_tool_state_target_mask(pc_engine_tool_state *t, bool mask)
     memcpy(t->foreground, fg, sizeof t->foreground);
     memcpy(t->background, bg, sizeof t->background);
     return true;
+}
+
+bool pc_engine_session_target_mask(pc_engine_session *s, bool mask)
+{
+    return s && pc_engine_tool_state_target_mask(&s->tools, mask);
 }
 
 void pc_engine_brush_presets_changed(pc_engine_session *s)
@@ -241,7 +244,8 @@ pc_status pc_engine_parse_points(yyjson_val *p, const char *cmd, pc_paint_point 
     size_t cnt = 0;
     size_t idx, max;
     yyjson_val *v;
-    yyjson_arr_foreach (arr, idx, max, v) {
+    yyjson_arr_foreach(arr, idx, max, v)
+    {
         if (yyjson_is_arr(v)) {
             size_t m = yyjson_arr_size(v);
             double g0, g1;
@@ -355,7 +359,7 @@ static yyjson_mut_val *merge_vals(yyjson_mut_doc *d, yyjson_mut_val *base, yyjso
 }
 
 pc_status pc_engine_merge_brush(const pc_paint_brush *base, yyjson_val *patch, const char *cmd,
-                               pc_paint_brush *out, pc_error *err)
+                                pc_paint_brush *out, pc_error *err)
 {
     yyjson_mut_doc *d = yyjson_mut_doc_new(NULL);
     if (d == NULL) {
@@ -412,9 +416,8 @@ pc_status pc_engine_validate_brush(const pc_paint_brush *b, const char *cmd, pc_
     float ds = b->dual_brush.scatter;
     if (b->dual_brush.enabled && !(ds >= 0.0f && ds <= scatter_max)) {
         return pc_engine_err_bad_params(
-            err, cmd,
-            "dual brush scatter amount %g is out of range: it must be between 0 and %g (1000 %%)", ds,
-            scatter_max);
+            err, cmd, "dual brush scatter amount %g is out of range: it must be between 0 and %g (1000 %%)",
+            ds, scatter_max);
     }
     return PC_OK;
 }
@@ -530,8 +533,8 @@ static pc_status check_pixels_unlocked(pc_document *doc, pc_layer_id id, pc_erro
         return pc_engine_err_no_layer(err, id);
     }
     if (locks.pixels || locks.all) {
-        return pc_engine_err_other(
-            err, "Could not complete your request because the layer \"%s\" is locked", pc_str_c(&l->name));
+        return pc_engine_err_other(err, "Could not complete your request because the layer \"%s\" is locked",
+                                   pc_str_c(&l->name));
     }
     return PC_OK;
 }
@@ -544,8 +547,8 @@ static pc_status check_all_unlocked(pc_document *doc, pc_layer_id id, pc_error *
         return pc_engine_err_no_layer(err, id);
     }
     if (locks.all) {
-        return pc_engine_err_other(
-            err, "Could not complete your request because the layer \"%s\" is locked", pc_str_c(&l->name));
+        return pc_engine_err_other(err, "Could not complete your request because the layer \"%s\" is locked",
+                                   pc_str_c(&l->name));
     }
     return PC_OK;
 }
@@ -653,8 +656,7 @@ static pc_status load_brush_tips(const pc_engine_session *s, pc_paint_brush *b, 
     (void)s;
     if (b->tip.kind == PC_PAINT_TIP_STORED || b->dual_brush.tip.kind == PC_PAINT_TIP_STORED ||
         b->texture.pattern.kind == PC_PAINT_PATTERN_STORED) {
-        return pc_engine_err_bad_params(err, cmd,
-                                        "brush tip is not available: no preset store is attached");
+        return pc_engine_err_bad_params(err, cmd, "brush tip is not available: no preset store is attached");
     }
     return PC_OK;
 }
@@ -682,7 +684,7 @@ static float clampf(float v, float lo, float hi)
 }
 
 pc_status pc_engine_resolve_brush(const pc_engine_session *s, yyjson_val *p, const char *cmd,
-                                 pc_paint_brush *out, pc_error *err)
+                                  pc_paint_brush *out, pc_error *err)
 {
     pc_paint_brush b = {0};
     pc_paint_brush_copy(&b, &s->tools.brush);
@@ -801,8 +803,7 @@ static bool clear_mode(yyjson_val *p)
     size_t len = 0;
     yyjson_val *m = pc_json_get(p, "mode");
     const char *s = m != NULL ? pc_json_as_str(m, &len) : NULL;
-    return s != NULL && len == 5 && (s[0] == 'c' || s[0] == 'C') &&
-           (strncasecmp(s, "clear", 5) == 0);
+    return s != NULL && len == 5 && (s[0] == 'c' || s[0] == 'C') && (strncasecmp(s, "clear", 5) == 0);
 }
 
 /* The options-bar blend mode. "mode" accepts any blend name, or "clear" to erase with the brush. */
@@ -873,6 +874,12 @@ static pc_status stroke_target(const pc_engine_session *s, yyjson_val *p, pc_pai
     return PC_OK;
 }
 
+static bool live_matches(const pc_engine_live_stroke *live, const pc_engine_session *session,
+                         const char *command, yyjson_val *params, const pc_paint_point *points, size_t count,
+                         const pc_paint_brush *brush);
+static pc_status live_surface(const pc_engine_live_stroke *live, pc_surface *out, pc_rect *bounds,
+                              pc_error *err);
+
 /* Everything the stroke commit needs, passed through pc_engine_session_edit. */
 struct stroke_ctx {
     const pc_paint_brush *brush; /* borrowed */
@@ -887,11 +894,12 @@ struct stroke_ctx {
     const struct pc_engine_symmetry *sym;
     bool auto_erase;
     pc_rect damage; /* out */
+    const pc_surface *ready;
 };
 
 /* Render with symmetry, if any; else a plain stroke. surf/sel already resolved. */
-static pc_status render_symmetric(struct stroke_ctx *c, pc_surface *surf, const pc_surface *sel,
-                                  bool lock, pc_rect *damage, pc_error *err)
+static pc_status render_symmetric(struct stroke_ctx *c, pc_surface *surf, const pc_surface *sel, bool lock,
+                                  pc_rect *damage, pc_error *err)
 {
     const pc_paint_brush *brush = c->brush;
     pc_pixel_format fmt = pc_surface_format(surf);
@@ -940,8 +948,8 @@ static pc_status render_symmetric(struct stroke_ctx *c, pc_surface *surf, const 
                     }
                     if (rc == PC_OK) {
                         rc = pc_paint_renderer_composite_union_many(
-                            orig, (const pc_paint_renderer *const *)copies, ncopies, &pre, surf, sel,
-                            lock, damage, err);
+                            orig, (const pc_paint_renderer *const *)copies, ncopies, &pre, surf, sel, lock,
+                            damage, err);
                     }
                     pc_paint_renderer_free(orig);
                 }
@@ -967,8 +975,18 @@ static pc_status stroke_edit(pc_document *doc, bool *ha, pc_layer_id *active, vo
     pc_surface *surf = NULL;
     bool lock = false;
     pc_status rc = pc_engine_target_surface(doc, c->has_layer, c->layer, c->p, &surf, &lock, err);
-    if (rc != PC_OK) {
-        return rc;
+    if (rc != PC_OK || !surf) {
+        return rc != PC_OK ? rc : pc_fail(err, PC_ERR_INVALID, "paint target is unavailable");
+    }
+    if (c->ready) {
+        pc_surface replacement = {0};
+        rc = pc_surface_clone(c->ready, &replacement, err);
+        if (rc != PC_OK) {
+            return rc;
+        }
+        pc_surface_fini(surf);
+        *surf = replacement;
+        return PC_OK;
     }
     pc_paint_brush brush = {0};
     pc_paint_brush_copy(&brush, c->brush);
@@ -989,9 +1007,9 @@ static pc_status stroke_edit(pc_document *doc, bool *ha, pc_layer_id *active, vo
 }
 
 /* Run a resolved brush stroke onto the target (stroke_with). Consumes `brush` (finalises it). */
-static pc_status stroke_with(pc_engine_session *s, yyjson_val *p, const char *label, pc_paint_brush brush,
-                             pc_paint_point *pts, size_t npts, bool auto_erase, pc_json_value *out,
-                             pc_error *err)
+static pc_status stroke_with(pc_engine_session *s, const char *command, yyjson_val *p, const char *label,
+                             pc_paint_brush brush, pc_paint_point *pts, size_t npts, bool auto_erase,
+                             pc_json_value *out, pc_error *err)
 {
     float bg[4];
     memcpy(bg, s->tools.background, sizeof bg);
@@ -1024,9 +1042,25 @@ static pc_status stroke_with(pc_engine_session *s, yyjson_val *p, const char *la
     ctx.auto_erase = auto_erase;
     ctx.damage = PC_RECT_EMPTY;
 
+    pc_surface ready = {0};
+    pc_engine_live_stroke *offered = s->live_commit;
+    s->live_commit = NULL;
+    if (live_matches(offered, s, command, p, pts, npts, &brush)) {
+        rc = live_surface(offered, &ready, &ctx.damage, err);
+        if (rc == PC_OK) {
+            ctx.ready = &ready;
+            if (s->live_commit_reuses < UINT64_MAX) {
+                s->live_commit_reuses++;
+            }
+        }
+    }
     pc_cmyk_space *space = pc_engine_doc_cmyk_space(s);
     pc_cmyk_space *prev = space != NULL ? pc_cmyk_space_enter(space) : NULL;
-    rc = pc_engine_session_edit(s, label, stroke_edit, &ctx, err);
+    if (rc == PC_OK) {
+        rc = pc_engine_session_edit(s, label, stroke_edit, &ctx, err);
+    }
+    pc_surface_fini(&ready);
+    pc_engine_live_stroke_free(offered);
     if (space != NULL) {
         pc_cmyk_space_leave(prev);
         pc_cmyk_space_release(space);
@@ -1057,7 +1091,7 @@ static pc_status run_stroke(pc_engine_session *s, yyjson_val *p, pc_json_value *
     }
     with_blend_mode(&brush, p);
     const char *label = (brush.erase && !clear_mode(p)) ? "Eraser" : "Brush Tool";
-    return stroke_with(s, p, label, brush, pts, npts, false, out, err);
+    return stroke_with(s, "paint.stroke", p, label, brush, pts, npts, false, out, err);
 }
 
 /* The Pencil's brush: aliased, hard, full flow, options-bar mode; or the Eraser's Block. */
@@ -1135,8 +1169,10 @@ static pc_status run_pencil(pc_engine_session *s, yyjson_val *p, pc_json_value *
         return rc;
     }
     const char *label = (brush.erase && !clear_mode(p)) ? "Eraser" : "Pencil";
-    return stroke_with(s, p, label, brush, pts, npts, flag(p, "autoErase", false), out, err);
+    return stroke_with(s, "paint.pencil", p, label, brush, pts, npts, flag(p, "autoErase", false), out, err);
 }
+
+#include "live_stroke.inc"
 
 /* ---- paint.mixerBrush -------------------------------------------------------------------- */
 
@@ -1353,8 +1389,7 @@ static bool parse_lim(const char *s, size_t len, void *out)
     return pc_paint_limits_parse(s, len, out);
 }
 
-static pc_status run_color_replacement(pc_engine_session *s, yyjson_val *p, pc_json_value *out,
-                                       pc_error *err)
+static pc_status run_color_replacement(pc_engine_session *s, yyjson_val *p, pc_json_value *out, pc_error *err)
 {
     const char *cmd = "paint.colorReplacement";
     yyjson_val *t = pc_json_get(p, "target");
@@ -1865,9 +1900,8 @@ static pc_status run_define_from_selection(pc_engine_session *s, yyjson_val *p, 
     uint32_t tw = (uint32_t)(x1 - x0), th = (uint32_t)(y1 - y0);
     if ((tw > th ? tw : th) > MAX_TIP) {
         free(v);
-        pc_status rc2 = pc_engine_err_bad_params(err, cmd,
-                                                 "selection too large for a brush tip (%ux%u; max %u px)",
-                                                 tw, th, MAX_TIP);
+        pc_status rc2 = pc_engine_err_bad_params(
+            err, cmd, "selection too large for a brush tip (%ux%u; max %u px)", tw, th, MAX_TIP);
         free(name);
         return rc2;
     }
@@ -2002,7 +2036,8 @@ pc_status pc_engine_set_brush(pc_engine_session *s, yyjson_val *p, pc_json_value
     if (p != NULL && yyjson_is_obj(p)) {
         size_t idx, max;
         yyjson_val *k, *vv;
-        yyjson_obj_foreach (p, idx, max, k, vv) {
+        yyjson_obj_foreach(p, idx, max, k, vv)
+        {
             const char *ks = yyjson_get_str(k);
             if (ks == NULL || strcmp(ks, "preset") == 0 || strcmp(ks, "reset") == 0 ||
                 strcmp(ks, "coalesce") == 0 || strcmp(ks, "brush") == 0) {

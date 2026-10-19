@@ -24,6 +24,7 @@
 #include "engine/engine.h"
 #include "ui/menu_nav.h"
 #include "ui/state.h"
+#include "ui/canvas.h"
 #include "ui/theme.h"
 
 /* Opaque so the GUI headers (SDL/GL/Nuklear/FreeType) stay inside app.c and the control test can
@@ -33,6 +34,7 @@ typedef struct pc_ui_shell_app pc_ui_shell_app;
 /* A headless app: a fresh engine session, the default UiState and theme tokens, no window. Never
  * touches SDL. Free with pc_ui_shell_app_free. */
 pc_status pc_ui_shell_app_new(pc_ui_shell_app **out, pc_error *err);
+void pc_ui_shell_app_background_jobs(pc_ui_shell_app *app, bool enabled);
 void pc_ui_shell_app_free(pc_ui_shell_app *a); /* NULL-safe */
 
 /* Open the SDL3 window, GL 3.3 core context, Nuklear and the FreeType atlas (reusing the spike's
@@ -73,11 +75,28 @@ void pc_ui_shell_app_apply_theme(pc_ui_shell_app *a);
 /* Invoke a menu item / command id by its routing rule: UI commands go to view/shell state, engine
  * commands to pc_engine_session_execute. `params` may be NULL. Writes *out (owned) only on success.
  * This is the shell's menus::invoke; the control channel and the menu bar both use it. */
-pc_status pc_ui_shell_app_invoke(pc_ui_shell_app *a, const char *id, yyjson_val *params,
-                                 pc_json_value *out, pc_error *err);
+pc_status pc_ui_shell_app_invoke(pc_ui_shell_app *a, const char *id, yyjson_val *params, pc_json_value *out,
+                                 pc_error *err);
 
 /* Synchronise per-document cameras after open/close/reorder. Preserves them by document id. */
 pc_status pc_ui_shell_app_sync_views(pc_ui_shell_app *a, pc_error *err);
+
+/* Mapping from the last canvas layout; false until a document has been laid out. */
+bool pc_ui_shell_app_canvas_mapping(const pc_ui_shell_app *a, pc_ui_canvas_xform *out);
+
+bool pc_ui_shell_app_dialog_action_mapping(const pc_ui_shell_app *app, const char *action, float rect[4]);
+bool pc_ui_shell_app_dialog_mapping(const pc_ui_shell_app *app, bool confirm, float rect[4]);
+
+/* Last rendered, clipped bounds of a native panel widget, in logical window coordinates. */
+bool pc_ui_shell_app_panel_mapping(const pc_ui_shell_app *app, const char *command, pc_layer_id layer,
+                                   float rect[4]);
+
+/* GPU health/control diagnostics. Simulated loss faults only the image compositor; the
+ * SDL window renderer still needs a working GL context. */
+pc_status pc_ui_shell_app_gpu_info(pc_ui_shell_app *app, pc_json_value *out, pc_error *err);
+pc_status pc_ui_shell_app_gpu_simulate_loss(pc_ui_shell_app *app, bool error, pc_json_value *out,
+                                            pc_error *err);
+void pc_ui_shell_app_gpu_check(pc_ui_shell_app *app);
 
 /* The menu-bar keyboard navigation state (used by the frame loop and testable on its own). */
 pc_ui_menu_nav *pc_ui_shell_app_nav(pc_ui_shell_app *a);

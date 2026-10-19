@@ -232,8 +232,54 @@ static void test_state_roundtrip(void)
     pc_ui_state_fini(&s2);
 }
 
+static void test_crop_saved_frame_validation(void)
+{
+    pc_ui_state state;
+    pc_ui_state_init(&state);
+    const char *cases[] = {"{\"crop_rect\":[-5,2,120,82],\"crop_angle\":-17.5}", "{\"crop_rect\":[0,0,0,12]}",
+                           "{\"crop_rect\":[0,0,1e8,12]}", "{\"crop_angle\":4000}",
+                           "{\"crop_angle\":\"bad\"}"};
+    for (size_t i = 0; i < sizeof cases / sizeof *cases; i++) {
+        yyjson_doc *doc = NULL;
+        CHECK(pc_json_parse(cases[i], strlen(cases[i]), &doc, NULL) == PC_OK);
+        CHECK(pc_ui_state_from_json(&state, yyjson_doc_get_root(doc), NULL) ==
+              (i == 0 ? PC_OK : PC_ERR_INVALID));
+        yyjson_doc_free(doc);
+    }
+    CHECK(state.has_crop && state.crop_angle == -17.5 && state.crop_rect[0] == -5);
+    char *encoded = serialize(&state);
+    CHECK(encoded != NULL);
+    if (encoded) {
+        CHECK_CONTAINS(encoded, "\"crop_rect\":[-5.0,2.0,120.0,82.0]");
+        free(encoded);
+    }
+    pc_ui_state_fini(&state);
+}
+
+static void test_dialog_ids_and_limits(void)
+{
+    pc_ui_state s;
+    pc_ui_state_init(&s);
+    s.next_id = 0;
+    uint64_t id = pc_ui_state_open_dialog(&s, PC_DIALOG_ABOUT, NULL);
+    CHECK(id == 1);
+    s.next_id = id;
+    CHECK(pc_ui_state_open_dialog(&s, PC_DIALOG_ABOUT, NULL) == 2);
+    s.next_id = UINT64_MAX;
+    CHECK(pc_ui_state_open_dialog(&s, PC_DIALOG_ABOUT, NULL) == 0);
+    CHECK(s.n_dialogs == 2);
+    s.next_id = 3;
+    while (s.n_dialogs < 128) {
+        CHECK(pc_ui_state_open_dialog(&s, PC_DIALOG_ABOUT, NULL) != 0);
+    }
+    CHECK(pc_ui_state_open_dialog(&s, PC_DIALOG_ABOUT, NULL) == 0);
+    CHECK(s.n_dialogs == 128);
+    pc_ui_state_fini(&s);
+}
+
 int main(int argc, char **argv)
 {
+    RUN(test_dialog_ids_and_limits);
     RUN(test_tool_names_parse);
     RUN(test_tool_serde_roundtrip);
     RUN(test_enums);
@@ -241,5 +287,6 @@ int main(int argc, char **argv)
     RUN(test_dialogs);
     RUN(test_group_tools);
     RUN(test_state_roundtrip);
+    RUN(test_crop_saved_frame_validation);
     return pc_t_finish();
 }

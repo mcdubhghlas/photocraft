@@ -4241,6 +4241,7 @@ struct nk_user_font_glyph {
 };
 #endif
 
+struct nk_draw_list;
 struct nk_user_font {
     nk_handle userdata;    /**!< user provided font handle */
     float height;          /**!< max height of the font */
@@ -4248,6 +4249,8 @@ struct nk_user_font {
 #ifdef NK_INCLUDE_VERTEX_BUFFER_OUTPUT
     nk_query_font_glyph_f query; /**!< font glyph callback to query drawing info */
     nk_handle texture;           /**!< texture handle to the used font atlas or texture */
+    /* PhotoCraft extension: optional whole-string shaping before the rune fallback. */
+    nk_bool (*shape)(nk_handle, struct nk_draw_list*, struct nk_rect, const char*, int, float, struct nk_color);
 #endif
 };
 
@@ -10950,6 +10953,7 @@ nk_draw_list_add_text(struct nk_draw_list *list, const struct nk_user_font *font
     if (!NK_INTERSECT(rect.x, rect.y, rect.w, rect.h,
         list->clip_rect.x, list->clip_rect.y, list->clip_rect.w, list->clip_rect.h)) return;
 
+    if (font->shape && font->shape(font->userdata, list, rect, text, len, font_height, fg)) return;
     nk_draw_list_push_image(list, font->texture);
     x = rect.x;
     glyph_len = nk_utf_decode(text, &unicode, len);

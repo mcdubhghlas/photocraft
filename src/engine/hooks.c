@@ -6,14 +6,7 @@
  * duplicate symbol. The comment on each default names the owning chunk. */
 #include "engine_internal.h"
 
-yyjson_mut_val *pc_engine_hook_inject_target(const pc_engine_session *s, const char *id,
-                                             yyjson_mut_doc *doc, yyjson_mut_val *params)
-{
-    (void)s;
-    (void)id;
-    (void)doc;
-    return params; /* channel_cmds (E7) fills in the target */
-}
+/* Channel target injection is implemented by channel_cmds.c. */
 
 /* pc_engine_hook_param_check relocated to param_check.c, E4. */
 
@@ -25,14 +18,6 @@ yyjson_mut_val *pc_engine_hook_inject_target(const pc_engine_session *s, const c
 /* pc_engine_hook_filter_subtype relocated to plugin_cmds.c (E12): it dispatches the plug-in
  * smart-filter re-render. The distort (E4) / lens (E6) / adjust (E8) subtypes add their id cases
  * to that function when they land (no duplicate symbol). */
-
-size_t pc_engine_hook_color_restriction(const pc_engine_session *s, const char *id, yyjson_val *params)
-{
-    (void)s;
-    (void)id;
-    (void)params;
-    return SIZE_MAX; /* channel_cmds (E7): a single targeted colour channel */
-}
 
 /* pc_engine_hook_restrict_to_color and pc_engine_hook_fix_view relocated to channel_cmds.c, E7. */
 

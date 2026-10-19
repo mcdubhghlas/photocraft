@@ -78,8 +78,8 @@ typedef struct pc_ui_dock_layout {
     pc_ui_name_list tab_order[PC_UI_GROUP_N];   /* left-to-right tab order, by name */
 } pc_ui_dock_layout;
 
-void pc_ui_dock_layout_init(pc_ui_dock_layout *l);        /* default (empty) */
-void pc_ui_dock_layout_fini(pc_ui_dock_layout *l);        /* free owned names; NULL-safe */
+void pc_ui_dock_layout_init(pc_ui_dock_layout *l); /* default (empty) */
+void pc_ui_dock_layout_fini(pc_ui_dock_layout *l); /* free owned names; NULL-safe */
 void pc_ui_dock_layout_copy(pc_ui_dock_layout *dst, const pc_ui_dock_layout *src); /* deep copy */
 bool pc_ui_dock_layout_eq(const pc_ui_dock_layout *a, const pc_ui_dock_layout *b);
 
@@ -109,13 +109,13 @@ void pc_ui_dock_show_tab(pc_ui_dock_layout *l, pc_ui_group g, size_t tab, bool p
 
 /* Lay out `shown` (display order, `n` groups) in a column `avail` tall with `strip`-high tab
  * strips. Fills `out[i]` with each group's height; the last expanded group fills the rest. */
-void pc_ui_dock_heights_for(const pc_ui_dock_layout *l, const pc_ui_group *shown, size_t n,
-                            float avail, float strip, float *out);
+void pc_ui_dock_heights_for(const pc_ui_dock_layout *l, const pc_ui_group *shown, size_t n, float avail,
+                            float strip, float *out);
 
 /* Splitter `i` (below group `i` in `shown`/`heights`) dragged by `dy`. `heights` are the laid-out
  * heights for the same `shown`/`avail` (from pc_ui_dock_heights_for). */
-void pc_ui_dock_resize(pc_ui_dock_layout *l, const pc_ui_group *shown, const float *heights,
-                       size_t n, size_t i, float dy);
+void pc_ui_dock_resize(pc_ui_dock_layout *l, const pc_ui_group *shown, const float *heights, size_t n,
+                       size_t i, float dy);
 
 /* The group a dragged group lands before when released at `y`; returns true and writes *out, or
  * false for "last". `order`/`rect_top`/`rect_bottom` describe the laid-out groups. */
@@ -124,10 +124,12 @@ bool pc_ui_dock_drop_before(const pc_ui_group *order, size_t n_order, const pc_u
                             pc_ui_group dragged, float y, pc_ui_group *out);
 
 /* Serde (field names byte-exact with crates/ui-egui/src/dock.rs). */
-pc_status pc_ui_dock_layout_to_json(const pc_ui_dock_layout *l, yyjson_mut_doc *doc,
-                                    yyjson_mut_val **out, pc_error *err);
+pc_status pc_ui_dock_layout_to_json(const pc_ui_dock_layout *l, yyjson_mut_doc *doc, yyjson_mut_val **out,
+                                    pc_error *err);
 /* Never fails: unreadable parts keep their defaults (the reference is lenient on tabOrder and the
  * whole field falls back to default when any part is wrong). */
+/* Transactional equivalent; reports allocation/size failure without losing the old layout. */
+pc_status pc_ui_dock_layout_parse(pc_ui_dock_layout *out, yyjson_val *object, pc_error *err);
 void pc_ui_dock_layout_from_json(pc_ui_dock_layout *l, yyjson_val *obj);
 
 #endif /* PC_UI_DOCK_H */

@@ -66,6 +66,7 @@ const pc_ui_command PC_UI_COMMANDS[] = {
     {"window.toggle.brushSettings", "Brush Settings", {"Window", NULL, NULL}, 1, "F5"},
     {"window.toggle.navigator", "Navigator", {"Window", NULL, NULL}, 1, NULL},
     {"window.toggle.toolbar", "Tools", {"Window", NULL, NULL}, 1, NULL},
+    {"window.toolbar.double", "Use Two-column Toolbar", {NULL, NULL, NULL}, 0, NULL},
     {"window.togglePanels", "Show/Hide All Panels", {NULL, NULL, NULL}, 0, "Tab"},
     {"window.toggle.dock", "Show/Hide Panels", {NULL, NULL, NULL}, 0, "Shift+Tab"},
     {"window.toggle.options", "Options", {"Window", NULL, NULL}, 1, NULL},
@@ -128,6 +129,9 @@ const char *pc_ui_panel_alias(const char *id)
     if (k == NULL) {
         return NULL;
     }
+    if(!strcmp(k,"channels") || !strcmp(k,"paths")) { return "window.toggle.layers"; }
+    if(!strcmp(k,"actions") || !strcmp(k,"layerComps")) { return "window.toggle.history"; }
+    if(!strcmp(k,"character") || !strcmp(k,"paragraph")) { return "window.toggle.character"; }
     if (strcmp(k, "layers") == 0) {
         return "window.toggle.layers";
     }

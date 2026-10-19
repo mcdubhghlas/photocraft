@@ -10,9 +10,7 @@
  *    "fillRule":"nonzero|evenodd","inverted":bool}
  * Colours are "#rrggbb"/"#rrggbbaa"/[r,g,b,a] (0..1); opacities are percentages (0..100).
  *
- * Deferred (not registered): path.stroke needs the still-unported stroke-command grouping helper
- * (analysis_cmds::compound) and the plain-brush paint apply; layer.rasterize.shape needs
- * extra_cmds::rasterize (E12). See REWRITE_PLAN.md §8.
+ * Stroke Path uses the shared brush renderer and one compound transaction for delegated tools.
  */
 #include <math.h>
 #include <stdint.h>
@@ -36,7 +34,7 @@
 #include "vector/vector.h"
 
 #include "color/blend.h" /* pc_blend_mode, PC_BLEND_NORMAL */
-#include "doc/json.h" /* pc_live_shape_to_json */
+#include "doc/json.h"    /* pc_live_shape_to_json */
 
 #include "brush_cmds.h" /* pc_engine_blend_from_str */
 #include "engine_internal.h"
@@ -69,7 +67,10 @@ void pc_engine_vector_clipboard_fini(pc_engine_session *s)
 
 /* ---- param readers ------------------------------------------------------------------------ */
 
-static bool get_f64(yyjson_val *p, const char *k, double *out) { return pc_json_as_f64(pc_json_get(p, k), out); }
+static bool get_f64(yyjson_val *p, const char *k, double *out)
+{
+    return pc_json_as_f64(pc_json_get(p, k), out);
+}
 
 static bool pbool(yyjson_val *p, const char *k, bool def)
 {
@@ -201,7 +202,8 @@ static bool vcolor(yyjson_val *v, pc_color *out)
             *out = pc_color_rgb(r, g, b);
             return true;
         }
-        if (len == 8 && hex2(s, len, 0, &r) && hex2(s, len, 2, &g) && hex2(s, len, 4, &b) && hex2(s, len, 6, &a)) {
+        if (len == 8 && hex2(s, len, 0, &r) && hex2(s, len, 2, &g) && hex2(s, len, 4, &b) &&
+            hex2(s, len, 6, &a)) {
             *out = pc_color_rgba(r, g, b, a);
             return true;
         }
@@ -209,7 +211,10 @@ static bool vcolor(yyjson_val *v, pc_color *out)
     return false;
 }
 
-static uint8_t quant(float v) { return (uint8_t)(pc_clampf(v, 0.0f, 1.0f) * 255.0f + 0.5f); }
+static uint8_t quant(float v)
+{
+    return (uint8_t)(pc_clampf(v, 0.0f, 1.0f) * 255.0f + 0.5f);
+}
 
 /* "#rrggbb" or "#rrggbbaa" into out (>= 10 bytes). */
 static void color_hex(const pc_color *c, char out[10])
@@ -379,7 +384,8 @@ static bool parse_path(yyjson_val *v, pc_path *out, char *emsg, size_t ecap)
     if (fr == NULL) {
         fr = pc_json_as_str(pc_json_get(v, "fill_rule"), &frlen);
     }
-    path.fill_rule = (fr != NULL && (ieq(fr, "evenodd", frlen) || ieq(fr, "even-odd", frlen) || ieq(fr, "even_odd", frlen)))
+    path.fill_rule = (fr != NULL &&
+                      (ieq(fr, "evenodd", frlen) || ieq(fr, "even-odd", frlen) || ieq(fr, "even_odd", frlen)))
                          ? PC_FILL_RULE_EVENODD
                          : PC_FILL_RULE_NONZERO;
     path.inverted = pbool(v, "inverted", false);
@@ -516,8 +522,8 @@ static int parse_fill(yyjson_val *v, pc_fill *out, char *emsg, size_t ecap)
                 yyjson_val *e = yyjson_arr_get(sv, i);
                 double t;
                 pc_color col;
-                if (e != NULL && yyjson_is_arr(e) && yyjson_arr_size(e) >= 2 && pc_json_as_f64(yyjson_arr_get(e, 0), &t) &&
-                    vcolor(yyjson_arr_get(e, 1), &col)) {
+                if (e != NULL && yyjson_is_arr(e) && yyjson_arr_size(e) >= 2 &&
+                    pc_json_as_f64(yyjson_arr_get(e, 0), &t) && vcolor(yyjson_arr_get(e, 1), &col)) {
                     stops[nstops].pos = (float)t;
                     stops[nstops].color = col;
                     nstops++;
@@ -549,7 +555,8 @@ static int parse_fill(yyjson_val *v, pc_fill *out, char *emsg, size_t ecap)
             }
         }
         bool reverse = pbool(g, "reverse", false);
-        pc_status rc = pc_fill_gradient(stops, nstops, (float)angle, (float)(scale / 100.0), style, reverse, out, NULL);
+        pc_status rc =
+            pc_fill_gradient(stops, nstops, (float)angle, (float)(scale / 100.0), style, reverse, out, NULL);
         if (cap > 0) {
             free(stops);
         }
@@ -630,15 +637,17 @@ static int parse_stroke(yyjson_val *v, const pc_shape_stroke *base, const float 
     static const struct {
         const char *key;
         double lo, hi;
-    } ranges[] = {{"width", 0.0, 1000000.0}, {"opacity", 0.0, 100.0}, {"miterLimit", 1.0, 500.0},
+    } ranges[] = {{"width", 0.0, 1000000.0},
+                  {"opacity", 0.0, 100.0},
+                  {"miterLimit", 1.0, 500.0},
                   {"dashOffset", -1000000.0, 1000000.0}};
     for (size_t i = 0; i < 4; i++) {
         yyjson_val *rv = pc_json_get(v, ranges[i].key);
         if (rv != NULL) {
             double n;
             if (!pc_json_as_f64(rv, &n) || !isfinite(n) || n < ranges[i].lo || n > ranges[i].hi) {
-                snprintf(emsg, ecap, "`%s` must be a finite number between %g and %g", ranges[i].key, ranges[i].lo,
-                         ranges[i].hi);
+                snprintf(emsg, ecap, "`%s` must be a finite number between %g and %g", ranges[i].key,
+                         ranges[i].lo, ranges[i].hi);
                 return -1;
             }
         }
@@ -788,6 +797,27 @@ static int parse_stroke(yyjson_val *v, const pc_shape_stroke *base, const float 
 /* ---- live shapes -------------------------------------------------------------------------- */
 
 /* [x,y,w,h] from "rect", else prev's rect; error otherwise. */
+pc_status pc_engine_parse_shape_stroke(yyjson_val *value, const pc_shape_stroke *base,
+                                       const float foreground[4], bool *present, pc_shape_stroke *out,
+                                       pc_error *err)
+{
+    if (!foreground || !present || !out) {
+        return pc_fail(err, PC_ERR_INVALID, "missing stroke output");
+    }
+    char message[256] = {0};
+    pc_shape_stroke next = {0};
+    int result = parse_stroke(value, base, foreground, &next, message, sizeof message);
+    if (result < 0) {
+        return pc_fail(err, strcmp(message, "out of memory") == 0 ? PC_ERR_NOMEM : PC_ERR_INVALID, "%s",
+                       message);
+    }
+    *present = result > 0;
+    if (result > 0) {
+        *out = next;
+    }
+    return PC_OK;
+}
+
 static bool live_rect(const char *cmd, yyjson_val *p, const pc_live_shape *prev, double out[4], char *emsg,
                       size_t ecap)
 {
@@ -925,8 +955,9 @@ static const char *live_kind(const pc_live_shape *l)
 {
     switch (l->kind) {
     case PC_LIVE_RECT:
-        return (l->radii[0] > 0.0 || l->radii[1] > 0.0 || l->radii[2] > 0.0 || l->radii[3] > 0.0) ? "roundedRect"
-                                                                                                   : "rect";
+        return (l->radii[0] > 0.0 || l->radii[1] > 0.0 || l->radii[2] > 0.0 || l->radii[3] > 0.0)
+                   ? "roundedRect"
+                   : "rect";
     case PC_LIVE_ELLIPSE:
         return "ellipse";
     case PC_LIVE_POLYGON:
@@ -1080,7 +1111,8 @@ static pc_status en_can_paste_stroke(const pc_engine_session *s, pc_error *reaso
 static pc_status not_shape(pc_error *err, pc_layer_id id, const pc_layer *l)
 {
     return pc_engine_err_other(err, "layer %llu is %s %s layer, not a shape layer", (unsigned long long)id,
-                               pc_layer_content_article(&l->content), pc_layer_content_kind_name(&l->content));
+                               pc_layer_content_article(&l->content),
+                               pc_layer_content_kind_name(&l->content));
 }
 
 static pc_status shape_info(const pc_engine_session *s, pc_layer_id id, pc_json_value *out, pc_error *err)
@@ -1183,6 +1215,7 @@ static pc_status with_shape(pc_engine_session *s, pc_layer_id id, const char *la
 
 #include "vector_specs_shape.inc"
 #include "vector_specs_path.inc"
+#include "path_stroke_cmds.inc"
 #include "vector_specs_mask.inc"
 #include "path_edit_cmds.inc" /* E11: point-level path edits (reuses the helpers above) */
 
@@ -1199,19 +1232,25 @@ static pc_status run_layer_rasterize_shape(pc_engine_session *s, yyjson_val *p, 
 
 /* ---- registry ----------------------------------------------------------------------------- */
 
-#define FILLDOC                                                                                                        \
-    "\"fill\":\"#rrggbb\"|[r,g,b,a]|{\"gradient\":{\"stops\":[[t,\"#hex\"]],\"angle\":deg,\"scale\":%,\"style\":"       \
+#define FILLDOC                                                                                              \
+    "\"fill\":\"#rrggbb\"|[r,g,b,a]|{\"gradient\":{\"stops\":[[t,\"#hex\"]],\"angle\":deg,\"scale\":%,"      \
+    "\"style\":"                                                                                             \
     "\"linear|radial|angle|reflected|diamond\",\"reverse\":bool}}|{\"pattern\":name}|null (no fill)"
-#define STROKEDOC                                                                                                      \
-    "\"stroke\":{\"width\":px,\"color\":\"#rrggbb\"|fill,\"opacity\":0..100,\"align\":\"inside|center|outside\","      \
-    "\"cap\":\"butt|round|square\",\"join\":\"miter|round|bevel\",\"miterLimit\":n,\"dashes\":[multiples of "          \
+#define STROKEDOC                                                                                            \
+    "\"stroke\":{\"width\":px,\"color\":\"#rrggbb\"|fill,\"opacity\":0..100,\"align\":\"inside|center|"      \
+    "outside\","                                                                                             \
+    "\"cap\":\"butt|round|square\",\"join\":\"miter|round|bevel\",\"miterLimit\":n,\"dashes\":[multiples "   \
+    "of "                                                                                                    \
     "width],\"dashOffset\":n}|null"
-#define PATHFORM                                                                                                       \
-    "path: {\"subpaths\":[{\"closed\":bool=true,\"op\":\"combine|subtract|intersect|exclude\",\"knots\":[[x,y] | "     \
-    "{\"anchor\":[x,y],\"in\":[x,y],\"out\":[x,y],\"smooth\":bool}]}],\"fillRule\":\"nonzero|evenodd\",\"inverted\":"   \
+#define PATHFORM                                                                                             \
+    "path: "                                                                                                 \
+    "{\"subpaths\":[{\"closed\":bool=true,\"op\":\"combine|subtract|intersect|exclude\",\"knots\":[[x,y] | " \
+    "{\"anchor\":[x,y],\"in\":[x,y],\"out\":[x,y],\"smooth\":bool}]}],\"fillRule\":\"nonzero|evenodd\","     \
+    "\"inverted\":"                                                                                          \
     "bool}"
-#define COMBINE_PARAMS                                                                                                 \
-    "{\"layer\":id?,\"subpath\":index? (default all but the first)} (no layer/subpath and two or more shape layers "   \
+#define COMBINE_PARAMS                                                                                       \
+    "{\"layer\":id?,\"subpath\":index? (default all but the first)} (no layer/subpath and two or more "      \
+    "shape layers "                                                                                          \
     "selected: merges them into the top-most, whose components above the bottom layer's take the operation)"
 
 static const char *const MENU_LAYER_NEW[] = {"Layer", "New"};
@@ -1222,83 +1261,104 @@ static const pc_engine_command SPECS[] = {
     {"shape.create", "New Shape Layer", MENU_LAYER_NEW, 2, NULL,
      "{\"kind\":\"rect|roundedRect|ellipse|polygon|star|line|path\"=\"rect\",\"rect\":[x,y,w,h] "
      "(rect/roundedRect/ellipse/polygon/star),\"radii\":[tl,tr,br,bl]|r (roundedRect=10),\"sides\":3..100=5,"
-     "\"starRatio\":0..1 (star=0.5),\"from\":[x,y],\"to\":[x,y],\"weight\":px=1 (line),\"path\":{\xe2\x80\xa6} (kind "
+     "\"starRatio\":0..1 (star=0.5),\"from\":[x,y],\"to\":[x,y],\"weight\":px=1 "
+     "(line),\"path\":{\xe2\x80\xa6} (kind "
      "path)," FILLDOC "=foreground," STROKEDOC "=none,\"name\":str?,\"addTo\":layerId? + "
-     "\"op\":\"combine|subtract|intersect|exclude\" (append to an existing shape layer)} \xe2\x86\x92 shape.info. " PATHFORM,
+     "\"op\":\"combine|subtract|intersect|exclude\" (append to an existing shape layer)} \xe2\x86\x92 "
+     "shape.info. " PATHFORM,
      en_has_doc, run_shape_create, true},
     {"shape.edit", "Edit Shape", NULL, 0, NULL,
      "{\"layer\":id?,\"path\":{\xe2\x80\xa6}? (replaces; drops live shape),\"kind\":str?,\"rect\":[x,y,w,h]?,"
      "\"radii\":[tl,tr,br,bl]|r?,\"sides\":n?,\"starRatio\":r?,\"from\":[x,y]?,\"to\":[x,y]?,\"weight\":px? "
-     "(live-shape params regenerate the path),\"move\":[dx,dy]?,\"transform\":[a,b,c,d,e,f]?,\"op\":\"combine|"
-     "\xe2\x80\xa6\"? + \"subpath\":index? (default all but the first),\"fillRule\":\"nonzero|evenodd\"?," FILLDOC
-     "?," STROKEDOC "? (merged into the current stroke),\"name\":str?} \xe2\x86\x92 shape.info",
+     "(live-shape params regenerate the "
+     "path),\"move\":[dx,dy]?,\"transform\":[a,b,c,d,e,f]?,\"op\":\"combine|"
+     "\xe2\x80\xa6\"? + \"subpath\":index? (default all but the "
+     "first),\"fillRule\":\"nonzero|evenodd\"?," FILLDOC "?," STROKEDOC
+     "? (merged into the current stroke),\"name\":str?} \xe2\x86\x92 shape.info",
      en_has_layer, run_shape_edit, true},
     {"shape.info", "Shape Layer Info", NULL, 0, NULL,
      "{\"layer\":id?} \xe2\x86\x92 {layer,name,kind,path,fill,stroke,live,bounds:[x,y,w,h]}", en_has_layer,
      run_shape_info, false},
     {"path.list", "List Paths", NULL, 0, NULL,
-     "{} \xe2\x86\x92 {paths:[{name,knots,subpaths}],workPath,clippingPath,layerPath (active layer's shape path / "
+     "{} \xe2\x86\x92 {paths:[{name,knots,subpaths}],workPath,clippingPath,layerPath (active layer's shape "
+     "path / "
      "vector mask)}",
      en_has_doc, run_path_list, false},
-    {"path.info", "Path Info", NULL, 0, NULL, "{\"name\":str|\"work\"|\"layer\"=\"work\"} \xe2\x86\x92 {name,path}",
-     en_has_doc, run_path_info, false},
+    {"path.info", "Path Info", NULL, 0, NULL,
+     "{\"name\":str|\"work\"|\"layer\"=\"work\"} \xe2\x86\x92 {name,path}", en_has_doc, run_path_info, false},
     {"path.set", "Set Path", NULL, 0, NULL,
-     "{\"name\":str|\"work\"=\"work\",\"path\":{\xe2\x80\xa6},\"op\":\"combine|subtract|intersect|exclude\"? (append "
+     "{\"name\":str|\"work\"=\"work\",\"path\":{\xe2\x80\xa6},\"op\":\"combine|subtract|intersect|exclude\"? "
+     "(append "
      "to the existing path with this op instead of replacing)}. " PATHFORM,
      en_has_doc, run_path_set, true},
-    {"path.delete", "Delete Path", NULL, 0, NULL, "{\"name\":str|\"work\"=\"work\"}", en_has_doc, run_path_delete,
-     true},
+    {"path.delete", "Delete Path", NULL, 0, NULL, "{\"name\":str|\"work\"=\"work\"}", en_has_doc,
+     run_path_delete, true},
     {"path.transform", "Free Transform Path", NULL, 0, NULL,
      "{\"name\":str|\"work\"|\"layer\"=\"work\",\"layer\":id? (with layer target),\"matrix\":[a,b,c,d,e,f] | "
-     "\"quad\":[[x,y]\xc3\x97" "4] (Distort/Perspective: where the frame's corners go, clockwise from top-left) | "
+     "\"quad\":[[x,y]\xc3\x97"
+     "4] (Distort/Perspective: where the frame's corners go, clockwise from top-left) | "
      "\"style\"|\"mesh\"|\"warp\":\xe2\x80\xa6 (Warp, as edit.transform.warp) | "
-     "\"translateX\":px?,\"translateY\":px?,\"scaleX\":factor?,\"scaleY\":factor?,\"angle\":degrees?,\"rect\":[x0,y0,"
-     "x1,y1]? (the quad's or warp's frame; default = path control bounds)} (numeric transforms pivot on path bounds "
+     "\"translateX\":px?,\"translateY\":px?,\"scaleX\":factor?,\"scaleY\":factor?,\"angle\":degrees?,"
+     "\"rect\":[x0,y0,"
+     "x1,y1]? (the quad's or warp's frame; default = path control bounds)} (numeric transforms pivot on path "
+     "bounds "
      "center)",
      en_has_doc, run_path_transform, true},
     {"path.clippingPath.set", "Clipping Path", NULL, 0, NULL,
-     "{\"name\":savedPathName,\"flatness\":0..100=0} (PSD export clipping path)", en_has_doc, run_clipping_path_set,
-     true},
-    {"path.clippingPath.clear", "Clear Clipping Path", NULL, 0, NULL, "{}", en_has_doc, run_clipping_path_clear, true},
-    {"path.style.copyFill", "Copy Fill", NULL, 0, NULL, "{} (copies active shape layer fill)", en_has_shape_fill,
-     run_copy_fill, true},
+     "{\"name\":savedPathName,\"flatness\":0..100=0} (PSD export clipping path)", en_has_doc,
+     run_clipping_path_set, true},
+    {"path.clippingPath.clear", "Clear Clipping Path", NULL, 0, NULL, "{}", en_has_doc,
+     run_clipping_path_clear, true},
+    {"path.style.copyFill", "Copy Fill", NULL, 0, NULL, "{} (copies active shape layer fill)",
+     en_has_shape_fill, run_copy_fill, true},
     {"path.style.copyStroke", "Copy Complete Stroke", NULL, 0, NULL, "{} (copies active shape layer stroke)",
      en_has_shape_stroke, run_copy_stroke, true},
     {"path.style.pasteFill", "Paste Fill", NULL, 0, NULL,
      "{\"layer\":id?} (pastes copied fill onto active shape layer)", en_can_paste_fill, run_paste_fill, true},
     {"path.style.pasteStroke", "Paste Complete Stroke", NULL, 0, NULL,
-     "{\"layer\":id?} (pastes copied stroke onto active shape layer)", en_can_paste_stroke, run_paste_stroke, true},
-    {"path.rename", "Rename Path", NULL, 0, NULL,
-     "{\"name\":str|\"work\"=\"work\",\"to\":str} (renaming the work path saves it)", en_has_doc, run_path_rename,
+     "{\"layer\":id?} (pastes copied stroke onto active shape layer)", en_can_paste_stroke, run_paste_stroke,
      true},
+    {"path.rename", "Rename Path", NULL, 0, NULL,
+     "{\"name\":str|\"work\"=\"work\",\"to\":str} (renaming the work path saves it)", en_has_doc,
+     run_path_rename, true},
     {"path.toSelection", "Make Selection from Path", NULL, 0, "Cmd+Enter",
-     "{\"name\":str|\"work\"|\"layer\"=\"work\",\"feather\":px=0,\"antiAlias\":bool=true,\"mode\":\"replace|add|"
+     "{\"name\":str|\"work\"|\"layer\"=\"work\",\"feather\":px=0,\"antiAlias\":bool=true,\"mode\":\"replace|"
+     "add|"
      "subtract|intersect\"=\"replace\"}",
      en_has_doc, run_path_to_selection, true},
     {"select.toWorkPath", "Make Work Path", NULL, 0, NULL,
-     "{\"tolerance\":0.5..10 px=2} \xe2\x86\x92 {subpaths,knots}", en_has_selection, run_select_to_work_path, true},
+     "{\"tolerance\":0.5..10 px=2} \xe2\x86\x92 {subpaths,knots}", en_has_selection, run_select_to_work_path,
+     true},
     {"path.fill", "Fill Path", NULL, 0, NULL,
      "{\"name\":str|\"work\"|\"layer\"=\"work\",\"layer\":id? (pixel layer, default "
-     "active),\"color\":\"#rrggbb\"=foreground,\"opacity\":0..100=100,\"mode\":\"normal|multiply|\xe2\x80\xa6\"="
+     "active),\"color\":\"#rrggbb\"=foreground,\"opacity\":0..100=100,\"mode\":\"normal|multiply|"
+     "\xe2\x80\xa6\"="
      "\"normal\",\"feather\":px=0,\"antiAlias\":bool=true}",
      en_has_layer, run_path_fill, true},
+    {"path.stroke", "Stroke Path", NULL, 0, NULL,
+     "{\"name\":str=\"work\",\"layer\":id?,\"tool\":\"brush|pencil|eraser|backgroundEraser|cloneStamp|"
+     "patternStamp|healingBrush|spotHealingBrush|historyBrush|blur|sharpen|smudge|dodge|burn|sponge|"
+     "colorReplacement|mixerBrush\",\"simulatePressure\":bool=false,\"size\":px?,\"hardness\":0..1?,"
+     "\"opacity\":%?,\"color\":color?}",
+     en_has_layer, run_path_stroke, true},
     {"shape.rasterize", "Rasterize Shape", MENU_LAYER_RASTERIZE, 2, NULL, "{\"layer\":id?}", en_has_layer,
      run_shape_rasterize, true},
     {"layer.rasterize.shape", "Rasterize Shape", NULL, 0, NULL,
-     "{\"layer\":id?} (no layer: every selected shape layer)", en_has_layer, run_layer_rasterize_shape,
-     true},
+     "{\"layer\":id?} (no layer: every selected shape layer)", en_has_layer, run_layer_rasterize_shape, true},
     {"layer.vectorMask.add", "Add Vector Mask", MENU_LAYER_VMASK, 2, NULL,
-     "{\"layer\":id?,\"path\":{\xe2\x80\xa6}? | \"name\":str|\"work\"? (copy a document path),\"hide\":bool=false "
+     "{\"layer\":id?,\"path\":{\xe2\x80\xa6}? | \"name\":str|\"work\"? (copy a document "
+     "path),\"hide\":bool=false "
      "(Hide All = inverted)} \xe2\x86\x92 vector mask info. Without a path the mask reveals all.",
      en_has_layer, run_vmask_add, true},
     {"layer.vectorMask.fromPath", "Vector Mask from Current Path", MENU_LAYER_VMASK, 2, NULL,
      "{\"layer\":id?,\"name\":str|\"work\"=\"work\"}", en_has_layer, run_vmask_from_path, true},
     {"layer.vectorMask.edit", "Edit Vector Mask", NULL, 0, NULL,
-     "{\"layer\":id?,\"path\":{\xe2\x80\xa6}?,\"enabled\":bool?,\"linked\":bool?,\"density\":0..100?,\"feather\":0.."
+     "{\"layer\":id?,\"path\":{\xe2\x80\xa6}?,\"enabled\":bool?,\"linked\":bool?,\"density\":0..100?,"
+     "\"feather\":0.."
      "1000? (pixels),\"invert\":true?}. " PATHFORM,
      en_has_layer, run_vmask_edit, true},
-    {"layer.vectorMask.delete", "Delete Vector Mask", MENU_LAYER_VMASK, 2, NULL, "{\"layer\":id?}", en_has_layer,
-     run_vmask_delete, true},
+    {"layer.vectorMask.delete", "Delete Vector Mask", MENU_LAYER_VMASK, 2, NULL, "{\"layer\":id?}",
+     en_has_layer, run_vmask_delete, true},
     {"layer.rasterize.vectorMask", "Rasterize Vector Mask", NULL, 0, NULL,
      "{\"layer\":id?} (multiplied into the layer mask)", en_has_layer, run_vmask_rasterize, true},
     {"layer.vectorMask.revealAll", "Vector Mask: Reveal All", NULL, 0, NULL, "{\"layer\":id?}", en_has_layer,
@@ -1309,23 +1369,26 @@ static const pc_engine_command SPECS[] = {
      "{\"layer\":id?,\"name\":str|\"work\"=\"work\"}", en_has_layer, run_vmask_current_path, true},
     {"layer.vectorMask.enabled", "Enable Vector Mask", NULL, 0, NULL,
      "{\"layer\":id?,\"enabled\":bool? (default: toggle)}", en_has_layer, run_vmask_toggle_enabled, true},
-    {"layer.vectorMask.linked", "Link Vector Mask", NULL, 0, NULL, "{\"layer\":id?,\"linked\":bool? (default: toggle)}",
-     en_has_layer, run_vmask_toggle_linked, true},
-    {"layer.combineShapes.unite", "Unite Shapes", NULL, 0, NULL, COMBINE_PARAMS, en_has_layer, run_combine_unite, true},
-    {"layer.combineShapes.subtractFrontShape", "Subtract Front Shape", NULL, 0, NULL, COMBINE_PARAMS, en_has_layer,
-     run_combine_subtract, true},
-    {"layer.combineShapes.intersectShapeAreas", "Intersect Shape Areas", NULL, 0, NULL, COMBINE_PARAMS, en_has_layer,
-     run_combine_intersect, true},
-    {"layer.combineShapes.excludeOverlappingShapes", "Exclude Overlapping Shapes", NULL, 0, NULL, COMBINE_PARAMS,
-     en_has_layer, run_combine_exclude, true},
+    {"layer.vectorMask.linked", "Link Vector Mask", NULL, 0, NULL,
+     "{\"layer\":id?,\"linked\":bool? (default: toggle)}", en_has_layer, run_vmask_toggle_linked, true},
+    {"layer.combineShapes.unite", "Unite Shapes", NULL, 0, NULL, COMBINE_PARAMS, en_has_layer,
+     run_combine_unite, true},
+    {"layer.combineShapes.subtractFrontShape", "Subtract Front Shape", NULL, 0, NULL, COMBINE_PARAMS,
+     en_has_layer, run_combine_subtract, true},
+    {"layer.combineShapes.intersectShapeAreas", "Intersect Shape Areas", NULL, 0, NULL, COMBINE_PARAMS,
+     en_has_layer, run_combine_intersect, true},
+    {"layer.combineShapes.excludeOverlappingShapes", "Exclude Overlapping Shapes", NULL, 0, NULL,
+     COMBINE_PARAMS, en_has_layer, run_combine_exclude, true},
     {"layer.combineShapes.mergeShapeComponents", "Merge Shape Components", NULL, 0, NULL,
-     "{\"layer\":id?,\"tolerance\":px=0.1} (bakes the path operations into plain combined outlines, traced from the "
+     "{\"layer\":id?,\"tolerance\":px=0.1} (bakes the path operations into plain combined outlines, traced "
+     "from the "
      "exact coverage; no layer and several shape layers selected: merges them into the top-most first)",
      en_has_layer, run_merge_components, true},
     {"select.convertToShape", "Convert to Shape", NULL, 0, NULL,
      "{\"tolerance\":0.5..10 px=2} \xe2\x86\x92 shape.info", en_has_selection, run_selection_to_shape, true},
     {"layer.vectorMask.info", "Vector Mask Info", NULL, 0, NULL,
-     "{\"layer\":id?} \xe2\x86\x92 {layer,path,enabled,linked,density,feather}", en_has_layer, run_vmask_info, false},
+     "{\"layer\":id?} \xe2\x86\x92 {layer,path,enabled,linked,density,feather}", en_has_layer, run_vmask_info,
+     false},
 };
 
 const pc_engine_command *pc_engine_vector_specs(size_t *n)

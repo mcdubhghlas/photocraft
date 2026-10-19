@@ -11,27 +11,29 @@
 #include <string.h>
 
 #include "base/mem.h"
+#include "sampling.h"
 #include "color/color.h"
 #include "compose/compose.h"
 #include "engine_internal.h"
-#include "layer_cmds.h" /* E5: layer_multi/group_view/layer_nav/layer_label/mask_view specs */
+#include "layer_cmds.h"      /* E5: layer_multi/group_view/layer_nav/layer_label/mask_view specs */
 #include "layer_base_cmds.h" /* E5-base: layer.new.layer/new.group/duplicate/delete/select/… + clip/arrange */
-#include "channel_cmds.h" /* E7: channels, save/load selection, quick mask */
-#include "selection_cmds.h" /* E7: select tools, magnetic lasso, sky/isolate, smart select */
-#include "layer_style.h" /* E6: layer.layerStyle.* */
-#include "smart_cmds.h"  /* E6: layer.smartObjects.* / layer.smartFilter.* */
-#include "artboard_cmds.h" /* E6: view.clearSelectedArtboardGuides */
-#include "fill_cmds.h"   /* E4: edit.fill + select.rect/float/stamp/fill-key module registries */
-#include "edit_cmds.h"   /* E4: clipboard (cut/copy/paste), clear, layer via copy/cut, merge visible */
+#include "channel_cmds.h"    /* E7: channels, save/load selection, quick mask */
+#include "selection_cmds.h"  /* E7: select tools, magnetic lasso, sky/isolate, smart select */
+#include "style_editor.h"
+#include "layer_style.h"    /* E6: layer.layerStyle.* */
+#include "smart_cmds.h"     /* E6: layer.smartObjects.* / layer.smartFilter.* */
+#include "artboard_cmds.h"  /* E6: view.clearSelectedArtboardGuides */
+#include "fill_cmds.h"      /* E4: edit.fill + select.rect/float/stamp/fill-key module registries */
+#include "edit_cmds.h"      /* E4: clipboard (cut/copy/paste), clear, layer via copy/cut, merge visible */
 #include "transform_cmds.h" /* E4/ET1: edit.transform Free Transform + frame-based presets */
-#include "extra_cmds.h"  /* E12: Stroke, Reselect, Equalize, rasterize, ungroup, layer-mask toggles, clouds */
+#include "extra_cmds.h" /* E12: Stroke, Reselect, Equalize, rasterize, ungroup, layer-mask toggles, clouds */
 #include "align_distribute_cmds.h" /* GAP: layer align + distribute */
-#include "view_proof_guide_cmds.h"  /* GAP: view.proofSetup.* variants + guide commands */
-#include "matting_gap_cmds.h"       /* GAP: matting + mask all objects + reveal in finder */
-#include "layerstyle_gap_cmds.h"    /* GAP: blending options + global light + scale effects */
-#include "fill_layer_gap_cmds.h"    /* GAP: new fill layer (solid color + gradient) */
-#include "flatten_gap_cmds.h"       /* GAP: flatten all layer effects / all masks */
-#include "distort_cmds.h"           /* GAP: Filter>Liquify, Edit>Puppet/Perspective Warp (+smart) */
+#include "view_proof_guide_cmds.h" /* GAP: view.proofSetup.* variants + guide commands */
+#include "matting_gap_cmds.h"      /* GAP: matting + mask all objects + reveal in finder */
+#include "layerstyle_gap_cmds.h"   /* GAP: blending options + global light + scale effects */
+#include "fill_layer_gap_cmds.h"   /* GAP: new fill layer (solid color + gradient) */
+#include "flatten_gap_cmds.h"      /* GAP: flatten all layer effects / all masks */
+#include "distort_cmds.h"          /* GAP: Filter>Liquify, Edit>Puppet/Perspective Warp (+smart) */
 
 /* ---- owned JSON results ------------------------------------------------------------------- */
 
@@ -83,7 +85,10 @@ bool pc_engine_param_int(yyjson_val *p, const char *key, int64_t *out)
     double f;
     if (pc_json_as_f64(v, &f) && isfinite(f)) {
         /* Rust f64::round: half away from zero. */
-        *out = (int64_t)llround(f);
+        double rounded = round(f);
+        *out = rounded >= 9223372036854775808.0    ? INT64_MAX
+               : rounded <= -9223372036854775808.0 ? INT64_MIN
+                                                   : (int64_t)rounded;
         return true;
     }
     return false;
@@ -98,15 +103,16 @@ pc_status pc_engine_param_int_i32(const char *cmd, yyjson_val *p, const char *ke
         return PC_OK;
     }
     if (v < INT32_MIN || v > INT32_MAX) {
-        return pc_engine_err_bad_params(err, cmd, "`%s` = %lld is outside the 32-bit coordinate range",
-                                        key, (long long)v);
+        return pc_engine_err_bad_params(err, cmd, "`%s` = %lld is outside the 32-bit coordinate range", key,
+                                        (long long)v);
     }
     *present = true;
     *out = (int32_t)v;
     return PC_OK;
 }
 
-pc_status pc_engine_param_u32_id(const char *cmd, const char *key, yyjson_val *v, uint32_t *out, pc_error *err)
+pc_status pc_engine_param_u32_id(const char *cmd, const char *key, yyjson_val *v, uint32_t *out,
+                                 pc_error *err)
 {
     uint64_t u;
     if (v != NULL && pc_json_as_u64(v, &u) && u <= UINT32_MAX) {
@@ -589,13 +595,14 @@ static const char *const MENU_EDIT[] = {"Edit"};
 static const char *const MENU_SELECT[] = {"Select"};
 
 static const pc_engine_command BASE[] = {
-    {"file.close", "Close", MENU_FILE, 1, "Cmd+W", "{\"document\":index?}", pc_engine_has_doc,
-     run_file_close, true},
+    {"file.close", "Close", MENU_FILE, 1, "Cmd+W", "{\"document\":index?}", pc_engine_has_doc, run_file_close,
+     true},
     {"edit.undo", "Undo", MENU_EDIT, 1, "Cmd+Z", "{}", can_undo, run_undo, true},
     {"edit.redo", "Redo", MENU_EDIT, 1, "Cmd+Shift+Z", "{}", can_redo, run_redo, true},
     {"select.all", "All", MENU_SELECT, 1, "Cmd+A", "{}", pc_engine_has_doc, run_select_all, true},
     {"select.deselect", "Deselect", MENU_SELECT, 1, "Cmd+D", "{}", has_selection, run_select_deselect, true},
-    {"select.inverse", "Inverse", MENU_SELECT, 1, "Cmd+Shift+I", "{}", has_selection, run_select_inverse, true},
+    {"select.inverse", "Inverse", MENU_SELECT, 1, "Cmd+Shift+I", "{}", has_selection, run_select_inverse,
+     true},
     {"session.inspect", "Inspect Session", NULL, 0, NULL, "{}", pc_engine_always, run_session_inspect, false},
     {"document.inspect", "Inspect Document", NULL, 0, NULL, "{\"document\":index?}", pc_engine_has_doc,
      run_document_inspect, false},
@@ -691,6 +698,8 @@ static void register_modules(pc_engine_command **arr, size_t *n, size_t *cap)
     (void)append_specs(arr, n, cap, brush_key, m);
     const pc_engine_command *redeye = pc_engine_redeye_specs(&m); /* E10 */
     (void)append_specs(arr, n, cap, redeye, m);
+    const pc_engine_command *sampling = pc_engine_sampling_specs(&m);
+    (void)append_specs(arr, n, cap, sampling, m);
     const pc_engine_command *pick = pc_engine_pick_specs(&m); /* E10 */
     (void)append_specs(arr, n, cap, pick, m);
     const pc_engine_command *vector = pc_engine_vector_specs(&m); /* E11 */
@@ -709,12 +718,18 @@ static void register_modules(pc_engine_command **arr, size_t *n, size_t *cap)
     (void)append_specs(arr, n, cap, stamp, m);
     const pc_engine_command *new_layer = pc_engine_new_layer_specs(&m); /* E5-base: layer.new.layer */
     (void)append_specs(arr, n, cap, new_layer, m);
+    const pc_engine_command *move = pc_engine_move_specs(&m);
+    (void)append_specs(arr, n, cap, move, m);
+    const pc_engine_command *move_to = pc_engine_layer_move_to_specs(&m);
+    (void)append_specs(arr, n, cap, move_to, m);
     const pc_engine_command *layer_base = pc_engine_layer_base_specs(&m); /* E5-base: new.group/dup/… */
     (void)append_specs(arr, n, cap, layer_base, m);
     const pc_engine_command *clip = pc_engine_clip_specs(&m); /* E5-base: clipping mask + arrange */
     (void)append_specs(arr, n, cap, clip, m);
     const pc_engine_command *type = pc_engine_type_specs(&m); /* E11: type.* */
     (void)append_specs(arr, n, cap, type, m);
+    const pc_engine_command *type_mask = pc_engine_type_mask_specs(&m);
+    (void)append_specs(arr, n, cap, type_mask, m);
     const pc_engine_command *type_extra = pc_engine_type_extra_specs(&m); /* E11: Type menu */
     (void)append_specs(arr, n, cap, type_extra, m);
     const pc_engine_command *type_caret = pc_engine_type_caret_specs(&m); /* E11: caret queries */
@@ -755,10 +770,13 @@ static void register_modules(pc_engine_command **arr, size_t *n, size_t *cap)
     (void)append_specs(arr, n, cap, paint, m);
     const pc_engine_command *eraser = pc_engine_eraser_specs(&m); /* E10: Magic / Background Eraser */
     (void)append_specs(arr, n, cap, eraser, m);
-    const pc_engine_command *gradfill = pc_engine_gradient_fill_specs(&m); /* E10: live Gradient Fill + apply */
+    const pc_engine_command *gradfill =
+        pc_engine_gradient_fill_specs(&m); /* E10: live Gradient Fill + apply */
     (void)append_specs(arr, n, cap, gradfill, m);
     const pc_engine_command *retouch = pc_engine_retouch_specs(&m); /* E10-retouch: Clone/Heal/Dodge/… */
     (void)append_specs(arr, n, cap, retouch, m);
+    const pc_engine_command *history = pc_engine_history_specs(&m);
+    (void)append_specs(arr, n, cap, history, m);
     const pc_engine_command *extra = pc_engine_extra_specs(&m); /* E12: extra_cmds grab-bag */
     (void)append_specs(arr, n, cap, extra, m);
     const pc_engine_command *notes = pc_engine_notes_specs(&m); /* E12: Note tool annotations */
@@ -777,6 +795,10 @@ static void register_modules(pc_engine_command **arr, size_t *n, size_t *cap)
     (void)append_specs(arr, n, cap, plugin, m);
     const pc_engine_command *variables = pc_engine_variables_specs(&m); /* E12: Variables / Data Sets */
     (void)append_specs(arr, n, cap, variables, m);
+    const pc_engine_command *variables_edit = pc_engine_variables_edit_specs(&m);
+    (void)append_specs(arr, n, cap, variables_edit, m);
+    const pc_engine_command *exports = pc_engine_export_specs(&m);
+    (void)append_specs(arr, n, cap, exports, m);
     const pc_engine_command *actions = pc_engine_actions_specs(&m); /* E12: Actions recorder */
     (void)append_specs(arr, n, cap, actions, m);
     const pc_engine_command *automate = pc_engine_automate_specs(&m); /* E12: Scripts (Browse, Events) */
@@ -785,7 +807,8 @@ static void register_modules(pc_engine_command **arr, size_t *n, size_t *cap)
     (void)append_specs(arr, n, cap, web, m);
     const pc_engine_command *tool_colors = pc_engine_tool_colors_specs(&m); /* ET2: fg/bg colours */
     (void)append_specs(arr, n, cap, tool_colors, m);
-    const pc_engine_command *auto_adjust = pc_engine_auto_adjust_specs(&m); /* ET2: Auto Tone/Contrast/Color */
+    const pc_engine_command *auto_adjust =
+        pc_engine_auto_adjust_specs(&m); /* ET2: Auto Tone/Contrast/Color */
     (void)append_specs(arr, n, cap, auto_adjust, m);
     const pc_engine_command *layer_menu = pc_engine_layer_menu_specs(&m); /* ET2: Flatten/masks/stack mode */
     (void)append_specs(arr, n, cap, layer_menu, m);
@@ -797,25 +820,34 @@ static void register_modules(pc_engine_command **arr, size_t *n, size_t *cap)
     (void)append_specs(arr, n, cap, photo_automate, m);
     const pc_engine_command *sampler = pc_engine_sampler_specs(&m); /* EF: Color Sampler points */
     (void)append_specs(arr, n, cap, sampler, m);
-    const pc_engine_command *lens = pc_engine_lens_specs(&m); /* ET5: Lens Correction / Wide Angle / Camera Raw */
+    const pc_engine_command *lens =
+        pc_engine_lens_specs(&m); /* ET5: Lens Correction / Wide Angle / Camera Raw */
     (void)append_specs(arr, n, cap, lens, m);
-    const pc_engine_command *batch = pc_engine_batch_specs(&m); /* E-tail BATCH: file batch/automate pipeline */
+    const pc_engine_command *batch =
+        pc_engine_batch_specs(&m); /* E-tail BATCH: file batch/automate pipeline */
     (void)append_specs(arr, n, cap, batch, m);
     const pc_engine_command *style_preset = pc_engine_style_preset_specs(&m); /* E2b: Styles panel */
     (void)append_specs(arr, n, cap, style_preset, m);
     const pc_engine_command *shape_preset = pc_engine_shape_preset_specs(&m); /* E2b: Shapes panel */
     (void)append_specs(arr, n, cap, shape_preset, m);
-    const pc_engine_command *align_distribute = pc_engine_align_distribute_specs(&m); /* GAP: align/distribute */
+    const pc_engine_command *align_distribute =
+        pc_engine_align_distribute_specs(&m); /* GAP: align/distribute */
     (void)append_specs(arr, n, cap, align_distribute, m);
-    const pc_engine_command *view_proof_guide = pc_engine_view_proof_guide_specs(&m); /* GAP: proofSetup + guides */
+    const pc_engine_command *view_proof_guide =
+        pc_engine_view_proof_guide_specs(&m); /* GAP: proofSetup + guides */
     (void)append_specs(arr, n, cap, view_proof_guide, m);
-    const pc_engine_command *matting_gap = pc_engine_matting_gap_specs(&m); /* GAP: matting + mask objects + reveal */
+    const pc_engine_command *matting_gap =
+        pc_engine_matting_gap_specs(&m); /* GAP: matting + mask objects + reveal */
     (void)append_specs(arr, n, cap, matting_gap, m);
-    const pc_engine_command *layerstyle_gap = pc_engine_layerstyle_gap_specs(&m); /* GAP: blending/light/scale fx */
+    const pc_engine_command *style_editor = pc_engine_style_editor_specs(&m);
+    (void)append_specs(arr, n, cap, style_editor, m);
+    const pc_engine_command *layerstyle_gap =
+        pc_engine_layerstyle_gap_specs(&m); /* GAP: blending/light/scale fx */
     (void)append_specs(arr, n, cap, layerstyle_gap, m);
     const pc_engine_command *fill_layer_gap = pc_engine_fill_layer_gap_specs(&m); /* GAP: new fill layers */
     (void)append_specs(arr, n, cap, fill_layer_gap, m);
-    const pc_engine_command *layerstyle_copy = pc_engine_layerstyle_copy_specs(&m); /* GAP: copy/paste style */
+    const pc_engine_command *layerstyle_copy =
+        pc_engine_layerstyle_copy_specs(&m); /* GAP: copy/paste style */
     (void)append_specs(arr, n, cap, layerstyle_copy, m);
     const pc_engine_command *flatten_gap = pc_engine_flatten_gap_specs(&m); /* GAP: flatten effects/masks */
     (void)append_specs(arr, n, cap, flatten_gap, m);

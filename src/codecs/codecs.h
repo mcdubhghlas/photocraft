@@ -68,6 +68,7 @@ typedef struct pc_cencode_opts {
     bool tiff_bigtiff; /* always BigTIFF (else only when the file could pass 4 GiB) */
     pc_exr_compression exr_compression;
     pc_dpx_bits dpx_bits; /* DPX code-value bit depth */
+    uint8_t tga_bits; /* 0 = automatic, 24 = RGB, 32 = RGBA */
     bool embed_icc;
     bool embed_metadata; /* EXIF/XMP/DPI/text */
 } pc_cencode_opts;

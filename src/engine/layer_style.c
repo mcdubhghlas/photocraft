@@ -4,12 +4,8 @@
  * Never crashes on any params (REWRITE_PLAN.md rule 9): absent/null/malformed keys leave the
  * effect unchanged; unknown kinds are graceful errors.
  *
- * Deferred (see §7, reported to the coordinator): patternOverlay (needs the pattern library /
- * pattern_cmds::resolve_effect, E10), layer.layerStyle.makeDefault / .defaultFor (need the
- * preset store's per-kind layer defaults, E2b). The reference's resolve_effect is a pass-through
- * for every non-pattern effect, so the shadow/glow/stroke/overlay/satin/bevel commands and the
- * replace/clear commands are ported here in full; a patternOverlay entry in `replace` is a
- * graceful BadParams until the pattern library lands. */
+ * Pattern resources resolve in the same undoable edit. Per-kind user defaults are exposed
+ * by style_editor.c and persisted with the session's preset store. */
 #include <ctype.h>
 #include <math.h>
 #include <stdlib.h>
@@ -31,6 +27,8 @@
 #include "engine_internal.h"
 #include "layer_cmds.h" /* pc_engine_layer_param, pc_engine_selected */
 #include "layer_style.h"
+#include "pattern_cmds.h"
+#include "style_editor.h"
 
 /* ============================================================== param readers (p may be NULL) */
 
@@ -87,12 +85,18 @@ static float hex_pair(const char *s, size_t len, size_t i)
     }
     int hi = -1, lo = -1;
     char a = s[i], b = s[i + 1];
-    if (a >= '0' && a <= '9') hi = a - '0';
-    else if (a >= 'a' && a <= 'f') hi = a - 'a' + 10;
-    else if (a >= 'A' && a <= 'F') hi = a - 'A' + 10;
-    if (b >= '0' && b <= '9') lo = b - '0';
-    else if (b >= 'a' && b <= 'f') lo = b - 'a' + 10;
-    else if (b >= 'A' && b <= 'F') lo = b - 'A' + 10;
+    if (a >= '0' && a <= '9')
+        hi = a - '0';
+    else if (a >= 'a' && a <= 'f')
+        hi = a - 'a' + 10;
+    else if (a >= 'A' && a <= 'F')
+        hi = a - 'A' + 10;
+    if (b >= '0' && b <= '9')
+        lo = b - '0';
+    else if (b >= 'a' && b <= 'f')
+        lo = b - 'a' + 10;
+    else if (b >= 'A' && b <= 'F')
+        lo = b - 'A' + 10;
     if (hi < 0 || lo < 0) {
         return 0.0f;
     }
@@ -161,73 +165,128 @@ typedef struct contour_preset {
     size_t npts;
 } contour_preset;
 
-#define CP(name_, ...)                                                                             \
-    {                                                                                              \
-        name_, (const contour_pt[])__VA_ARGS__,                                                    \
-            sizeof((const contour_pt[])__VA_ARGS__) / sizeof(contour_pt)                           \
-    }
+#define CP(name_, ...)                                                                                       \
+    {name_, (const contour_pt[])__VA_ARGS__, sizeof((const contour_pt[])__VA_ARGS__) / sizeof(contour_pt)}
 
 /* Built-in contour presets, Photoshop's picker order (measured curves; see layer_style.rs). */
 static const contour_preset CONTOURS[] = {
     CP("Linear", {{0.0f, 0.0f, false}, {1.0f, 1.0f, false}}),
-    CP("Cone", {{0.0f, 0.0f, false}, {0.172f, 0.477f, true}, {0.195f, 0.555f, true}, {0.266f, 0.711f, true},
-                {0.383f, 0.922f, true}, {0.43f, 0.969f, true}, {0.477f, 0.992f, true}, {0.523f, 0.992f, true},
-                {0.57f, 0.969f, true}, {0.664f, 0.859f, true}, {0.703f, 0.789f, true}, {0.742f, 0.711f, true},
-                {0.836f, 0.477f, true}, {0.859f, 0.398f, true}, {0.914f, 0.266f, true}, {0.945f, 0.156f, true},
-                {0.977f, 0.078f, true}, {1.0f, 0.0f, false}}),
-    CP("Cone - Inverted", {{0.0f, 1.0f, false}, {0.031f, 0.922f, true}, {0.07f, 0.789f, true}, {0.172f, 0.523f, true},
-                           {0.195f, 0.445f, true}, {0.266f, 0.289f, true}, {0.383f, 0.078f, true}, {0.43f, 0.031f, true},
-                           {0.477f, 0.008f, true}, {0.523f, 0.008f, true}, {0.57f, 0.031f, true}, {0.664f, 0.141f, true},
-                           {0.703f, 0.211f, true}, {0.742f, 0.289f, true}, {0.836f, 0.523f, true}, {0.859f, 0.602f, true},
-                           {0.914f, 0.734f, true}, {0.945f, 0.844f, true}, {0.977f, 0.922f, true}, {1.0f, 1.0f, false}}),
-    CP("Cove - Deep", {{0.0f, 0.258f, false}, {0.344f, 0.289f, true}, {0.383f, 0.297f, true}, {0.477f, 0.352f, true},
-                       {0.57f, 0.43f, true}, {0.617f, 0.484f, true}, {0.664f, 0.57f, true}, {0.703f, 0.711f, true},
-                       {0.742f, 0.906f, true}, {0.773f, 1.0f, true}, {1.0f, 1.0f, false}}),
-    CP("Cove - Shallow", {{0.0f, 0.0f, false}, {0.008f, 0.164f, true}, {0.016f, 0.477f, true}, {0.039f, 0.508f, true},
-                          {0.172f, 0.57f, true}, {0.305f, 0.688f, true}, {0.344f, 0.734f, true}, {0.477f, 0.945f, true},
-                          {0.523f, 1.0f, true}, {1.0f, 1.0f, false}}),
-    CP("Gaussian", {{0.0f, 0.0f, false}, {0.117f, 0.023f, true}, {0.172f, 0.055f, true}, {0.234f, 0.117f, true},
-                    {0.305f, 0.234f, true}, {0.383f, 0.414f, true}, {0.523f, 0.688f, true}, {0.617f, 0.812f, true},
-                    {0.703f, 0.891f, true}, {0.805f, 0.953f, true}, {1.0f, 1.0f, false}}),
-    CP("Half Round", {{0.0f, 0.0f, false}, {0.07f, 0.18f, true}, {0.195f, 0.445f, true}, {0.266f, 0.555f, true},
-                      {0.383f, 0.703f, true}, {0.523f, 0.828f, true}, {0.617f, 0.883f, true}, {0.773f, 0.945f, true},
+    CP("Cone", {{0.0f, 0.0f, false},
+                {0.172f, 0.477f, true},
+                {0.195f, 0.555f, true},
+                {0.266f, 0.711f, true},
+                {0.383f, 0.922f, true},
+                {0.43f, 0.969f, true},
+                {0.477f, 0.992f, true},
+                {0.523f, 0.992f, true},
+                {0.57f, 0.969f, true},
+                {0.664f, 0.859f, true},
+                {0.703f, 0.789f, true},
+                {0.742f, 0.711f, true},
+                {0.836f, 0.477f, true},
+                {0.859f, 0.398f, true},
+                {0.914f, 0.266f, true},
+                {0.945f, 0.156f, true},
+                {0.977f, 0.078f, true},
+                {1.0f, 0.0f, false}}),
+    CP("Cone - Inverted",
+       {{0.0f, 1.0f, false},    {0.031f, 0.922f, true}, {0.07f, 0.789f, true},  {0.172f, 0.523f, true},
+        {0.195f, 0.445f, true}, {0.266f, 0.289f, true}, {0.383f, 0.078f, true}, {0.43f, 0.031f, true},
+        {0.477f, 0.008f, true}, {0.523f, 0.008f, true}, {0.57f, 0.031f, true},  {0.664f, 0.141f, true},
+        {0.703f, 0.211f, true}, {0.742f, 0.289f, true}, {0.836f, 0.523f, true}, {0.859f, 0.602f, true},
+        {0.914f, 0.734f, true}, {0.945f, 0.844f, true}, {0.977f, 0.922f, true}, {1.0f, 1.0f, false}}),
+    CP("Cove - Deep", {{0.0f, 0.258f, false},
+                       {0.344f, 0.289f, true},
+                       {0.383f, 0.297f, true},
+                       {0.477f, 0.352f, true},
+                       {0.57f, 0.43f, true},
+                       {0.617f, 0.484f, true},
+                       {0.664f, 0.57f, true},
+                       {0.703f, 0.711f, true},
+                       {0.742f, 0.906f, true},
+                       {0.773f, 1.0f, true},
+                       {1.0f, 1.0f, false}}),
+    CP("Cove - Shallow", {{0.0f, 0.0f, false},
+                          {0.008f, 0.164f, true},
+                          {0.016f, 0.477f, true},
+                          {0.039f, 0.508f, true},
+                          {0.172f, 0.57f, true},
+                          {0.305f, 0.688f, true},
+                          {0.344f, 0.734f, true},
+                          {0.477f, 0.945f, true},
+                          {0.523f, 1.0f, true},
+                          {1.0f, 1.0f, false}}),
+    CP("Gaussian", {{0.0f, 0.0f, false},
+                    {0.117f, 0.023f, true},
+                    {0.172f, 0.055f, true},
+                    {0.234f, 0.117f, true},
+                    {0.305f, 0.234f, true},
+                    {0.383f, 0.414f, true},
+                    {0.523f, 0.688f, true},
+                    {0.617f, 0.812f, true},
+                    {0.703f, 0.891f, true},
+                    {0.805f, 0.953f, true},
+                    {1.0f, 1.0f, false}}),
+    CP("Half Round", {{0.0f, 0.0f, false},
+                      {0.07f, 0.18f, true},
+                      {0.195f, 0.445f, true},
+                      {0.266f, 0.555f, true},
+                      {0.383f, 0.703f, true},
+                      {0.523f, 0.828f, true},
+                      {0.617f, 0.883f, true},
+                      {0.773f, 0.945f, true},
                       {1.0f, 1.0f, false}}),
-    CP("Ring", {{0.0f, 0.0f, false}, {0.031f, 0.078f, true}, {0.039f, 0.117f, true}, {0.117f, 0.383f, true},
-                {0.172f, 0.609f, true}, {0.195f, 0.734f, true}, {0.266f, 0.953f, true}, {0.305f, 1.0f, true},
-                {0.344f, 0.992f, true}, {0.383f, 0.922f, true}, {0.43f, 0.805f, true}, {0.477f, 0.641f, true},
-                {0.57f, 0.281f, true}, {0.617f, 0.141f, true}, {0.664f, 0.055f, true}, {0.703f, 0.016f, true},
-                {0.742f, 0.016f, true}, {0.773f, 0.062f, true}, {0.836f, 0.234f, true}, {0.859f, 0.344f, true},
-                {0.891f, 0.445f, true}, {0.914f, 0.547f, true}, {0.945f, 0.734f, true}, {0.977f, 0.875f, true},
-                {1.0f, 1.0f, false}}),
-    CP("Ring - Double", {{0.0f, 0.0f, false}, {0.055f, 0.086f, true}, {0.094f, 0.172f, true}, {0.117f, 0.242f, true},
-                         {0.172f, 0.477f, true}, {0.195f, 0.625f, true}, {0.266f, 0.891f, true}, {0.305f, 0.945f, true},
-                         {0.344f, 0.891f, true}, {0.383f, 0.695f, true}, {0.43f, 0.367f, true}, {0.477f, 0.07f, true},
-                         {0.523f, 0.047f, true}, {0.57f, 0.32f, true}, {0.617f, 0.648f, true}, {0.664f, 0.867f, true},
-                         {0.703f, 0.93f, true}, {0.742f, 0.852f, true}, {0.773f, 0.641f, true}, {0.805f, 0.375f, true},
-                         {0.836f, 0.156f, true}, {0.859f, 0.031f, true}, {0.891f, 0.023f, true}, {0.914f, 0.109f, true},
-                         {0.977f, 0.703f, true}, {0.984f, 0.82f, true}, {1.0f, 1.0f, false}}),
+    CP("Ring",
+       {{0.0f, 0.0f, false},    {0.031f, 0.078f, true}, {0.039f, 0.117f, true}, {0.117f, 0.383f, true},
+        {0.172f, 0.609f, true}, {0.195f, 0.734f, true}, {0.266f, 0.953f, true}, {0.305f, 1.0f, true},
+        {0.344f, 0.992f, true}, {0.383f, 0.922f, true}, {0.43f, 0.805f, true},  {0.477f, 0.641f, true},
+        {0.57f, 0.281f, true},  {0.617f, 0.141f, true}, {0.664f, 0.055f, true}, {0.703f, 0.016f, true},
+        {0.742f, 0.016f, true}, {0.773f, 0.062f, true}, {0.836f, 0.234f, true}, {0.859f, 0.344f, true},
+        {0.891f, 0.445f, true}, {0.914f, 0.547f, true}, {0.945f, 0.734f, true}, {0.977f, 0.875f, true},
+        {1.0f, 1.0f, false}}),
+    CP("Ring - Double",
+       {{0.0f, 0.0f, false},    {0.055f, 0.086f, true}, {0.094f, 0.172f, true}, {0.117f, 0.242f, true},
+        {0.172f, 0.477f, true}, {0.195f, 0.625f, true}, {0.266f, 0.891f, true}, {0.305f, 0.945f, true},
+        {0.344f, 0.891f, true}, {0.383f, 0.695f, true}, {0.43f, 0.367f, true},  {0.477f, 0.07f, true},
+        {0.523f, 0.047f, true}, {0.57f, 0.32f, true},   {0.617f, 0.648f, true}, {0.664f, 0.867f, true},
+        {0.703f, 0.93f, true},  {0.742f, 0.852f, true}, {0.773f, 0.641f, true}, {0.805f, 0.375f, true},
+        {0.836f, 0.156f, true}, {0.859f, 0.031f, true}, {0.891f, 0.023f, true}, {0.914f, 0.109f, true},
+        {0.977f, 0.703f, true}, {0.984f, 0.82f, true},  {1.0f, 1.0f, false}}),
     CP("Rolling Slope - Descending",
-       {{0.0f, 1.0f, false}, {0.008f, 1.0f, true}, {0.031f, 0.93f, true}, {0.039f, 0.883f, true}, {0.07f, 0.758f, true},
-        {0.141f, 0.539f, true}, {0.195f, 0.406f, true}, {0.266f, 0.352f, true}, {0.305f, 0.352f, true},
-        {0.523f, 0.57f, true}, {0.57f, 0.602f, true}, {0.617f, 0.617f, true}, {0.703f, 0.602f, true},
-        {0.742f, 0.562f, true}, {0.836f, 0.391f, true}, {0.914f, 0.211f, true}, {0.945f, 0.109f, true},
-        {0.977f, 0.039f, true}, {0.984f, 0.008f, true}, {1.0f, 0.0f, false}}),
+       {{0.0f, 1.0f, false},    {0.008f, 1.0f, true},   {0.031f, 0.93f, true},  {0.039f, 0.883f, true},
+        {0.07f, 0.758f, true},  {0.141f, 0.539f, true}, {0.195f, 0.406f, true}, {0.266f, 0.352f, true},
+        {0.305f, 0.352f, true}, {0.523f, 0.57f, true},  {0.57f, 0.602f, true},  {0.617f, 0.617f, true},
+        {0.703f, 0.602f, true}, {0.742f, 0.562f, true}, {0.836f, 0.391f, true}, {0.914f, 0.211f, true},
+        {0.945f, 0.109f, true}, {0.977f, 0.039f, true}, {0.984f, 0.008f, true}, {1.0f, 0.0f, false}}),
     CP("Rounded Steps",
-       {{0.0f, 0.234f, false}, {0.031f, 0.305f, true}, {0.039f, 0.336f, true}, {0.094f, 0.43f, true},
+       {{0.0f, 0.234f, false},  {0.031f, 0.305f, true}, {0.039f, 0.336f, true}, {0.094f, 0.43f, true},
         {0.141f, 0.477f, true}, {0.234f, 0.492f, true}, {0.266f, 0.516f, true}, {0.305f, 0.602f, true},
         {0.344f, 0.664f, true}, {0.383f, 0.711f, true}, {0.477f, 0.734f, true}, {0.523f, 0.797f, true},
-        {0.57f, 0.898f, true}, {0.617f, 0.953f, true}, {0.664f, 0.984f, true}, {0.773f, 0.984f, true},
+        {0.57f, 0.898f, true},  {0.617f, 0.953f, true}, {0.664f, 0.984f, true}, {0.773f, 0.984f, true},
         {0.836f, 0.906f, true}, {0.891f, 0.891f, true}, {0.914f, 0.898f, true}, {1.0f, 1.0f, false}}),
-    CP("Sawtooth 1", {{0.0f, 0.0f, false}, {0.031f, 0.047f, true}, {0.195f, 0.375f, true}, {0.266f, 0.492f, true},
-                      {0.477f, 0.047f, true}, {0.523f, 0.055f, true}, {0.742f, 0.469f, true}, {0.773f, 0.445f, true},
-                      {0.914f, 0.18f, true}, {0.945f, 0.102f, true}, {1.0f, 0.0f, false}}),
+    CP("Sawtooth 1", {{0.0f, 0.0f, false},
+                      {0.031f, 0.047f, true},
+                      {0.195f, 0.375f, true},
+                      {0.266f, 0.492f, true},
+                      {0.477f, 0.047f, true},
+                      {0.523f, 0.055f, true},
+                      {0.742f, 0.469f, true},
+                      {0.773f, 0.445f, true},
+                      {0.914f, 0.18f, true},
+                      {0.945f, 0.102f, true},
+                      {1.0f, 0.0f, false}}),
 };
 #define NCONTOURS (sizeof CONTOURS / sizeof CONTOURS[0])
+const char *pc_engine_style_contour_name(size_t index)
+{
+    return index < NCONTOURS ? CONTOURS[index].name : NULL;
+}
 
 static const contour_preset LEGACY_CONTOURS[] = {
     CP("Cone (Inverted)", {{0.0f, 1.0f, false}, {0.5f, 0.0f, false}, {1.0f, 0.0f, false}}),
     CP("Domed", {{0.0f, 0.0f, false}, {0.25f, 1.0f, false}, {0.75f, 1.0f, false}, {1.0f, 0.0f, false}}),
-    CP("Domed (Inverted)", {{0.0f, 1.0f, false}, {0.25f, 0.0f, false}, {0.75f, 0.0f, false}, {1.0f, 1.0f, false}}),
+    CP("Domed (Inverted)",
+       {{0.0f, 1.0f, false}, {0.25f, 0.0f, false}, {0.75f, 0.0f, false}, {1.0f, 1.0f, false}}),
     CP("Diagonal (Descending)", {{0.0f, 1.0f, false}, {1.0f, 0.0f, false}}),
 };
 #define NLEGACY (sizeof LEGACY_CONTOURS / sizeof LEGACY_CONTOURS[0])
@@ -301,7 +360,8 @@ bool pc_engine_builtin_contour(const char *name, pc_contour *out)
     }
     for (size_t i = 0; i < NLEGACY; i++) {
         if (strcmp(LEGACY_CONTOURS[i].name, name) == 0) {
-            return build_custom_contour(LEGACY_CONTOURS[i].name, LEGACY_CONTOURS[i].pts, LEGACY_CONTOURS[i].npts, out);
+            return build_custom_contour(LEGACY_CONTOURS[i].name, LEGACY_CONTOURS[i].pts,
+                                        LEGACY_CONTOURS[i].npts, out);
         }
     }
     return false;
@@ -351,7 +411,8 @@ pc_status pc_engine_contour_param(const pc_contour *c, yyjson_mut_doc *doc, yyjs
         }
     }
     if (!yyjson_mut_obj_add_strcpy(doc, o, "name", pc_str_c(&c->name)) ||
-        !yyjson_mut_obj_add_val(doc, o, "points", pts) || !yyjson_mut_obj_add_val(doc, o, "corners", corners)) {
+        !yyjson_mut_obj_add_val(doc, o, "points", pts) ||
+        !yyjson_mut_obj_add_val(doc, o, "corners", corners)) {
         return pc_fail(err, PC_ERR_NOMEM, "out of memory");
     }
     *out = o;
@@ -556,10 +617,14 @@ pc_gradient_style pc_engine_gradient_style(const char *name)
     if (name == NULL) {
         return PC_GRADIENT_LINEAR;
     }
-    if (strcasecmp(name, "radial") == 0) return PC_GRADIENT_RADIAL;
-    if (strcasecmp(name, "angle") == 0) return PC_GRADIENT_ANGLE;
-    if (strcasecmp(name, "reflected") == 0) return PC_GRADIENT_REFLECTED;
-    if (strcasecmp(name, "diamond") == 0) return PC_GRADIENT_DIAMOND;
+    if (strcasecmp(name, "radial") == 0)
+        return PC_GRADIENT_RADIAL;
+    if (strcasecmp(name, "angle") == 0)
+        return PC_GRADIENT_ANGLE;
+    if (strcasecmp(name, "reflected") == 0)
+        return PC_GRADIENT_REFLECTED;
+    if (strcasecmp(name, "diamond") == 0)
+        return PC_GRADIENT_DIAMOND;
     return PC_GRADIENT_LINEAR;
 }
 
@@ -574,10 +639,22 @@ static bool bake_method_from_name(const char *name, pc_io_bake_method *out)
         low[i] = (char)tolower((unsigned char)name[i]);
     }
     low[i] = '\0';
-    if (strcmp(low, "classic") == 0) { *out = PC_IO_BAKE_CLASSIC; return true; }
-    if (strcmp(low, "perceptual") == 0) { *out = PC_IO_BAKE_PERCEPTUAL; return true; }
-    if (strcmp(low, "linear") == 0) { *out = PC_IO_BAKE_LINEAR; return true; }
-    if (strcmp(low, "smooth") == 0) { *out = PC_IO_BAKE_SMOOTH; return true; }
+    if (strcmp(low, "classic") == 0) {
+        *out = PC_IO_BAKE_CLASSIC;
+        return true;
+    }
+    if (strcmp(low, "perceptual") == 0) {
+        *out = PC_IO_BAKE_PERCEPTUAL;
+        return true;
+    }
+    if (strcmp(low, "linear") == 0) {
+        *out = PC_IO_BAKE_LINEAR;
+        return true;
+    }
+    if (strcmp(low, "smooth") == 0) {
+        *out = PC_IO_BAKE_SMOOTH;
+        return true;
+    }
     return false;
 }
 
@@ -803,8 +880,10 @@ static void overlay_gradient(pc_gradient *g, yyjson_val *p)
         pc_color from = (g->nstops > 0) ? g->stops[0].color : PC_COLOR_BLACK;
         pc_color to = (g->nstops > 0) ? g->stops[g->nstops - 1].color : PC_COLOR_WHITE;
         pc_color cf, ct;
-        if (color_of(p, "from", &cf)) from = cf;
-        if (color_of(p, "to", &ct)) to = ct;
+        if (color_of(p, "from", &cf))
+            from = cf;
+        if (color_of(p, "to", &ct))
+            to = ct;
         pc_color_stop *stops = NULL;
         size_t n = 0;
         if (gradient_stops(p, from, to, &stops, &n)) {
@@ -825,10 +904,13 @@ static void overlay_gradient(pc_gradient *g, yyjson_val *p)
         g->style = pc_engine_gradient_style(style);
     }
     float x;
-    if (jf_of(p, "angle", &x)) g->angle = x;
-    if (jf_of(p, "scale", &x)) g->scale = clampf(x / 100.0f, 0.01f, 10.0f);
+    if (jf_of(p, "angle", &x))
+        g->angle = x;
+    if (jf_of(p, "scale", &x))
+        g->scale = clampf(x / 100.0f, 0.01f, 10.0f);
     bool bx;
-    if (jb_of(p, "reverse", &bx)) g->reverse = bx;
+    if (jb_of(p, "reverse", &bx))
+        g->reverse = bx;
 }
 
 void pc_engine_overlay_effect(pc_effect *fx, yyjson_val *p)
@@ -842,14 +924,19 @@ void pc_engine_overlay_effect(pc_effect *fx, yyjson_val *p)
         bool inner = (fx->kind == PC_FX_INNER_SHADOW);
         overlay_common(&sh->common, p);
         set_color(p, "color", &sh->color);
-        if (jf_of(p, "angle", &x)) sh->angle = x;
+        if (jf_of(p, "angle", &x))
+            sh->angle = x;
         set_bool_field(p, "useGlobalLight", &sh->use_global_light);
-        if (jf_of(p, "distance", &x)) sh->distance = x;
-        if (jf_of(p, inner ? "choke" : "spread", &x)) sh->spread = clampf(x / 100.0f, 0.0f, 1.0f);
-        if (jf_of(p, "size", &x)) sh->size = x;
+        if (jf_of(p, "distance", &x))
+            sh->distance = x;
+        if (jf_of(p, inner ? "choke" : "spread", &x))
+            sh->spread = clampf(x / 100.0f, 0.0f, 1.0f);
+        if (jf_of(p, "size", &x))
+            sh->size = x;
         set_contour_field(p, "contour", &sh->contour);
         set_bool_field(p, "antiAlias", &sh->anti_alias);
-        if (jf_of(p, "noise", &x)) sh->noise = clampf(x / 100.0f, 0.0f, 1.0f);
+        if (jf_of(p, "noise", &x))
+            sh->noise = clampf(x / 100.0f, 0.0f, 1.0f);
         if (!inner) {
             set_bool_field(p, "knocksOut", &sh->knocks_out);
         }
@@ -870,12 +957,16 @@ void pc_engine_overlay_effect(pc_effect *fx, yyjson_val *p)
         if (s != NULL) {
             g->technique = (strcmp(s, "precise") == 0) ? PC_GLOW_PRECISE : PC_GLOW_SOFTER;
         }
-        if (jf_of(p, inner ? "choke" : "spread", &x)) g->spread = clampf(x / 100.0f, 0.0f, 1.0f);
-        if (jf_of(p, "size", &x)) g->size = x;
+        if (jf_of(p, inner ? "choke" : "spread", &x))
+            g->spread = clampf(x / 100.0f, 0.0f, 1.0f);
+        if (jf_of(p, "size", &x))
+            g->size = x;
         set_contour_field(p, "contour", &g->contour);
         set_bool_field(p, "antiAlias", &g->anti_alias);
-        if (jf_of(p, "range", &x)) g->range = clampf(x / 100.0f, 0.01f, 1.0f);
-        if (jf_of(p, "noise", &x)) g->noise = clampf(x / 100.0f, 0.0f, 1.0f);
+        if (jf_of(p, "range", &x))
+            g->range = clampf(x / 100.0f, 0.01f, 1.0f);
+        if (jf_of(p, "noise", &x))
+            g->noise = clampf(x / 100.0f, 0.0f, 1.0f);
         if (inner) {
             s = jstr(p, "source");
             if (s != NULL) {
@@ -887,10 +978,11 @@ void pc_engine_overlay_effect(pc_effect *fx, yyjson_val *p)
     case PC_FX_STROKE: {
         pc_stroke_fx *st = &fx->u.stroke;
         overlay_common(&st->common, p);
-        if (jf_of(p, "size", &x)) st->size = x;
+        if (jf_of(p, "size", &x))
+            st->size = x;
         s = jstr(p, "position");
         if (s != NULL) {
-            st->position = (strcmp(s, "inside") == 0) ? PC_STROKE_INSIDE
+            st->position = (strcmp(s, "inside") == 0)   ? PC_STROKE_INSIDE
                            : (strcmp(s, "center") == 0) ? PC_STROKE_CENTER
                                                         : PC_STROKE_OUTSIDE;
         }
@@ -928,20 +1020,27 @@ void pc_engine_overlay_effect(pc_effect *fx, yyjson_val *p)
             pc_str_fini(&fx->u.pattern_overlay.id);
             fx->u.pattern_overlay.id = (pc_str)PC_STR_INIT;
         }
-        if (jf_of(p, "scale", &x)) fx->u.pattern_overlay.scale = clampf(x / 100.0f, 0.01f, 10.0f);
-        if (jf_of(p, "angle", &x)) fx->u.pattern_overlay.angle = x;
+        if (jf_of(p, "scale", &x))
+            fx->u.pattern_overlay.scale = clampf(x / 100.0f, 0.01f, 10.0f);
+        if (jf_of(p, "angle", &x))
+            fx->u.pattern_overlay.angle = x;
         set_bool_field(p, "link", &fx->u.pattern_overlay.link);
-        if (jf_of(p, "phaseX", &x)) fx->u.pattern_overlay.phase[0] = x;
-        if (jf_of(p, "phaseY", &x)) fx->u.pattern_overlay.phase[1] = x;
+        if (jf_of(p, "phaseX", &x))
+            fx->u.pattern_overlay.phase[0] = x;
+        if (jf_of(p, "phaseY", &x))
+            fx->u.pattern_overlay.phase[1] = x;
         break;
     }
     case PC_FX_SATIN: {
         pc_satin *sa = &fx->u.satin;
         overlay_common(&sa->common, p);
         set_color(p, "color", &sa->color);
-        if (jf_of(p, "angle", &x)) sa->angle = x;
-        if (jf_of(p, "distance", &x)) sa->distance = x;
-        if (jf_of(p, "size", &x)) sa->size = x;
+        if (jf_of(p, "angle", &x))
+            sa->angle = x;
+        if (jf_of(p, "distance", &x))
+            sa->distance = x;
+        if (jf_of(p, "size", &x))
+            sa->size = x;
         set_bool_field(p, "invert", &sa->invert);
         set_contour_field(p, "contour", &sa->contour);
         set_bool_field(p, "antiAlias", &sa->anti_alias);
@@ -952,7 +1051,7 @@ void pc_engine_overlay_effect(pc_effect *fx, yyjson_val *p)
         set_bool_field(p, "enabled", &b->enabled);
         s = jstr(p, "style");
         if (s != NULL) {
-            b->style = (strcmp(s, "outer") == 0) ? PC_BEVEL_OUTER
+            b->style = (strcmp(s, "outer") == 0)    ? PC_BEVEL_OUTER
                        : (strcmp(s, "emboss") == 0) ? PC_BEVEL_EMBOSS
                        : (strcmp(s, "pillow") == 0) ? PC_BEVEL_PILLOW_EMBOSS
                        : (strcmp(s, "stroke") == 0) ? PC_BEVEL_STROKE_EMBOSS
@@ -960,19 +1059,24 @@ void pc_engine_overlay_effect(pc_effect *fx, yyjson_val *p)
         }
         s = jstr(p, "technique");
         if (s != NULL) {
-            b->technique = (strcmp(s, "chiselHard") == 0) ? PC_BEVEL_CHISEL_HARD
+            b->technique = (strcmp(s, "chiselHard") == 0)   ? PC_BEVEL_CHISEL_HARD
                            : (strcmp(s, "chiselSoft") == 0) ? PC_BEVEL_CHISEL_SOFT
-                                                           : PC_BEVEL_SMOOTH;
+                                                            : PC_BEVEL_SMOOTH;
         }
-        if (jf_of(p, "depth", &x)) b->depth = x / 100.0f;
+        if (jf_of(p, "depth", &x))
+            b->depth = x / 100.0f;
         s = jstr(p, "direction");
         if (s != NULL) {
             b->up = (strcmp(s, "down") != 0);
         }
-        if (jf_of(p, "size", &x)) b->size = x;
-        if (jf_of(p, "soften", &x)) b->soften = x;
-        if (jf_of(p, "angle", &x)) b->angle = x;
-        if (jf_of(p, "altitude", &x)) b->altitude = x;
+        if (jf_of(p, "size", &x))
+            b->size = x;
+        if (jf_of(p, "soften", &x))
+            b->soften = x;
+        if (jf_of(p, "angle", &x))
+            b->angle = x;
+        if (jf_of(p, "altitude", &x))
+            b->altitude = x;
         set_bool_field(p, "useGlobalLight", &b->use_global_light);
         set_contour_field(p, "glossContour", &b->gloss_contour);
         bool cv;
@@ -989,7 +1093,8 @@ void pc_engine_overlay_effect(pc_effect *fx, yyjson_val *p)
         }
         if (b->has_contour) {
             set_contour_field(p, "contourName", &b->contour.contour);
-            if (jf_of(p, "contourRange", &x)) b->contour.range = clampf(x / 100.0f, 0.01f, 1.0f);
+            if (jf_of(p, "contourRange", &x))
+                b->contour.range = clampf(x / 100.0f, 0.01f, 1.0f);
             set_bool_field(p, "contourAntiAlias", &b->contour.anti_alias);
         }
         s = jstr(p, "texture");
@@ -1028,16 +1133,26 @@ bool pc_engine_effect_from_params(const char *kind, yyjson_val *p, pc_effect *ou
 const char *pc_engine_effect_kind_of(const pc_effect *e)
 {
     switch (e->kind) {
-    case PC_FX_DROP_SHADOW: return "dropShadow";
-    case PC_FX_INNER_SHADOW: return "innerShadow";
-    case PC_FX_OUTER_GLOW: return "outerGlow";
-    case PC_FX_INNER_GLOW: return "innerGlow";
-    case PC_FX_STROKE: return "stroke";
-    case PC_FX_COLOR_OVERLAY: return "colorOverlay";
-    case PC_FX_GRADIENT_OVERLAY: return "gradientOverlay";
-    case PC_FX_PATTERN_OVERLAY: return "patternOverlay";
-    case PC_FX_SATIN: return "satin";
-    case PC_FX_BEVEL_EMBOSS: return "bevelEmboss";
+    case PC_FX_DROP_SHADOW:
+        return "dropShadow";
+    case PC_FX_INNER_SHADOW:
+        return "innerShadow";
+    case PC_FX_OUTER_GLOW:
+        return "outerGlow";
+    case PC_FX_INNER_GLOW:
+        return "innerGlow";
+    case PC_FX_STROKE:
+        return "stroke";
+    case PC_FX_COLOR_OVERLAY:
+        return "colorOverlay";
+    case PC_FX_GRADIENT_OVERLAY:
+        return "gradientOverlay";
+    case PC_FX_PATTERN_OVERLAY:
+        return "patternOverlay";
+    case PC_FX_SATIN:
+        return "satin";
+    case PC_FX_BEVEL_EMBOSS:
+        return "bevelEmboss";
     }
     return "dropShadow";
 }
@@ -1068,32 +1183,36 @@ bool pc_engine_effect_defaults(const char *kind, yyjson_mut_doc *d, yyjson_mut_v
     }
     bool ok = true;
     if (strcmp(kind, "dropShadow") == 0) {
-        ok = add_s(d, o, "blend", "Multiply") && add_s(d, o, "color", "#000000") && add_i(d, o, "opacity", 75) &&
-             add_i(d, o, "angle", 120) && add_b(d, o, "useGlobalLight", true) && add_i(d, o, "distance", 5) &&
-             add_i(d, o, "spread", 0) && add_i(d, o, "size", 5) && add_s(d, o, "contour", "Linear") &&
-             add_b(d, o, "antiAlias", false) && add_i(d, o, "noise", 0) && add_b(d, o, "knocksOut", true);
+        ok = add_s(d, o, "blend", "Multiply") && add_s(d, o, "color", "#000000") &&
+             add_i(d, o, "opacity", 75) && add_i(d, o, "angle", 120) && add_b(d, o, "useGlobalLight", true) &&
+             add_i(d, o, "distance", 5) && add_i(d, o, "spread", 0) && add_i(d, o, "size", 5) &&
+             add_s(d, o, "contour", "Linear") && add_b(d, o, "antiAlias", false) && add_i(d, o, "noise", 0) &&
+             add_b(d, o, "knocksOut", true);
     } else if (strcmp(kind, "innerShadow") == 0) {
-        ok = add_s(d, o, "blend", "Multiply") && add_s(d, o, "color", "#000000") && add_i(d, o, "opacity", 75) &&
-             add_i(d, o, "angle", 120) && add_b(d, o, "useGlobalLight", true) && add_i(d, o, "distance", 5) &&
-             add_i(d, o, "choke", 0) && add_i(d, o, "size", 5) && add_s(d, o, "contour", "Linear") &&
-             add_b(d, o, "antiAlias", false) && add_i(d, o, "noise", 0);
+        ok = add_s(d, o, "blend", "Multiply") && add_s(d, o, "color", "#000000") &&
+             add_i(d, o, "opacity", 75) && add_i(d, o, "angle", 120) && add_b(d, o, "useGlobalLight", true) &&
+             add_i(d, o, "distance", 5) && add_i(d, o, "choke", 0) && add_i(d, o, "size", 5) &&
+             add_s(d, o, "contour", "Linear") && add_b(d, o, "antiAlias", false) && add_i(d, o, "noise", 0);
     } else if (strcmp(kind, "outerGlow") == 0) {
-        ok = add_s(d, o, "blend", "Screen") && add_i(d, o, "opacity", 75) && add_s(d, o, "color", "#ffffbe") &&
-             add_i(d, o, "spread", 0) && add_i(d, o, "size", 5) && add_i(d, o, "range", 50) &&
-             add_s(d, o, "contour", "Linear") && add_b(d, o, "antiAlias", false) && add_i(d, o, "noise", 0);
+        ok = add_s(d, o, "blend", "Screen") && add_i(d, o, "opacity", 75) &&
+             add_s(d, o, "color", "#ffffbe") && add_i(d, o, "spread", 0) && add_i(d, o, "size", 5) &&
+             add_i(d, o, "range", 50) && add_s(d, o, "contour", "Linear") &&
+             add_b(d, o, "antiAlias", false) && add_i(d, o, "noise", 0);
     } else if (strcmp(kind, "innerGlow") == 0) {
-        ok = add_s(d, o, "blend", "Screen") && add_i(d, o, "opacity", 75) && add_s(d, o, "color", "#ffffbe") &&
-             add_s(d, o, "source", "edge") && add_i(d, o, "choke", 0) && add_i(d, o, "size", 5) &&
-             add_s(d, o, "contour", "Linear") && add_b(d, o, "antiAlias", false) && add_i(d, o, "noise", 0);
+        ok = add_s(d, o, "blend", "Screen") && add_i(d, o, "opacity", 75) &&
+             add_s(d, o, "color", "#ffffbe") && add_s(d, o, "source", "edge") && add_i(d, o, "choke", 0) &&
+             add_i(d, o, "size", 5) && add_s(d, o, "contour", "Linear") && add_b(d, o, "antiAlias", false) &&
+             add_i(d, o, "noise", 0);
     } else if (strcmp(kind, "stroke") == 0) {
         ok = add_i(d, o, "size", 3) && add_s(d, o, "position", "outside") && add_s(d, o, "blend", "Normal") &&
              add_i(d, o, "opacity", 100) && add_s(d, o, "color", "#000000");
     } else if (strcmp(kind, "colorOverlay") == 0) {
         ok = add_s(d, o, "blend", "Normal") && add_s(d, o, "color", "#ff0000") && add_i(d, o, "opacity", 100);
     } else if (strcmp(kind, "gradientOverlay") == 0) {
-        ok = add_s(d, o, "blend", "Normal") && add_i(d, o, "opacity", 100) && add_s(d, o, "from", "#000000") &&
-             add_s(d, o, "to", "#ffffff") && add_b(d, o, "reverse", false) && add_s(d, o, "style", "linear") &&
-             add_i(d, o, "angle", 90) && add_i(d, o, "scale", 100);
+        ok = add_s(d, o, "blend", "Normal") && add_i(d, o, "opacity", 100) &&
+             add_s(d, o, "from", "#000000") && add_s(d, o, "to", "#ffffff") &&
+             add_b(d, o, "reverse", false) && add_s(d, o, "style", "linear") && add_i(d, o, "angle", 90) &&
+             add_i(d, o, "scale", 100);
     } else if (strcmp(kind, "patternOverlay") == 0) {
         ok = add_s(d, o, "blend", "Normal") && add_i(d, o, "opacity", 100) && add_s(d, o, "pattern", "") &&
              add_i(d, o, "angle", 0) && add_i(d, o, "scale", 100) && add_b(d, o, "link", true);
@@ -1105,9 +1224,10 @@ bool pc_engine_effect_defaults(const char *kind, yyjson_mut_doc *d, yyjson_mut_v
              add_s(d, o, "contourName", "Linear") && add_i(d, o, "contourRange", 50) &&
              add_b(d, o, "contourAntiAlias", false);
     } else if (strcmp(kind, "satin") == 0) {
-        ok = add_s(d, o, "blend", "Multiply") && add_s(d, o, "color", "#000000") && add_i(d, o, "opacity", 50) &&
-             add_i(d, o, "angle", 19) && add_i(d, o, "distance", 11) && add_i(d, o, "size", 14) &&
-             add_s(d, o, "contour", "Linear") && add_b(d, o, "antiAlias", true) && add_b(d, o, "invert", true);
+        ok = add_s(d, o, "blend", "Multiply") && add_s(d, o, "color", "#000000") &&
+             add_i(d, o, "opacity", 50) && add_i(d, o, "angle", 19) && add_i(d, o, "distance", 11) &&
+             add_i(d, o, "size", 14) && add_s(d, o, "contour", "Linear") && add_b(d, o, "antiAlias", true) &&
+             add_b(d, o, "invert", true);
     } else {
         return false;
     }
@@ -1140,15 +1260,23 @@ static bool same_kind(const pc_effect *a, const pc_effect *b)
 /* set_effect state passed through session_edit. */
 typedef struct set_fx_ctx {
     pc_layer_id id;
-    pc_effect fx;   /* already resolved + overlaid; converted in_mode inside the edit */
+    pc_effect fx; /* already resolved + overlaid; converted in_mode inside the edit */
     bool add;
+    bool has_pattern;
+    pc_pattern pattern;
 } set_fx_ctx;
 
-static pc_status set_fx_edit(pc_document *doc, bool *has_active, pc_layer_id *active, void *vctx, pc_error *err)
+static pc_status set_fx_edit(pc_document *doc, bool *has_active, pc_layer_id *active, void *vctx,
+                             pc_error *err)
 {
     (void)has_active;
     (void)active;
     set_fx_ctx *c = vctx;
+    if (c->has_pattern) {
+        pc_status status = pc_engine_pattern_ensure_in_doc(doc, &c->pattern, err);
+        if (status != PC_OK)
+            return status;
+    }
     pc_effect fx;
     if (pc_effect_clone(&c->fx, &fx, err) != PC_OK) {
         return PC_ERR_NOMEM;
@@ -1184,14 +1312,39 @@ static pc_status set_fx_edit(pc_document *doc, bool *has_active, pc_layer_id *ac
     return PC_OK;
 }
 
-/* resolve_effect: a pass-through for every non-pattern effect; patternOverlay needs the pattern
- * library (E10, deferred) -> graceful BadParams. */
-static pc_status resolve_nonpattern(const char *cmd, pc_effect *fx, pc_error *err)
+/* Resolve the live pattern library before editing, then copy its resource in the same undo step.
+ * An unchanged imported snapshot may retain a missing pattern for later relinking. */
+static pc_status resolve_effect(const pc_engine_session *session, const char *cmd, pc_effect *fx,
+                                bool preserve_missing, pc_pattern *pattern, bool *has_pattern, pc_error *err)
 {
-    if (fx->kind == PC_FX_PATTERN_OVERLAY) {
-        return pc_engine_err_bad_params(
-            err, cmd, "pattern overlays need the pattern library, which is not available in this build yet");
+    *has_pattern = false;
+    if (fx->kind != PC_FX_PATTERN_OVERLAY || preserve_missing)
+        return PC_OK;
+    const pc_str *key =
+        fx->u.pattern_overlay.id.len ? &fx->u.pattern_overlay.id : &fx->u.pattern_overlay.name;
+    bool found = false;
+    pc_status status = pc_engine_pattern_resolve(session, pc_str_c(key), key->len, pattern, &found, err);
+    if (status != PC_OK)
+        return status;
+    if (!found)
+        return preserve_missing
+                   ? PC_OK
+                   : pc_engine_err_bad_params(err, cmd, "no matching pattern (see pattern.list)");
+    pc_str name = PC_STR_INIT, id = PC_STR_INIT;
+    status = pc_str_clone(&pattern->name, &name, err);
+    if (status == PC_OK)
+        status = pc_str_clone(&pattern->id, &id, err);
+    if (status != PC_OK) {
+        pc_str_fini(&name);
+        pc_str_fini(&id);
+        pc_pattern_fini(pattern);
+        return status;
     }
+    pc_str_fini(&fx->u.pattern_overlay.name);
+    pc_str_fini(&fx->u.pattern_overlay.id);
+    fx->u.pattern_overlay.name = name;
+    fx->u.pattern_overlay.id = id;
+    *has_pattern = true;
     return PC_OK;
 }
 
@@ -1203,8 +1356,9 @@ static pc_status run_set_effect(pc_engine_session *s, const char *kind, yyjson_v
     if (!pc_engine_effect_from_params(kind, p, &ctx.fx)) {
         return pc_fail(err, PC_ERR_INVALID, "unknown effect %s", kind);
     }
-    pc_status rc = resolve_nonpattern("layer.layerStyle", &ctx.fx, err);
+    pc_status rc = resolve_effect(s, "layer.layerStyle", &ctx.fx, false, &ctx.pattern, &ctx.has_pattern, err);
     if (rc != PC_OK) {
+        pc_pattern_fini(&ctx.pattern);
         pc_effect_fini(&ctx.fx);
         return rc;
     }
@@ -1213,11 +1367,18 @@ static pc_status run_set_effect(pc_engine_session *s, const char *kind, yyjson_v
     ctx.add = jb(p, "add", false);
     rc = pc_engine_layer_param(s, p, &ctx.id, err);
     if (rc != PC_OK) {
+        pc_pattern_fini(&ctx.pattern);
         pc_effect_fini(&ctx.fx);
         return rc;
     }
+    pc_cmyk_space *space = pc_engine_doc_cmyk_space(s), *prior = space ? pc_cmyk_space_enter(space) : NULL;
     rc = pc_engine_session_edit(s, label, set_fx_edit, &ctx, err);
+    if (space) {
+        pc_cmyk_space_leave(prior);
+        pc_cmyk_space_release(space);
+    }
     pc_effect_fini(&ctx.fx);
+    pc_pattern_fini(&ctx.pattern);
     if (rc != PC_OK) {
         return rc;
     }
@@ -1232,10 +1393,10 @@ static pc_status run_set_effect(pc_engine_session *s, const char *kind, yyjson_v
 }
 
 /* Each style command is a tiny wrapper naming its kind. */
-#define STYLE_RUN(fn, kind)                                                                        \
-    static pc_status fn(pc_engine_session *s, yyjson_val *p, pc_json_value *out, pc_error *err)     \
-    {                                                                                              \
-        return run_set_effect(s, kind, p, out, err);                                               \
+#define STYLE_RUN(fn, kind)                                                                                  \
+    static pc_status fn(pc_engine_session *s, yyjson_val *p, pc_json_value *out, pc_error *err)              \
+    {                                                                                                        \
+        return run_set_effect(s, kind, p, out, err);                                                         \
     }
 STYLE_RUN(run_drop_shadow, "dropShadow")
 STYLE_RUN(run_inner_shadow, "innerShadow")
@@ -1244,6 +1405,7 @@ STYLE_RUN(run_inner_glow, "innerGlow")
 STYLE_RUN(run_stroke, "stroke")
 STYLE_RUN(run_color_overlay, "colorOverlay")
 STYLE_RUN(run_gradient_overlay, "gradientOverlay")
+STYLE_RUN(run_pattern_overlay, "patternOverlay")
 STYLE_RUN(run_satin, "satin")
 STYLE_RUN(run_bevel, "bevelEmboss")
 
@@ -1254,6 +1416,8 @@ typedef struct replace_ctx {
     pc_layer_id id;
     pc_effect *list; /* resolved, in_mode applied inside the edit */
     size_t n;
+    pc_pattern *patterns;
+    size_t npatterns;
 } replace_ctx;
 
 static pc_status replace_edit(pc_document *doc, bool *ha, pc_layer_id *a, void *vctx, pc_error *err)
@@ -1261,6 +1425,11 @@ static pc_status replace_edit(pc_document *doc, bool *ha, pc_layer_id *a, void *
     (void)ha;
     (void)a;
     replace_ctx *c = vctx;
+    for (size_t i = 0; i < c->npatterns; i++) {
+        pc_status status = pc_engine_pattern_ensure_in_doc(doc, &c->patterns[i], err);
+        if (status != PC_OK)
+            return status;
+    }
     pc_layer *l = pc_document_layer_mut(doc, c->id);
     if (l == NULL) {
         return pc_engine_err_no_layer(err, c->id);
@@ -1279,8 +1448,9 @@ static pc_status replace_edit(pc_document *doc, bool *ha, pc_layer_id *a, void *
         }
         pc_effect_in_mode(&items[i], doc->mode);
     }
-    pc_effects_fini(&l->effects);
-    memset(&l->effects, 0, sizeof l->effects);
+    for (size_t i = 0; i < l->effects.nitems; i++)
+        pc_effect_fini(&l->effects.items[i]);
+    free(l->effects.items);
     l->effects.enabled = true;
     l->effects.items = items;
     l->effects.nitems = c->n;
@@ -1307,6 +1477,11 @@ static pc_status run_replace(pc_engine_session *s, yyjson_val *p, pc_json_value 
     ctx.list = (count > 0) ? calloc(count, sizeof *ctx.list) : NULL;
     if (count > 0 && ctx.list == NULL) {
         return pc_fail(err, PC_ERR_NOMEM, "out of memory");
+    }
+    ctx.patterns = count ? calloc(count, sizeof *ctx.patterns) : NULL;
+    if (count && !ctx.patterns) {
+        free(ctx.list);
+        return pc_fail(err, PC_ERR_NOMEM, "style patterns");
     }
     yyjson_val *e;
     yyjson_arr_iter it = yyjson_arr_iter_with(entries);
@@ -1342,20 +1517,34 @@ static pc_status run_replace(pc_engine_session *s, yyjson_val *p, pc_json_value 
             rc = pc_engine_err_bad_params(err, CMD, "unknown effect %s", kind);
             goto fail;
         }
-        rc = resolve_nonpattern(CMD, &fx, err);
+        pc_pattern pattern = {0};
+        bool has_pattern = false;
+        bool preserve = fxj && !obj_get(params, "pattern");
+        rc = resolve_effect(s, CMD, &fx, preserve, &pattern, &has_pattern, err);
         if (rc != PC_OK) {
             pc_effect_fini(&fx);
             goto fail;
         }
+        if (has_pattern)
+            ctx.patterns[ctx.npatterns++] = pattern;
         ctx.list[ctx.n++] = fx;
     }
-    rc = pc_engine_session_edit(s, ctx.n == 0 ? "Clear Layer Style" : "Edit Layer Style", replace_edit, &ctx, err);
+    pc_cmyk_space *space = pc_engine_doc_cmyk_space(s), *prior = space ? pc_cmyk_space_enter(space) : NULL;
+    rc = pc_engine_session_edit(s, ctx.n == 0 ? "Clear Layer Style" : "Edit Layer Style", replace_edit, &ctx,
+                                err);
+    if (space) {
+        pc_cmyk_space_leave(prior);
+        pc_cmyk_space_release(space);
+    }
     if (rc != PC_OK) {
         goto fail;
     }
     for (size_t i = 0; i < ctx.n; i++) {
         pc_effect_fini(&ctx.list[i]);
     }
+    for (size_t i = 0; i < ctx.npatterns; i++)
+        pc_pattern_fini(&ctx.patterns[i]);
+    free(ctx.patterns);
     free(ctx.list);
     yyjson_mut_doc *d = NULL;
     if (pc_engine_result_doc(out, &d, err) != PC_OK) {
@@ -1370,6 +1559,9 @@ fail:
     for (size_t i = 0; i < ctx.n; i++) {
         pc_effect_fini(&ctx.list[i]);
     }
+    for (size_t i = 0; i < ctx.npatterns; i++)
+        pc_pattern_fini(&ctx.patterns[i]);
+    free(ctx.patterns);
     free(ctx.list);
     return rc;
 }
@@ -1420,8 +1612,8 @@ static pc_status delete_fx_edit(pc_document *doc, bool *ha, pc_layer_id *a, void
     return PC_OK;
 }
 
-static pc_status run_delete_effect(pc_engine_session *s, yyjson_val *p, yyjson_val *effect, pc_json_value *out,
-                                   pc_error *err)
+static pc_status run_delete_effect(pc_engine_session *s, yyjson_val *p, yyjson_val *effect,
+                                   pc_json_value *out, pc_error *err)
 {
     const char *CMD = "layer.layerStyle.clear";
     if (!yyjson_is_int(effect) || yyjson_get_sint(effect) < 0) {
@@ -1450,7 +1642,8 @@ static pc_status run_delete_effect(pc_engine_session *s, yyjson_val *p, yyjson_v
     }
     size_t cnt = l->effects.nitems;
     if (ctx.index >= cnt) {
-        return pc_engine_err_bad_params(err, CMD, "the layer has %zu effect(s), no effect %zu", cnt, ctx.index);
+        return pc_engine_err_bad_params(err, CMD, "the layer has %zu effect(s), no effect %zu", cnt,
+                                        ctx.index);
     }
     pc_status rc = pc_engine_session_edit(s, "Delete Effect", delete_fx_edit, &ctx, err);
     if (rc != PC_OK) {
@@ -1514,7 +1707,8 @@ static pc_status run_clear(pc_engine_session *s, yyjson_val *p, pc_json_value *o
         ntargets = m;
         if (ntargets == 0) {
             free(targets);
-            return pc_fail(err, PC_ERR_INVALID, "none of the selected layers can take this layer style change");
+            return pc_fail(err, PC_ERR_INVALID,
+                           "none of the selected layers can take this layer style change");
         }
     }
     ctx.ids = targets;
@@ -1536,20 +1730,25 @@ const pc_engine_command *pc_engine_layer_style_specs(size_t *n)
     static const pc_engine_command specs[] = {
         {"layer.layerStyle.dropShadow", "Drop Shadow\xE2\x80\xA6", MENU_STYLE, 2, NULL,
          "{\"color\":\"#rrggbb\",\"opacity\":0..100=75,\"blend\":str=\"multiply\",\"angle\":deg=120,"
-         "\"useGlobalLight\":bool,\"distance\":px=5,\"spread\":0..100,\"size\":px=5,\"contour\":name|curve=\"Linear\","
+         "\"useGlobalLight\":bool,\"distance\":px=5,\"spread\":0..100,\"size\":px=5,\"contour\":name|curve="
+         "\"Linear\","
          "\"antiAlias\":bool,\"noise\":0..100,\"knocksOut\":bool,\"add\":bool,\"layer\":id}",
          has_layer, run_drop_shadow, true},
         {"layer.layerStyle.innerShadow", "Inner Shadow\xE2\x80\xA6", MENU_STYLE, 2, NULL,
-         "{\"color\":\"#rrggbb\",\"opacity\":0..100=75,\"blend\":str,\"angle\":deg,\"distance\":px,\"choke\":0..100,"
+         "{\"color\":\"#rrggbb\",\"opacity\":0..100=75,\"blend\":str,\"angle\":deg,\"distance\":px,\"choke\":"
+         "0..100,"
          "\"size\":px,\"contour\":name|curve,\"antiAlias\":bool,\"noise\":0..100,\"add\":bool}",
          has_layer, run_inner_shadow, true},
         {"layer.layerStyle.outerGlow", "Outer Glow\xE2\x80\xA6", MENU_STYLE, 2, NULL,
-         "{\"color\":\"#rrggbb\",\"opacity\":0..100=75,\"blend\":str=\"screen\",\"technique\":\"softer|precise\","
-         "\"spread\":0..100,\"size\":px,\"range\":0..100,\"contour\":name|curve,\"antiAlias\":bool,\"noise\":0..100,"
+         "{\"color\":\"#rrggbb\",\"opacity\":0..100=75,\"blend\":str=\"screen\",\"technique\":\"softer|"
+         "precise\","
+         "\"spread\":0..100,\"size\":px,\"range\":0..100,\"contour\":name|curve,\"antiAlias\":bool,\"noise\":"
+         "0..100,"
          "\"add\":bool}",
          has_layer, run_outer_glow, true},
         {"layer.layerStyle.innerGlow", "Inner Glow\xE2\x80\xA6", MENU_STYLE, 2, NULL,
-         "{\"color\":\"#rrggbb\",\"opacity\":0..100=75,\"blend\":str=\"screen\",\"technique\":\"softer|precise\","
+         "{\"color\":\"#rrggbb\",\"opacity\":0..100=75,\"blend\":str=\"screen\",\"technique\":\"softer|"
+         "precise\","
          "\"source\":\"edge|center\",\"choke\":0..100,\"size\":px,\"contour\":name|curve,\"antiAlias\":bool,"
          "\"noise\":0..100,\"add\":bool}",
          has_layer, run_inner_glow, true},
@@ -1559,30 +1758,39 @@ const pc_engine_command *pc_engine_layer_style_specs(size_t *n)
          "\"style\":str,\"angle\":deg,\"opacity\":0..100,\"blend\":str,\"add\":bool}",
          has_layer, run_stroke, true},
         {"layer.layerStyle.colorOverlay", "Color Overlay\xE2\x80\xA6", MENU_STYLE, 2, NULL,
-         "{\"color\":\"#rrggbb\",\"opacity\":0..100=100,\"blend\":str,\"add\":bool}", has_layer, run_color_overlay,
-         true},
+         "{\"color\":\"#rrggbb\",\"opacity\":0..100=100,\"blend\":str,\"add\":bool}", has_layer,
+         run_color_overlay, true},
         {"layer.layerStyle.gradientOverlay", "Gradient Overlay\xE2\x80\xA6", MENU_STYLE, 2, NULL,
          "{\"from\":\"#rrggbb\",\"to\":\"#rrggbb\",\"method\":\"classic|perceptual|linear|smooth\"?,"
          "\"smoothness\":0..100=100,\"style\":\"linear|radial|angle|reflected|diamond\",\"angle\":deg=90,"
          "\"scale\":10..150=100,\"reverse\":bool,\"opacity\":0..100,\"blend\":str,\"add\":bool}",
          has_layer, run_gradient_overlay, true},
+        {"layer.layerStyle.patternOverlay", "Pattern Overlay…", MENU_STYLE, 2, NULL,
+         "{\"pattern\":text,\"scale\":1..1000=100,\"angle\":-180..180=0,\"link\":bool=true,\"phaseX\":px=0,"
+         "\"phaseY\":px=0,\"opacity\":0..100=100,\"blend\":str,\"add\":bool}",
+         has_layer, run_pattern_overlay, true},
         {"layer.layerStyle.bevelEmboss", "Bevel & Emboss\xE2\x80\xA6", MENU_STYLE, 2, NULL,
          "{\"style\":\"inner|outer|emboss|pillow|stroke\",\"technique\":\"smooth|chiselHard|chiselSoft\","
          "\"contour\":bool,\"contourName\":name|curve,\"contourRange\":1..100=50,\"contourAntiAlias\":bool,"
          "\"glossContour\":name|curve,\"texture\":pattern id|name?,\"textureScale\":1..1000=100,"
-         "\"textureDepth\":-1000..1000=100,\"textureInvert\":bool,\"textureLink\":bool=true,\"depth\":1..1000=100,"
+         "\"textureDepth\":-1000..1000=100,\"textureInvert\":bool,\"textureLink\":bool=true,\"depth\":1.."
+         "1000=100,"
          "\"direction\":\"up|down\",\"size\":px=5,\"soften\":px,\"angle\":deg,\"altitude\":deg,\"add\":bool}",
          has_layer, run_bevel, true},
         {"layer.layerStyle.satin", "Satin\xE2\x80\xA6", MENU_STYLE, 2, NULL,
-         "{\"color\":\"#rrggbb\",\"opacity\":0..100=50,\"blend\":str,\"angle\":deg,\"distance\":px,\"size\":px,"
+         "{\"color\":\"#rrggbb\",\"opacity\":0..100=50,\"blend\":str,\"angle\":deg,\"distance\":px,\"size\":"
+         "px,"
          "\"contour\":name|curve,\"antiAlias\":bool=true,\"invert\":bool,\"add\":bool}",
          has_layer, run_satin, true},
         {"layer.layerStyle.replace", "Edit Layer Style", NULL, 0, NULL,
-         "{\"layer\":id,\"effects\":[{\"kind\":\"dropShadow|innerShadow|outerGlow|innerGlow|stroke|colorOverlay|"
-         "gradientOverlay|patternOverlay|satin|bevelEmboss\",\"params\":{\xE2\x80\xA6},\"fx\":<effect snapshot>}]}",
+         "{\"layer\":id,\"effects\":[{\"kind\":\"dropShadow|innerShadow|outerGlow|innerGlow|stroke|"
+         "colorOverlay|"
+         "gradientOverlay|patternOverlay|satin|bevelEmboss\",\"params\":{\xE2\x80\xA6},\"fx\":<effect "
+         "snapshot>}]}",
          has_layer, run_replace, true},
         {"layer.layerStyle.clear", "Clear Layer Style", MENU_STYLE, 2, NULL,
-         "{\"layer\":id? (no layer: every selected layer that has a style),\"effect\":index? (only that effect)}",
+         "{\"layer\":id? (no layer: every selected layer that has a style),\"effect\":index? (only that "
+         "effect)}",
          has_layer, run_clear, true},
     };
     *n = sizeof specs / sizeof specs[0];

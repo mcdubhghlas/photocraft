@@ -117,3 +117,63 @@ bool pc_ui_is_temporary(const char *id)
     }
     return false;
 }
+
+static bool binding(const pc_engine_session *session, const char *id, pc_ui_shortcut *out)
+{
+    char text[128];
+    return pc_ui_effective_shortcut(session, id, text, sizeof text) && pc_ui_shortcut_parse(text, out);
+}
+static bool held(const bool *keys, unsigned mods, const pc_ui_shortcut *sc)
+{
+    return keys && sc->key > PC_KEY_NONE && sc->key <= PC_KEY_EXCLAMATIONMARK &&
+           keys[sc->key] && (mods & sc->mods) == sc->mods;
+}
+bool pc_ui_temporary_resolve(const pc_engine_session *session, pc_ui_tool tool,
+                              const bool keys[PC_KEY_EXCLAMATIONMARK + 1], unsigned mods,
+                              bool blocked, bool allow_move, pc_ui_temporary *out)
+{
+    if (blocked || !out) {
+        return false;
+    }
+    bool found = false;
+    unsigned best = 0;
+    pc_ui_temporary result = PC_UI_TEMP_HAND;
+    for (size_t i = 0; i < 3; i++) {
+        pc_ui_shortcut sc;
+        pc_ui_temporary t = PC_UI_TEMPORARY_BOUND[i];
+        if (binding(session, pc_ui_temporary_id(t), &sc) && held(keys, mods, &sc)) {
+            unsigned count = 0;
+            for (unsigned bits = sc.mods; bits; bits >>= 1) {
+                count += bits & 1u;
+            }
+            if (!found || count > best) {
+                found = true;
+                best = count;
+                result = t == PC_UI_TEMP_ZOOM_IN && (mods & PC_UI_MOD_ALT) && !(sc.mods & PC_UI_MOD_ALT)
+                             ? PC_UI_TEMP_ZOOM_OUT : t;
+            }
+        }
+    }
+    if (!found && allow_move && (mods & PC_UI_MOD_COMMAND) && pc_ui_cmd_moves(tool)) {
+        found = true;
+        result = PC_UI_TEMP_MOVE;
+    }
+    if (found) {
+        *out = result;
+    }
+    return found;
+}
+bool pc_ui_erase_held(const pc_engine_session *session, pc_ui_tool tool,
+                       const bool keys[PC_KEY_EXCLAMATIONMARK + 1], unsigned mods, bool blocked)
+{
+    pc_ui_shortcut sc;
+    return !blocked && pc_ui_erases_while_held(tool) &&
+           binding(session, "tools.temporary.erase", &sc) && held(keys, mods, &sc);
+}
+bool pc_ui_reposition_held(const pc_engine_session *session,
+                            const bool keys[PC_KEY_EXCLAMATIONMARK + 1], bool blocked)
+{
+    pc_ui_shortcut sc;
+    return !blocked && keys && binding(session, "tools.temporary.hand", &sc) &&
+           sc.key > PC_KEY_NONE && sc.key <= PC_KEY_EXCLAMATIONMARK && keys[sc.key];
+}

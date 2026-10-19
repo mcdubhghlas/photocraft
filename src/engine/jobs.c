@@ -82,7 +82,7 @@ void pc_engine_job_ctx_progress(const pc_engine_job_ctx *ctx, float fraction, co
         unsigned cur = atomic_load_explicit(&ctx->shared->progress, memory_order_relaxed);
         while (bits > cur &&
                !atomic_compare_exchange_weak_explicit(&ctx->shared->progress, &cur, bits,
-                                                       memory_order_relaxed, memory_order_relaxed)) {
+                                                      memory_order_relaxed, memory_order_relaxed)) {
             /* retry with the reloaded cur */
         }
     }
@@ -349,11 +349,10 @@ void pc_engine_jobs_fini(pc_engine_jobs *j)
 
 static bool independent_of_document(const char *id)
 {
-    static const char *const PREFIXES[] = {"jobs.",  "tools.",  "view.",
-                                           "window.", "help.",  "brush.presets.", "gradient.presets."};
-    static const char *const IDS[] = {"file.new",        "file.close",
-                                      "file.closeAll",   "edit.preferences",
-                                      "edit.colorSettings", "edit.keyboardShortcuts",
+    static const char *const PREFIXES[] = {"jobs.",          "tools.",           "view.", "window.", "help.",
+                                           "brush.presets.", "gradient.presets."};
+    static const char *const IDS[] = {"file.new",         "file.close",         "file.closeAll",
+                                      "edit.preferences", "edit.colorSettings", "edit.keyboardShortcuts",
                                       "edit.menus"};
     for (size_t i = 0; i < sizeof PREFIXES / sizeof PREFIXES[0]; i++) {
         if (strncmp(id, PREFIXES[i], strlen(PREFIXES[i])) == 0) {
@@ -544,8 +543,8 @@ pc_status pc_engine_run_job(pc_engine_session *s, const char *label, bool lock_d
     r->free_payload = free_payload;
     if (pthread_create(&r->thread, NULL, worker_main, mb) != 0) {
         /* Spawn failed: the worker never ran, so drop its mailbox reference here. */
-        mailbox_release(mb);  /* worker's ref */
-        r->mb = NULL;         /* running_free will drop the session ref below */
+        mailbox_release(mb); /* worker's ref */
+        r->mb = NULL;        /* running_free will drop the session ref below */
         running_free(r);
         return pc_engine_err_other(err, "could not start a background job");
     }
@@ -567,9 +566,9 @@ pc_status pc_engine_run_job(pc_engine_session *s, const char *label, bool lock_d
 static void end_job(pc_engine_session *s, pc_engine_running *r, pc_engine_job_outcome outcome,
                     const pc_json_value *result, const char *error)
 {
-    const char *state = outcome == PC_ENGINE_JOB_DONE      ? "done"
+    const char *state = outcome == PC_ENGINE_JOB_DONE     ? "done"
                         : outcome == PC_ENGINE_JOB_FAILED ? "failed"
-                                                           : "cancelled";
+                                                          : "cancelled";
     /* recent row */
     pc_engine_job_info_row *gr =
         pc_grow_array(s->jobs.recent, &s->jobs.cap_recent, s->jobs.nrecent + 1, sizeof *s->jobs.recent);
@@ -665,6 +664,11 @@ static void after_command(pc_engine_session *s, const char *id, yyjson_val *para
 static pc_status apply_job(pc_engine_session *s, pc_engine_running *r, void *payload, pc_json_value *out,
                            pc_error *err)
 {
+    yyjson_mut_val *stored_params = pc_json_value_root(&r->params);
+    yyjson_doc *params = stored_params ? yyjson_mut_val_imut_copy(stored_params, NULL) : NULL;
+    if (stored_params && !params)
+        return pc_fail(err, PC_ERR_NOMEM, "job parameters");
+    size_t target_index = SIZE_MAX;
     bool had_prev = s->has_active;
     size_t prev_active = s->active;
     bool restored_target = false;
@@ -678,15 +682,18 @@ static pc_status apply_job(pc_engine_session *s, pc_engine_running *r, void *pay
             }
         }
         if (!found) {
+            yyjson_doc_free(params);
             return pc_engine_err_other(err, "`%s`: the document was closed", r->label);
         }
         bool unchanged = r->snapshot != NULL && s->docs[i].doc == r->snapshot;
         if (!unchanged) {
-            return pc_engine_err_other(err, "`%s`: the document changed while it ran; the result was discarded",
-                                       r->label);
+            yyjson_doc_free(params);
+            return pc_engine_err_other(
+                err, "`%s`: the document changed while it ran; the result was discarded", r->label);
         }
         s->has_active = true;
         s->active = i;
+        target_index = i;
         restored_target = true;
     }
     free(s->coalesce_request);
@@ -698,17 +705,16 @@ static pc_status apply_job(pc_engine_session *s, pc_engine_running *r, void *pay
     s->coalesce_request = NULL;
     s->color_restrict = SIZE_MAX;
     if (rc == PC_OK) {
-        after_command(s, r->command, pc_json_value_root(&r->params) != NULL
-                                         ? NULL /* params stored mutably; after_command re-journals by id */
-                                         : NULL,
-                      r->journal, job_nested_from);
+        after_command(s, r->command, params ? yyjson_doc_get_root(params) : NULL, r->journal,
+                      job_nested_from);
     }
     /* Keep the user's active document unless the job opened a new one. */
-    if (restored_target && s->has_active && s->active == (had_prev ? prev_active : s->active)) {
+    if (restored_target && s->has_active && s->active == target_index) {
         if (had_prev && prev_active < s->ndocs) {
             s->active = prev_active;
         }
     }
+    yyjson_doc_free(params);
     return rc;
 }
 
@@ -795,7 +801,8 @@ static bool try_collect(pc_engine_session *s, size_t i)
     return true;
 }
 
-pc_status pc_engine_session_poll_jobs(pc_engine_session *s, pc_engine_job_event **out, size_t *n, pc_error *err)
+pc_status pc_engine_session_poll_jobs(pc_engine_session *s, pc_engine_job_event **out, size_t *n,
+                                      pc_error *err)
 {
     size_t i = 0;
     while (i < s->jobs.nrunning) {
@@ -1090,16 +1097,31 @@ pc_status pc_engine_dispatch(pc_engine_session *s, const char *id, yyjson_val *p
         return rc;
     }
     if (pending != NULL) {
-        free(pending->command);
-        pending->command = pc_strndup(id, strlen(id));
-        pc_json_value_fini(&pending->params);
-        if (params != NULL) {
-            (void)pc_json_value_from_val(params, &pending->params, NULL);
+        char *command_copy = pc_strndup(id, strlen(id));
+        pc_json_value params_copy = PC_JSON_VALUE_INIT;
+        pc_status copied = command_copy ? PC_OK : pc_fail(err, PC_ERR_NOMEM, "job command");
+        if (copied == PC_OK && params)
+            copied = pc_json_value_from_val(params, &params_copy, err);
+        if (copied != PC_OK) {
+            free(command_copy);
+            pc_json_value_fini(&params_copy);
+            pc_engine_job_ctx_cancel(&pending->ctx);
+            if (pending->has_thread) {
+                (void)pthread_join(pending->thread, NULL);
+                pending->has_thread = false;
+            }
+            running_free(pending);
+            yyjson_doc_free(imut);
+            return copied;
         }
+        free(pending->command);
+        pending->command = command_copy;
+        pc_json_value_fini(&pending->params);
+        pending->params = params_copy;
         pending->journal = spec->journal;
         uint64_t jid = pending->id;
-        pc_engine_running **gr = pc_grow_array(s->jobs.running, &s->jobs.cap_running,
-                                               s->jobs.nrunning + 1, sizeof *s->jobs.running);
+        pc_engine_running **gr = pc_grow_array(s->jobs.running, &s->jobs.cap_running, s->jobs.nrunning + 1,
+                                               sizeof *s->jobs.running);
         if (gr == NULL) {
             pc_engine_job_ctx_cancel(&pending->ctx);
             if (pending->has_thread) {
@@ -1156,8 +1178,8 @@ pc_status pc_engine_session_execute_json(pc_engine_session *s, const char *id, c
     return rc;
 }
 
-pc_status pc_engine_session_start(pc_engine_session *s, const char *id, yyjson_val *params,
-                                  bool *out_is_job, uint64_t *out_job_id, pc_json_value *out, pc_error *err)
+pc_status pc_engine_session_start(pc_engine_session *s, const char *id, yyjson_val *params, bool *out_is_job,
+                                  uint64_t *out_job_id, pc_json_value *out, pc_error *err)
 {
     return pc_engine_dispatch(s, id, params, true, out_is_job, out_job_id, out, err);
 }
@@ -1178,7 +1200,8 @@ pc_status pc_engine_session_start_job(pc_engine_session *s, const char *command,
                                       pc_json_value *out, pc_error *err)
 {
     s->jobs.spawn = true;
-    pc_status rc = pc_engine_run_job(s, label, lock_document, work, ud, free_ud, free_payload, apply, out, err);
+    pc_status rc =
+        pc_engine_run_job(s, label, lock_document, work, ud, free_ud, free_payload, apply, out, err);
     s->jobs.spawn = false;
     pc_engine_running *pending = s->jobs.pending;
     s->jobs.pending = NULL;
@@ -1202,8 +1225,8 @@ pc_status pc_engine_session_start_job(pc_engine_session *s, const char *command,
         }
         pending->journal = false;
         uint64_t jid = pending->id;
-        pc_engine_running **gr = pc_grow_array(s->jobs.running, &s->jobs.cap_running,
-                                               s->jobs.nrunning + 1, sizeof *s->jobs.running);
+        pc_engine_running **gr = pc_grow_array(s->jobs.running, &s->jobs.cap_running, s->jobs.nrunning + 1,
+                                               sizeof *s->jobs.running);
         if (gr == NULL) {
             pc_engine_job_ctx_cancel(&pending->ctx);
             if (pending->has_thread) {
@@ -1218,6 +1241,16 @@ pc_status pc_engine_session_start_job(pc_engine_session *s, const char *command,
         *out_job_id = jid;
     }
     return PC_OK;
+}
+
+bool pc_engine_job_record_command(pc_engine_session *s, uint64_t id)
+{
+    pc_engine_running *job = running_by_id(&s->jobs, id, NULL);
+    const pc_engine_command *command = job && job->command ? pc_engine_command_find(job->command) : NULL;
+    if (!job || !command)
+        return false;
+    job->journal = command->journal;
+    return true;
 }
 
 /* One JobInfo row as JSON into arr (running job r, or a recent row). */
@@ -1326,8 +1359,8 @@ static pc_status run_jobs_cancel(pc_engine_session *s, yyjson_val *p, pc_json_va
 
 static const pc_engine_command JOBS[] = {
     {"jobs.list", "List Background Jobs", NULL, 0, NULL, "{}", pc_engine_always, run_jobs_list, false},
-    {"jobs.cancel", "Cancel Background Job", NULL, 0, NULL,
-     "{\"job\":u64? (default: every running job)}", pc_engine_always, run_jobs_cancel, false},
+    {"jobs.cancel", "Cancel Background Job", NULL, 0, NULL, "{\"job\":u64? (default: every running job)}",
+     pc_engine_always, run_jobs_cancel, false},
 };
 
 const pc_engine_command *pc_engine_jobs_specs(size_t *n)

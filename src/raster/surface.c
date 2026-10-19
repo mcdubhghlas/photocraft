@@ -157,7 +157,8 @@ static inline void wr(uint8_t *d, pc_sample_type s, size_t i, float v)
 
 static size_t slot_of(const pc_surface *s, pc_tile c)
 {
-    uint64_t h = (uint64_t)(uint32_t)c.tx * 0x9E3779B97F4A7C15u ^ (uint64_t)(uint32_t)c.ty * 0xC2B2AE3D27D4EB4Fu;
+    uint64_t h =
+        (uint64_t)(uint32_t)c.tx * 0x9E3779B97F4A7C15u ^ (uint64_t)(uint32_t)c.ty * 0xC2B2AE3D27D4EB4Fu;
     h ^= h >> 29;
     return (size_t)h & (s->cap - 1);
 }
@@ -303,8 +304,8 @@ static pc_status span_check(span sp, pc_error *err)
 }
 
 /* Iterates the tiles of a span in the reference's order (ty outer, tx inner). */
-#define FOR_SPAN(sp, c)                                                                            \
-    for ((c).ty = (sp).a.ty; (sp).n != 0 && (c).ty <= (sp).b.ty; (c).ty++)                         \
+#define FOR_SPAN(sp, c)                                                                                      \
+    for ((c).ty = (sp).a.ty; (sp).n != 0 && (c).ty <= (sp).b.ty; (c).ty++)                                   \
         for ((c).tx = (sp).a.tx; (c).tx <= (sp).b.tx; (c).tx++)
 
 /* Offset (in pixels) of (x, y) from tile c's origin; both in [0, TS) for pixels of c. */
@@ -367,8 +368,8 @@ pc_status pc_surface_clone(const pc_surface *s, pc_surface *out, pc_error *err)
 bool pc_surface_eq(const pc_surface *a, const pc_surface *b)
 {
     size_t i;
-    if (!pc_pixel_format_eq(a->format, b->format) || memcmp(a->default_pixel, b->default_pixel, a->bpp) != 0 ||
-        a->count != b->count) {
+    if (!pc_pixel_format_eq(a->format, b->format) ||
+        memcmp(a->default_pixel, b->default_pixel, a->bpp) != 0 || a->count != b->count) {
         return false;
     }
     for (i = 0; i < a->cap; i++) {
@@ -400,6 +401,11 @@ size_t pc_surface_tile_count(const pc_surface *s)
 const pc_raster_tile *pc_surface_tile(const pc_surface *s, pc_tile c)
 {
     return get(s, c);
+}
+
+pc_raster_tile *pc_surface_retain_tile(const pc_surface *s, pc_tile c)
+{
+    return pc_raster_tile_retain(get(s, c));
 }
 
 bool pc_surface_next_tile(const pc_surface *s, size_t *cursor, pc_tile *coord, const pc_raster_tile **tile)
@@ -651,7 +657,8 @@ void pc_surface_read_pixel(const pc_surface *s, int32_t x, int32_t y, float *out
     }
 }
 
-pc_status pc_surface_write_pixel(pc_surface *s, int32_t x, int32_t y, const float *px, size_t n, pc_error *err)
+pc_status pc_surface_write_pixel(pc_surface *s, int32_t x, int32_t y, const float *px, size_t n,
+                                 pc_error *err)
 {
     pc_tile c = pc_tile_containing(x, y);
     size_t ch = pc_pixel_format_channels(s->format);
@@ -689,8 +696,8 @@ static int32_t floor_div_ts(int32_t v)
     return v >= 0 ? v / TS : -(int32_t)(((uint32_t)-(int64_t)v + (TS - 1)) / TS);
 }
 
-void pc_surface_sample_row_strided(const pc_surface *s, int32_t y, int32_t x0, int32_t step, size_t c, float *out,
-                                   size_t n)
+void pc_surface_sample_row_strided(const pc_surface *s, int32_t y, int32_t x0, int32_t step, size_t c,
+                                   float *out, size_t n)
 {
     size_t ch = pc_pixel_format_channels(s->format);
     int32_t ty = floor_div_ts(y);
@@ -710,7 +717,8 @@ void pc_surface_sample_row_strided(const pc_surface *s, int32_t y, int32_t x0, i
         int32_t x = pc_i32_wrapping_add(x0, pc_i32_wrapping_mul(pc_u32_as_i32((uint32_t)i), step));
         int32_t tx = floor_div_ts(x);
         int32_t tile_end = pc_i32_wrapping_mul(pc_i32_wrapping_add(tx, 1), TS);
-        int32_t cnt = pc_i32_wrapping_sub(pc_i32_wrapping_add(pc_i32_wrapping_sub(tile_end, x), step), 1) / step;
+        int32_t cnt =
+            pc_i32_wrapping_sub(pc_i32_wrapping_add(pc_i32_wrapping_sub(tile_end, x), step), 1) / step;
         size_t count = cnt < 1 ? 1 : (size_t)cnt;
         size_t end = count < n - i ? i + count : n;
         pc_tile key;
@@ -755,7 +763,8 @@ bool pc_surface_has_tiles_in(const pc_surface *s, pc_rect r)
     if (sp.n > s->count) { /* cheaper to test every allocated tile against the range */
         for (i = 0; i < s->cap; i++) {
             pc_tile t = s->slots[i].coord;
-            if (s->slots[i].tile != NULL && t.tx >= sp.a.tx && t.tx <= sp.b.tx && t.ty >= sp.a.ty && t.ty <= sp.b.ty) {
+            if (s->slots[i].tile != NULL && t.tx >= sp.a.tx && t.tx <= sp.b.tx && t.ty >= sp.a.ty &&
+                t.ty <= sp.b.ty) {
                 return true;
             }
         }
@@ -854,7 +863,8 @@ pc_status pc_surface_read_region(const pc_surface *s, pc_rect r, float **out, si
     return PC_OK;
 }
 
-pc_status pc_surface_read_rgba_into(const pc_surface *s, pc_rect r, float (*out)[4], size_t len, pc_error *err)
+pc_status pc_surface_read_rgba_into(const pc_surface *s, pc_rect r, float (*out)[4], size_t len,
+                                    pc_error *err)
 {
     pc_pixel_format f = s->format;
     size_t n = pc_pixel_format_channels(f);
@@ -880,7 +890,7 @@ pc_status pc_surface_read_rgba_into(const pc_surface *s, pc_rect r, float (*out)
         size_t w = pc_rect_width(tr);
         int32_t y;
         for (y = tr.y0; y < tr.y1; y++) {
-            float(*dst)[4] = out + region_index(r, tr.x0, y);
+            float (*dst)[4] = out + region_index(r, tr.x0, y);
             size_t i;
             size_t base;
             if (t == NULL) {
@@ -950,7 +960,8 @@ static uint8_t q8(float v)
     return pc_f32_to_u8(pc_clampf(v, 0.0f, 1.0f) * 255.0f + 0.5f);
 }
 
-pc_status pc_surface_read_rgba8_into(const pc_surface *s, pc_rect r, uint8_t (*out)[4], size_t len, pc_error *err)
+pc_status pc_surface_read_rgba8_into(const pc_surface *s, pc_rect r, uint8_t (*out)[4], size_t len,
+                                     pc_error *err)
 {
     pc_pixel_format f = s->format;
     bool rgba8 = f.mode == PC_COLOR_MODE_RGB && f.sample == PC_SAMPLE_TYPE_U8 && f.alpha;
@@ -983,7 +994,7 @@ pc_status pc_surface_read_rgba8_into(const pc_surface *s, pc_rect r, uint8_t (*o
         size_t w = pc_rect_width(tr);
         int32_t y;
         for (y = tr.y0; y < tr.y1; y++) {
-            uint8_t(*dst)[4] = out + region_index(r, tr.x0, y);
+            uint8_t (*dst)[4] = out + region_index(r, tr.x0, y);
             size_t i;
             if (t == NULL) {
                 for (i = 0; i < w; i++) {
@@ -1175,7 +1186,8 @@ pc_status pc_surface_fill_rect(pc_surface *s, pc_rect r, const float *px, size_t
     return st;
 }
 
-pc_status pc_surface_write_interleaved(pc_surface *s, pc_rect r, const uint8_t *bytes, size_t len, pc_error *err)
+pc_status pc_surface_write_interleaved(pc_surface *s, pc_rect r, const uint8_t *bytes, size_t len,
+                                       pc_error *err)
 {
     size_t bpp = s->bpp;
     size_t want;
@@ -1298,7 +1310,8 @@ static void copy_moved(const pc_surface *s, const pc_raster_tile *st, pc_tile sc
         }
         so = (size_t)si * bpp;
         doff = (size_t)di * bpp;
-        if (so <= st->len && span_b <= st->len - so && doff <= TILE_PIXELS * bpp && span_b <= TILE_PIXELS * bpp - doff) {
+        if (so <= st->len && span_b <= st->len - so && doff <= TILE_PIXELS * bpp &&
+            span_b <= TILE_PIXELS * bpp - doff) {
             memcpy(dst + doff, st->data + so, span_b);
         }
     }

@@ -106,8 +106,10 @@ pc_status ui_renderer_init(ui_renderer *r, const gl33 *gl, ui_font *font, pc_err
     gl->glEnableVertexAttribArray((GLuint)a_pos);
     gl->glEnableVertexAttribArray((GLuint)a_uv);
     gl->glEnableVertexAttribArray((GLuint)a_col);
-    gl->glVertexAttribPointer((GLuint)a_pos, 2, GL_FLOAT, 0, sizeof(ui_vertex), (const void *)offsetof(ui_vertex, pos));
-    gl->glVertexAttribPointer((GLuint)a_uv, 2, GL_FLOAT, 0, sizeof(ui_vertex), (const void *)offsetof(ui_vertex, uv));
+    gl->glVertexAttribPointer((GLuint)a_pos, 2, GL_FLOAT, 0, sizeof(ui_vertex),
+                              (const void *)offsetof(ui_vertex, pos));
+    gl->glVertexAttribPointer((GLuint)a_uv, 2, GL_FLOAT, 0, sizeof(ui_vertex),
+                              (const void *)offsetof(ui_vertex, uv));
     gl->glVertexAttribPointer((GLuint)a_col, 4, GL_UNSIGNED_BYTE, 1, sizeof(ui_vertex),
                               (const void *)offsetof(ui_vertex, col));
     gl->glBindVertexArray(0);
@@ -121,6 +123,8 @@ pc_status ui_renderer_init(ui_renderer *r, const gl33 *gl, ui_font *font, pc_err
     gl->glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     gl->glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, font->atlas_w, font->atlas_h, 0, GL_RGBA, GL_UNSIGNED_BYTE,
                      font->atlas);
+    r->font = font;
+    font->dirty = false;
     font->nk.texture = nk_handle_id((int)r->font_tex);
     r->null_tex.texture = nk_handle_id((int)r->font_tex);
     r->null_tex.uv = font->white_uv;
@@ -129,7 +133,8 @@ pc_status ui_renderer_init(ui_renderer *r, const gl33 *gl, ui_font *font, pc_err
     return PC_OK;
 }
 
-pc_status ui_renderer_draw(ui_renderer *r, struct nk_context *ctx, int fb_w, int fb_h, float scale, pc_error *err)
+pc_status ui_renderer_draw(ui_renderer *r, struct nk_context *ctx, int fb_w, int fb_h, float scale,
+                           pc_error *err)
 {
     static const struct nk_draw_vertex_layout_element layout[] = {
         {NK_VERTEX_POSITION, NK_FORMAT_FLOAT, offsetof(ui_vertex, pos)},
@@ -191,11 +196,23 @@ pc_status ui_renderer_draw(ui_renderer *r, struct nk_context *ctx, int fb_w, int
         nk_clear(ctx);
         return pc_fail(err, PC_ERR_NOMEM, "UI geometry conversion failed (%u)", (unsigned)res);
     }
+    if (r->font && r->font->dirty) {
+        ui_font *font = r->font;
+        int top = font->dirty_top, bottom = font->dirty_bottom;
+        if (top >= 0 && bottom > top && bottom <= font->atlas_h) {
+            gl->glBindTexture(GL_TEXTURE_2D, r->font_tex);
+            gl->glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+            gl->glTexSubImage2D(GL_TEXTURE_2D, 0, 0, top, font->atlas_w, bottom - top, GL_RGBA,
+                                GL_UNSIGNED_BYTE, font->atlas + (size_t)top * (size_t)font->atlas_w * 4);
+        }
+        font->dirty = false;
+    }
     nk_buffer_info(&vinfo, &vbuf);
     nk_buffer_info(&einfo, &ebuf);
     gl->glBindVertexArray(r->vao);
     gl->glBindBuffer(GL_ARRAY_BUFFER, r->vbo);
-    gl->glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)vinfo.allocated, nk_buffer_memory_const(&vbuf), GL_STREAM_DRAW);
+    gl->glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)vinfo.allocated, nk_buffer_memory_const(&vbuf),
+                     GL_STREAM_DRAW);
     gl->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, r->ebo);
     gl->glBufferData(GL_ELEMENT_ARRAY_BUFFER, (GLsizeiptr)einfo.allocated, nk_buffer_memory_const(&ebuf),
                      GL_STREAM_DRAW);
@@ -209,7 +226,8 @@ pc_status ui_renderer_draw(ui_renderer *r, struct nk_context *ctx, int fb_w, int
         gl->glScissor((GLint)lroundf(cmd->clip_rect.x * scale),
                       (GLint)lroundf((float)fb_h - (cmd->clip_rect.y + cmd->clip_rect.h) * scale),
                       (GLint)lroundf(cmd->clip_rect.w * scale), (GLint)lroundf(cmd->clip_rect.h * scale));
-        gl->glDrawElements(GL_TRIANGLES, (GLsizei)cmd->elem_count, GL_UNSIGNED_INT, (const void *)(uintptr_t)offset);
+        gl->glDrawElements(GL_TRIANGLES, (GLsizei)cmd->elem_count, GL_UNSIGNED_INT,
+                           (const void *)(uintptr_t)offset);
         offset += (size_t)cmd->elem_count * sizeof(nk_draw_index);
     }
     nk_clear(ctx);

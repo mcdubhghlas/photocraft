@@ -13,6 +13,9 @@
 #include "doc/doc.h"
 #include "engine.h"
 
+pc_status pc_engine_type_new_layer(const pc_engine_session *session,yyjson_val *params,const char *command,pc_text_layer *out,pc_error *err);
+const pc_engine_command *pc_engine_type_mask_specs(size_t *count);
+
 /* The command specs for register_modules() (command.c). */
 const pc_engine_command *pc_engine_type_specs(size_t *n);
 
@@ -28,6 +31,7 @@ pc_status pc_engine_check_text_unlocked(const pc_document *doc, pc_layer_id id, 
 
 /* type_cmds::refresh. Re-renders the layer's pixels and regenerates its PSD TySh data. Best
  * effort: on failure (OOM, no font engine) the layer is left as-is. */
+void pc_engine_type_retag(float dpi, pc_text_layer *text);
 void pc_engine_type_refresh(const pc_document *doc, pc_text_layer *t);
 
 /* type_cmds::replace_text. Replaces bytes [a, b) of the layer's text with `new` (new_len bytes,

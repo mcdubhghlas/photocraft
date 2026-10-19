@@ -24,8 +24,8 @@
 #include "base/status.h"
 
 /* Handle one control request. `params` may be NULL (treated as an empty object). */
-pc_status pc_ui_control_handle(pc_ui_shell_app *a, const char *method, yyjson_val *params,
-                               pc_json_value *out, pc_error *err);
+pc_status pc_ui_control_handle(pc_ui_shell_app *a, const char *method, yyjson_val *params, pc_json_value *out,
+                               pc_error *err);
 
 /* The UI state as ui.inspect reports it (the scoped subset). Exposed for the control handler and
  * tests. Writes *out only on success. */

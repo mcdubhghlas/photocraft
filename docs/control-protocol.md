@@ -53,8 +53,77 @@ Drive cameras with `ui.set {zoom, center, rotation}` and display options with `u
 `view.flipHorizontal`, `view.pixelAspectRatioCorrection`, `view.pixelAspectRatio.<preset>`,
 `view.screenMode.standard`, `view.screenMode.fullScreenWithMenuBar`, `view.screenMode.fullScreen`,
 and `view.screenMode.cycle`. The two toggles accept optional `params: {on: boolean}`.
-These settings change the view and leave document pixels/history unchanged. ViewOptions round-trip
+The C17 canvas also displays selection outlines, grid/guides, Channels-panel visibility,
+Quick Mask/layer-mask views, and colour-managed proofs/HDR preview. `view.newGuide`,
+`view.moveGuide` and `view.deleteGuide` are document commands with undo; the Show/Extras and
+channel visibility controls are display state. Large documents retain a bounded full-resolution
+region near the viewport, falling back to the whole-document preview for wider regions.
+These view settings leave document pixels/history unchanged. ViewOptions round-trip
 through the UiState JSON codec; a complete application preferences/save lifecycle remains future work.
+The current C shell also supports `ui.set` dock layout, dock width (clamped to 250–520 logical
+points), tile grid and typed tool options. Native menus and `ui.menu.list` share checkmarks and
+open-document entries. `window.document.<index>` and next/previous-document commands switch tabs.
+
+`ui.dialog.open {kind:"preferences", section?}` opens an isolated settings draft;
+`ui.dialog.apply {dialog}` applies it without closing. New Document includes built-in and saved/recent
+presets, physical units and resolution. Close/Revert/Close All/Exit automatically open an unsaved-work
+prompt when needed. Its editable fields are `choice` (`save` or `discard`) and optional `path`;
+`ui.dialog.confirm` answers it and `ui.dialog.cancel` preserves unanswered work. Save can open a child
+file dialog; confirm or cancel that child first. File dialogs retain the document id they were opened
+for, and routing metadata is read-only. `app.quit` follows the same unsaved-work guard; `ui.inspect`
+reports `quitRequested`. Explicit `engine.execute` remains a direct engine operation.
+
+Inline type editing is shared by native input and `ui.pointer` for the four Type tools.
+`ui.type {text}` supplies typed UTF-8 (up to 1 MiB), including the Smart Quotes preference;
+clipboard paste preserves literal text. `ui.key {key, modifiers?}` accepts the reference key names
+and boolean `shift`, `alt`, `command`, `ctrl` flags, either top-level or in `modifiers`.
+Invalid keys, flags and fields are rejected before editing. Caret/range edits, IME composition,
+paragraph handles, formatting shortcuts and Type Mask commit use engine commands and undo.
+`ui.inspect.textEdit` exposes the active edit; `typePanels` exposes Styles, Glyphs and spelling state.
+Text and character-style color pickers retain their original formatting scope and reject a changed
+source document. `type.panels.character`, `.paragraph`, `.characterStyles`, `.paragraphStyles` and
+`.glyphs` open their native panels; the latter three accept `params.show`.
+
+Shape, Pen/Curvature/Freeform Pen, Direct/Path Selection and anchor tools share native and
+`ui.pointer` routing. `ui.inspect.pen`, `direct` and `selectedPath` expose their state. Shape and
+path drag previews leave history unchanged until release; pending Pen points are kept with Enter
+or Escape, finished with `ui.pen.finish`, or discarded with `ui.pen.cancel`. `path.stroke` supports
+Brush/Pencil/Eraser and the brush-based retouch tools as one history/journal step.
+
+Parameterized adjustment/filter/selection-modification menu commands invoked without `params`
+open native settings dialogs. Edit fields with `ui.dialog.set {dialog, field, value}`; the `preview`
+boolean controls background preview. `ui.dialog.confirm {dialog}` executes the real command once;
+`ui.dialog.cancel {dialog}` preserves the document. Confirmation rejects changed documents, revisions,
+layer selections and edit targets. Explicit `engine.execute` runs directly. Dedicated curves, layer
+style, Camera Raw, Gallery and warp editors are still tracked as incomplete in `REWRITE_PLAN.md`.
+
+C17 background document commands run on isolated COW snapshots when enabled (visible windows
+by default; `ui.set {backgroundJobs:true}` also enables headless control). The initial result is
+`{job,state:"running"}`. `ui.inspect.jobs` exposes `background`, `locked`, `modal` and `items`;
+inspection polls jobs and adopts completed results. Cancel uses `jobs.cancel {job}` or the native
+progress/status controls. Adoption preserves one history/journal command and the original target tab.
+File operations still use their current synchronous engine path.
+
+C17 workspace save/select/reset/delete and layout locking use `window.workspace.*`; saved layouts
+appear in the native and control menu models. `help.systemInfo` opens diagnostics and returns their
+structured `info`; clipboard copies retain English diagnostic lines. `ui.inspect.notices` lists
+notice ids and details; `ui.notice.dismiss {notice:id}` dismisses one notice. Native toasts have
+individual close buttons and pause expiry while hovered.
+
+The C17 `gpuInfo` includes `sourceCacheHits`, `sourceUploads`, `sourceCacheBytes`,
+`effectFragments`, `effectMapBuilds` and `effectCacheHits`. Resident raster sources retain exact COW
+identities and profile/format/default/region context. Consecutive bounded edits reuse the canvas
+image and unaffected tiles; full-resolution display updates upload only changed rectangles.
+Local solid-color layer effects expand that rectangle by their halo. Nonlocal effects, feathered
+masks, unknown or skipped revisions and resampled previews trigger a full refresh.
+
+C17 Brush Settings/Brushes open with `window.panel.brushSettings` / `window.panel.brushes`.
+Section/tab state lives in `brush_section` / `brush_tab`. Settings and preset actions use the existing
+`tools.setBrush` and `brush.presets.*` commands. Native digit keys set opacity, Shift digits set
+flow (or layer Fill), and two digits within 800 ms set an exact percentage; repeats do not combine.
+Alt-right-drag or Control-Alt-left-drag resizes a painting brush with a stationary HUD. File → New
+also offers the engine clipboard's exact pixel dimensions at 72 ppi.
+
 The remaining sections describe the Rust reference contract; broader C17 shell support is tracked in
 [REWRITE_PLAN.md](../REWRITE_PLAN.md).
 
@@ -615,3 +684,84 @@ dock target. The panel menu and icon rail remain
 available in custom workspaces. `window.panel.<id> {show:true}` always reveals, selects
 and expands the panel, including when another tab is selected. Workspace snapshots
 retain custom collapse settings and Timeline visibility.
+
+C17 native Timeline and Variables additions (2026-10-18): `ui.set.timeline` accepts `open`
+and `playing`; `ui.inspect.timeline` exposes the current UI playback state. Playback uses
+`timeline.setFrame`, pauses on settings changes and is stopped by document/workspace changes.
+`ui.dialog.open {"kind":"variables"}` opens the same draft as Image > Variables. Draft fields
+`defs`, `dataSets` and optional `apply` are editable through `ui.dialog.set`. Confirmation
+executes `image.variables.edit` atomically; errors keep the draft open and the document unchanged.
+`ui.dialog.open {"kind":"exportAs"}` opens Export As. A nonempty destination `path` is required
+for confirmation; explicit `file.export.exportAs` calls without a path return a size estimate.
+Export dimensions round each axis independently and never alter the source document.
+
+Restricted sessions retain authorization across these adapters. Background document commands
+execute inline on the authorization callback's owner thread when an authorizer is installed;
+independent asynchronous preview sessions reject command execution instead of dropping policy.
+Variables applies authorization to every constituent command and pixel replacement path.
+
+Free Transform in the C shell starts with `ui.menu.invoke` and `edit.freeTransform`,
+`edit.freeTransformCopy`, or the Scale/Rotate/Skew/Distort/Perspective IDs. Invoke
+`select.transformSelection` without params to open its box; explicit engine params retain the
+scripted command behavior. `ui.pointer` adjusts the captured box in document coordinates, and
+`ui.inspect.transform` reports rect/quad/pivot, mode, interpolation, target and local undo flags.
+`edit.undo`/`edit.redo` through either menu or engine control step the pending box.
+`ui.transform.commit` applies it; `ui.transform.cancel` discards it. A plain untouched box adds
+no document history. Copies use `edit.transform` with `copy:true` and commit as one history step;
+this structural variant runs inline so its new active-layer selection is retained.
+
+The native Brush Preset Picker opens through right-click/options or `ui.set.brushPicker`.
+`brushPickerShowName`, `brushPickerShowStroke`, `brushPickerShowTip`, `brushPickerScale`,
+`brushesView` and `brushSize` are validated before UI changes; at least one card part must remain
+visible. Brush size dispatches `tools.setBrush`. File encoding warnings returned by file commands
+are also posted to native notices, including direct `engine.execute` exports.
+
+The C shell supports `ui.pointer.button: "secondary"` (also `"right"`) for native-equivalent
+context menus or Brush Preset Picker. The painting right-click erase preference applies to Brush
+and Eraser. `ui.inspect.canvasToolMenu` reports the captured menu and its enabled/checked entries;
+`ui.context.choose {id}` rejects unrelated, disabled or stale actions. Text context actions use the
+current text selection and native text clipboard. Pasteboard color choices update persistent
+preferences; the custom-color row opens `ui.dialog.open` with `kind:"colorPicker",target:"pasteboard"`.
+`view.printSize` uses the configured screen resolution divided by document resolution, and
+`view.fillScreen` schedules a fill of the active canvas.
+
+The C shell accepts `ui.set {toolOptions:{...}}` for all 96 tool-option fields using their
+serialized snake_case names. Validation rejects unknown fields before changing tools or applying
+pending edits. Existing top-level aliases, such as `cropShield`, remain supported.
+
+Crop keeps its box in `ui.inspect.cropRect`, `cropAngle` and `cropEditing`. Invoke the shell
+commands `ui.crop.commit`, `ui.crop.cancel`, `ui.crop.straighten` or `ui.crop.preset` through
+`ui.menu.invoke`; the preset command takes `{name:"preset:4x5in"}` (also `front`, `original`,
+`1:1`, `4:5`, `5:7`, `2:3`, `16:9`, `custom`, `whr` or an empty ratio). Pending frame Undo/Redo
+runs locally. Source document history changes only when applying the crop. `ui.pointer` accepts
+`space:true` while drawing a Crop frame to reposition it.
+
+Polygonal/Magnetic Lasso retain an outline between pointer presses. `ui.inspect.lasso` reports
+its path, live segment, anchors, selection mode and document scope. Enter or `ui.lasso.finish`
+closes it; Escape or `ui.lasso.cancel` discards it. Backspace/Delete, Undo and secondary-pointer
+presses retract vertices/fastening points. Magnetic commits use the exact displayed outline with
+`trace:false`. Pointer modifiers latch selection intent at the first press. Tool/document/target
+changes discard stale pending outlines. `ui.key` handles these editing keys in headless mode too.
+
+GPU diagnostics include `prefixCacheBytes`, `prefixCacheHits` and `prefixCacheDocument`. Closing a
+document releases its retained checkpoint during the next native frame, with the correct GL
+context current.
+
+The C shell also routes `Artboard`, `Slice` and `SliceSelect` through `ui.pointer`. Artboard
+options/properties dispatch `layer.artboard.set`; `view.fitArtboardOnScreen` fits the active board
+(or the last board if no board is active). `ui.artboard.portrait`, `ui.artboard.landscape` and
+`ui.artboard.addRight` use the same options-bar actions. Parameterless New Artboard and artboard
+export menu entries open command forms.
+
+`ui.set.slices` accepts `selected` (a current slice number or null) and `hide_auto` (boolean).
+`ui.inspect.slices` reports `selected`, `hideAuto` and `dragging`. `ui.slice.options`,
+`ui.slice.divide`, `ui.slice.promote` and `ui.slice.delete` operate on that selection. Editing an
+auto slice through Options promotes it only after confirmation.
+
+Move with a selection previews and retains a floating piece; it does not edit source pixels until
+`select.drop` or Enter. Escape/Undo returns the piece. Alt copies the pixels within their existing
+layer. A normal layer Alt-drag duplicates and moves the selected targets in one history step.
+Arrow keys nudge 1 px (Shift: 10 px); Alt duplicates. Plain marquee/lasso drags inside an existing
+selection move its outline. Command drags move pixels inside the selection and whole layers outside
+it; Polygonal Lasso and Magic Wand require Command for these selection drags. Pending polygonal
+outlines retain their existing point-placement behavior.

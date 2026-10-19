@@ -10,7 +10,7 @@ next to them.
 
 | Path | Title | Author | Source | License |
 |---|---|---|---|---|
-| `third_party/nuklear/` | Nuklear v4.13.3 (immediate-mode GUI, vendored for the C17 rewrite) | Micha Mettke and contributors | https://github.com/Immediate-Mode-UI/Nuklear | MIT or public domain, [`LICENSE`](third_party/nuklear/LICENSE) |
+| `third_party/nuklear/` | Nuklear v4.13.3 (immediate-mode GUI; local whole-string font shaping callback) | Micha Mettke and contributors | https://github.com/Immediate-Mode-UI/Nuklear | MIT or public domain, [`LICENSE`](third_party/nuklear/LICENSE) |
 | `third_party/pocketfft/` | pocketfft, C version (FFT library, vendored for the C17 rewrite: FFT Motion Blur) | Martin Reinecke, Max-Planck-Society | https://gitlab.mpcdf.mpg.de/mtr/pocketfft (commit 81d171a6, mirror https://github.com/mreineck/pocketfft) | BSD-3-Clause, [`LICENSE`](third_party/pocketfft/LICENSE) |
 | `third_party/yyjson/` | yyjson 0.13.0 (JSON library, vendored for the C17 rewrite) | YaoYuan | https://github.com/ibireme/yyjson | MIT, [`LICENSE`](third_party/yyjson/LICENSE) |
 | `third_party/wamr/` | WAMR (WebAssembly Micro Runtime) 2.4.5, interpreter subset (plug-in runtime, vendored for the C17 rewrite; one local fix listed in [`VERSION`](third_party/wamr/VERSION)) | the WAMR project contributors (Intel Corporation and others) | https://github.com/wasm-micro-runtime/wasm-micro-runtime (tag WAMR-2.4.5) | Apache-2.0 WITH LLVM-exception, [`LICENSE`](third_party/wamr/LICENSE) |

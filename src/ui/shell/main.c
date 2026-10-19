@@ -126,8 +126,11 @@ int main(int argc, char **argv)
         }
     }
     if (set_theme) {
-        pc_ui_shell_app_state(a)->theme = theme;
-        pc_ui_shell_app_apply_theme(a);
+        char command[96];(void)snprintf(command,sizeof command,"window.theme.%s",pc_ui_theme_kind_id(theme));
+        pc_json_value result=PC_JSON_VALUE_INIT;
+        pc_status status=pc_ui_shell_app_invoke(a,command,NULL,&result,&err);
+        pc_json_value_fini(&result);
+        if(status!=PC_OK) { (void)fail("theme",err.msg);goto done; }
     }
     if (pc_ui_shell_app_open_window(a, font_path, scale, snapshot != NULL, &err) != PC_OK) {
         (void)fail("window", err.msg);

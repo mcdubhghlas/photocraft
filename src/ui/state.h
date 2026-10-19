@@ -11,6 +11,9 @@
 #ifndef PC_UI_STATE_H
 #define PC_UI_STATE_H
 
+#include "ui/lasso.h"
+#include "ui/slice_state.h"
+#include "ui/artboard_state.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -21,6 +24,15 @@
 #include "ui/dock.h"
 #include "ui/theme.h"
 #include "ui/view_options.h"
+#include "ui/tool_options.h"
+#include "ui/timeline.h"
+#include "ui/brush_picker.h"
+#include "ui/transform.h"
+#include "ui/context_menu.h"
+#include "ui/type_state.h"
+#include "ui/type_panels.h"
+#include "ui/pen_state.h"
+#include "ui/direct_state.h"
 
 /* ---- Tool (state.rs Tool) ---- */
 typedef enum pc_ui_tool {
@@ -96,15 +108,21 @@ typedef enum pc_ui_tool {
 
 extern const pc_ui_tool PC_UI_TOOL_ALL[PC_TOOL_N];
 
-const char *pc_ui_tool_label(pc_ui_tool t);        /* "Move Tool" */
-const char *pc_ui_tool_serde(pc_ui_tool t);        /* serde variant name "Move", "RectMarquee" */
+const char *pc_ui_tool_label(pc_ui_tool t); /* "Move Tool" */
+const char *pc_ui_tool_serde(pc_ui_tool t); /* serde variant name "Move", "RectMarquee" */
 bool pc_ui_tool_from_serde(const char *s, pc_ui_tool *out);
-char pc_ui_tool_key(pc_ui_tool t);                 /* Photoshop single-key shortcut, '\0' for none */
-const char *pc_ui_tool_glyph(pc_ui_tool t);        /* toolbar glyph */
+char pc_ui_tool_key(pc_ui_tool t);          /* Photoshop single-key shortcut, '\0' for none */
+const char *pc_ui_tool_glyph(pc_ui_tool t); /* toolbar glyph */
 bool pc_ui_tool_is_type(pc_ui_tool t);
 bool pc_ui_tool_is_type_mask(pc_ui_tool t);
 bool pc_ui_tool_is_vertical_type(pc_ui_tool t);
 bool pc_ui_tool_is_brushlike(pc_ui_tool t);
+typedef struct pc_ui_layer_picker {
+    bool armed, down;
+    uint64_t layer, document;
+    unsigned point;
+    pc_ui_tool tool;
+} pc_ui_layer_picker;
 /* Fuzzy name match (state.rs Tool::from_name): case/sep-insensitive debug name, label or
  * "marquee"-stripped. Returns true and writes *out on a match. */
 bool pc_ui_tool_from_name(const char *s, pc_ui_tool *out);
@@ -119,17 +137,6 @@ typedef enum pc_ui_dialog_kind {
 } pc_ui_dialog_kind;
 const char *pc_ui_dialog_kind_serde(pc_ui_dialog_kind k); /* "NewDocument", ... */
 bool pc_ui_dialog_kind_from_serde(const char *s, pc_ui_dialog_kind *out);
-
-typedef enum pc_ui_transform_mode {
-    PC_TRANSFORM_FREE = 0,
-    PC_TRANSFORM_ROTATE,
-    PC_TRANSFORM_SKEW,
-    PC_TRANSFORM_DISTORT,
-    PC_TRANSFORM_PERSPECTIVE
-} pc_ui_transform_mode;
-const char *pc_ui_transform_mode_serde(pc_ui_transform_mode m); /* camelCase "free",... */
-/* The mode an edit.transform.* / edit.freeTransform id starts. */
-pc_ui_transform_mode pc_ui_transform_mode_for_command(const char *id);
 
 /* ---- plain view-state structs ---- */
 typedef struct pc_ui_panels {
@@ -199,7 +206,18 @@ typedef struct pc_ui_dialog {
 
 /* ---- UiState aggregate (U1 subset) ---- */
 typedef struct pc_ui_state {
+    pc_ui_transform transform;
+    pc_ui_context_menu context_menu;
+    pc_ui_brush_picker brush_picker;
+    bool brushes_grid;
+    pc_ui_direct direct;
+    bool has_pen;
+    pc_ui_pen pen;
+    pc_ui_type_panels type_panels;
+    bool has_text_edit;
+    pc_ui_text_edit text_edit;
     pc_ui_tool tool;
+    pc_ui_tool_options tool_options;
     pc_ui_tool *group_tools; /* last tool used per shortcut group */
     size_t n_group_tools;
     char **recent_files;
@@ -232,15 +250,22 @@ typedef struct pc_ui_state {
     char *workspace;
     bool palette_open;
     size_t brush_section, brush_tab;
+    pc_ui_timeline timeline;
     uint8_t selection_mode;
 
-    char *status;       /* last status message */
+    char *status; /* last status message */
     bool status_error;
     char *gpu_fallback_notice; /* NULL = none */
 
-    double crop_angle;
+    pc_ui_lasso lasso;
+    pc_ui_slice_state slices;
+    pc_ui_artboard_tool artboard_tool;
+    pc_ui_layer_picker layer_picker;
+    bool has_crop, crop_editing, crop_can_undo, crop_can_redo;
+    double crop_rect[4], crop_angle;
     uint64_t next_id;
 
+    float dock_width;       /* native dock, logical points; [250,520] */
     pc_ui_dock_layout dock; /* U3: right-dock group layout (serde "dock") */
 
     /* EXTENSION REGION (later chunks): tool_options (U6/U7), dock/docking layout (U3),
@@ -250,7 +275,7 @@ typedef struct pc_ui_state {
 } pc_ui_state;
 
 /* Lifecycle. */
-void pc_ui_state_init(pc_ui_state *s);  /* UiState::default() */
+void pc_ui_state_init(pc_ui_state *s); /* UiState::default() */
 void pc_ui_state_fini(pc_ui_state *s);
 
 /* Methods (state.rs impl UiState). */

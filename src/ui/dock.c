@@ -13,13 +13,20 @@ const pc_ui_group PC_UI_GROUP_ALL[PC_UI_GROUP_N] = {PC_UI_GROUP_COLOR,     PC_UI
 const char *pc_ui_group_key(pc_ui_group g)
 {
     switch (g) {
-    case PC_UI_GROUP_COLOR: return "color";
-    case PC_UI_GROUP_PROPERTIES: return "properties";
-    case PC_UI_GROUP_CHARACTER: return "character";
-    case PC_UI_GROUP_NAVIGATOR: return "navigator";
-    case PC_UI_GROUP_HISTORY: return "history";
-    case PC_UI_GROUP_LAYERS: return "layers";
-    default: return "";
+    case PC_UI_GROUP_COLOR:
+        return "color";
+    case PC_UI_GROUP_PROPERTIES:
+        return "properties";
+    case PC_UI_GROUP_CHARACTER:
+        return "character";
+    case PC_UI_GROUP_NAVIGATOR:
+        return "navigator";
+    case PC_UI_GROUP_HISTORY:
+        return "history";
+    case PC_UI_GROUP_LAYERS:
+        return "layers";
+    default:
+        return "";
     }
 }
 
@@ -40,30 +47,47 @@ bool pc_ui_group_from_key(const char *key, pc_ui_group *out)
 float pc_ui_group_default_height(pc_ui_group g)
 {
     switch (g) {
-    case PC_UI_GROUP_COLOR: return 190.0f;
-    case PC_UI_GROUP_PROPERTIES: return 250.0f;
-    case PC_UI_GROUP_CHARACTER: return 270.0f;
-    case PC_UI_GROUP_NAVIGATOR: return 210.0f;
-    case PC_UI_GROUP_HISTORY: return 200.0f;
-    case PC_UI_GROUP_LAYERS: return 320.0f;
-    default: return 0.0f;
+    case PC_UI_GROUP_COLOR:
+        return 190.0f;
+    case PC_UI_GROUP_PROPERTIES:
+        return 250.0f;
+    case PC_UI_GROUP_CHARACTER:
+        return 270.0f;
+    case PC_UI_GROUP_NAVIGATOR:
+        return 210.0f;
+    case PC_UI_GROUP_HISTORY:
+        return 200.0f;
+    case PC_UI_GROUP_LAYERS:
+        return 320.0f;
+    default:
+        return 0.0f;
     }
 }
 
 float pc_ui_group_compact_height(pc_ui_group g)
 {
     switch (g) {
-    case PC_UI_GROUP_COLOR: return 130.0f;
-    case PC_UI_GROUP_PROPERTIES: return 160.0f;
-    case PC_UI_GROUP_CHARACTER: return 160.0f;
-    case PC_UI_GROUP_NAVIGATOR: return 140.0f;
-    case PC_UI_GROUP_HISTORY: return 130.0f;
-    case PC_UI_GROUP_LAYERS: return 200.0f;
-    default: return 0.0f;
+    case PC_UI_GROUP_COLOR:
+        return 130.0f;
+    case PC_UI_GROUP_PROPERTIES:
+        return 160.0f;
+    case PC_UI_GROUP_CHARACTER:
+        return 160.0f;
+    case PC_UI_GROUP_NAVIGATOR:
+        return 140.0f;
+    case PC_UI_GROUP_HISTORY:
+        return 130.0f;
+    case PC_UI_GROUP_LAYERS:
+        return 200.0f;
+    default:
+        return 0.0f;
     }
 }
 
-float pc_ui_group_min_height(pc_ui_group g) { return g == PC_UI_GROUP_LAYERS ? 140.0f : 80.0f; }
+float pc_ui_group_min_height(pc_ui_group g)
+{
+    return g == PC_UI_GROUP_LAYERS ? 140.0f : 80.0f;
+}
 
 float pc_ui_group_preferred_fill(pc_ui_group g)
 {
@@ -80,13 +104,27 @@ const char *const *pc_ui_group_tabs(pc_ui_group g, bool pro, size_t *n_out)
     static const char *const history[] = {"History", "Actions", "Layer Comps"};
     static const char *const layers[] = {"Layers", "Channels", "Paths"};
     switch (g) {
-    case PC_UI_GROUP_COLOR: *n_out = 4; return pro ? color_pro : color_std;
-    case PC_UI_GROUP_PROPERTIES: *n_out = 2; return properties;
-    case PC_UI_GROUP_CHARACTER: *n_out = 2; return character;
-    case PC_UI_GROUP_NAVIGATOR: *n_out = 3; return navigator;
-    case PC_UI_GROUP_HISTORY: *n_out = 3; return history;
-    case PC_UI_GROUP_LAYERS: *n_out = 3; return layers;
-    default: *n_out = 0; return NULL;
+    case PC_UI_GROUP_COLOR:
+        *n_out = 4;
+        return pro ? color_pro : color_std;
+    case PC_UI_GROUP_PROPERTIES:
+        *n_out = 2;
+        return properties;
+    case PC_UI_GROUP_CHARACTER:
+        *n_out = 2;
+        return character;
+    case PC_UI_GROUP_NAVIGATOR:
+        *n_out = 3;
+        return navigator;
+    case PC_UI_GROUP_HISTORY:
+        *n_out = 3;
+        return history;
+    case PC_UI_GROUP_LAYERS:
+        *n_out = 3;
+        return layers;
+    default:
+        *n_out = 0;
+        return NULL;
     }
 }
 
@@ -121,21 +159,23 @@ static bool name_list_has(const pc_ui_name_list *nl, const char *name)
 }
 
 /* Append a copy of `name`; ignored (no crash) on allocation failure or above the cap. */
-static void name_list_push(pc_ui_name_list *nl, const char *name)
+static bool name_list_push(pc_ui_name_list *nl, const char *name)
 {
     if (nl->n >= PC_UI_DOCK_MAX_ORDER_NAMES) {
-        return;
+        return true;
     }
-    char **grown = realloc(nl->names, (nl->n + 1) * sizeof(char *));
-    if (grown == NULL) {
-        return;
+    char *copy = strdup(name);
+    if (!copy) {
+        return false;
+    }
+    char **grown = realloc(nl->names, (nl->n + 1) * sizeof *grown);
+    if (!grown) {
+        free(copy);
+        return false;
     }
     nl->names = grown;
-    char *copy = strdup(name);
-    if (copy == NULL) {
-        return;
-    }
     nl->names[nl->n++] = copy;
+    return true;
 }
 
 static void name_list_remove(pc_ui_name_list *nl, const char *name)
@@ -166,7 +206,10 @@ static bool name_list_eq(const pc_ui_name_list *a, const pc_ui_name_list *b)
 
 /* ---- lifecycle ---- */
 
-void pc_ui_dock_layout_init(pc_ui_dock_layout *l) { memset(l, 0, sizeof *l); }
+void pc_ui_dock_layout_init(pc_ui_dock_layout *l)
+{
+    memset(l, 0, sizeof *l);
+}
 
 void pc_ui_dock_layout_fini(pc_ui_dock_layout *l)
 {
@@ -517,8 +560,8 @@ static size_t filler_index(const pc_ui_dock_layout *l, const pc_ui_group *shown,
     return (size_t)-1;
 }
 
-void pc_ui_dock_heights_for(const pc_ui_dock_layout *l, const pc_ui_group *shown, size_t n,
-                            float avail, float strip, float *out)
+void pc_ui_dock_heights_for(const pc_ui_dock_layout *l, const pc_ui_group *shown, size_t n, float avail,
+                            float strip, float *out)
 {
     if (n == 0) {
         return;
@@ -578,8 +621,8 @@ void pc_ui_dock_heights_for(const pc_ui_dock_layout *l, const pc_ui_group *shown
     out[filler] = rest > min_fill ? rest : min_fill;
 }
 
-void pc_ui_dock_resize(pc_ui_dock_layout *l, const pc_ui_group *shown, const float *heights,
-                       size_t n, size_t i, float dy)
+void pc_ui_dock_resize(pc_ui_dock_layout *l, const pc_ui_group *shown, const float *heights, size_t n,
+                       size_t i, float dy)
 {
     if (!isfinite(dy) || dy == 0.0f || i >= n) {
         return;
@@ -679,8 +722,8 @@ bool pc_ui_dock_drop_before(const pc_ui_group *order, size_t n_order, const pc_u
 
 /* ---- serde ---- */
 
-pc_status pc_ui_dock_layout_to_json(const pc_ui_dock_layout *l, yyjson_mut_doc *doc,
-                                    yyjson_mut_val **out, pc_error *err)
+pc_status pc_ui_dock_layout_to_json(const pc_ui_dock_layout *l, yyjson_mut_doc *doc, yyjson_mut_val **out,
+                                    pc_error *err)
 {
     yyjson_mut_val *o = yyjson_mut_obj(doc);
     if (o == NULL) {
@@ -754,7 +797,8 @@ static void read_group_arr(yyjson_val *a, pc_ui_group *out, size_t cap, size_t *
     }
     size_t idx, max;
     yyjson_val *v;
-    yyjson_arr_foreach(a, idx, max, v) {
+    yyjson_arr_foreach(a, idx, max, v)
+    {
         pc_ui_group g;
         if (*n_out < cap && pc_ui_group_from_key(pc_json_as_str(v, NULL), &g)) {
             out[(*n_out)++] = g;
@@ -763,34 +807,45 @@ static void read_group_arr(yyjson_val *a, pc_ui_group *out, size_t cap, size_t *
 }
 
 /* Read a { group: [names] } map into per-group name lists, dropping unknown groups / non-strings. */
-static void read_name_map(yyjson_val *m, pc_ui_name_list lists[PC_UI_GROUP_N])
+static pc_status read_name_map(yyjson_val *m, pc_ui_name_list lists[PC_UI_GROUP_N], pc_error *err)
 {
     if (m == NULL || !yyjson_is_obj(m)) {
-        return;
+        return PC_OK;
     }
     size_t idx, max;
     yyjson_val *key, *val;
-    yyjson_obj_foreach(m, idx, max, key, val) {
+    yyjson_obj_foreach(m, idx, max, key, val)
+    {
         pc_ui_group g;
         if (!pc_ui_group_from_key(yyjson_get_str(key), &g) || !yyjson_is_arr(val)) {
             continue;
         }
         size_t j, jmax;
         yyjson_val *name;
-        yyjson_arr_foreach(val, j, jmax, name) {
+        yyjson_arr_foreach(val, j, jmax, name)
+        {
             const char *s = pc_json_as_str(name, NULL);
             if (s != NULL) {
-                name_list_push(&lists[g], s);
+                if (strlen(s) > 65536) {
+                    return pc_fail(err, PC_ERR_LIMIT, "dock tab name is too long");
+                }
+                if (!name_list_push(&lists[g], s)) {
+                    return pc_fail(err, PC_ERR_NOMEM, "dock tab names");
+                }
             }
         }
     }
+    return PC_OK;
 }
 
-void pc_ui_dock_layout_from_json(pc_ui_dock_layout *l, yyjson_val *obj)
+pc_status pc_ui_dock_layout_parse(pc_ui_dock_layout *out, yyjson_val *obj, pc_error *err)
 {
-    pc_ui_dock_layout_fini(l);
+    pc_ui_dock_layout next = {0};
+    pc_ui_dock_layout *l = &next;
     if (obj == NULL || !yyjson_is_obj(obj)) {
-        return;
+        pc_ui_dock_layout_fini(out);
+        *out = next;
+        return PC_OK;
     }
     read_group_arr(pc_json_get(obj, "order"), l->order, PC_UI_DOCK_MAX_ORDER, &l->n_order);
     read_group_arr(pc_json_get(obj, "collapsed"), l->collapsed, PC_UI_GROUP_N, &l->n_collapsed);
@@ -798,7 +853,8 @@ void pc_ui_dock_layout_from_json(pc_ui_dock_layout *l, yyjson_val *obj)
     if (heights != NULL && yyjson_is_obj(heights)) {
         size_t idx, max;
         yyjson_val *key, *val;
-        yyjson_obj_foreach(heights, idx, max, key, val) {
+        yyjson_obj_foreach(heights, idx, max, key, val)
+        {
             pc_ui_group g;
             double h;
             if (pc_ui_group_from_key(yyjson_get_str(key), &g) && pc_json_as_f64(val, &h)) {
@@ -807,11 +863,26 @@ void pc_ui_dock_layout_from_json(pc_ui_dock_layout *l, yyjson_val *obj)
             }
         }
     }
-    read_name_map(pc_json_get(obj, "hidden_tabs"), l->hidden_tabs);
+    pc_status status = read_name_map(pc_json_get(obj, "hidden_tabs"), l->hidden_tabs, err);
+    if (status != PC_OK) {
+        pc_ui_dock_layout_fini(&next);
+        return status;
+    }
     /* tabOrder, with the Rust "tab_order" alias; names capped at 16 (lenient_tab_order). */
     yyjson_val *to = pc_json_get(obj, "tabOrder");
     if (to == NULL) {
         to = pc_json_get(obj, "tab_order");
     }
-    read_name_map(to, l->tab_order);
+    status = read_name_map(to, l->tab_order, err);
+    if (status != PC_OK) {
+        pc_ui_dock_layout_fini(&next);
+        return status;
+    }
+    pc_ui_dock_layout_fini(out);
+    *out = next;
+    return PC_OK;
+}
+void pc_ui_dock_layout_from_json(pc_ui_dock_layout *out, yyjson_val *object)
+{
+    (void)pc_ui_dock_layout_parse(out, object, NULL);
 }

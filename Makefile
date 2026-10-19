@@ -21,7 +21,7 @@ CFLAGS ?= -O2 -g
 ARFLAGS = rcs
 
 # Modules in layer order (REWRITE_PLAN.md §3). Each chunk appends its module here.
-MODULES = base geom cms color raster psd codecs raw affinity doc ops paint algo vector text compose format io plugins engine automation ui
+MODULES = base geom cms color raster psd codecs raw affinity doc ops paint algo vector text compose gpu format io plugins engine automation ui
 # pkg-config packages the current modules need.
 PKGS = zlib libzstd libblake3 libpng16 libjpeg libwebp libwebpmux libwebpdemux freetype2 harfbuzz fribidi libunibreak
 # Vendored third-party C (REWRITE_PLAN.md D17), compiled without our strict warnings: it isn't
@@ -133,10 +133,27 @@ THIRD_SRCS := $(foreach t,$(THIRD_PARTY),$(wildcard third_party/$(t)/*.c))
 # Binary data compiled in (POSIX od + sed; no xxd): name = file under data/ (see GEN rules below).
 # Bundled fonts (src/text/bundled.h), embedded the same way (assets/fonts/<name>.ttf).
 FONT_GEN := Inter-Regular Inter-Medium Inter-SemiBold JetBrainsMono-Regular
+# GLSL source is embedded as bytes with an explicit length (no platform file lookup).
+$(BUILD)/gen/gpu_compose.c: src/gpu/compose.glsl
+	@mkdir -p $(@D)
+	@{ echo '#include <stddef.h>'; \
+	  echo 'const unsigned char pc_gpu_compose_glsl[] = {'; \
+	  od -An -v -tu1 $< | sed -e 's/[[:space:]][[:space:]]*/,/g' -e 's/^,//' -e 's/,$$//' -e 's/$$/,/' -e '/^,$$/d'; \
+	  echo '};'; \
+	  echo 'const size_t pc_gpu_compose_glsl_len = sizeof pc_gpu_compose_glsl;'; } > $@.tmp && mv $@.tmp $@
+
+$(BUILD)/gen/gpu_fx.c: src/gpu/fx.glsl
+	@mkdir -p $(@D)
+	@{ echo '#include <stddef.h>'; \
+	  echo 'const unsigned char pc_gpu_fx_glsl[] = {'; \
+	  od -An -v -tu1 $< | sed -e 's/[[:space:]][[:space:]]*/,/g' -e 's/^,//' -e 's/,$$//' -e 's/$$/,/' -e '/^,$$/d'; \
+	  echo '};'; \
+	  echo 'const size_t pc_gpu_fx_glsl_len = sizeof pc_gpu_fx_glsl;'; } > $@.tmp && mv $@.tmp $@
+
 # UI translation catalogs (src/ui/i18n.c: pc_i18n_cat_<code with - as _>), embedded uncompressed.
 I18N_CATS := ja zh-hans zh-hant es ru uk sr cs fr id ko pl de pt-br el nl it hu tr vi
 GEN_SRCS := $(BUILD)/gen/coated_cmyk_icc.c $(FONT_GEN:%=$(BUILD)/gen/font_%.c) $(BUILD)/gen/dict_scowl.c \
-            $(I18N_CATS:%=$(BUILD)/gen/i18n_%.c) $(BUILD)/gen/app_icon.c
+            $(I18N_CATS:%=$(BUILD)/gen/i18n_%.c) $(BUILD)/gen/app_icon.c $(BUILD)/gen/ui_icons.c $(BUILD)/gen/ui_credits.c $(BUILD)/gen/gpu_compose.c $(BUILD)/gen/gpu_fx.c
 OBJS := $(SRCS:%.c=$(BUILD)/obj/%.o) $(THIRD_SRCS:%.c=$(BUILD)/obj/%.o) $(GEN_SRCS:%.c=%.o) $(WAMR_OBJS)
 LIB := $(BUILD)/libphotocraft.a
 # B3 GUI stack spike (src/ui/spike): built when SDL3 and FreeType are installed.
@@ -159,7 +176,7 @@ UISHELL := $(BUILD)/bin/photocraft-ui-shell
 TEST_SRCS := $(wildcard tests/*/test_*.c)
 # The shell control test needs the GUI packages (it links SDL, never inits video); drop it when they
 # are absent so a headless build host still runs the rest of the suite.
-TEST_SRCS := $(if $(HAVE_GUI),$(TEST_SRCS),$(filter-out tests/ui/test_shell_control.c,$(TEST_SRCS)))
+TEST_SRCS := $(if $(HAVE_GUI),$(TEST_SRCS),$(filter-out tests/ui/test_shell_control.c tests/ui/test_background_control.c tests/ui/test_canvas_overlays.c tests/ui/test_gpu_compositor.c,$(TEST_SRCS)))
 TEST_BINS := $(TEST_SRCS:tests/%.c=$(BUILD)/tests/%)
 # Executable apps: each src/<app>/ with a main.c links against the library (src/cli = photocraft-cli).
 CLI_SRCS := $(wildcard src/cli/*.c)
@@ -200,6 +217,27 @@ $(BUILD)/gen/font_%.c: assets/fonts/%.ttf
 	  od -An -v -tu1 $< | sed -e 's/[[:space:]][[:space:]]*/,/g' -e 's/^,//' -e 's/,$$//' -e 's/$$/,/' -e '/^,$$/d'; \
 	  echo '};'; \
 	  echo "const size_t pc_font_$(subst -,_,$*)_len = sizeof pc_font_$(subst -,_,$*);"; } > $@.tmp && mv $@.tmp $@
+
+# LLVM may reorder the Soft Light sum's two NaNs at -O1, changing their sign bits
+# from the Rust oracle. Constrain this translation unit; the bit-exact parity fixture stays intact.
+$(BUILD)/obj/src/color/blend.o: src/color/blend.c Makefile
+	@mkdir -p $(@D)
+	$(CC) $(ALL_CPPFLAGS) $(ALL_CFLAGS) $(if $(call cc_accepts,-ffp-model=strict),-ffp-model=strict) $(DEPFLAGS) -c $< -o $@
+
+$(BUILD)/gen/ui_credits.o: $(BUILD)/gen/ui_credits.c src/ui/credits.h
+	$(CC) $(ALL_CPPFLAGS) $(ALL_CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+$(BUILD)/gen/ui_credits.c: tools/embed-ui-credits.sh contributors/contributors.json contributors/people.toml
+	@mkdir -p $(@D)
+	@tools/embed-ui-credits.sh > $@.tmp && mv $@.tmp $@
+
+$(BUILD)/gen/ui_icons.o: $(BUILD)/gen/ui_icons.c src/ui/icon_data.h
+	$(CC) $(ALL_CPPFLAGS) $(ALL_CFLAGS) $(DEPFLAGS) -c $< -o $@
+
+# Original / permissively licensed icon SVGs already tracked under assets/icons.
+$(BUILD)/gen/ui_icons.c: tools/embed-ui-icons.sh $(wildcard assets/icons/*.svg)
+	@mkdir -p $(@D)
+	@tools/embed-ui-icons.sh > $@.tmp && mv $@.tmp $@
 
 # The app-icon PNG (src/ui/brand.c: pc_ui_app_icon_png), embedded as shipped.
 $(BUILD)/gen/app_icon.c: assets/app-icon/hicolor/128x128/apps/ai.storyteller.photocraft.png
@@ -296,7 +334,8 @@ $(BUILD)/tests/cli/%: tests/cli/%.c $(CLI_TEST_OBJS) $(LIB)
 # helpers; it never initialises SDL video (no GL context, no Mesa leak under the sanitizers), so it
 # runs in the ordinary test loop. Explicit target: it wins over the generic pattern rule.
 ifneq ($(HAVE_GUI),)
-$(BUILD)/tests/ui/test_shell_control: tests/ui/test_shell_control.c $(UISHELL_TEST_OBJS) $(SNAP_HELPERS) $(LIB)
+UISHELL_TEST_BINS := $(BUILD)/tests/ui/test_shell_control $(BUILD)/tests/ui/test_background_control $(BUILD)/tests/ui/test_canvas_overlays $(BUILD)/tests/ui/test_gpu_compositor
+$(UISHELL_TEST_BINS): $(BUILD)/tests/ui/%: tests/ui/%.c $(UISHELL_TEST_OBJS) $(SNAP_HELPERS) $(LIB)
 	@mkdir -p $(@D)
 	$(CC) $(ALL_CPPFLAGS) $(GUI_CFLAGS) -Isrc/ui/spike -Itests $(ALL_CFLAGS) $(DEPFLAGS) $< $(UISHELL_TEST_OBJS) $(SNAP_HELPERS) $(LIB) $(ALL_LDFLAGS) $(GUI_LIBS) $(ALL_LDLIBS) -o $@
 endif

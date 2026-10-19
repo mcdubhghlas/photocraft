@@ -24,8 +24,8 @@
  * ========================================================================================== */
 
 /* Each choice set is a NULL-terminated-less array of its JSON names in declaration order. */
-#define CHOICES(name, ...)                                                                         \
-    static const char *const name[] = {__VA_ARGS__};                                               \
+#define CHOICES(name, ...)                                                                                   \
+    static const char *const name[] = {__VA_ARGS__};                                                         \
     enum { name##_N = (int)(sizeof(name) / sizeof((name)[0])) }
 
 CHOICES(C_unit, "pixels", "inches", "cm", "mm", "points", "picas", "percent");
@@ -35,17 +35,14 @@ CHOICES(C_interp, "bicubicAutomatic", "nearestNeighbor", "bilinear", "bicubic", 
         "bicubicSharper", "preserveDetails");
 CHOICES(C_colorPicker, "adobe", "system");
 CHOICES(C_theme, "pro", "proMedium", "proLightGray", "proLight", "studio", "studioLight", "classic",
-        "solarizedDark", "adwaita", "adwaitaDark", "breezeLight", "breezeDark", "softDark",
-        "softLight");
+        "solarizedDark", "adwaita", "adwaitaDark", "breezeLight", "breezeDark", "softDark", "softLight");
 CHOICES(C_appearance, "auto", "dark", "light");
-CHOICES(C_darkTheme, "pro", "proMedium", "studio", "solarizedDark", "adwaitaDark", "breezeDark",
-        "softDark");
+CHOICES(C_darkTheme, "pro", "proMedium", "studio", "solarizedDark", "adwaitaDark", "breezeDark", "softDark");
 CHOICES(C_lightTheme, "studioLight", "proLightGray", "proLight", "classic", "adwaita", "breezeLight",
         "softLight");
 CHOICES(C_canvasColor, "default", "black", "darkGray", "mediumGray", "lightGray", "custom");
 CHOICES(C_canvasBorder, "dropShadow", "line", "none");
-CHOICES(C_uiScale, "auto", "75", "80", "85", "90", "95", "100", "125", "150", "175", "200", "250",
-        "300");
+CHOICES(C_uiScale, "auto", "75", "80", "85", "90", "95", "100", "125", "150", "175", "200", "250", "300");
 CHOICES(C_gpuBackend, "auto", "vulkan", "dx12", "metal", "gl", "cpu");
 CHOICES(C_renderingMode, "auto", "gpu", "cpu");
 CHOICES(C_linuxDisplay, "auto", "x11");
@@ -60,8 +57,7 @@ CHOICES(C_paintCursor, "standard", "precise", "normalTip", "fullSizeTip");
 CHOICES(C_rightClick, "brushPicker", "erase");
 CHOICES(C_otherCursor, "standard", "precise");
 CHOICES(C_checkerSize, "none", "small", "medium", "large");
-CHOICES(C_checkerColors, "light", "medium", "dark", "red", "orange", "green", "blue", "purple",
-        "custom");
+CHOICES(C_checkerColors, "light", "medium", "dark", "red", "orange", "green", "blue", "purple", "custom");
 CHOICES(C_lineStyle, "lines", "dashedLines", "dots");
 CHOICES(C_textEngine, "modern", "eastAsian", "worldReady");
 CHOICES(C_fontPreview, "off", "small", "medium", "large", "extraLarge", "huge");
@@ -176,9 +172,9 @@ bool pc_pref_is_color(const char *path)
         return false;
     }
     const char *leaf = leaf_of(path);
-    static const char *const colors[] = {"guideColor",       "smartGuideColor", "gridColor",
-                                          "sliceColor",       "canvasCustomColor", "brushPreviewColor",
-                                          "gamutWarningColor", "customLight",     "customDark"};
+    static const char *const colors[] = {"guideColor",        "smartGuideColor",   "gridColor",
+                                         "sliceColor",        "canvasCustomColor", "brushPreviewColor",
+                                         "gamutWarningColor", "customLight",       "customDark"};
     for (size_t i = 0; i < sizeof colors / sizeof colors[0]; i++) {
         if (strcmp(leaf, colors[i]) == 0) {
             return true;
@@ -189,17 +185,33 @@ bool pc_pref_is_color(const char *path)
 
 bool pc_pref_is_hidden(const char *path)
 {
-    static const char *const hidden[] = {
-        "general.colorPicker", "general.animatedZoom", "general.zoomResizesWindows",
-        "workspace.autoShowHiddenPanels", "workspace.enableFloatingDocumentWindowDocking",
-        "fileHandling.saveInBackground", "performance.cacheLevels", "performance.effectCacheMb",
-        "performance.legacyCompositing", "scratchDisks.disks", "unitsAndRulers.columnWidth",
-        "unitsAndRulers.gutter", "plugIns.showExtensionPanels", "plugIns.allowScriptsToConnect",
-        "plugIns.generatorEnabled", "type.textEngine", "type.recentFonts",
-        "enhancedControls.scrubbySliderAcceleration", "enhancedControls.touchGestures",
-        "rawDefaults.colorSpace", "rawDefaults.bitDepth", "rawDefaults.resolution",
-        "rawDefaults.sharpenFor", "rawDefaults.openAsSmartObject", "rawDefaults.applyAutoTone",
-        "integrations.allowAgentControl", "integrations.controlPort"};
+    static const char *const hidden[] = {"general.colorPicker",
+                                         "general.animatedZoom",
+                                         "general.zoomResizesWindows",
+                                         "workspace.autoShowHiddenPanels",
+                                         "workspace.enableFloatingDocumentWindowDocking",
+                                         "fileHandling.saveInBackground",
+                                         "performance.cacheLevels",
+                                         "performance.effectCacheMb",
+                                         "performance.legacyCompositing",
+                                         "scratchDisks.disks",
+                                         "unitsAndRulers.columnWidth",
+                                         "unitsAndRulers.gutter",
+                                         "plugIns.showExtensionPanels",
+                                         "plugIns.allowScriptsToConnect",
+                                         "plugIns.generatorEnabled",
+                                         "type.textEngine",
+                                         "type.recentFonts",
+                                         "enhancedControls.scrubbySliderAcceleration",
+                                         "enhancedControls.touchGestures",
+                                         "rawDefaults.colorSpace",
+                                         "rawDefaults.bitDepth",
+                                         "rawDefaults.resolution",
+                                         "rawDefaults.sharpenFor",
+                                         "rawDefaults.openAsSmartObject",
+                                         "rawDefaults.applyAutoTone",
+                                         "integrations.allowAgentControl",
+                                         "integrations.controlPort"};
     for (size_t i = 0; i < sizeof hidden / sizeof hidden[0]; i++) {
         if (strcmp(hidden[i], path) == 0) {
             return true;
@@ -275,7 +287,10 @@ const pc_engine_temporary_tool *pc_engine_temporary_tools(size_t *n)
  * Default tree
  * ========================================================================================== */
 
-static yyjson_mut_val *obj(yyjson_mut_doc *d) { return yyjson_mut_obj(d); }
+static yyjson_mut_val *obj(yyjson_mut_doc *d)
+{
+    return yyjson_mut_obj(d);
+}
 
 static void section_general(yyjson_mut_doc *d, yyjson_mut_val *o)
 {
@@ -719,18 +734,30 @@ bool pc_pref_unit_from_suffix(const char *suffix, size_t len, pc_pref_unit *out)
         const char *name;
         pc_pref_unit unit;
     } table[] = {
-        {"px", PC_UNIT_PIXELS},          {"pixel", PC_UNIT_PIXELS},
-        {"pixels", PC_UNIT_PIXELS},      {"in", PC_UNIT_INCHES},
-        {"inch", PC_UNIT_INCHES},        {"inches", PC_UNIT_INCHES},
-        {"\"", PC_UNIT_INCHES},          {"cm", PC_UNIT_CENTIMETERS},
-        {"centimeter", PC_UNIT_CENTIMETERS}, {"centimeters", PC_UNIT_CENTIMETERS},
-        {"centimetre", PC_UNIT_CENTIMETERS}, {"centimetres", PC_UNIT_CENTIMETERS},
-        {"mm", PC_UNIT_MILLIMETERS},     {"millimeter", PC_UNIT_MILLIMETERS},
-        {"millimeters", PC_UNIT_MILLIMETERS}, {"millimetre", PC_UNIT_MILLIMETERS},
-        {"millimetres", PC_UNIT_MILLIMETERS}, {"pt", PC_UNIT_POINTS},
-        {"point", PC_UNIT_POINTS},       {"points", PC_UNIT_POINTS},
-        {"pc", PC_UNIT_PICAS},           {"pica", PC_UNIT_PICAS},
-        {"picas", PC_UNIT_PICAS},        {"%", PC_UNIT_PERCENT},
+        {"px", PC_UNIT_PIXELS},
+        {"pixel", PC_UNIT_PIXELS},
+        {"pixels", PC_UNIT_PIXELS},
+        {"in", PC_UNIT_INCHES},
+        {"inch", PC_UNIT_INCHES},
+        {"inches", PC_UNIT_INCHES},
+        {"\"", PC_UNIT_INCHES},
+        {"cm", PC_UNIT_CENTIMETERS},
+        {"centimeter", PC_UNIT_CENTIMETERS},
+        {"centimeters", PC_UNIT_CENTIMETERS},
+        {"centimetre", PC_UNIT_CENTIMETERS},
+        {"centimetres", PC_UNIT_CENTIMETERS},
+        {"mm", PC_UNIT_MILLIMETERS},
+        {"millimeter", PC_UNIT_MILLIMETERS},
+        {"millimeters", PC_UNIT_MILLIMETERS},
+        {"millimetre", PC_UNIT_MILLIMETERS},
+        {"millimetres", PC_UNIT_MILLIMETERS},
+        {"pt", PC_UNIT_POINTS},
+        {"point", PC_UNIT_POINTS},
+        {"points", PC_UNIT_POINTS},
+        {"pc", PC_UNIT_PICAS},
+        {"pica", PC_UNIT_PICAS},
+        {"picas", PC_UNIT_PICAS},
+        {"%", PC_UNIT_PERCENT},
         {"percent", PC_UNIT_PERCENT},
     };
     for (size_t i = 0; i < sizeof table / sizeof table[0]; i++) {
@@ -1026,8 +1053,7 @@ bool pc_pref_normalize_shortcut(const char *s, size_t len, char *out, size_t cap
     /* A trailing "+" key is spelled "Cmd++"; or the whole thing is "+". */
     bool plus_key = false;
     size_t blen = len;
-    if ((blen >= 2 && body[blen - 1] == '+' && body[blen - 2] == '+') ||
-        (blen == 1 && body[0] == '+')) {
+    if ((blen >= 2 && body[blen - 1] == '+' && body[blen - 2] == '+') || (blen == 1 && body[0] == '+')) {
         plus_key = true;
         while (blen > 0 && body[blen - 1] == '+') {
             blen--;
@@ -1047,14 +1073,13 @@ bool pc_pref_normalize_shortcut(const char *s, size_t len, char *out, size_t cap
         }
         lower[copy] = '\0';
         if (strcmp(lower, "cmd") == 0 || strcmp(lower, "command") == 0 ||
-            strcmp(lower, "\xe2\x8c\x98") == 0 || strcmp(lower, "meta") == 0 ||
-            strcmp(lower, "super") == 0) {
+            strcmp(lower, "\xe2\x8c\x98") == 0 || strcmp(lower, "meta") == 0 || strcmp(lower, "super") == 0) {
             cmd = true;
         } else if (strcmp(lower, "ctrl") == 0 || strcmp(lower, "control") == 0 ||
                    strcmp(lower, "\xe2\x8c\x83") == 0) {
             ctrl = true;
-        } else if (strcmp(lower, "alt") == 0 || strcmp(lower, "option") == 0 ||
-                   strcmp(lower, "opt") == 0 || strcmp(lower, "\xe2\x8c\xa5") == 0) {
+        } else if (strcmp(lower, "alt") == 0 || strcmp(lower, "option") == 0 || strcmp(lower, "opt") == 0 ||
+                   strcmp(lower, "\xe2\x8c\xa5") == 0) {
             alt = true;
         } else if (strcmp(lower, "shift") == 0 || strcmp(lower, "\xe2\x87\xa7") == 0) {
             shift = true;
@@ -1238,8 +1263,8 @@ static type_class class_of(yyjson_mut_val *v)
 
 /* Set `value` (a mut val already owned by `doc`) at `path`, creating keys only inside free-form
  * maps (shortcuts, menus.colors). On failure writes an error message into msg[msgcap]. */
-static bool set_path(yyjson_mut_doc *doc, yyjson_mut_val *root, const char *path,
-                     yyjson_mut_val *value, char *msg, size_t msgcap)
+static bool set_path(yyjson_mut_doc *doc, yyjson_mut_val *root, const char *path, yyjson_mut_val *value,
+                     char *msg, size_t msgcap)
 {
     const char *map, *id;
     if (keyed(path, &map, &id)) {
@@ -1305,8 +1330,7 @@ static bool set_path(yyjson_mut_doc *doc, yyjson_mut_val *root, const char *path
         return false;
     }
     bool free_map = (nparents >= 1 && strcmp(parents[0], "shortcuts") == 0) ||
-                    (nparents == 2 && strcmp(parents[0], "menus") == 0 &&
-                     strcmp(parents[1], "colors") == 0);
+                    (nparents == 2 && strcmp(parents[0], "menus") == 0 && strcmp(parents[1], "colors") == 0);
     yyjson_mut_val *existing = yyjson_mut_obj_get(cur, last);
     if (existing == NULL && !free_map) {
         snprintf(msg, msgcap, "unknown preference `%s`", path);
@@ -1343,7 +1367,8 @@ static bool check_value(const char *path, yyjson_val *v, char *msg, size_t msgca
         size_t nseen = 0;
         size_t idx, max;
         yyjson_val *item;
-        yyjson_arr_foreach(v, idx, max, item) {
+        yyjson_arr_foreach(v, idx, max, item)
+        {
             const char *s = yyjson_get_str(item);
             bool valid = false;
             if (s != NULL) {
@@ -1442,12 +1467,14 @@ static bool check_value(const char *path, yyjson_val *v, char *msg, size_t msgca
         }
         size_t idx, max;
         yyjson_val *pt;
-        yyjson_arr_foreach(v, idx, max, pt) {
+        yyjson_arr_foreach(v, idx, max, pt)
+        {
             bool ok = yyjson_is_arr(pt) && yyjson_arr_size(pt) == 2;
             if (ok) {
                 size_t j, jm;
                 yyjson_val *comp;
-                yyjson_arr_foreach(pt, j, jm, comp) {
+                yyjson_arr_foreach(pt, j, jm, comp)
+                {
                     double x;
                     if (!pc_json_as_f64(comp, &x) || !(x >= 0.0 && x <= 1.0)) {
                         ok = false;
@@ -1456,8 +1483,7 @@ static bool check_value(const char *path, yyjson_val *v, char *msg, size_t msgca
                 }
             }
             if (!ok) {
-                snprintf(msg, msgcap,
-                         "`tools.pressureCurve` points are [input, output] pairs within 0..1");
+                snprintf(msg, msgcap, "`tools.pressureCurve` points are [input, output] pairs within 0..1");
                 return false;
             }
         }
@@ -1483,8 +1509,7 @@ static bool check_value(const char *path, yyjson_val *v, char *msg, size_t msgca
 
 /* Copy a params value (yyjson_val) into doc and apply at path, after check_value. The
  * shortcuts.* normalisation and null-removal are handled by the caller. */
-static bool prefs_set_one(pc_engine_prefs *pf, const char *path, yyjson_val *value, char *msg,
-                          size_t msgcap)
+static bool prefs_set_one(pc_engine_prefs *pf, const char *path, yyjson_val *value, char *msg, size_t msgcap)
 {
     /* shortcuts.<id> with "" or a string: normalise; null removes the override. */
     if (strncmp(path, "shortcuts.", 10) == 0) {
@@ -1525,10 +1550,10 @@ static bool prefs_set_one(pc_engine_prefs *pf, const char *path, yyjson_val *val
 /* Theme -> (appearanceMode, slotKey, slotValue==theme name). */
 static bool theme_appearance(const char *theme, const char **mode, const char **slot)
 {
-    static const char *const dark[] = {"pro",          "proMedium",  "studio", "solarizedDark",
-                                        "adwaitaDark",  "breezeDark", "softDark"};
+    static const char *const dark[] = {"pro",         "proMedium",  "studio",  "solarizedDark",
+                                       "adwaitaDark", "breezeDark", "softDark"};
     static const char *const light[] = {"studioLight", "proLightGray", "proLight", "classic",
-                                         "adwaita",     "breezeLight",  "softLight"};
+                                        "adwaita",     "breezeLight",  "softLight"};
     for (size_t i = 0; i < sizeof dark / sizeof dark[0]; i++) {
         if (strcmp(theme, dark[i]) == 0) {
             *mode = "dark";
@@ -1621,8 +1646,7 @@ void pc_engine_apply_prefs(pc_engine_session *s)
      * session has no shared font database yet); documented in REWRITE_PLAN.md section 7. */
 }
 
-pc_status pc_engine_prefs_get(const pc_engine_session *s, const char *path, pc_json_value *out,
-                              pc_error *err)
+pc_status pc_engine_prefs_get(const pc_engine_session *s, const char *path, pc_json_value *out, pc_error *err)
 {
     if (strcmp(path, "colorSettings") == 0 ||
         (strncmp(path, "colorSettings.", 14) == 0 && path[14] != '\0')) {
@@ -1688,7 +1712,8 @@ static void merge_section(pc_engine_prefs *pf, const char *section, yyjson_val *
     }
     size_t idx, max;
     yyjson_val *key, *val;
-    yyjson_obj_foreach(loaded, idx, max, key, val) {
+    yyjson_obj_foreach(loaded, idx, max, key, val)
+    {
         const char *k = yyjson_get_str(key);
         if (k == NULL) {
             continue;
@@ -1770,8 +1795,7 @@ static void merge_whole(pc_engine_prefs *pf, const char *key, yyjson_val *loaded
     }
 }
 
-pc_status pc_engine_session_load_prefs_json(pc_engine_session *s, const char *text, size_t len,
-                                            pc_error *err)
+pc_status pc_engine_session_load_prefs_json(pc_engine_session *s, const char *text, size_t len, pc_error *err)
 {
     yyjson_doc *doc = NULL;
     if (pc_json_parse(text, len, &doc, err) != PC_OK) {
@@ -1877,8 +1901,7 @@ typedef struct {
 } pref_change;
 
 /* Apply a whole-section/root merge or a single set to the working prefs store. */
-static bool set_pref_path(pc_engine_prefs *pf, const char *path, yyjson_val *value, char *msg,
-                          size_t msgcap)
+static bool set_pref_path(pc_engine_prefs *pf, const char *path, yyjson_val *value, char *msg, size_t msgcap)
 {
     bool whole = (path[0] == '\0') || is_section(path) || strcmp(path, "shortcuts") == 0 ||
                  strcmp(path, "menus") == 0 || strcmp(path, "toolbar") == 0;
@@ -1889,7 +1912,8 @@ static bool set_pref_path(pc_engine_prefs *pf, const char *path, yyjson_val *val
         }
         size_t idx, max;
         yyjson_val *key, *val;
-        yyjson_obj_foreach(value, idx, max, key, val) {
+        yyjson_obj_foreach(value, idx, max, key, val)
+        {
             const char *k = yyjson_get_str(key);
             if (k == NULL) {
                 continue;
@@ -1911,7 +1935,8 @@ static bool set_pref_path(pc_engine_prefs *pf, const char *path, yyjson_val *val
             if (nested) {
                 size_t j, jm;
                 yyjson_val *k2, *v2;
-                yyjson_obj_foreach(val, j, jm, k2, v2) {
+                yyjson_obj_foreach(val, j, jm, k2, v2)
+                {
                     const char *kk = yyjson_get_str(k2);
                     if (kk == NULL) {
                         continue;
@@ -1954,6 +1979,10 @@ static bool is_color_path(const char *path, const char **sub)
 static pc_status run_prefs_set(pc_engine_session *s, yyjson_val *p, pc_json_value *out, pc_error *err)
 {
     const char *cmd = "prefs.set";
+    yyjson_val *replace_value = pc_json_get(p, "replace");
+    if (replace_value && !yyjson_is_bool(replace_value))
+        return pc_engine_err_bad_params(err, cmd, "replace must be a boolean");
+    bool replace = yyjson_is_true(replace_value);
     pref_change changes[256];
     size_t nchanges = 0;
     yyjson_val *path_v = pc_json_get(p, "path");
@@ -1973,7 +2002,8 @@ static pc_status run_prefs_set(pc_engine_session *s, yyjson_val *p, pc_json_valu
     if (values != NULL && yyjson_is_obj(values)) {
         size_t idx, max;
         yyjson_val *key, *val;
-        yyjson_obj_foreach(values, idx, max, key, val) {
+        yyjson_obj_foreach(values, idx, max, key, val)
+        {
             if (nchanges >= sizeof changes / sizeof changes[0]) {
                 break;
             }
@@ -1987,8 +2017,7 @@ static pc_status run_prefs_set(pc_engine_session *s, yyjson_val *p, pc_json_valu
         }
     }
     if (nchanges == 0) {
-        return pc_engine_err_bad_params(err, cmd,
-                                        "give `path` and `value`, or `values: {path: value, ...}`");
+        return pc_engine_err_bad_params(err, cmd, "give `path` and `value`, or `values: {path: value, ...}`");
     }
     /* All or nothing: validate against a scratch copy first. */
     pc_engine_prefs scratch;
@@ -2005,9 +2034,8 @@ static pc_status run_prefs_set(pc_engine_session *s, yyjson_val *p, pc_json_valu
         return PC_ERR_NOMEM;
     }
     char msg[PC_ERROR_MSG_MAX];
-    const char *prev_theme = yyjson_mut_get_str(
-        yyjson_mut_obj_get(yyjson_mut_obj_get(yyjson_mut_doc_get_root(scratch.values), "interface"),
-                           "theme"));
+    const char *prev_theme = yyjson_mut_get_str(yyjson_mut_obj_get(
+        yyjson_mut_obj_get(yyjson_mut_doc_get_root(scratch.values), "interface"), "theme"));
     char prev_theme_buf[64] = {0};
     if (prev_theme != NULL) {
         snprintf(prev_theme_buf, sizeof prev_theme_buf, "%s", prev_theme);
@@ -2027,7 +2055,18 @@ static pc_status run_prefs_set(pc_engine_session *s, yyjson_val *p, pc_json_valu
         if (strcmp(changes[i].path, "interface.theme") == 0) {
             set_theme_path = true;
         }
-        if (!set_pref_path(&scratch, changes[i].path, changes[i].value, msg, sizeof msg)) {
+        bool replace_map =
+            replace && (!strcmp(changes[i].path, "shortcuts") || !strcmp(changes[i].path, "menus") ||
+                        !strcmp(changes[i].path, "toolbar") || !strcmp(changes[i].path, "workspaces"));
+        bool reset_map = true;
+        if (replace_map && !strcmp(changes[i].path, "shortcuts")) {
+            yyjson_mut_val *empty = yyjson_mut_obj(scratch.values);
+            reset_map = empty && set_path(scratch.values, yyjson_mut_doc_get_root(scratch.values),
+                                          changes[i].path, empty, msg, sizeof msg);
+        }
+        if (!reset_map || !set_pref_path(&scratch, changes[i].path, changes[i].value, msg, sizeof msg) ||
+            (replace_map && strcmp(changes[i].path, "shortcuts") &&
+             !prefs_set_one(&scratch, changes[i].path, changes[i].value, msg, sizeof msg))) {
             pc_color_settings_fini(&next_color);
             yyjson_mut_doc_free(scratch.values);
             return pc_engine_err_bad_params(err, cmd, "%s", msg);
@@ -2039,9 +2078,8 @@ static pc_status run_prefs_set(pc_engine_session *s, yyjson_val *p, pc_json_valu
         return PC_ERR_INVALID;
     }
     /* interface.theme side-effect. */
-    const char *new_theme = yyjson_mut_get_str(
-        yyjson_mut_obj_get(yyjson_mut_obj_get(yyjson_mut_doc_get_root(scratch.values), "interface"),
-                           "theme"));
+    const char *new_theme = yyjson_mut_get_str(yyjson_mut_obj_get(
+        yyjson_mut_obj_get(yyjson_mut_doc_get_root(scratch.values), "interface"), "theme"));
     bool theme_changed = new_theme != NULL && (prev_theme == NULL || strcmp(new_theme, prev_theme_buf) != 0);
     if (set_theme_path || theme_changed) {
         apply_theme_side_effect(&scratch);
@@ -2080,7 +2118,8 @@ static pc_status run_prefs_set(pc_engine_session *s, yyjson_val *p, pc_json_valu
             v = cur != NULL ? yyjson_mut_val_mut_copy(d, cur) : yyjson_mut_null(d);
         }
         /* The key is borrowed from the params doc (freed after run); copy it. */
-        yyjson_mut_obj_put(obj_out, yyjson_mut_strcpy(d, changes[i].path), v != NULL ? v : yyjson_mut_null(d));
+        yyjson_mut_obj_put(obj_out, yyjson_mut_strcpy(d, changes[i].path),
+                           v != NULL ? v : yyjson_mut_null(d));
     }
     yyjson_mut_doc_set_root(d, obj_out);
     return PC_OK;
@@ -2166,9 +2205,8 @@ static pc_status run_prefs_reset(pc_engine_session *s, yyjson_val *p, pc_json_va
             }
             yyjson_mut_val *nv = yyjson_mut_val_mut_copy(s->prefs.values, def);
             char msg[PC_ERROR_MSG_MAX];
-            if (nv == NULL ||
-                !set_path(s->prefs.values, yyjson_mut_doc_get_root(s->prefs.values), path, nv, msg,
-                          sizeof msg)) {
+            if (nv == NULL || !set_path(s->prefs.values, yyjson_mut_doc_get_root(s->prefs.values), path, nv,
+                                        msg, sizeof msg)) {
                 yyjson_mut_doc_free(defdoc);
                 return pc_engine_err_bad_params(err, cmd, "unknown preference `%s`", path);
             }
@@ -2192,7 +2230,7 @@ static pc_status run_prefs_reset(pc_engine_session *s, yyjson_val *p, pc_json_va
 
 /* edit.preferences.<section>: the section's values. */
 static pc_status run_preferences_section(pc_engine_session *s, yyjson_val *p, pc_json_value *out,
-                                          pc_error *err)
+                                         pc_error *err)
 {
     const char *section = "general";
     yyjson_val *sv = pc_json_get(p, "__section");
@@ -2226,13 +2264,14 @@ static pc_status run_preferences_section(pc_engine_session *s, yyjson_val *p, pc
 /* edit.menus */
 static pc_status run_menus(pc_engine_session *s, yyjson_val *p, pc_json_value *out, pc_error *err)
 {
-    static const char *const COLORS[] = {"none", "red",  "orange", "yellow",
+    static const char *const COLORS[] = {"none",  "red",  "orange", "yellow",
                                          "green", "blue", "violet", "gray"};
     yyjson_val *color = pc_json_get(p, "color");
     if (color != NULL && yyjson_is_obj(color)) {
         size_t idx, max;
         yyjson_val *key, *val;
-        yyjson_obj_foreach(color, idx, max, key, val) {
+        yyjson_obj_foreach(color, idx, max, key, val)
+        {
             const char *c = yyjson_get_str(val);
             if (c != NULL) {
                 bool ok = false;
@@ -2276,7 +2315,8 @@ static pc_status run_menus(pc_engine_session *s, yyjson_val *p, pc_json_value *o
     if (hide != NULL && yyjson_is_arr(hide)) {
         size_t idx, max;
         yyjson_val *item;
-        yyjson_arr_foreach(hide, idx, max, item) {
+        yyjson_arr_foreach(hide, idx, max, item)
+        {
             const char *id = yyjson_get_str(item);
             if (id == NULL) {
                 continue;
@@ -2284,7 +2324,8 @@ static pc_status run_menus(pc_engine_session *s, yyjson_val *p, pc_json_value *o
             bool present = false;
             size_t j, jm;
             yyjson_mut_val *h;
-            yyjson_mut_arr_foreach(hidden, j, jm, h) {
+            yyjson_mut_arr_foreach(hidden, j, jm, h)
+            {
                 const char *hs = yyjson_mut_get_str(h);
                 if (hs != NULL && strcmp(hs, id) == 0) {
                     present = true;
@@ -2302,13 +2343,15 @@ static pc_status run_menus(pc_engine_session *s, yyjson_val *p, pc_json_value *o
         yyjson_mut_val *kept = yyjson_mut_arr(s->prefs.values);
         size_t j, jm;
         yyjson_mut_val *h;
-        yyjson_mut_arr_foreach(hidden, j, jm, h) {
+        yyjson_mut_arr_foreach(hidden, j, jm, h)
+        {
             const char *hs = yyjson_mut_get_str(h);
             bool remove = false;
             if (hs != NULL) {
                 size_t idx, mx;
                 yyjson_val *item;
-                yyjson_arr_foreach(show, idx, mx, item) {
+                yyjson_arr_foreach(show, idx, mx, item)
+                {
                     const char *ss = yyjson_get_str(item);
                     if (ss != NULL && strcmp(ss, hs) == 0) {
                         remove = true;
@@ -2326,7 +2369,8 @@ static pc_status run_menus(pc_engine_session *s, yyjson_val *p, pc_json_value *o
     if (color != NULL && yyjson_is_obj(color)) {
         size_t idx, max;
         yyjson_val *key, *val;
-        yyjson_obj_foreach(color, idx, max, key, val) {
+        yyjson_obj_foreach(color, idx, max, key, val)
+        {
             const char *id = yyjson_get_str(key);
             const char *c = yyjson_get_str(val);
             if (id == NULL) {
@@ -2355,10 +2399,8 @@ static pc_status run_toolbar(pc_engine_session *s, yyjson_val *p, pc_json_value 
     }
     yyjson_val *reset = pc_json_get(p, "reset");
     if (reset != NULL && yyjson_is_true(reset)) {
-        yyjson_mut_obj_put(tb, yyjson_mut_strcpy(s->prefs.values, "hidden"),
-                           yyjson_mut_arr(s->prefs.values));
-        yyjson_mut_obj_put(tb, yyjson_mut_strcpy(s->prefs.values, "order"),
-                           yyjson_mut_arr(s->prefs.values));
+        yyjson_mut_obj_put(tb, yyjson_mut_strcpy(s->prefs.values, "hidden"), yyjson_mut_arr(s->prefs.values));
+        yyjson_mut_obj_put(tb, yyjson_mut_strcpy(s->prefs.values, "order"), yyjson_mut_arr(s->prefs.values));
     }
     const char *keys[2] = {"hidden", "order"};
     for (int i = 0; i < 2; i++) {
@@ -2379,8 +2421,8 @@ static pc_status run_toolbar(pc_engine_session *s, yyjson_val *p, pc_json_value 
 
 /* The effective shortcut for id: the override (empty = none), else the default. Writes into
  * out[cap]; returns false when there is no effective shortcut. */
-static bool effective_shortcut(const pc_engine_prefs *pf, const char *id, const char *def,
-                               char *out, size_t cap)
+static bool effective_shortcut(const pc_engine_prefs *pf, const char *id, const char *def, char *out,
+                               size_t cap)
 {
     yyjson_mut_val *sc = walk(yyjson_mut_doc_get_root(pf->values), "shortcuts");
     if (sc != NULL && yyjson_mut_is_obj(sc)) {
@@ -2438,7 +2480,8 @@ static pc_status run_keyboard_shortcuts(pc_engine_session *s, yyjson_val *p, pc_
         } else if (yyjson_is_arr(reset)) {
             size_t idx, max;
             yyjson_val *item;
-            yyjson_arr_foreach(reset, idx, max, item) {
+            yyjson_arr_foreach(reset, idx, max, item)
+            {
                 const char *id = yyjson_get_str(item);
                 if (id != NULL) {
                     yyjson_mut_obj_remove_key(shortcuts, id);
@@ -2451,8 +2494,7 @@ static pc_status run_keyboard_shortcuts(pc_engine_session *s, yyjson_val *p, pc_
     if (importkys != NULL) {
         /* The Photoshop .kys importer (crate::kys) is not ported yet; it is an orphan module in
          * the reference (only prefs.rs uses it). Deferred (REWRITE_PLAN.md section 7). */
-        return pc_fail(err, PC_ERR_UNSUPPORTED,
-                       "importing a Photoshop .kys set is not supported yet");
+        return pc_fail(err, PC_ERR_UNSUPPORTED, "importing a Photoshop .kys set is not supported yet");
     }
     yyjson_val *set = pc_json_get(p, "set");
     if (set != NULL && yyjson_is_obj(set)) {
@@ -2471,7 +2513,8 @@ static pc_status run_keyboard_shortcuts(pc_engine_session *s, yyjson_val *p, pc_
         char msg[PC_ERROR_MSG_MAX];
         size_t idx, max;
         yyjson_val *key, *val;
-        yyjson_obj_foreach(set, idx, max, key, val) {
+        yyjson_obj_foreach(set, idx, max, key, val)
+        {
             const char *id = yyjson_get_str(key);
             if (id == NULL) {
                 continue;
@@ -2498,7 +2541,8 @@ static pc_status run_keyboard_shortcuts(pc_engine_session *s, yyjson_val *p, pc_
             yyjson_mut_val *sc2 = walk(yyjson_mut_doc_get_root(scratch.values), "shortcuts");
             size_t i2, m2;
             yyjson_val *k2, *v2;
-            yyjson_obj_foreach(set, i2, m2, k2, v2) {
+            yyjson_obj_foreach(set, i2, m2, k2, v2)
+            {
                 const char *id = yyjson_get_str(k2);
                 const char *scv = yyjson_get_str(v2);
                 if (id == NULL || scv == NULL) {
@@ -2570,8 +2614,7 @@ static pc_status run_keyboard_shortcuts(pc_engine_session *s, yyjson_val *p, pc_
         return PC_ERR_NOMEM;
     }
     yyjson_mut_val *root = yyjson_mut_obj(d);
-    yyjson_mut_val *overrides =
-        shortcuts != NULL ? yyjson_mut_val_mut_copy(d, shortcuts) : yyjson_mut_obj(d);
+    yyjson_mut_val *overrides = shortcuts != NULL ? yyjson_mut_val_mut_copy(d, shortcuts) : yyjson_mut_obj(d);
     yyjson_mut_obj_add_val(d, root, "overrides", overrides != NULL ? overrides : yyjson_mut_obj(d));
     yyjson_mut_val *list = yyjson_mut_arr(d);
     size_t nc;
@@ -2725,19 +2768,19 @@ static pc_status run_keyboard_shortcuts(pc_engine_session *s, yyjson_val *p, pc_
  * ========================================================================================== */
 
 /* Dispatchers for the 18 edit.preferences.<section> commands: inject __section from the id. */
-#define SECTION_RUN(fn, name)                                                                      \
-    static pc_status fn(pc_engine_session *s, yyjson_val *p, pc_json_value *out, pc_error *err)     \
-    {                                                                                              \
-        (void)p;                                                                                   \
-        yyjson_doc *d = NULL;                                                                      \
-        char j[64];                                                                                \
-        snprintf(j, sizeof j, "{\"__section\":\"%s\"}", name);                                     \
-        if (pc_json_parse(j, strlen(j), &d, err) != PC_OK) {                                       \
-            return PC_ERR_NOMEM;                                                                   \
-        }                                                                                          \
-        pc_status rc = run_preferences_section(s, yyjson_doc_get_root(d), out, err);               \
-        yyjson_doc_free(d);                                                                        \
-        return rc;                                                                                 \
+#define SECTION_RUN(fn, name)                                                                                \
+    static pc_status fn(pc_engine_session *s, yyjson_val *p, pc_json_value *out, pc_error *err)              \
+    {                                                                                                        \
+        (void)p;                                                                                             \
+        yyjson_doc *d = NULL;                                                                                \
+        char j[64];                                                                                          \
+        snprintf(j, sizeof j, "{\"__section\":\"%s\"}", name);                                               \
+        if (pc_json_parse(j, strlen(j), &d, err) != PC_OK) {                                                 \
+            return PC_ERR_NOMEM;                                                                             \
+        }                                                                                                    \
+        pc_status rc = run_preferences_section(s, yyjson_doc_get_root(d), out, err);                         \
+        yyjson_doc_free(d);                                                                                  \
+        return rc;                                                                                           \
     }
 
 SECTION_RUN(run_sec_general, "general")
@@ -2765,52 +2808,52 @@ static const char *const MENU_EDIT_PREFS[] = {"Edit", "Preferences"};
 const pc_engine_command *pc_engine_prefs_specs(size_t *n)
 {
     static const pc_engine_command specs[] = {
-        {"prefs.get", "Get Preferences", NULL, 0, NULL,
-         "{\"path\":\"section.key\"?=everything}", pc_engine_always, run_prefs_get, false},
+        {"prefs.get", "Get Preferences", NULL, 0, NULL, "{\"path\":\"section.key\"?=everything}",
+         pc_engine_always, run_prefs_get, false},
         {"prefs.set", "Set Preferences", NULL, 0, NULL,
          "{\"path\":\"section.key\",\"value\":json} or {\"values\":{\"section.key\":json,...}} "
-         "(validated; all or nothing)",
+         "(validated; all or nothing; replace:bool=false replaces whole shortcuts/menus/toolbar/workspaces "
+         "maps)",
          pc_engine_always, run_prefs_set, false},
-        {"prefs.reset", "Reset Preferences", NULL, 0, NULL,
-         "{\"path\":\"section|section.key\"?=everything}", pc_engine_always, run_prefs_reset, false},
+        {"prefs.reset", "Reset Preferences", NULL, 0, NULL, "{\"path\":\"section|section.key\"?=everything}",
+         pc_engine_always, run_prefs_reset, false},
         {"edit.preferences.general", "General\xe2\x80\xa6", MENU_EDIT_PREFS, 2, "Cmd+K", "{}",
          pc_engine_always, run_sec_general, false},
         {"edit.preferences.interface", "Interface\xe2\x80\xa6", MENU_EDIT_PREFS, 2, NULL, "{}",
          pc_engine_always, run_sec_interface, false},
         {"edit.preferences.workspace", "Workspace\xe2\x80\xa6", MENU_EDIT_PREFS, 2, NULL, "{}",
          pc_engine_always, run_sec_workspace, false},
-        {"edit.preferences.tools", "Tools\xe2\x80\xa6", MENU_EDIT_PREFS, 2, NULL, "{}",
-         pc_engine_always, run_sec_tools, false},
+        {"edit.preferences.tools", "Tools\xe2\x80\xa6", MENU_EDIT_PREFS, 2, NULL, "{}", pc_engine_always,
+         run_sec_tools, false},
         {"edit.preferences.historyLog", "History Log\xe2\x80\xa6", MENU_EDIT_PREFS, 2, NULL, "{}",
          pc_engine_always, run_sec_historyLog, false},
         {"edit.preferences.fileHandling", "File Handling\xe2\x80\xa6", MENU_EDIT_PREFS, 2, NULL, "{}",
          pc_engine_always, run_sec_fileHandling, false},
-        {"edit.preferences.export", "Export\xe2\x80\xa6", MENU_EDIT_PREFS, 2, NULL, "{}",
-         pc_engine_always, run_sec_export, false},
+        {"edit.preferences.export", "Export\xe2\x80\xa6", MENU_EDIT_PREFS, 2, NULL, "{}", pc_engine_always,
+         run_sec_export, false},
         {"edit.preferences.performance", "Performance\xe2\x80\xa6", MENU_EDIT_PREFS, 2, NULL, "{}",
          pc_engine_always, run_sec_performance, false},
         {"edit.preferences.scratchDisks", "Scratch Disks\xe2\x80\xa6", MENU_EDIT_PREFS, 2, NULL, "{}",
          pc_engine_always, run_sec_scratchDisks, false},
-        {"edit.preferences.cursors", "Cursors\xe2\x80\xa6", MENU_EDIT_PREFS, 2, NULL, "{}",
-         pc_engine_always, run_sec_cursors, false},
-        {"edit.preferences.transparencyAndGamut", "Transparency & Gamut\xe2\x80\xa6", MENU_EDIT_PREFS,
-         2, NULL, "{}", pc_engine_always, run_sec_transparencyAndGamut, false},
-        {"edit.preferences.unitsAndRulers", "Units & Rulers\xe2\x80\xa6", MENU_EDIT_PREFS, 2, NULL,
-         "{}", pc_engine_always, run_sec_unitsAndRulers, false},
-        {"edit.preferences.guidesGridAndSlices", "Guides, Grid & Slices\xe2\x80\xa6", MENU_EDIT_PREFS,
-         2, NULL, "{}", pc_engine_always, run_sec_guidesGridAndSlices, false},
-        {"edit.preferences.plugIns", "Plug-ins\xe2\x80\xa6", MENU_EDIT_PREFS, 2, NULL, "{}",
-         pc_engine_always, run_sec_plugIns, false},
+        {"edit.preferences.cursors", "Cursors\xe2\x80\xa6", MENU_EDIT_PREFS, 2, NULL, "{}", pc_engine_always,
+         run_sec_cursors, false},
+        {"edit.preferences.transparencyAndGamut", "Transparency & Gamut\xe2\x80\xa6", MENU_EDIT_PREFS, 2,
+         NULL, "{}", pc_engine_always, run_sec_transparencyAndGamut, false},
+        {"edit.preferences.unitsAndRulers", "Units & Rulers\xe2\x80\xa6", MENU_EDIT_PREFS, 2, NULL, "{}",
+         pc_engine_always, run_sec_unitsAndRulers, false},
+        {"edit.preferences.guidesGridAndSlices", "Guides, Grid & Slices\xe2\x80\xa6", MENU_EDIT_PREFS, 2,
+         NULL, "{}", pc_engine_always, run_sec_guidesGridAndSlices, false},
+        {"edit.preferences.plugIns", "Plug-ins\xe2\x80\xa6", MENU_EDIT_PREFS, 2, NULL, "{}", pc_engine_always,
+         run_sec_plugIns, false},
         {"edit.preferences.type", "Type\xe2\x80\xa6", MENU_EDIT_PREFS, 2, NULL, "{}", pc_engine_always,
          run_sec_type, false},
-        {"edit.preferences.enhancedControls", "Enhanced Controls\xe2\x80\xa6", MENU_EDIT_PREFS, 2,
-         NULL, "{}", pc_engine_always, run_sec_enhancedControls, false},
+        {"edit.preferences.enhancedControls", "Enhanced Controls\xe2\x80\xa6", MENU_EDIT_PREFS, 2, NULL, "{}",
+         pc_engine_always, run_sec_enhancedControls, false},
         {"edit.preferences.rawDefaults", "Camera Raw\xe2\x80\xa6", MENU_EDIT_PREFS, 2, NULL, "{}",
          pc_engine_always, run_sec_rawDefaults, false},
         {"edit.preferences.integrations", "Integrations\xe2\x80\xa6", MENU_EDIT_PREFS, 2, NULL, "{}",
          pc_engine_always, run_sec_integrations, false},
-        {"edit.keyboardShortcuts", "Keyboard Shortcuts\xe2\x80\xa6", MENU_EDIT, 1,
-         "Cmd+Alt+Shift+K",
+        {"edit.keyboardShortcuts", "Keyboard Shortcuts\xe2\x80\xa6", MENU_EDIT, 1, "Cmd+Alt+Shift+K",
          "{\"set\":{\"<command id>|tools.temporary.hand|zoomIn|zoomOut\":\"Cmd+Shift+X\"|\"\"(remove)"
          "|null(default)}?,\"reset\":true|[\"<id>\",...]?,\"removeConflicts\":bool=true,\"filter\":"
          "str?,\"list\":bool=false,\"importKys\":\"<.kys XML>\"?}",
@@ -2820,9 +2863,30 @@ const pc_engine_command *pc_engine_prefs_specs(size_t *n)
          "green|blue|violet|gray|none\"}?,\"reset\":bool=false}",
          pc_engine_always, run_menus, true},
         {"edit.toolbar", "Toolbar\xe2\x80\xa6", MENU_EDIT, 1, NULL,
-         "{\"hidden\":[\"<tool>\",...]?,\"order\":[\"<tool>\",...]?,\"reset\":bool=false}",
-         pc_engine_always, run_toolbar, true},
+         "{\"hidden\":[\"<tool>\",...]?,\"order\":[\"<tool>\",...]?,\"reset\":bool=false}", pc_engine_always,
+         run_toolbar, true},
     };
     *n = sizeof specs / sizeof specs[0];
     return specs;
+}
+
+uint64_t pc_engine_prefs_revision(const pc_engine_session *session)
+{
+    return session ? session->prefs.rev : 0;
+}
+
+pc_status pc_engine_prefs_defaults(pc_json_value *out, pc_error *err)
+{
+    if (!out) {
+        return pc_fail(err, PC_ERR_INVALID, "missing Preferences result");
+    }
+    yyjson_mut_doc *doc = yyjson_mut_doc_new(NULL);
+    if (!doc) {
+        return pc_fail(err, PC_ERR_NOMEM, "default Preferences");
+    }
+    yyjson_mut_val *root = default_tree(doc);
+    pc_status status =
+        root ? pc_json_value_from_mut(root, out, err) : pc_fail(err, PC_ERR_NOMEM, "default Preferences");
+    yyjson_mut_doc_free(doc);
+    return status;
 }

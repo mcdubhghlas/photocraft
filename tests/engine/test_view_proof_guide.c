@@ -45,8 +45,8 @@ static pc_engine_session *mk_session(const char *mode, int depth)
     pc_engine_session *s = NULL;
     CHECK(pc_engine_session_new(&s, NULL) == PC_OK);
     char params[128];
-    (void)snprintf(params, sizeof params, "{\"width\":16,\"height\":12,\"depth\":%d,\"mode\":\"%s\"}",
-                   depth, mode);
+    (void)snprintf(params, sizeof params, "{\"width\":16,\"height\":12,\"depth\":%d,\"mode\":\"%s\"}", depth,
+                   mode);
     pc_json_value out;
     CHECK(pc_engine_session_execute_json(s, "file.new", params, &out, NULL) == PC_OK);
     pc_json_value_fini(&out);
@@ -193,8 +193,8 @@ static void test_new_and_clear_guides(void)
     CHECK_NEAR(d->guides.vertical[0], 8.0, 1e-9);
 
     /* Horizontal guide with a unit and a colour. */
-    if (call(ng, s, "{\"orientation\":\"horizontal\",\"position\":\"50%\",\"color\":\"magenta\"}",
-             &out, NULL) == PC_OK) {
+    if (call(ng, s, "{\"orientation\":\"horizontal\",\"position\":\"50%\",\"color\":\"magenta\"}", &out,
+             NULL) == PC_OK) {
         pc_json_value_fini(&out);
     }
     d = active_doc(s);
@@ -249,6 +249,53 @@ static void test_new_guide_layout(void)
     pc_engine_session_free(s);
 }
 
+static void execute_guide(pc_engine_session *s, const char *id, const char *params)
+{
+    pc_json_value out = PC_JSON_VALUE_INIT;
+    CHECK(pc_engine_session_execute_json(s, id, params, &out, NULL) == PC_OK);
+    pc_json_value_fini(&out);
+}
+static void test_move_delete_colours_and_undo(void)
+{
+    pc_engine_session *s = mk_session("rgb", 8);
+    for (unsigned i = 0; i < 2; i++) {
+        execute_guide(s, "view.newGuide",
+                      "{\"orientation\":\"vertical\",\"position\":4,\"color\":\"magenta\"}");
+    }
+    execute_guide(s, "view.moveGuide", "{\"orientation\":\"vertical\",\"index\":0,\"position\":\"50%\"}");
+    const pc_document *doc = active_doc(s);
+    uint8_t rgb[3];
+    CHECK(doc->guides.vertical[0] == 8 && doc->guides.vertical[1] == 4);
+    CHECK(pc_guides_color(&doc->guides, true, 4, rgb) && rgb[0] == 255 && rgb[1] == 0 && rgb[2] == 255);
+    CHECK(pc_guides_color(&doc->guides, true, 8, rgb));
+    CHECK(pc_engine_session_undo(s));
+    doc = active_doc(s);
+    CHECK(doc->guides.vertical[0] == 4 && !pc_guides_color(&doc->guides, true, 8, rgb));
+    execute_guide(s, "view.deleteGuide", "{\"orientation\":\"vertical\",\"index\":0}");
+    doc = active_doc(s);
+    CHECK(doc->guides.nvertical == 1 && pc_guides_color(&doc->guides, true, 4, rgb));
+    execute_guide(s, "view.deleteGuide", "{\"orientation\":\"vertical\",\"index\":0}");
+    doc = active_doc(s);
+    CHECK(doc->guides.nvertical == 0 && doc->guides.ncolors == 0);
+    CHECK(pc_engine_session_undo(s));
+    doc = active_doc(s);
+    CHECK(doc->guides.nvertical == 1 && pc_guides_color(&doc->guides, true, 4, rgb));
+    uint64_t revision = pc_engine_session_active(s)->revision;
+    const char *bad[] = {"{}",
+                         "{\"index\":-1}",
+                         "{\"index\":1,\"position\":8}",
+                         "{\"index\":0}",
+                         "{\"index\":0,\"position\":\"bad\"}",
+                         "{\"index\":18446744073709551615,\"position\":0}"};
+    for (size_t i = 0; i < sizeof bad / sizeof bad[0]; i++) {
+        pc_json_value out = PC_JSON_VALUE_INIT;
+        CHECK(pc_engine_session_execute_json(s, "view.moveGuide", bad[i], &out, NULL) != PC_OK);
+        pc_json_value_fini(&out);
+        CHECK(pc_engine_session_active(s)->revision == revision);
+    }
+    pc_engine_session_free(s);
+}
+
 int main(int argc, char **argv)
 {
     RUN(test_no_document);
@@ -256,5 +303,6 @@ int main(int argc, char **argv)
     RUN(test_preview_32);
     RUN(test_new_and_clear_guides);
     RUN(test_new_guide_layout);
+    RUN(test_move_delete_colours_and_undo);
     return pc_t_finish();
 }

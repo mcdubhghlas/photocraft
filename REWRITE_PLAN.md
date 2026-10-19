@@ -9,19 +9,32 @@ describe the **reference implementation** we are replacing, not the target.
 Status legend: `[ ]` not started · `[-]` in progress · `[x]` completed.
 A `[-]` line carries `(who, YYYY-MM-DD)`; a `[x]` line carries the date it was finished.
 
-## Current status (updated 2026-10-17)
+## Current status (updated 2026-10-18)
 
 **Phases 0–7 are complete and green.** Foundation (L0–L4), document model, L2 libraries,
 compositor + native format, file I/O + WebAssembly plug-ins, the engine (L5), and automation (L6)
 + the headless CLI are all ported, integrated, and pass the gate matrix. Both upstream resyncs
-(the `R` and `S` waves, 301 commits) are merged bit-exact. The product is a fully scriptable,
-Photoshop-parity image editor drivable today via the CLI and the MCP/control channel.
+(the `R` and `S` waves, 301 commits) are merged bit-exact. The C backend is scriptable through the CLI and MCP/control channel. The native editor and
+remaining parity work are listed below.
 
-- **Engine:** registry **~827 commands**; menu-command parity **600 / 631 live** (`PC_UI_PARITY_FLOOR` = 631, never lowered). The 31 not-yet-live ids are the **engine gap tail** (see the Phase 6 note).
-- **Phase 8 (UI, SDL3 + OpenGL 3.3 + Nuklear) — in progress:** U1 (foundation: theme/i18n/state/widgets/sizing/icons/parity), U2 (menu catalog/shortcuts/dispatch model), the **PhotocraftApp shell** (frame loop + menu bar + `ui.*` control channel + headless `ui.screenshot`), and U3 core (dock/tabs/work-area/notices/props-layout) are done. U4 is underway (camera/cache/display, scrollbars and view settings; see its checklist); U5–U10 and G1–G2, plus U3's deferred panels (dialogs/workspaces/jobs/gpu/monitor/titlebar/chrome), remain.
-- **Gate:** whole tree passes `make check` (gcc, STRICT -Werror), `CC=clang make check`, and `make analyze`. Whole-tree **ASan** currently overruns this host's disk (907 G root ~98 % full), so ASan runs **scoped** to changed code + the full `panic_hunt` (all commands); restore full-tree ASan once disk is freed.
+- **Engine:** registry **849 commands**; menu-command parity **602 / 631 live** (`PC_UI_PARITY_FLOOR` = 631, never lowered). The 29 not-yet-live ids are the **engine gap tail** (see the Phase 6 note).
+- **Phase 8 (UI, SDL3 + OpenGL 3.3 + Nuklear) — in progress:** foundation, menu/shortcut,
+  dock/chrome and canvas cores are present. G1/G2 now execute GL composition and layer effects
+  with explicit CPU fallbacks and bounded caches. U5 has native layer/channel/color/history
+  panels; U6/U7 share native/control tool routing and incremental Brush/Pencil/Eraser previews.
+  Native SVG tools/options/status bars, nested keyboard menus and dock resize/reorder now work.
+  U10 has New/Color Picker/file forms, Preferences and unsaved-work prompts. These chunks remain partial: the
+  checklist records their remaining interactions and gates. U8/U9 and U1–U4 follow-ups remain.
+- **Latest completed broad gate (2026-10-18, before the ongoing Layers interaction additions):**
+  strict Clang build and **398 test executables** exercised. The sole localhost MCP sandbox
+  failure passes with socket permission (11/594); panic hunt covered 846 commands × 3 factories ×
+  15 parameter sets. Current native brush sanitizer gate passed 40/2,164, shell 31/555; the earlier
+  rendering sanitizer gate includes GL 9/867,972. Focused effect-window, halo, clipboard and Layers
+  gates are recorded under their chunks below. Current Layers/GPU additions need their expanded
+  final sanitizer gate. Leak detection is disabled under the execution wrapper.
 
-**Remaining work, largest first:** Phase 8 U4–U10 + G1–G2 (~76 k reference lines) and U3's deferred panels · the 31-command engine gap tail · Phase 9 desktop app (~6 k) · Phase 10 tooling + cutover (Z1 replace `xtask` with shell tools; Z3 final differential run then delete the Rust reference tree).
+
+**Remaining work, largest first:** Phase 8 U4–U10 + G1–G2 (~76 k reference lines) and U3's deferred panels · the 29-command engine gap tail · Phase 9 desktop app (~6 k) · Phase 10 tooling + cutover (Z1 replace `xtask` with shell tools; Z3 final differential run then delete the Rust reference tree).
 
 ## 0. Goal and scope (decided, don't relitigate)
 
@@ -480,16 +493,67 @@ Needs B3 and Phase 7 (the control channel). U1–U4 in order, then G1–G2, then
 
 - [-] **U1** (claude, 2026-10-16) · UI shell (1/10): app state, theme tokens, icons, widgets, sizing, i18n · ~8,045 lines → `src/ui/`
   - `crates/ui-egui/src/`: brand.rs, credits.rs, enable_rules.rs, i18n/catalog.rs, i18n/live_tests.rs, i18n/mod.rs, i18n/system.rs, icon_data.rs, icons.rs, lib.rs, links.rs, parity.rs, proxy.rs, sizing.rs, state.rs, theme.rs, widgets.rs
-  - DONE (foundation, all green): theme (tokens), i18n (registry/catalog/locale/fmt + 20 embedded catalogs), state (Tool + plain view-state structs + UiState serde subset), widgets (token→Nuklear style mapping), links, sizing (unit maths), proxy (factor maths), parity (FLOOR + markdown), brand (icon decode), icons (tool→icon ids), and the D23 offscreen snapshot tool (`photocraft-ui-snapshot`). REMAINING for a follow-up: credits.rs, enable_rules.rs (doc-model + app-coupled), icon_data.rs (SVG blob set), lib.rs (egui App root — ASSEMBLED 2026-10-16 as src/ui/shell/app.c: PhotocraftApp owns the engine session + UiState + the SDL3/GL3.3/Nuklear/FreeType window; frame loop + menu bar + GL/CPU screenshot; see §8), i18n/live_tests.rs (cross-source menu-coverage — needs menu_catalog, U2), ToolOptions + the later-chunk sub-objects in UiState (their serde names are reserved). See §8 2026-10-16.
+  - DONE (foundation, all green): theme (tokens), i18n (registry/catalog/locale/fmt + 20 embedded catalogs), state (Tool + plain view-state structs + UiState serde subset), widgets (token→Nuklear style mapping), links, sizing (unit maths), proxy (factor maths), parity (FLOOR + markdown), brand (icon decode), icons (tool→icon ids), and the D23 offscreen snapshot tool (`photocraft-ui-snapshot`). REMAINING for a follow-up: credits.rs, complete enablement integration and later UI state objects; lib.rs (egui App root — ASSEMBLED 2026-10-16 as src/ui/shell/app.c: PhotocraftApp owns the engine session + UiState + the SDL3/GL3.3/Nuklear/FreeType window; frame loop + menu bar + GL/CPU screenshot; see §8), i18n/live_tests.rs (cross-source menu-coverage — needs menu_catalog, U2), the later-chunk sub-objects in UiState (their serde names are reserved). See §8 2026-10-16.
+  - **2026-10-18:** About now embeds contributor/model statistics and verified self-chosen
+    names from the tracked contributor files; username/display/real-name modes, all ten sort keys,
+    and complete tables are native. No contributor records were edited. Credits core 3/211 and
+    native About interaction/snapshots pass.
+  - **2026-10-18:** all 143 tracked SVGs are embedded and rasterized at display scale;
+    a bounded native texture cache pins current-frame resources. ToolOptions owns 96 typed
+    settings. The FreeType atlas now loads Unicode glyphs on demand, uses engine/system font
+    fallbacks and uploads changed rows. Cyrillic/Greek at 1x/1.5x/2x pass. Whole-string HarfBuzz/
+    FriBidi shaping now supports contextual glyphs, ligatures, positioning and mixed-direction
+    runs through a small optional Nuklear callback; its 64-entry text cache is capped at 4 MiB.
+    Arabic joining, mixed Arabic/Hebrew/Latin, scale and eviction checks pass; native names at
+    1.5x were visually checked. Static native labels in 20 files use existing catalogs; the live
+    dialog command list passes all 21 registered languages (native1/119 with snapshot). The complete
+    installed-font/locale matrix now exercises interface-label samples in all 21 locales at
+    1x/1.5x/2x (1/1407). Missing glyphs are reported when the machine has no covering font; this
+    checkout still lacks some Chinese characters and Korean coverage. Fallback now also searches
+    installed families outside the preferred list. Embedded monochrome/2-bit/4-bit/gray/color-alpha
+    glyph bitmaps render correctly instead of being rejected. Layer enablement rules now cover
+    Background restrictions, kind-specific rasterization, multi-layer selections and channel targets.
 - [-] **U2** (claude, 2026-10-16) · UI shell (2/10): menus, menu catalog, keyboard shortcuts, control channel · ~9,089 lines → `src/ui/`
   - `crates/ui-egui/src/`: control.rs, hold_keys.rs, hold_keys/tests.rs, menu_catalog.rs, menu_nav.rs, menu_nav_tests.rs, menus.rs, native_menu.rs, shortcut_capture_tests.rs, shortcut_dispatch.rs, shortcut_dispatch/tests.rs, shortcuts.rs, view_cmds.rs, view_cmds/tests.rs
   - DONE (data/logic backbone, all green): menu_catalog.c (byte-exact CATALOG, 770 rows), menus.c (TOP_MENUS, UI_COMMANDS, DOCUMENT_ITEM, panel_alias/proof_preset/workspace_name, tool-select ids, is_live, the data-driven menu_items builder), parity.c wired to the catalog (pc_ui_parity_compute; FLOOR=631 kept, total=631 matches the reference; C registry resolves 600/631 as of 2026-10-17, the remaining 31 are the engine gap tail — see the Phase 6 note), shortcuts.c (pc_ui_key + from_name/name, parse, pretty, key_matches, default/effective shortcut, NAV), shortcut_dispatch.c (pc_ui_bindings default table), hold_keys.c (Temporary + cmd_moves/erases/repositions/is_temporary/is_shape_tool), view_cmds.c (handles() classifier + show/snap slots). Engine: added pc_engine_temporary_tools + pc_engine_prefs_effective_shortcut accessors (prefs.h/.c). Tests: tests/ui/test_menus.c, test_shortcuts.c, test_hold_keys.c (catalog↔engine consistency, parity floor, parse/pretty/match, bindings, holds, view handles).
   - ASSEMBLED with the shell (2026-10-16, src/ui/shell/ — see §8): menu_nav.c (the keyboard-nav state machine ported in U2 is now driven by the menu bar), the ui.* control-channel handler (src/ui/shell/control.c: ui.inspect, ui.menu.list, ui.menu.invoke/engine.execute, ui.set subset, ui.pointer validation, ui.resize, ui.screenshot via GL readback or CPU fallback — matches the automation ui.* shapes), menus::invoke routing (engine ids → session.execute, UI ids → theme/panel/tool view-state; pc_ui_shell_app_invoke) and the keyboard shortcut dispatch loop (SDL key → pc_ui_bindings → invoke, input.c). native_menu: SKIPPED per D19 (in-window menu bar only; see §7).
   - REMAINING (land with U3–U10 as their state exists): the full ui.set/ui.inspect/ui.pointer surface (tool_options, dock/docking, brush picker, crop/eyedropper/gradient, camera-raw — the fields error as PC_ERR_UNSUPPORTED today), the ui.dialog.* / ui.gpu.* / app.open/save / ui.context.choose methods, the modal_allows + automation authorize gates, per-view checked/is_enabled and the dynamic menu_items relabels (recent files, plugin items, quick-export), and the nested menu popups (the bar flattens submenus one level for now). hold_keys/shortcuts input-driven resolution and view_cmds mutations come with U4/U6.
+  - **2026-10-18:** native menus now build actual nested popups with pointer hover/aim,
+    scrolling, F10/Alt-letter and arrow/Enter/Escape navigation. Native/control menus share view,
+    panel, image-mode and document checks; document and recent-file entries are dynamic. Deferred
+    actions preserve absent parameters. Unimplemented shell commands report Unsupported rather
+    than a no-op success. Broader menu relabels, context menus, authorization and remaining editor
+    state/control methods still need completion.
+  - **2026-10-18:** native/control canvas context menus now cover selection, Pen/path, view,
+    transform, text, layer rows, pixel masks and pasteboard colors. Keyboard navigation, outside/Escape
+    dismissal, disabled actions and document/revision guards are shared with `ui.context.choose`.
+    Text selection/clipboard/style actions retain the text edit. Secondary-pointer routing opens the
+    picker or honors right-click erase without changing the chosen tool. Custom pasteboard colors
+    use the native picker and actual canvas surround; Print Size and Fill Screen now execute. Core
+    context control2/66 and native1/69 with visually reviewed PNGs pass. Spelling suggestions, the
+    complete layer menu/picker and remaining context-specific editors still need completion.
+  - **2026-10-18:** `ui.set.toolOptions` now validates and atomically patches all 96 typed
+    option fields (serialized snake_case names); unknown keys fail before a requested tool change
+    can commit pending work. Headless/native `ui.key` routes context, Crop, Transform and lasso
+    editing first. `ui.pointer` supports Space repositioning during Crop drawing. Broader held
+    navigation/control gestures and remaining editor services are still open.
 - [-] **U3** (claude, 2026-10-16, PARTIAL) · UI shell (3/10): window chrome, docking, tabs, work area, notices, dialogs, workspaces · ~5,500 lines → `src/ui/`
   - `crates/ui-egui/src/`: chrome_ui.rs, dialogs.rs, dock.rs, dock_tests.rs, gpu_status.rs, jobs_ui.rs, jobs_ui_tests.rs, monitor_status.rs, notices.rs, props_layout.rs, props_layout_tests.rs, tab_strip.rs, titlebar.rs, work_area.rs, workspace_ui.rs
   - DONE (data-model cores + the usable-window chrome, all green): **dock.{c,h}** (Group + DockLayout: order/heights_for/resize/move_group/move_tab/hide/show/visible/ordered tabs + byte-exact serde "dock" in UiState; ports every portable dock_tests case — 11 tests/112 checks), **work_area.{c,h}** (visible_part/fits/trusted window-work-area geometry, 5 tests/24 checks), **tab_strip.{c,h}** (the craft_ui tab-fit policy reimplemented + drop_slot, 5 tests/119 checks), **notices.{c,h}** (Notice stack: post/cap/expire auto-hide timer/dismiss/io_warnings/slow_cpu_refresh, 7 tests/43 checks), **props_layout.{c,h}** (kind_icon/field_width/quick_actions pure helpers, 3 tests/20 checks). Shell (src/ui/shell/app.c EXTENSION region): reimplemented the **right dock column** (groups in display order, data-driven heights, per-group tab strips fitted with tab_strip, panel-menu/collapse button, active-tab body placeholder), the **work-area canvas** surround (active doc card / empty hint), and the **lower-right notice toasts** (posted on failed menu invokes, auto-hidden) against Nuklear. 4 offscreen snapshots eyeballed (proMedium/studio/solarizedDark + rebuild) render the dock + tabs + canvas correctly across themes (pro flat tabs vs Studio pills, elision, non-pro Swatches-first order).
   - REMAINING (deferred, dependencies not yet in the C tree — see §7): dialogs.rs (the modal host framework), workspace_ui.rs (needs ShellUi + engine prefs.workspaces/workspace_locked + view.pixel_aspect/timeline/docking), jobs_ui.rs (engine jobs API surface), gpu_status.rs + monitor_status.rs (U4 GPU/perf state + P2 monitor profile), titlebar.rs + chrome_ui.rs (custom window chrome/title bar). Deferred within ported modules: wiring the dock drag-to-reorder / splitter-resize / tab-drag-to-group / auto-collapse-peek gestures to pointer input (the logic is modelled+tested in dock.c), the control channel's ui.inspect of the notice stack, and the Wayland file-drop guidance (needs the Services struct). The egui-harness interaction/paint tests (dock_tests drag cases, tab_strip paint cases, work_area fit_window) become shell snapshots or are dropped (§7).
+  - **2026-10-18:** the native SVG toolbar exposes all 67 tools in 21 slots, with sibling
+    flyouts, Shift cycling, hidden-tool preferences and one/two-column layouts. Options/status bars
+    and foreground/background pickers are attached. Window panel entries reveal their correct tab.
+    Dock width, splitters, group reorder and within-group tab reorder now handle pointer input;
+    resize cancellation restores the original geometry and workspace locking blocks layout drags.
+    `ui.set` accepts dock/dockWidth/tileGrid. Native workspace save/select/reset/delete and locking
+    persist layouts plus optional shortcut/menu/toolbar settings. Restores preserve host chrome;
+    saved layouts appear beside the built-ins. Pure layout 2/24, control 1/34 and native 1/46 pass.
+    Native document commands now have a worker path with COW snapshots, job polling, status progress,
+    a delayed progress window and Cancel/Escape. Worker results retain one undo/journal command,
+    preserve parameters and the user's active tab; core cross-mode/depth gate 3/258 and native
+    job/progress/cancel gate 1/49 pass. Cross-group tabs, floating/peek, background file workflows,
+    monitor/title-bar services and remaining panel bodies are still open.
 - [-] **U4** (codex, 2026-10-17; camera/cache/display and scrollbar/view-settings slices validated; remaining items below) · UI canvas (4/10): canvas view, GPU canvas, rulers, scrollbars, zoom/rotate, cursors · ~10,880 lines → `src/ui/`
   - `crates/ui-egui/src/`: canvas.rs, canvas/tabs_tests.rs, channel_view.rs, gpu_canvas.rs, gpu_canvas_mip_tests.rs, input_tests.rs, outline.rs, rotate_view.rs, rulers.rs, scrollbars.rs, tool_cursor.rs, tool_cursor/tests.rs, tool_feedback.rs, transform_tex.rs, wheel_nav.rs, zoom_tool.rs
   - **2026-10-17 U4 progress:** `src/ui/canvas.{c,h}`, `scrollbars.c`, and
@@ -515,30 +579,273 @@ Needs B3 and Phase 7 (the control channel). U1–U4 in order, then G1–G2, then
     Focused GCC/Clang and ASan+UBSan tests cover saved state, invalid input, frozen scrollbar drags,
     paging/flip/rotated clamping, real GL pixels and native pointer routing. Fourteen theme previews
     and a 2x-scale preview were visually checked. No document/history mutation from display changes.
-  - **Still open in U4:** guide dragging/grid/selection/channel/mask
-    overlays, monitor/proof/32-bit preview display
-    transforms, full-resolution tiled/mip display for documents above the preview cap, tool
-    feedback/cursors, view-command action recording, pinch/rotation gestures and preference
-    integration beyond wheel zoom/overscroll; remaining Rust canvas integration tests. The GPU camera shader
-    displays a CPU composite; it does **not** implement G1/G2 GPU layer compositing. U1–U3
-    follow-ups, U5–U10, and G1–G2 remain open. This is not completion of Phase 8.
-- [ ] **G1** · GPU compositor (1/2): GL 3.3 context, plan, tiles, blend shaders · ~3,982 lines → `src/gpu/`
+  - **2026-10-17 U4 display/overlay follow-up:** selection boundary tracing (threshold, merged
+    segments, sampled and padded visible-region cache), animated ants, preference-coloured grids,
+    per-guide colours, ruler guide creation and Move-tool guide dragging are wired. Added undoable
+    `view.moveGuide` / `view.deleteGuide` engine primitives, including colour retention and hostile
+    input tests. View Extras / Show / Snap To flags now mutate their saved state. GL source textures
+    build mipmaps; large documents use a padded, tile-aligned full-resolution region when it fits
+    the 4096-side budget, with the whole-document preview as fallback for wider regions.
+    `engine/display_color.{c,h}` supplies the actual canvas display LUT: composite/monitor profile
+    conversion, profile proofing, plate/CVD/legacy-Mac simulations, gamut warning and linear-profile
+    encoding; 32-bit exposure/gamma runs before LUT sampling. HDR options moved from a shared
+    256-document table into session-owned storage. `ui/channel_view.{c,h}` displays individual colour
+    channels, alpha/spot/Quick Mask overlays and gray/rubylith layer masks, keyed independently of
+    pixel revisions so channel eye changes redraw immediately. Monitor auto detection still uses
+    the explicitly reported sRGB fallback until desktop services (P2) supply platform profiles.
+  - **2026-10-18:** wide visible regions now use a bounded set of full-resolution 1024-side
+    tiles with two-pixel gutters, disjoint GL coverage and generation-preserving pan reuse. Tests
+    retain one-pixel detail across a tile boundary, pan and flip. Native cursor bitmap generation
+    covers brush outlines, crosshairs, hands and selection badges; oversized/unavailable native
+    cursors fall back to painted outlines and a crosshair. Configurable held tools resolve with
+    modifier priority and stay latched until release. SDL touch pan/pinch/rotation and native/legacy
+    trackpad pinch honour the pinch preference. View navigation records/replays through actions.
+    Fixed Nuklear keyboard capture (window hover is not text focus) and session-stale shortcut maps.
+  - **Still open in U4:** remaining tool-specific cursor/feedback and preference integration,
+    reference canvas integration cases and live native cursor/platform QA. GPU layer composition
+    now exists separately in G1; G1/G2 and U1–U3/U5–U10 follow-ups remain open.
+- [-] **G1** (2026-10-18, in progress) · GPU compositor (1/2): GL 3.3 context, plan, tiles, blend shaders · ~3,982 lines → `src/gpu/`
   - `crates/gpu/src/`: bounds.rs, health.rs, lib.rs, plan.rs
-- [ ] **G2** · GPU compositor (2/2): layer-effect shaders · ~714 lines → `src/gpu/`
+  - **2026-10-18:** `src/gpu/` now has a GL 3.3 compositor and bounded, recyclable-slot
+    planner. Real 256-side GL passes cover all 33 editable blend modes (including spatially
+    deterministic Dissolve), special Fill opacity, ordinary clipping groups, isolated/pass-through
+    groups, pixel/vector/feathered masks, raster/cached content and prepared fill content. The
+    window canvas uses it for supported full-resolution regions/tiles and falls back to the CPU
+    oracle for unsupported plans or faults. Health keeps the first fault and upgrades errors to
+    device loss; `ui.gpu.simulateLoss` and `ui.inspect.gpuInfo` exercise/report fallback. GPU
+    preferences are respected. All adjustment kinds, artboards, Blend If/channel restrictions,
+    text gamma, stroked-shape clipping and pass-through clipping now have real GL parity cases.
+    Exact COW snapshots select reusable lower-stack checkpoints; bounded 256-side grid textures
+    track actual covered rectangles so partial brush updates cannot read uncaptured pixels.
+    Raster/cached source uploads now use an exact COW tile/profile/format/default/region cache,
+    bounded to 128 MiB of textures, with edit/undo reuse tests and control diagnostics. Consecutive
+    bounded revisions composite only their affected full-resolution region; untouched display tiles
+    retain their generations and GL updates use sub-image uploads. Missed revisions, resampling and
+    spatial effects conservatively rebuild. Native 16/32-bit damage screenshots pass. Current GL
+    parity 9/867972, canvas 13/3389 and tiled canvas 2/53 pass. Full render sanitizer gate includes
+    GL 9/867972, shell 30/528, native 39/2060 and background control 1/27, all green.
+    Further integration checks cover HDR blends, hard-stop effects, a sparse 100000-pixel document
+    beyond texture limits, mask defaults and cache eviction/reuse; full GL12/869596 and current
+    SAN13/869596 pass. Release tests on Mesa26.2.2 llvmpipe LLVM22.1.8 (software GL) with two U8
+    raster layers: 24MP cold2396ms/warm279ms, 36MP cold2544ms/warm421ms; 1280x720 viewport10.1–10.5ms,
+    requested32x32 edit0.110–0.111ms. These are compositor timings, not hardware-GPU or whole-app
+    first-frame guarantees. Remaining: remaining reference integration cases. Advanced blending retains the
+    reference's CPU fallback. Local solid-color effects now expand UI damage by their combined
+    halo; feathered masks, nonlocal and frame-relative effect paints require full invalidation.
+- [-] **G2** (2026-10-18, in progress) · GPU compositor (2/2): layer-effect shaders · ~714 lines → `src/gpu/`
   - `crates/gpu/src/`: fx.rs
+  - **2026-10-18:** real R32F shader programs build shadow/glow/satin, stroke-band and all
+    bevel-style/technique maps from shared exact shape/distance geometry. Recyclable temporaries,
+    propagated damage windows, contour tables and pattern textures are bounded and validated.
+    The GL layer-style stack now paints exterior/interior effects, relative coverage, gradient
+    and pattern colours, split vector strokes, stacked outside-stroke shares and final opacity
+    merges. A 128 MiB / 16-entry map cache hashes actual geometry, shape and pattern pixels;
+    colour/opacity edits reuse maps. End-to-end tests cover all ten effect kinds, partial Fill,
+    nonseparable modes, feathered masks, clipping, gradient strokes/glows and all bevel variants.
+    Noisy shadows/glows explicitly use the CPU fallback: strict-positive activation amplifies
+    CPU sliding-sum vs shader convolution cancellation tails into visible noise differences.
+    Partial renders now execute propagated per-stage scissor windows, with an explicit valid
+    region in each output/cache key; partial maps cannot satisfy full-map requests. Local geometry
+    uses a padded source window, while nonlocal fields retain complete source geometry. A styled
+    source-edit regression matches CPU output with less than one-quarter of full shader work
+    (1/35); thirteen map variants compare partial/full outputs and cache separation (1/487).
+    Further checkpoint tests compare exact warm/cold GPU pixels at all depths and the CPU oracle,
+    covering COW undo, context/reorder/delete/resize, disjoint damage, zero/tiny checkpoint budgets
+    and closed-document invalidation (1/1144). Styled groups with internal/outer clipping and
+    adjustments pass (1/547). Actual pattern fills, Pattern Overlay, pattern strokes and textured
+    bevels pass RGB/Gray/CMYK/Lab at all depths (1/727). Source residency now explicitly checks
+    duplicated/shared COW surfaces, growth in every direction, mask-tile removal and undo at all
+    depths (1/301). Closed-document checkpoint release is verified through the actual native frame
+    loop, including closing the last tab (1/17). The current real-GL ASan/UBSan gate passes16/872014; further changes still need their own gates.
   - integration tests (this is the crate's last chunk; port any not yet done): `crates/gpu/tests/`: device_loss.rs, parity.rs, vector_mask.rs
-- [ ] **U5** · UI panels (5/10): Layers, Channels, Swatches, Color, Comps, Variables, Timeline, Actions, presets · ~12,173 lines → `src/ui/`
+- [-] **U5** (codex, 2026-10-18) · UI panels (5/10): Layers, Channels, Swatches, Color, Comps, Variables, Timeline, Actions, presets · ~12,173 lines → `src/ui/`
   - `crates/ui-egui/src/`: actions.rs, blend_dropdown_keys_tests.rs, channels_panel.rs, color_picker_ui.rs, comps_ui.rs, hidden_layer_tests.rs, layer_menu_ui.rs, layer_menu_ui/color_tests.rs, layer_pct_slider_tests.rs, layer_pick_ui.rs, layer_props_ui.rs, layer_reveal.rs, layer_reveal_tests.rs, layer_row_ui.rs, layer_row_ui/edit_tests.rs, layer_row_ui/rename_tests.rs, layer_row_ui/tests.rs, layer_transfer.rs, layer_transfer/tests.rs, layer_tree_ui.rs, layer_tree_ui/tests.rs, mask_thumbs_ui.rs, mask_thumbs_ui/tests.rs, palette.rs, panels.rs, preset_files_ui.rs, preset_panels.rs, quick_pick.rs, screen_picker.rs, swatches_ui.rs, timeline_ui.rs, variables_ui.rs
-- [ ] **U6** · UI tools (6/10): move, transform, crop, marquee/lasso, direct select, snapping, artboards, slices · ~9,720 lines → `src/ui/`
-  - `crates/ui-egui/src/`: artboard_ui.rs, canvas_tool_menu.rs, clip_line_ui.rs, clip_line_ui/tests.rs, crop_ui.rs, direct_select.rs, direct_select_tests.rs, lasso_ui.rs, lasso_ui/tests.rs, magnetic_lasso_ui.rs, magnetic_lasso_ui/tests.rs, marquee_tests.rs, move_auto_select_tests.rs, move_mods.rs, move_ui.rs, path_selection_tests.rs, polygon_lasso_tests.rs, slice_ui.rs, snap_ui.rs, stroke_constraint.rs, transform_tool.rs, transform_undo_tests.rs
-- [ ] **U7** · UI tools (7/10): brushes, painting, stylus, eraser, retouch, fill, gradient · ~7,308 lines → `src/ui/`
+  - 2026-10-18 ongoing: native Layers/Channels/Color/Swatches/History/Actions/Comps/Properties
+    controls dispatch through a bounded deferred command queue. Layer hierarchy filters and
+    disclosure, selection modifiers, blend/opacity/Fill, channel eyes/targets, saved selections,
+    action playback/recording and snapshot/history navigation have focused tests. The engine
+    now owns COW history snapshots and state selection. The full nine-mode color picker retains
+    HSV/Lab/CMYK intent and provides web/gamut alternatives. Native rows now have layer/pixel-mask/
+    vector-mask thumbnails, links, disabled/target indicators, mask targets, Shift enable, Alt mask
+    view and Command load-selection controls. Pixel/mask foreground/background pairs now swap and
+    restore correctly. Bounded thumbnails preserve runtime depth/model/profile (core2/176; native1/77).
+    `layer.moveTo` now supports atomic, document-ordered multi-layer moves/copies, group descendants,
+    clipping, Background protections and undo (4/97). Native row drag/Alt-copy, Unicode inline rename,
+    commit/Escape and undo pass (1/50 with snapshot); scope guards reject stale editing captures.
+    Timeline now has native create/delete, seeking, playback, duration/fps/work-area fields and
+    workspace visibility. Playback is transient, command-driven and pauses when settings change;
+    timeline commands invalidate cached pixel damage. Core scheduler2/28, workspace2/28, control1/15,
+    engine5/96 and native1/66 pass. Variables/Data Sets now has native definition/layer/type/pixel
+    settings and typed data-set values, application and cancellation. `image.variables.edit` prepares
+    and validates an independent draft, then commits all changes as one history/journal entry.
+    Invalid data sets and denied pixel-file reads preserve the source (engine4/52, native1/60).
+    Remaining: complete mask/layer transfer/context interactions, remaining panel editors and full
+    reference integration coverage.
+- [-] **U6** (codex, 2026-10-18) · UI tools (6/10): move, transform, crop, marquee/lasso, direct select, snapping, artboards, slices · ~9,720 lines → `src/ui/`
+  - `crates/ui-egui/src/`: artboard_ui.rs, artboard_tool.rs, canvas_tool_menu.rs, clip_line_ui.rs, clip_line_ui/tests.rs, crop_ui.rs, direct_select.rs, direct_select_tests.rs, lasso_ui.rs, lasso_ui/tests.rs, magnetic_lasso_ui.rs, magnetic_lasso_ui/tests.rs, marquee_tests.rs, move_auto_select_tests.rs, move_mods.rs, move_ui.rs, path_selection_tests.rs, polygon_lasso_tests.rs, slice_ui.rs, snap_ui.rs, stroke_constraint.rs, transform_tool.rs, transform_undo_tests.rs
+  - 2026-10-18 ongoing: shared document-coordinate gesture routing serves native mouse input
+    and ui.pointer for Move, marquee variants, lasso, crop and the painting tools below.
+    Captured options, bounded samples and document/revision/layer/target checks prevent stale
+    releases from editing another document. Remaining: complete reference gestures, snapping,
+    remaining crop gestures/handles, persistent polygon/magnetic tools, artboards, slices and context menus.
+  - **2026-10-18:** Free Transform now has native corner/edge/pivot handles, bounded scale/rotate/
+    skew/distort/perspective maths, modifier constraints and direction hysteresis; editable type
+    stays affine. Numeric X/Y/width/height/angle/skew fields use a reference point, linked proportions
+    and interpolation controls. A cancellable worker previews real engine commands on an independent
+    COW session. Each drag/nudge has local Undo/Redo; Escape cancels and Apply/Enter commits once.
+    Layer/mask/channel/selection frames and work/saved/layer paths use captured document/target
+    guards. Selected Hand yields to handles; held navigation retains its camera route. Transform
+    presets edit the pending box. `edit.transform` now accepts `copy:true`, preparing duplication and
+    transformation before one source history edit; cancellation creates no copy. Core math5/83,
+    engine17/215, control1/20 and native transform interactions pass. Remaining transform work includes
+    advanced warp/content-aware/placed-file integration and the rest of the reference case matrix.
+  - **2026-10-18:** Crop now retains a pending frame with rotated corner/edge handles, Classic and
+    image-pan modes, Auto Center Preview, Straighten, ratio/physical-size presets, six overlays,
+    shield controls and retained-pixel preview beyond the canvas. Frame Undo/Redo is local;
+    Escape cancels and Apply/Enter/double-click commits one `image.crop` history edit, including
+    optional resampling/resolution. Drawing supports Shift/Alt and Space repositioning. Scope,
+    finite coordinate/angle and size guards reject stale or malformed input. Pure crop6/830,
+    retained-plane1/12, pending-control1/57 and native1/79 pass before snapping additions.
+    Shared snapping captures guide/grid/layer/document/selection targets, excludes moved layers,
+    honors Ctrl override and draws smart guides. Crop handles snap their actual geometry,
+    preserving grab offset and Auto Center Preview's camera. Core snap2/26, control regression
+    and native held-tool tests pass; remaining selection/guide and modifier reference cases need
+    the full U6 gate. Large overlay segments are clipped before Nuklear's 16-bit coordinates;
+    extreme pending Crop/Transform frames render without document edits (native1/21).
+  - **2026-10-18:** Polygonal Lasso persists between clicks with latched selection intent, Shift
+    angles, Alt freehand, close/Enter/double-click, local vertex retraction and Escape cancellation.
+    Magnetic Lasso keeps live edges, fastening points, frequency/width/contrast/pressure settings,
+    Alt segments, retraction and a captured COW source with its document CMYK context. Committing
+    dispatches the exact drawn outline once with `trace:false`. Lasso can alternate freehand and
+    Alt straight segments. Native/control share input and pending selection visibility; a held
+    Hand preserves the outline. Saved pending state is bounded and rejects invalid anchors; stale
+    document/target revisions cancel. Core5/256 includes RGB/Gray/CMYK/Lab at all depths and
+    authorization failure; native1/53 passes, with reviewed polygon/magnetic PNGs. Remaining:
+    remaining alternate Freeform Pen gestures, advanced transform/warp editors and the full
+    reference/gate matrix. The following additions close the basic selection/artboard/slice paths.
+  - **2026-10-18:** Slice/Slice Select now share native/control creation, hit selection, user-slice
+    movement, locked-slice behavior, dotted auto slices, number/color preferences and persisted
+    selected/hidden-auto state. Options, Divide, Promote, Delete and From Guides run real commands;
+    auto-slice options promote only on confirmation. Core2/37, control1/20 and native1/46 pass.
+    Artboard now has native/control draw/move/resize, Shift constraints, plus/add-beside/Alt-copy,
+    preset/dimension/orientation options, background properties and custom color. The canvas draws
+    board names, selected handles and pasteboard gaps. Fit Artboard uses overflow-safe centers and
+    correct menu enablement. Parameterless New Artboard and artboard export entries open guarded
+    forms. Artboard core2/67, control1/25 and native1/39 pass; its native PNG was visually reviewed.
+  - **2026-10-18:** selected-pixel Move uses the engine floating piece with a cached COW display;
+    previews and the final Drop match while source history stays unchanged until Drop. Alt copies
+    pixels within the layer. Normal layer Alt-drag uses atomic Duplicate + Move, including multiple
+    selected targets, with one undo entry and source authorization retained. Layer previews report
+    their copied active id. Shift uses four/eight directions with hysteresis. Arrows nudge 1/10 px,
+    Alt duplicates, Enter drops, Escape/Undo returns a floating piece, and painting arrows rotate
+    the tip. Marquee/Lasso selection-outline and Command pixel/layer handoffs share native/control
+    routing and snapping. Engine floating5/529 includes all four modes, all depths and masks;
+    engine Move5/221 covers multi-target copy/preview/undo/redo/policy rejection; gestures5/249 and
+    handoff control1/70 pass. Native floating selection1/42 and reviewed PNGs verify actual pixels
+    and moved selection ants. Crop WHR and Image Size interpolation preference regression1/12 passes.
+    Move Layer Edges and passive transform controls are being completed and validated.
+- [-] **U7** (codex, 2026-10-18) · UI tools (7/10): brushes, painting, stylus, eraser, retouch, fill, gradient · ~7,308 lines → `src/ui/`
   - `crates/ui-egui/src/`: brush_panel.rs, brush_panel_tests.rs, brush_picker.rs, brush_preview.rs, brush_resize.rs, brush_sections.rs, brushes_tab.rs, eraser_ui.rs, fill_ui.rs, fill_ui_tests.rs, gradient_ui.rs, opacity_keys.rs, paint_mouse.rs, patch_preview.rs, pencil_tests.rs, retouch_ui.rs, stamp_tests.rs, stroke_trail.rs, stylus.rs
-- [ ] **U8** · UI tools (8/10): type tool, type panels, CJK fonts, vector/pen UI, warps (perspective, puppet, liquify, wide-angle) · ~9,080 lines → `src/ui/`
+  - 2026-10-18 ongoing: Brush/Pencil/Eraser incremental previews use the engine renderer,
+    including smoothing tails, symmetry and native document profiles. A matching commit can
+    reuse the displayed pixels; other commits retain the ordinary rendering path. Fill, gradient
+    and retouch gesture commands are connected. Physical number keys now implement exact two-digit
+    opacity/flow (800 ms, repeat-safe), layer opacity/Fill and fill-tool opacity. Alt-right or
+    Control-Alt drag resizes the brush with screen-relative diameter/hardness/opacity, preference
+    support, a native HUD and one coalesced journal entry. Brush Settings now opens a native
+    floating editor with all 13 sections, section enable/locks, scalar/dynamic controls, presets
+    search/select/create/update/delete and an engine-rendered stroke preview. Resource snapshots
+    exclude bitmap payloads and each setting dispatches a minimal command patch. Core opacity2/22,
+    resize1/11, settings2/25 and native resize/opacity1/28, settings1/112 pass. Remaining:
+    sequential retouch previews, tip/pattern/preset-file/group editors, complete stylus/brush UI
+    details and full integration/performance gates. The native Brush Preset Picker now opens from
+    right-click/options, with cached engine-rendered tip/stroke cards, case-insensitive search,
+    size/hardness, card parts, compact scaling, persistent view settings and dismissal. `ui.set`
+    supports all seven former brush-picker/size/view fields atomically at validation; brush size
+    uses `tools.setBrush`. Brushes grid view renders cards. Core1/33, control34/505, native1/65
+    with full/compact PNGs and preference restore pass. The combined pre-warning gate is SAN
+    GPU13/869596, shell34/598, native51/3751, all green.
+- [-] **U8** (codex, 2026-10-18) · UI tools (8/10): type tool, type panels, CJK fonts, vector/pen UI, warps (perspective, puppet, liquify, wide-angle) · ~9,080 lines → `src/ui/`
   - `crates/ui-egui/src/`: cjk_fonts.rs, distort_ui.rs, liquify_ui.rs, perspective_ui.rs, point_curve.rs, puppet_ui.rs, type_font_picker_tests.rs, type_panels_ui.rs, type_tool.rs, type_tool_tests.rs, type_transform.rs, vector_ui.rs, wide_angle_ui.rs
-- [ ] **U9** · UI dialogs (9/10): adjustments, filters, layer style, Color Range, Camera Raw, analysis · ~12,794 lines → `src/ui/`
+  - **2026-10-18 ongoing:** inline type data/core now supports UTF-8 character ranges,
+    placeholder replacement, coalesced typing, IME preedit replacement, caret/word/line navigation,
+    vertical keys, existing-text Cancel, paragraph creation and document guards. The missing
+    `type.createSelection` engine primitive now converts opaque glyph coverage to a selection and
+    removes temporary Type Mask layers atomically. Focused gates: type core 3/68; Type Mask 2/157
+    across RGB/Gray/CMYK/Lab at all depths. Native SDL text/IME input, pointer hit testing,
+    selection/carets, paragraph handles and post-display Type Mask overlays are now connected.
+    Font-family/face pickers use virtual lists; Character/Paragraph controls, Character/Paragraph
+    Styles, Glyphs and spelling windows dispatch engine commands. Text/style colour pickers bind
+    their document, revision and formatting scope; selected text follows foreground colour changes.
+    New floating windows suppress opening-click input; popup/floating input cannot start canvas tools.
+    `ui.key`/`ui.type` and `ui.inspect.textEdit`/`typePanels` are wired. Focused Clang: type core 8/169,
+    panel state 4/676, control 25/381; native 21/1265 before the final scope regression. Remaining:
+    advanced type properties/transform details, full font/locale coverage and warp editors.
+  - Native Shape drags share engine geometry/paint parsing and commit with one history step;
+    modifier changes refresh a stationary preview. Pen/Curvature/Freeform tools preview paths,
+    handles and fitted traces; Enter/Escape keep an open path, Undo retracts pending points,
+    and the native Paths panel dispatches selection/mask/fill/stroke operations. `path.stroke`
+    now implements Brush/Pencil/Eraser and fourteen delegated tools with pressure taper and one
+    history/journal entry. Direct/Path Selection, anchor/handle/segment drags, marquee selection,
+    Add/Delete/Convert Point and Pen Auto Add/Delete share vector editing with the engine.
+    Runtime guards reject stale drags; persisted direct selection excludes preview captures.
+    Focused Clang: shapes 2/3179, Pen 6/109, direct editing 4/78, path stroke 3/57;
+    ASan/UBSan plus all 24 native tests (1342 checks) passed before the filter-dialog additions.
+    Custom Shape presets, remaining direct-edit feedback/details and the full integration/performance
+    gates remain open alongside the advanced type and warp work.
+- [-] **U9** (codex, 2026-10-18, ongoing) · UI dialogs (9/10): adjustments, filters, layer style, Color Range, Camera Raw, analysis · ~12,794 lines → `src/ui/`
   - `crates/ui-egui/src/`: adjust_dialog.rs, adjust_editors.rs, adjust_editors_tests.rs, adjust_preview.rs, adjust_preview_tests.rs, adjust_ui.rs, analysis_ui.rs, blend_preview.rs, blend_preview/tests.rs, camera_raw_detail_ui.rs, camera_raw_preview_ui.rs, camera_raw_scope_ui.rs, camera_raw_ui.rs, color_range_ui.rs, filter_dialog.rs, gallery_ui.rs, layer_style.rs, plugin_ui.rs, rgb_histogram.rs, smart_ui.rs, tone.rs
-- [ ] **U10** · UI dialogs (10/10): New, Open/Save/Export, file dialogs, document props, Preferences, discard, rasterize · ~7,026 lines → `src/ui/`
+  - Registry-based native parameter editors now open for parameterized filter, adjustment and
+    selection-modification commands invoked without params. Previews run the real command on an
+    independent COW session with preserved profiles, preferences, layer/channel targets and selections;
+    at most one cancellable worker runs. Document/revision/target guards protect confirmation,
+    Cancel drops preview state, and confirmation records one real edit. Targeted alpha/Quick Mask
+    destructive adjustments now use the existing mutable channel seam. Schema tests cover all built-in
+    filter/adjustment specs (3/173); preview tests cover four colour modes and three depths, channel
+    targets, cancellation, changed settings and failure recovery (3/186); native Exposure flow 1/32.
+    Native Curves/Levels graphs, histogram workers, Draw Curve, Color Balance, Hue/Saturation,
+    Channel Mixer, Selective Color and Gradient Map editors are connected. Nested color pickers
+    preview draft changes and preserve parent cancellation. Layer Style edits blend/effect/global-light
+    groups atomically, preserves imported snapshots and document-profile CMYK colors, resolves pattern
+    resources, and supports contours, user defaults, duplication and ordering. Its preview includes
+    an unobscured canvas image. Filter Gallery has a catalog and ordered/visible effect stack;
+    Camera Raw has seven sections, point curves, mixer arrays and grading controls. Color Range
+    now has a Lab/profile-aware engine command and native eyedroppers, localized samples, tonal
+    ranges, invert and a selection/image preview; proof/HDR views survive preview cloning.
+    Focused strict Clang: style engine 6/534, Color Range 3/203, gallery engine 5/51; native style
+    3/155, Gallery 1/48, Camera Raw 1/91, Color Range 1/65; parameter schemas 4/184. The preceding
+    native sanitizer gate passed 34/1909 before the later credits/workspace/job additions. Remaining: full contour/preset
+    and filter details, Camera Raw scopes/detail/settings and raw-open integration, gallery thumbnails,
+    Color Range canvas preview modes, analysis tools and complete integration/performance gates.
+- [-] **U10** (codex, 2026-10-18) · UI dialogs (10/10): New, Open/Save/Export, file dialogs, document props, Preferences, discard, rasterize · ~7,026 lines → `src/ui/`
   - `crates/ui-egui/src/`: discard_ui.rs, doc_props_ui.rs, export_dialog.rs, file_dialog.rs, file_dialog/tests.rs, file_open.rs, file_open/tests.rs, file_ui.rs, new_doc_ui.rs, prefs_ui.rs, rasterize_prompt.rs, rasterize_prompt_tests.rs, tiff_options_ui.rs
+  - 2026-10-18 ongoing: native modal host, New Document and Color Picker forms, About and
+    command dialogs share state with ui.dialog.open/set/confirm/cancel. Editing menus block
+    under modals while zoom/fit commands remain available. SDL file choosers serve Open,
+    Save As/Copy and Place through an asynchronous mailbox independent of app lifetime;
+    manual paths and failed-open retries use the same command path. New Document now includes
+    35 presets, physical units, typed-size intent, orientation/resolution changes and saved/recent
+    settings. Preferences has 18 editable sections with isolated drafts, Apply, validation and Cancel.
+    Close/Revert/Close All/Exit/window-close paths prompt for unsaved work; Save may open a child
+    chooser, failures/copies preserve the prompt, and multi-document cancellation retains unanswered
+    documents. Save dialogs bind to stable document ids. New Document now offers the engine
+    clipboard's exact dimensions at 72 ppi, preserving them across orientation/resolution preferences
+    (core3/3988, control1/18). Export As now has a native destination chooser/manual path, format,
+    quality, transparency, lossless, scale and metadata fields, source preview and explicit proxy
+    size estimate; changing settings invalidates the estimate. Its command exports six formats
+    (PNG/JPG/WebP/TIFF/TGA/ICO) from an independent document, checks dimensions/extensions and keeps
+    the source document/history unchanged (core1/74, native1/50). Image Size, Canvas Size and
+    Arbitrary Rotation now open parameter forms with document/revision/target guards.
+    Document Properties now exposes linked canvas dimensions, orientation, runtime mode/depth,
+    ruler units and view toggles; dimensional drags stay in a scoped draft until release and cancel
+    on Escape/focus loss (native1/44). Painting editable layers now asks to rasterize, then resumes
+    the clicked tool with separate rasterize/paint undo steps. Type-layer filters offer Rasterize
+    or Convert to Smart Object, then resume their editor. Stale targets and mask/channel targets
+    are guarded (native1/76 with snapshot). Export TGA now offers auto/24/32-bit encoding
+    (core1/82). Full native47/2561 and 12-file analyzer gates pass; layers1158 pass.
+    Remaining: OS clipboard integration, full custom
+    editor details, export/options, document properties, rasterize prompts, native chooser/platform
+    QA and the complete integration test list below.
   - integration tests (this is the crate's last chunk; port any not yet done): `crates/ui-egui/tests/`: adjust_preview_gpu.rs, arbitrary_rotation_preview.rs, camera_raw_histogram.rs, camera_raw_localization.rs, camera_raw_scope.rs, camera_raw_zoom.rs, canvas_16f.rs, checker_canvas.rs, color_managed_canvas.rs, crop_beyond_canvas.rs, drag_preview_canvas.rs, export_as_scaling.rs, full_res_preview.rs, gpu_device_loss.rs, layout_perf.rs, live_stroke_canvas.rs, paint_bucket_all_layers.rs, support/layout_doc.rs, system_locale.rs, variables_data_sets.rs
 
 ### Phase 9: desktop app (~6,235 lines)
@@ -735,6 +1042,16 @@ Add one line per difference: `chunk · what differs · why · user-visible?`
 - A2 · `doc.save` validates `tgaBits` (24/32) but does not apply it — the C codecs/io TGA encoder derives the bit depth from the image, so there is no force option; `dpxBits`, `quality`, `tiffLayers` apply as in the reference · codec option gap · only a forced TGA bit depth
 - A3 · the CLI `batch` reads JSON action files only (a bare `[…]`, `{steps:…}`, or an `{actions:…}` set with `--action`); a binary Photoshop `.atn` reports "not yet supported" (the engine's `.atn` importer is not exported), and called-action set propagation into each file's session is deferred exactly as the engine's `file.automate.batch` defers it (batch_cmds.c §14) · engine surface · `.atn` files and cross-action calls only
 - A1–A3 · I/O error text uses C's `strerror` wording rather than Rust's "(os error N)" / Debug `ErrorKind`; the control token is read from `/dev/urandom` (the `getrandom` crate) · POSIX / C · error text only
+
+- U4 · selection outline tracing uses the reference's serial path to avoid blocking on the filter
+  worker pool; bounds are computed in i64, grids over 16M samples and outlines over 1M segments
+  return PC_ERR_LIMIT (the reference may overflow/abort). Outline caches invalidate on document
+  revision plus the padded view region, rather than a mask fingerprint; overlay drawing is bounded
+  to 100,000 line/dash commands per frame · never overflow or hang · hostile/very complex selections;
+  unrelated edits may retrace an unchanged selection.
+- U4 · channel overlays retain premultiplied floats but quantise to the reference's 8-bit overlay
+  values; overlay work beyond 2^30 alpha-channel samples is PC_ERR_LIMIT · bounded interactive work ·
+  pathological channel counts only.
 
 ## 8. Progress log
 
@@ -956,3 +1273,23 @@ Newest last. One dated line per chunk session: chunk, what landed, test counts, 
   All 16 UI executables pass (108 cases / 18,679 checks; ordinary display-independent run).
   Follow-up evidence: build/phase8-followup-{check,suite,core,doc-core,analyze}.log.
   Phase 8 remains incomplete; U4's remaining work is listed above. No Rust/engine implementation edits.
+
+- 2026-10-17 · Phase 8 ongoing (codex): U4 display/overlay follow-up above. New modules:
+  ui/outline, ui/channel_view, shell/overlays, engine/display_color and the public read-only
+  engine/channel_display facade. Added two non-menu guide commands (registry ~829; menu coverage
+  unchanged). Native guide gestures and colour/channel GL pixels have integration tests. Bounds,
+  outline threshold/holes/coarse sampling, full-resolution region cache, display simulations/HDR,
+  gamut preferences and session-isolated preview settings have focused numeric tests.
+  Validation: strict GCC full build + 363 test executables exercised (PHOTOCRAFT_THREADS=4,
+  three processes); only MCP failed with sandbox socket EPERM and passed outside it (11/594).
+  Nineteen UI binaries pass (117 cases / 18,972 checks; GL opt-in cases separately exercised).
+  Final focused Clang/ASan+UBSan: 46 cases / 8,657 checks; sanitizer command fuzzing:
+  829 × 3 × 15 invocations. Leak detection disabled; no leak-audit claim. Eleven changed source
+  files analyzer-clean. Layers (970 files), header dependency regression and diff whitespace pass.
+  Actual overlay/selection/grid/guide, HDR/linear/proof and channel GL screenshots were reviewed,
+  plus all 14 theme previews (/tmp/photocraft-overlay-previews and /tmp/photocraft-finish-themes).
+  Release -O2 / four-thread CPU cache: 24 MP 331.390 ms, 36 MP 493.078 ms cold; 10,000 unchanged
+  cache hits 0.024 ms. These are CPU-preview measurements, not GPU compositing acceptance.
+  Evidence: build/phase8-finish-{suite,analyze,san,perf}.log and
+  build/phase8-final-focused-{clang,san}.log. No Phase 8 completion claim:
+  G1/G2, U5–U10 and U1–U4 follow-ups remain.

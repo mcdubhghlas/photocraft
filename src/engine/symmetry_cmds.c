@@ -34,6 +34,19 @@ struct pc_engine_symmetry {
     size_t nsegments;
 };
 
+bool pc_engine_symmetry_equal(const struct pc_engine_symmetry *a,const struct pc_engine_symmetry *b)
+{
+    if(a==b) { return true; }
+    if(!a || !b || a->is_path!=b->is_path) { return false; }
+    if(!a->is_path) { return a->preset.mode==b->preset.mode && a->preset.center[0]==b->preset.center[0] &&
+        a->preset.center[1]==b->preset.center[1] && a->preset.rotation==b->preset.rotation; }
+    if(a->nsegments!=b->nsegments) { return false; }
+    for(size_t i=0;i<a->nsegments;i++) {
+        for(size_t j=0;j<2;j++) { if(a->segments[i].a[j]!=b->segments[i].a[j] || a->segments[i].b[j]!=b->segments[i].b[j]) { return false; } }
+    }
+    return true;
+}
+
 void pc_engine_symmetry_free(struct pc_engine_symmetry *sym)
 {
     if (sym == NULL) {

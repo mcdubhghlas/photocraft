@@ -12,6 +12,7 @@
 #include "photocraft_nuklear.h"
 
 typedef struct ui_renderer {
+    ui_font *font;  /* borrowed; atlas updates after geometry conversion */
     const gl33 *gl; /* borrowed */
     GLuint prog;
     GLuint vao;
@@ -30,7 +31,8 @@ pc_status ui_renderer_init(ui_renderer *r, const gl33 *gl, ui_font *font, pc_err
 
 /* Draw ctx's commands into the currently bound framebuffer (fb_w x fb_h pixels), then clear
  * the context for the next frame. */
-pc_status ui_renderer_draw(ui_renderer *r, struct nk_context *ctx, int fb_w, int fb_h, float scale, pc_error *err);
+pc_status ui_renderer_draw(ui_renderer *r, struct nk_context *ctx, int fb_w, int fb_h, float scale,
+                           pc_error *err);
 
 void ui_renderer_fini(ui_renderer *r);
 

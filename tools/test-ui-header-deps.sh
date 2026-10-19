@@ -26,4 +26,11 @@ if ! grep -F -- '-c src/ui/snapshot/main.c ' "$dry_run" >/dev/null; then
     echo 'UI header dependencies: the snapshot would retain stale theme declarations' >&2
     exit 1
 fi
+make -n -W third_party/nuklear/nuklear.h BUILD="$build_dir" all >"$dry_run"
+for source in third_party/nuklear/nuklear.c src/ui/spike/font.c src/ui/spike/render.c src/ui/shell/app.c; do
+    if ! grep -F -- "-c $source " "$dry_run" >/dev/null; then
+        echo "UI header dependencies: $source would retain a stale Nuklear ABI" >&2
+        exit 1
+    fi
+done
 echo 'UI header dependencies: shell and snapshot consumers rebuild'

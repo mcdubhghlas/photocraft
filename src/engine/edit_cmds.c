@@ -44,6 +44,17 @@ struct pc_engine_clip {
     float resolution; /* the source document's ppi (File > New from Clipboard takes it) */
 };
 
+bool pc_engine_session_clipboard_size(const pc_engine_session *s, pc_size *out)
+{
+    pc_size size = {0};
+    if (s && s->clipboard) {
+        size = pc_size_make(pc_rect_width(s->clipboard->bounds), pc_rect_height(s->clipboard->bounds));
+    }
+    if (out)
+        *out = size;
+    return size.width > 0 && size.height > 0;
+}
+
 void pc_engine_clipboard_free(struct pc_engine_clip *c)
 {
     if (c == NULL) {
@@ -113,8 +124,8 @@ static pc_status check_pixels_unlocked(const pc_document *doc, pc_layer_id id, p
     }
     pc_locks locks = pc_document_effective_locks(doc, id);
     if (locks.pixels || locks.all) {
-        return pc_engine_err_other(
-            err, "Could not complete your request because the layer \"%s\" is locked", pc_str_c(&l->name));
+        return pc_engine_err_other(err, "Could not complete your request because the layer \"%s\" is locked",
+                                   pc_str_c(&l->name));
     }
     return PC_OK;
 }
@@ -139,8 +150,7 @@ static pc_status result_layer(pc_json_value *out, pc_layer_id id, const int32_t 
 }
 
 /* A {"bounds": [x0, y0, w, h]} result, with an optional extra string field. */
-static pc_status result_bounds(pc_json_value *out, pc_rect b, const char *key, const char *val,
-                               pc_error *err)
+static pc_status result_bounds(pc_json_value *out, pc_rect b, const char *key, const char *val, pc_error *err)
 {
     yyjson_mut_doc *d = NULL;
     if (pc_engine_result_doc(out, &d, err) != PC_OK) {
@@ -165,8 +175,8 @@ static pc_status result_bounds(pc_json_value *out, pc_rect b, const char *key, c
  * The whole area is read at once (the reference reads tile by tile and shares unchanged tiles
  * copy-on-write; the pixel VALUES are identical -- a perf difference tracked in §7). */
 
-static pc_status lift_region(const pc_surface *src, const pc_surface *sel, pc_rect r, size_t n,
-                             float **out, pc_error *err)
+static pc_status lift_region(const pc_surface *src, const pc_surface *sel, pc_rect r, size_t n, float **out,
+                             pc_error *err)
 {
     pc_pixel_format fmt = pc_surface_format(src);
     size_t k = pc_pixel_format_channels(fmt);
@@ -983,8 +993,9 @@ static pc_status cc_paste_edit(pc_document *doc, bool *has_active, pc_layer_id *
     if (!pc_rect_is_empty(c->area)) {
         size_t w = pc_rect_width(c->area), h = pc_rect_height(c->area);
         size_t pixels = w * h;
-        float(*rgba)[4] = NULL;
-        pc_status r2 = pc_engine_alloc_filled(pixels, sizeof(float[4]), "pasting pixels", (void **)&rgba, err);
+        float (*rgba)[4] = NULL;
+        pc_status r2 =
+            pc_engine_alloc_filled(pixels, sizeof(float[4]), "pasting pixels", (void **)&rgba, err);
         if (r2 != PC_OK) {
             return r2;
         }
@@ -1642,14 +1653,14 @@ static const char *const MENU_LAYER[] = {"Layer"};
 static const char *const MENU_EDIT_PASTE[] = {"Edit", "Paste Special"};
 
 static const pc_engine_command SPECS[] = {
-    {"edit.cut", "Cut", MENU_EDIT, 1, "Cmd+X",
-     "{} (a targeted colour channel cuts that channel only)", has_pixels, run_cut, true},
+    {"edit.cut", "Cut", MENU_EDIT, 1, "Cmd+X", "{} (a targeted colour channel cuts that channel only)",
+     has_pixels, run_cut, true},
     {"edit.copy", "Copy", MENU_EDIT, 1, "Cmd+C",
      "{\"target\":\"mask\"? = the targeted mask, copied as grayscale (#2928)} (a targeted colour or "
      "alpha channel copies that channel, as grayscale)",
      can_copy, run_copy, true},
-    {"edit.copyMerged", "Copy Merged", MENU_EDIT, 1, "Cmd+Shift+C", "{}", pc_engine_has_doc,
-     run_copy_merged, true},
+    {"edit.copyMerged", "Copy Merged", MENU_EDIT, 1, "Cmd+Shift+C", "{}", pc_engine_has_doc, run_copy_merged,
+     true},
     {"edit.paste", "Paste", MENU_EDIT, 1, "Cmd+V",
      "{\"center\":[x,y]? (view centre; default keeps the position when it overlaps the canvas),"
      "\"target\":\"pixels\"|\"mask\"|\"quickMask\"|{\"channel\":i}=Channels panel target (not pixels: "
@@ -1663,9 +1674,8 @@ static const pc_engine_command SPECS[] = {
      "{\"target\":\"pixels\"|\"mask\"|\"quickMask\"|{\"channel\":i}=Channels panel target (not pixels: "
      "the luminosity pasted into that mask or channel)}",
      has_clip, run_paste_in_place, true},
-    {"edit.clear", "Clear", MENU_EDIT, 1, "Delete",
-     "{} (a targeted channel or Quick Mask is cleared alone)", pc_engine_has_pixel_or_channel, run_clear,
-     true},
+    {"edit.clear", "Clear", MENU_EDIT, 1, "Delete", "{} (a targeted channel or Quick Mask is cleared alone)",
+     pc_engine_has_pixel_or_channel, run_clear, true},
     {"layer.new.layerViaCopy", "Layer via Copy", MENU_LAYER_NEW, 2, "Cmd+J", "{}", pc_engine_has_doc,
      run_layer_via_copy, true},
     {"layer.new.layerViaCut", "Layer via Cut", MENU_LAYER_NEW, 2, "Cmd+Shift+J", "{}", has_pixels,
@@ -1681,4 +1691,3 @@ const pc_engine_command *pc_engine_edit_specs(size_t *n)
     *n = sizeof SPECS / sizeof SPECS[0];
     return SPECS;
 }
-

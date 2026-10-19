@@ -145,8 +145,8 @@ static void test_menu_items(void)
     /* UI-only commands that the catalogue doesn't list appear in the model. (UI commands that
      * share a catalogue item's path+label, e.g. window.toggle.layers vs Window › Layers, are
      * represented by the catalogue row, so their own id need not appear.) */
-    const char *ui_only[] = {"window.theme.pro",   "edit.freeTransform",   "view.rotateView",
-                             "window.nextDocument", "ui.symmetryTransform", "edit.search",
+    const char *ui_only[] = {"window.theme.pro",          "edit.freeTransform",   "view.rotateView",
+                             "window.nextDocument",       "ui.symmetryTransform", "edit.search",
                              "window.theme.solarizedDark"};
     for (size_t i = 0; i < sizeof ui_only / sizeof ui_only[0]; i++) {
         CHECK(items_have(items, n, ui_only[i]));
@@ -181,7 +181,7 @@ static void test_parity(void)
      * is a port in progress: its registered commands cover CURRENT_LIVE at this point, and this
      * guard rises toward PC_UI_PARITY_FLOOR as later engine/UI chunks register the remaining
      * commands. Never lower CURRENT_LIVE; raise it when coverage grows. */
-    enum { CURRENT_LIVE = 600 };
+    enum { CURRENT_LIVE = 602 };
     CHECK(p.total == 631);
     CHECK(p.live >= CURRENT_LIVE);
     CHECK(p.live <= PC_UI_PARITY_FLOOR);

@@ -76,6 +76,8 @@ size_t pc_surface_channels(const pc_surface *s);
 size_t pc_surface_tile_count(const pc_surface *s);
 /* The tile at c, borrowed, or NULL when not allocated. */
 const pc_raster_tile *pc_surface_tile(const pc_surface *s, pc_tile c);
+/* Retains the tile at c (or returns NULL); release the returned reference. */
+pc_raster_tile *pc_surface_retain_tile(const pc_surface *s, pc_tile c);
 /* Unordered iteration: start with *cursor = 0; returns false when done. */
 bool pc_surface_next_tile(const pc_surface *s, size_t *cursor, pc_tile *coord, const pc_raster_tile **tile);
 /* Every tile in (tx, ty) order (the reference's BTreeMap order), each retained; free with
@@ -99,13 +101,14 @@ void pc_surface_prune(pc_surface *s);
 /* One pixel as `channels` normalised floats. */
 void pc_surface_read_pixel(const pc_surface *s, int32_t x, int32_t y, float *out);
 /* Writes min(n, channels) channels of one pixel. */
-pc_status pc_surface_write_pixel(pc_surface *s, int32_t x, int32_t y, const float *px, size_t n, pc_error *err);
+pc_status pc_surface_write_pixel(pc_surface *s, int32_t x, int32_t y, const float *px, size_t n,
+                                 pc_error *err);
 /* Channel c of one pixel (0 when c >= channels). */
 float pc_surface_sample_channel(const pc_surface *s, int32_t x, int32_t y, size_t c);
 /* Channel c at (x0 + i * step, y) for i in [0, n) (step < 1 counts as 1), one tile lookup per
  * run. Coordinates wrap like the reference's release build. */
-void pc_surface_sample_row_strided(const pc_surface *s, int32_t y, int32_t x0, int32_t step, size_t c, float *out,
-                                   size_t n);
+void pc_surface_sample_row_strided(const pc_surface *s, int32_t y, int32_t x0, int32_t step, size_t c,
+                                   float *out, size_t n);
 /* Composite-friendly straight RGBA of one pixel. */
 void pc_surface_rgba(const pc_surface *s, int32_t x, int32_t y, float out[4]);
 
@@ -119,8 +122,10 @@ pc_status pc_surface_read_region(const pc_surface *s, pc_rect r, float **out, si
 pc_status pc_surface_read_region_into(const pc_surface *s, pc_rect r, float *out, size_t len, pc_error *err);
 /* r as straight RGBA floats / RGBA8 into `out` of exactly w * h entries (else PC_ERR_INVALID),
  * converting from the surface's model. */
-pc_status pc_surface_read_rgba_into(const pc_surface *s, pc_rect r, float (*out)[4], size_t len, pc_error *err);
-pc_status pc_surface_read_rgba8_into(const pc_surface *s, pc_rect r, uint8_t (*out)[4], size_t len, pc_error *err);
+pc_status pc_surface_read_rgba_into(const pc_surface *s, pc_rect r, float (*out)[4], size_t len,
+                                    pc_error *err);
+pc_status pc_surface_read_rgba8_into(const pc_surface *s, pc_rect r, uint8_t (*out)[4], size_t len,
+                                     pc_error *err);
 /* Writes w * h * channels interleaved normalised floats into r (else PC_ERR_INVALID). */
 pc_status pc_surface_write_region(pc_surface *s, pc_rect r, const float *data, size_t len, pc_error *err);
 
@@ -144,11 +149,13 @@ pc_status pc_surface_solid_tile(const pc_surface *s, const float *px, size_t n, 
 pc_status pc_surface_fill_rect(pc_surface *s, pc_rect r, const float *px, size_t n, pc_error *err);
 
 /* Interleaved *encoded* bytes of the surface's format covering r (w * h * bpp). */
-pc_status pc_surface_write_interleaved(pc_surface *s, pc_rect r, const uint8_t *bytes, size_t len, pc_error *err);
+pc_status pc_surface_write_interleaved(pc_surface *s, pc_rect r, const uint8_t *bytes, size_t len,
+                                       pc_error *err);
 pc_status pc_surface_from_interleaved(pc_pixel_format f, pc_rect r, const uint8_t *bytes, size_t len,
                                       pc_surface *out, pc_error *err);
 /* r as encoded bytes, newly allocated (free()); *out is NULL for an empty r. */
-pc_status pc_surface_to_interleaved(const pc_surface *s, pc_rect r, uint8_t **out, size_t *len, pc_error *err);
+pc_status pc_surface_to_interleaved(const pc_surface *s, pc_rect r, uint8_t **out, size_t *len,
+                                    pc_error *err);
 
 /* The surface moved by whole pixels (encoded samples copied tile to tile; moves by whole tiles
  * share the tiles). `content` must hold every non-default pixel (content_bounds, say): only

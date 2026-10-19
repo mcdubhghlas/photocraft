@@ -112,9 +112,48 @@ static void test_view_handles(void)
     CHECK(!pc_ui_view_snap_slot_exists("none"));
 }
 
+static void test_resolver(void)
+{
+    pc_engine_session *session = NULL;
+    CHECK(pc_engine_session_new(&session, NULL) == PC_OK);
+    bool keys[PC_KEY_EXCLAMATIONMARK + 1] = {false};
+    pc_ui_temporary t;
+    keys[PC_KEY_SPACE] = true;
+    CHECK(pc_ui_temporary_resolve(session, PC_TOOL_BRUSH, keys, 0, false, true, &t));
+    CHECK(t == PC_UI_TEMP_HAND);
+    CHECK(pc_ui_temporary_resolve(session, PC_TOOL_BRUSH, keys, PC_UI_MOD_COMMAND, false, true, &t));
+    CHECK(t == PC_UI_TEMP_ZOOM_IN);
+    CHECK(pc_ui_temporary_resolve(session, PC_TOOL_BRUSH, keys, PC_UI_MOD_COMMAND | PC_UI_MOD_ALT,
+                                   false, true, &t));
+    CHECK(t == PC_UI_TEMP_ZOOM_OUT);
+    CHECK(!pc_ui_temporary_resolve(session, PC_TOOL_BRUSH, keys, 0, true, true, &t));
+    CHECK(pc_ui_reposition_held(session, keys, false));
+    keys[PC_KEY_SPACE] = false;
+    CHECK(pc_ui_temporary_resolve(session, PC_TOOL_BRUSH, keys, PC_UI_MOD_COMMAND, false, true, &t));
+    CHECK(t == PC_UI_TEMP_MOVE);
+    CHECK(!pc_ui_temporary_resolve(session, PC_TOOL_BRUSH, keys, PC_UI_MOD_COMMAND, false, false, &t));
+    CHECK(!pc_ui_temporary_resolve(session, PC_TOOL_RECT_MARQUEE, keys, PC_UI_MOD_COMMAND, false, true, &t));
+    keys[PC_KEY_BACKTICK] = true;
+    CHECK(pc_ui_erase_held(session, PC_TOOL_BRUSH, keys, 0, false));
+    CHECK(!pc_ui_erase_held(session, PC_TOOL_CLONE_STAMP, keys, 0, false));
+    CHECK(!pc_ui_erase_held(session, PC_TOOL_BRUSH, keys, 0, true));
+    pc_json_value out = PC_JSON_VALUE_INIT;
+    CHECK(pc_engine_session_execute_json(session, "edit.keyboardShortcuts",
+          "{\"set\":{\"tools.temporary.hand\":\"Shift+J\",\"tools.temporary.zoomIn\":\"\"}}", &out, NULL) == PC_OK);
+    pc_json_value_fini(&out);
+    keys[PC_KEY_J] = true;
+    CHECK(!pc_ui_temporary_resolve(session, PC_TOOL_BRUSH, keys, 0, false, true, &t));
+    CHECK(pc_ui_temporary_resolve(session, PC_TOOL_BRUSH, keys, PC_UI_MOD_SHIFT, false, true, &t));
+    CHECK(t == PC_UI_TEMP_HAND);
+    CHECK(pc_ui_reposition_held(session, keys, false));
+    CHECK(!pc_ui_reposition_held(session, keys, true));
+    pc_engine_session_free(session);
+}
+
 int main(int argc, char **argv)
 {
     RUN(test_temporary);
+    RUN(test_resolver);
     RUN(test_cmd_moves);
     RUN(test_repositions_and_erase);
     RUN(test_view_handles);

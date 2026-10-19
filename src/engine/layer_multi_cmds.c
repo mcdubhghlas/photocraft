@@ -21,8 +21,8 @@
 
 /* ---- layer-targeting helpers (commands::explicit_layer / layer_param) ---------------------- */
 
-pc_status pc_engine_explicit_layer(const pc_engine_session *s, yyjson_val *p, bool *present,
-                                   pc_layer_id *out, pc_error *err)
+pc_status pc_engine_explicit_layer(const pc_engine_session *s, yyjson_val *p, bool *present, pc_layer_id *out,
+                                   pc_error *err)
 {
     yyjson_val *v = pc_json_get(p, "layer");
     if (v == NULL || yyjson_is_null(v)) {
@@ -112,9 +112,8 @@ pc_status pc_engine_selected(const pc_engine_session *s, pc_layer_id **out, size
     return pc_engine_doc_state_selected_layers(d, out, n, err);
 }
 
-pc_status pc_engine_set_selection(pc_engine_session *s, const pc_layer_id *ids, size_t n,
-                                  bool has_active, pc_layer_id active, bool has_anchor,
-                                  pc_layer_id anchor, pc_error *err)
+pc_status pc_engine_set_selection(pc_engine_session *s, const pc_layer_id *ids, size_t n, bool has_active,
+                                  pc_layer_id active, bool has_anchor, pc_layer_id anchor, pc_error *err)
 {
     pc_engine_doc_state *st = pc_engine_session_active_mut(s);
     if (st == NULL) {
@@ -177,8 +176,8 @@ pc_status pc_engine_set_selection(pc_engine_session *s, const pc_layer_id *ids, 
 
 /* After a structural edit, make `ids` the selection (dropping any that no longer exist), which is
  * also what the edit's history state targets (reselect). Best-effort on OOM. */
-static void reselect(pc_engine_session *s, const pc_layer_id *ids, size_t n, bool has_active,
-                     pc_layer_id active)
+void pc_engine_reselect(pc_engine_session *s, const pc_layer_id *ids, size_t n, bool has_active,
+                        pc_layer_id active)
 {
     pc_engine_doc_state *st = pc_engine_session_active_mut(s);
     if (st == NULL) {
@@ -218,8 +217,8 @@ static void reselect(pc_engine_session *s, const pc_layer_id *ids, size_t n, boo
 
 /* ---- top-level / link helpers ------------------------------------------------------------- */
 
-pc_status pc_engine_top_level(const pc_document *doc, const pc_layer_id *ids, size_t n,
-                              pc_layer_id **out, size_t *nout, pc_error *err)
+pc_status pc_engine_top_level(const pc_document *doc, const pc_layer_id *ids, size_t n, pc_layer_id **out,
+                              size_t *nout, pc_error *err)
 {
     *out = NULL;
     *nout = 0;
@@ -597,7 +596,8 @@ static pc_status run_select_linked(pc_engine_session *s, yyjson_val *p, pc_json_
     pc_walk_fini(&w);
     bool has_active = d->has_active_layer && ids_contain(ids, n, d->active_layer);
     pc_layer_id active = has_active ? d->active_layer : (n > 0 ? ids[n - 1] : 0);
-    pc_status rc = pc_engine_set_selection(s, ids, n, n > 0 || has_active, active, n > 0 || has_active, active, err);
+    pc_status rc =
+        pc_engine_set_selection(s, ids, n, n > 0 || has_active, active, n > 0 || has_active, active, err);
     free(ids);
     if (rc != PC_OK) {
         return rc;
@@ -977,7 +977,7 @@ static pc_status run_group_layers(pc_engine_session *s, yyjson_val *p, pc_json_v
     if (rc != PC_OK) {
         return rc;
     }
-    reselect(s, &ctx.gid, 1, true, ctx.gid);
+    pc_engine_reselect(s, &ctx.gid, 1, true, ctx.gid);
     yyjson_mut_doc *d = NULL;
     if (pc_engine_result_doc(out, &d, err) != PC_OK) {
         return PC_ERR_NOMEM;
@@ -1145,7 +1145,7 @@ static pc_status run_merge_layers(pc_engine_session *s, yyjson_val *p, pc_json_v
     if (rc != PC_OK) {
         return rc;
     }
-    reselect(s, &ctx.mid, 1, true, ctx.mid);
+    pc_engine_reselect(s, &ctx.mid, 1, true, ctx.mid);
     yyjson_mut_doc *d = NULL;
     if (pc_engine_result_doc(out, &d, err) != PC_OK) {
         return PC_ERR_NOMEM;
@@ -1193,8 +1193,10 @@ static const char *const MENU_LAYER[] = {"Layer"};
 static const char *const MENU_LAYER_NEW[] = {"Layer", "New"};
 
 static const pc_engine_command SPECS[] = {
-    {"select.allLayers", "All Layers", MENU_SELECT, 1, "Cmd+Alt+A", "{}", has_doc, run_select_all_layers, true},
-    {"select.deselectLayers", "Deselect Layers", MENU_SELECT, 1, NULL, "{}", has_doc, run_deselect_layers, true},
+    {"select.allLayers", "All Layers", MENU_SELECT, 1, "Cmd+Alt+A", "{}", has_doc, run_select_all_layers,
+     true},
+    {"select.deselectLayers", "Deselect Layers", MENU_SELECT, 1, NULL, "{}", has_doc, run_deselect_layers,
+     true},
     {"select.findLayers", "Find Layers", MENU_SELECT, 1, "Cmd+Alt+Shift+F",
      "{\"name\":str (case-insensitive substring)}", has_doc, run_find_layers, true},
     {"layer.selectLinkedLayers", "Select Linked Layers", MENU_LAYER, 1, NULL, "{}", has_linked,
@@ -1203,8 +1205,8 @@ static const pc_engine_command SPECS[] = {
      "{} (toggles: unlinks when the selection is already one link group)", can_link, run_link_layers, true},
     {"layer.mergeLayers", "Merge Layers", MENU_LAYER, 1, "Cmd+E", "{} (one layer selected: Merge Down)",
      has_layer, run_merge_layers, true},
-    {"layer.new.groupFromLayers", "Group from Layers…", MENU_LAYER_NEW, 2, NULL, "{\"name\":str?}",
-     has_layer, run_group_layers, true},
+    {"layer.new.groupFromLayers", "Group from Layers…", MENU_LAYER_NEW, 2, NULL, "{\"name\":str?}", has_layer,
+     run_group_layers, true},
     {"layer.lockLayers", "Lock Layers…", MENU_LAYER, 1, NULL,
      "{\"transparency\":bool?,\"pixels\":bool?,\"position\":bool?,\"artboard\":bool?,\"all\":bool?} (none "
      "given: toggle lock all)",

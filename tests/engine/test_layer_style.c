@@ -74,8 +74,8 @@ static void test_gradient_styles_parse(void)
 
 static void test_factory_defaults(void)
 {
-    const char *kinds[] = {"dropShadow", "innerShadow", "outerGlow",  "innerGlow", "stroke",
-                           "colorOverlay", "gradientOverlay", "patternOverlay", "satin", "bevelEmboss"};
+    const char *kinds[] = {"dropShadow",   "innerShadow",     "outerGlow",      "innerGlow", "stroke",
+                           "colorOverlay", "gradientOverlay", "patternOverlay", "satin",     "bevelEmboss"};
     for (size_t i = 0; i < sizeof kinds / sizeof kinds[0]; i++) {
         yyjson_mut_doc *d = yyjson_mut_doc_new(NULL);
         CHECK(d != NULL);
@@ -211,7 +211,7 @@ static void test_overlay_contour_carries_unknown_names(void)
 
 static void test_every_style_command_adds_its_effect(void)
 {
-    const char *kinds[] = {"dropShadow", "innerShadow", "outerGlow",  "innerGlow", "stroke",
+    const char *kinds[] = {"dropShadow",   "innerShadow",     "outerGlow",   "innerGlow", "stroke",
                            "colorOverlay", "gradientOverlay", "bevelEmboss", "satin"};
     for (size_t i = 0; i < sizeof kinds / sizeof kinds[0]; i++) {
         pc_engine_session *s = session(NULL);
@@ -407,7 +407,8 @@ static void test_gradient_overlay_method(void)
     fx = active_effects(s);
     bool found_two = false;
     for (size_t i = 0; i < fx->nitems; i++) {
-        if (fx->items[i].kind == PC_FX_GRADIENT_OVERLAY && fx->items[i].u.gradient_overlay.gradient.nstops == 2) {
+        if (fx->items[i].kind == PC_FX_GRADIENT_OVERLAY &&
+            fx->items[i].u.gradient_overlay.gradient.nstops == 2) {
             found_two = true;
         }
     }
@@ -415,13 +416,21 @@ static void test_gradient_overlay_method(void)
     pc_engine_session_free(s);
 }
 
-static void test_patternoverlay_deferred_and_bad_layer(void)
+static void test_patternoverlay_library_and_bad_layer(void)
 {
     pc_engine_session *s = session(NULL);
-    /* patternOverlay is not registered (needs the pattern library); replace with one is graceful. */
-    CHECK(!pc_engine_command_find("layer.layerStyle.patternOverlay"));
-    CHECK(!exec(s, "layer.layerStyle.replace", "{\"effects\":[{\"kind\":\"patternOverlay\"}]}"));
-    CHECK(active_effects(s)->nitems == 0);
+    CHECK(pc_engine_command_find("layer.layerStyle.patternOverlay") != NULL);
+    CHECK(exec(s, "layer.layerStyle.patternOverlay", "{\"pattern\":\"Bricks\",\"scale\":37}"));
+    CHECK(active_effects(s)->nitems == 1 && active_effects(s)->items[0].kind == PC_FX_PATTERN_OVERLAY);
+    CHECK(active_effects(s)->items[0].u.pattern_overlay.scale == .37f);
+    CHECK(pc_doc_arc_get(pc_engine_session_active(s)->doc)->npatterns == 1);
+    CHECK(pc_engine_session_undo(s));
+    CHECK(active_effects(s)->nitems == 0 && pc_doc_arc_get(pc_engine_session_active(s)->doc)->npatterns == 0);
+    CHECK(exec(s, "layer.layerStyle.replace",
+               "{\"effects\":[{\"kind\":\"patternOverlay\",\"params\":{\"pattern\":\"Bricks\"}}]}"));
+    CHECK(active_effects(s)->nitems == 1);
+    CHECK(!exec(s, "layer.layerStyle.patternOverlay", "{\"pattern\":\"missing-pattern-name\"}"));
+    CHECK(active_effects(s)->nitems == 1);
     pc_engine_session_free(s);
 
     pc_engine_session *empty = NULL;
@@ -447,6 +456,6 @@ int main(int argc, char **argv)
     RUN(test_replace_rejects_bad_entries);
     RUN(test_replace_builds_and_edits_snapshots);
     RUN(test_gradient_overlay_method);
-    RUN(test_patternoverlay_deferred_and_bad_layer);
+    RUN(test_patternoverlay_library_and_bad_layer);
     return pc_t_finish();
 }

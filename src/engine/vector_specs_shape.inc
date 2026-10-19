@@ -46,8 +46,8 @@ static pc_status edit_insert_shape(pc_document *doc, bool *ha, pc_layer_id *a, v
 }
 
 /* Insert *sh (borrowed; cloned by the edit) as a new shape layer and report shape.info. */
-static pc_status insert_new_shape(pc_engine_session *s, const char *kind, const pc_shape_layer *sh, yyjson_val *p,
-                                  pc_json_value *out, pc_error *err)
+static pc_status insert_new_shape(pc_engine_session *s, const char *kind, const pc_shape_layer *sh,
+                                  yyjson_val *p, pc_json_value *out, pc_error *err)
 {
     size_t nlen = 0;
     const char *name = pc_json_as_str(pc_json_get(p, "name"), &nlen);
@@ -93,8 +93,18 @@ static pc_status shape_append(pc_shape_layer *sh, pc_layer *l, void *ud, pc_erro
     return pc_vec_validate_shape(&sh->path, sh->has_stroke ? &sh->stroke : NULL, err);
 }
 
-static pc_status run_shape_create(pc_engine_session *s, yyjson_val *p, pc_json_value *out, pc_error *err)
+pc_status pc_engine_shape_from_params(const float foreground[4], yyjson_val *p, pc_shape_layer *out,
+                                      pc_error *err)
 {
+    if (!foreground || !out) {
+        return pc_fail(err, PC_ERR_INVALID, "missing shape parameters");
+    }
+    for (size_t i = 0; i < 4; i++) {
+        if (!isfinite(foreground[i])) {
+            return pc_fail(err, PC_ERR_INVALID, "shape colors must be finite");
+        }
+    }
+
     static const char *const CMD = "shape.create";
     char emsg[256];
     size_t klen = 0;
@@ -129,7 +139,7 @@ static pc_status run_shape_create(pc_engine_session *s, yyjson_val *p, pc_json_v
         has_live = true;
     }
 
-    const float *fg = s->tools.foreground;
+    const float *fg = foreground;
     pc_fill fill = {0};
     bool has_fill = true;
     yyjson_val *fv = pc_json_get(p, "fill");
@@ -173,37 +183,6 @@ static pc_status run_shape_create(pc_engine_session *s, yyjson_val *p, pc_json_v
         return pc_engine_err_bad_params(err, CMD, "%s", m);
     }
 
-    uint64_t target;
-    yyjson_val *addto = pc_json_get(p, "addTo");
-    if (addto != NULL && pc_json_as_u64(addto, &target)) {
-        pc_path_op op = PC_PATH_COMBINE;
-        size_t olen = 0;
-        const char *os = pc_json_as_str(pc_json_get(p, "op"), &olen);
-        if (os != NULL && !op_from(os, olen, &op)) {
-            pc_path_fini(&path);
-            if (has_fill) {
-                pc_fill_fini(&fill);
-            }
-            if (has_stroke) {
-                pc_shape_stroke_fini(&stroke);
-            }
-            return pc_engine_err_bad_params(err, CMD, "unknown `op`");
-        }
-        append_ctx ac = {&path, op, has_stroke, has_stroke ? &stroke : NULL};
-        pc_status rc = with_shape(s, (pc_layer_id)target, "Add Shape", shape_append, &ac, err);
-        pc_path_fini(&path);
-        if (has_fill) {
-            pc_fill_fini(&fill);
-        }
-        if (has_stroke) {
-            pc_shape_stroke_fini(&stroke);
-        }
-        if (rc != PC_OK) {
-            return rc;
-        }
-        return shape_info(s, (pc_layer_id)target, out, err);
-    }
-
     pc_shape_layer sh = {0};
     sh.path = path;
     sh.has_fill = has_fill;
@@ -218,9 +197,39 @@ static pc_status run_shape_create(pc_engine_session *s, yyjson_val *p, pc_json_v
     if (has_live) {
         sh.live = live;
     }
-    pc_status rc = insert_new_shape(s, kbuf, &sh, p, out, err);
-    pc_shape_layer_fini(&sh);
-    return rc;
+    *out = sh;
+    return PC_OK;
+}
+
+static pc_status run_shape_create(pc_engine_session *s, yyjson_val *p, pc_json_value *out, pc_error *err)
+{
+    pc_shape_layer shape = {0};
+    pc_status status = pc_engine_shape_from_params(s->tools.foreground, p, &shape, err);
+    if (status != PC_OK) {
+        return status;
+    }
+    const char *kind = pc_json_as_str(pc_json_get(p, "kind"), NULL);
+    if (!kind) {
+        kind = "rect";
+    }
+    uint64_t target = 0;
+    yyjson_val *addto = pc_json_get(p, "addTo");
+    if (addto && pc_json_as_u64(addto, &target)) {
+        pc_path_op op = PC_PATH_COMBINE;
+        size_t length = 0;
+        const char *name = pc_json_as_str(pc_json_get(p, "op"), &length);
+        if (name && !op_from(name, length, &op)) {
+            pc_shape_layer_fini(&shape);
+            return pc_engine_err_bad_params(err, "shape.create", "unknown `op`");
+        }
+        append_ctx append = {&shape.path, op, shape.has_stroke, shape.has_stroke ? &shape.stroke : NULL};
+        status = with_shape(s, (pc_layer_id)target, "Add Shape", shape_append, &append, err);
+        pc_shape_layer_fini(&shape);
+        return status == PC_OK ? shape_info(s, (pc_layer_id)target, out, err) : status;
+    }
+    status = insert_new_shape(s, kind, &shape, p, out, err);
+    pc_shape_layer_fini(&shape);
+    return status;
 }
 
 /* ---- shape.edit --------------------------------------------------------------------------- */
@@ -251,7 +260,8 @@ static pc_status shape_edit_fn(pc_shape_layer *sh, pc_layer *l, void *ud, pc_err
         sh->psd_raw = NULL;
     }
 
-    static const char *const GEOM[] = {"kind", "rect", "radii", "radius", "sides", "starRatio", "from", "to", "weight"};
+    static const char *const GEOM[] = {"kind",      "rect", "radii", "radius", "sides",
+                                       "starRatio", "from", "to",    "weight"};
     bool geom = false;
     for (size_t i = 0; i < sizeof GEOM / sizeof GEOM[0]; i++) {
         if (pc_json_get(p, GEOM[i]) != NULL) {
@@ -272,11 +282,13 @@ static pc_status shape_edit_fn(pc_shape_layer *sh, pc_layer *l, void *ud, pc_err
         } else if (sh->has_live) {
             snprintf(kbuf, sizeof kbuf, "%s", live_kind(&sh->live));
         } else {
-            return pc_engine_err_bad_params(err, CMD, "this shape has no live-shape parameters; pass `kind` or `path`");
+            return pc_engine_err_bad_params(err, CMD,
+                                            "this shape has no live-shape parameters; pass `kind` or `path`");
         }
         /* Explicit radii on a plain rectangle keep it a (now rounded) rectangle. */
         double rd[4];
-        if (!strcmp(kbuf, "rect") && read_radii(p, rd) && (rd[0] > 0.0 || rd[1] > 0.0 || rd[2] > 0.0 || rd[3] > 0.0)) {
+        if (!strcmp(kbuf, "rect") && read_radii(p, rd) &&
+            (rd[0] > 0.0 || rd[1] > 0.0 || rd[2] > 0.0 || rd[3] > 0.0)) {
             snprintf(kbuf, sizeof kbuf, "roundedRect");
         }
         pc_live_shape nl;
@@ -392,8 +404,8 @@ static pc_status shape_edit_fn(pc_shape_layer *sh, pc_layer *l, void *ud, pc_err
     return PC_OK;
 }
 
-static pc_status shape_edit_impl(pc_engine_session *s, yyjson_val *p, const char *op_override, pc_json_value *out,
-                                 pc_error *err)
+static pc_status shape_edit_impl(pc_engine_session *s, yyjson_val *p, const char *op_override,
+                                 pc_json_value *out, pc_error *err)
 {
     pc_layer_id id;
     if (layer_id_of(s, p, &id, err) != PC_OK) {
@@ -649,7 +661,8 @@ static pc_status edit_merge_shapes(pc_document *doc, bool *ha, pc_layer_id *a, v
         }
         if (l->content.kind != PC_LAYER_SHAPE) {
             pc_path_fini(&merged);
-            return pc_engine_err_other(err, "layer %llu is not a shape layer", (unsigned long long)ctx->ids[i]);
+            return pc_engine_err_other(err, "layer %llu is not a shape layer",
+                                       (unsigned long long)ctx->ids[i]);
         }
         const pc_shape_layer *sh = &l->content.u.shape;
         if (!have) {
@@ -800,8 +813,8 @@ static pc_status run_merge_components(pc_engine_session *s, yyjson_val *p, pc_js
         return err != NULL ? err->code : PC_ERR_INVALID;
     }
     if (multi) {
-        pc_status rc =
-            merge_shape_layers(s, ids, nids, false, PC_PATH_COMBINE, "Merge Shape Components", true, tol, out, err);
+        pc_status rc = merge_shape_layers(s, ids, nids, false, PC_PATH_COMBINE, "Merge Shape Components",
+                                          true, tol, out, err);
         free(ids);
         return rc;
     }
@@ -818,7 +831,8 @@ static pc_status run_merge_components(pc_engine_session *s, yyjson_val *p, pc_js
 
 /* ---- select.convertToShape ---------------------------------------------------------------- */
 
-static pc_status run_selection_to_shape(pc_engine_session *s, yyjson_val *p, pc_json_value *out, pc_error *err)
+static pc_status run_selection_to_shape(pc_engine_session *s, yyjson_val *p, pc_json_value *out,
+                                        pc_error *err)
 {
     double tol;
     if (!get_f64(p, "tolerance", &tol) && !get_f64(p, "simplifyTolerance", &tol)) {
@@ -832,8 +846,8 @@ static pc_status run_selection_to_shape(pc_engine_session *s, yyjson_val *p, pc_
     pc_rect area = pc_document_bounds(doc);
     float *mask = NULL;
     size_t mlen = 0;
-    if (pc_algo_selection_mask_from_surface(doc->has_selection ? &doc->selection : NULL, area, &mask, &mlen, err) !=
-        PC_OK) {
+    if (pc_algo_selection_mask_from_surface(doc->has_selection ? &doc->selection : NULL, area, &mask, &mlen,
+                                            err) != PC_OK) {
         return err != NULL ? err->code : PC_ERR_NOMEM;
     }
     pc_path path;

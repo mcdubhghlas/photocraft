@@ -1,5 +1,8 @@
 /* Floating selection: select.float / select.drop and the before-command drop (E4). */
 #include <stdlib.h>
+#include <string.h>
+#include "engine/floating.h"
+#include "compose/compose.h"
 
 #include "color/color.h"
 #include "doc/doc.h"
@@ -107,8 +110,75 @@ static void test_adversarial(void)
     pc_engine_session_free(s);
 }
 
+static pc_status deny_float(const char *id, yyjson_val *params, pc_error *err)
+{
+    if (!strcmp(id, "select.float")) {
+        CHECK(params && pc_json_get(params, "dx") && pc_json_get(params, "copy"));
+        return pc_fail(err, PC_ERR_INVALID, "test denies floating source");
+    }
+    return PC_OK;
+}
+static void test_floating_display_multimode_depth_mask_and_authorization(void)
+{
+    const char *modes[] = {"rgb", "gray", "cmyk", "lab"};
+    const unsigned depths[] = {8, 16, 32};
+    for (size_t m = 0; m < 4; m++)
+        for (size_t d = 0; d < 3; d++)
+            for (unsigned mask = 0; mask < 2; mask++) {
+                pc_engine_session *s = NULL;
+                CHECK(pc_engine_session_new(&s, NULL) == PC_OK);
+                char text[220];
+                (void)snprintf(text, sizeof text,
+                               "{\"width\":30,\"height\":20,\"background\":\"transparent\",\"mode\":\"%s\","
+                               "\"depth\":%u}",
+                               modes[m], depths[d]);
+                CHECK(exec(s, "file.new", text) == PC_OK);
+                CHECK(exec(s, "edit.fill", "{\"color\":\"#ac3986\"}") == PC_OK);
+                if (mask)
+                    CHECK(exec(s, "layer.layerMask.revealAll", "{}") == PC_OK);
+                CHECK(exec(s, "select.rect", "{\"x\":2,\"y\":2,\"width\":8,\"height\":7}") == PC_OK);
+                CHECK(pc_engine_floating_can_move(s));
+                const pc_engine_doc_state *state = pc_engine_session_active(s);
+                const pc_doc_arc *before = state->doc;
+                size_t history = pc_history_past_len(state->history);
+                pc_doc_arc *preview = NULL;
+                CHECK(pc_engine_floating_preview(s, 4, 3, false, mask != 0, &preview, NULL) == PC_OK &&
+                      preview != NULL);
+                CHECK(state->doc == before && pc_history_past_len(state->history) == history);
+                s->authorize = deny_float;
+                pc_doc_arc *denied = NULL;
+                CHECK(pc_engine_floating_preview(s, 2, 3, true, mask != 0, &denied, NULL) == PC_ERR_INVALID &&
+                      denied == NULL);
+                s->authorize = NULL;
+                (void)snprintf(text, sizeof text, "{\"dx\":4,\"dy\":3,\"target\":\"%s\"}",
+                               mask ? "mask" : "pixels");
+                CHECK(exec(s, "select.float", text) == PC_OK);
+                pc_doc_arc *display = NULL, *same = NULL;
+                CHECK(pc_engine_floating_document(s, &display, NULL) == PC_OK && display != NULL);
+                CHECK(pc_engine_floating_document(s, &same, NULL) == PC_OK && same == display);
+                display = pc_doc_arc_retain(display);
+                CHECK(exec(s, "select.drop", "{}") == PC_OK);
+                const pc_document *committed = pc_doc_arc_get(state->doc);
+                const pc_document *docs[] = {committed, pc_doc_arc_get(display), pc_doc_arc_get(preview)};
+                pc_compose_buffer buffers[3];
+                memset(buffers, 0, sizeof buffers);
+                for (size_t i = 0; i < 3; i++)
+                    CHECK(pc_compose_render(docs[i], pc_rect_from_size(committed->size), &buffers[i], NULL) ==
+                          PC_OK);
+                CHECK(pc_compose_buffer_eq(&buffers[0], &buffers[1]));
+                CHECK(pc_compose_buffer_eq(&buffers[0], &buffers[2]));
+                for (size_t i = 0; i < 3; i++)
+                    pc_compose_buffer_fini(&buffers[i]);
+                CHECK(pc_history_past_len(state->history) == history + 1);
+                CHECK(pc_surface_sample_channel(&committed->selection, 7, 6, 0) == 1);
+                pc_doc_arc_release(display);
+                pc_doc_arc_release(preview);
+                pc_engine_session_free(s);
+            }
+}
 int main(int argc, char **argv)
 {
+    RUN(test_floating_display_multimode_depth_mask_and_authorization);
     RUN(test_float_and_drop);
     RUN(test_undo_returns_the_piece);
     RUN(test_other_command_drops_first);
