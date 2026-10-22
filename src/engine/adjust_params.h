@@ -8,9 +8,9 @@
  * fields; a key of the wrong type is PC_ERR_INVALID (BadParams). Units: Levels/Curves in 0..255
  * levels, percentages for the rest; colours "#rrggbb" or [r, g, b] in 0..1.
  *
- * E8-adjust note: the Levels/Curves eyedropper (Set Black/Neutral Gray/White Point) is NOT ported
- * here; it needs the merged-composite sampler (E10 sample_cmds) for the `at` path. The commands
- * report the `eyedropper` param as unsupported in this build. */
+ * E8-adjust note: the Levels/Curves eyedropper (Set Black/Neutral Gray/White Point) is implemented
+ * in adjust_eyedropper.c; the `at` path samples the merged composite (pc_engine_sample_color) and
+ * the Levels/Curves commands accept the `eyedropper` param (point + at|color). */
 #ifndef PC_ENGINE_ADJUST_PARAMS_H
 #define PC_ENGINE_ADJUST_PARAMS_H
 

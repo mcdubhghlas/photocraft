@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "base/buf.h"
+#include "base/file.h"
 #include "base/mem.h"
 #include "ui/menu_catalog.h"
 #include "ui/menus.h"
@@ -191,5 +193,36 @@ pc_status pc_ui_parity_to_markdown(const pc_ui_parity *p, pc_buf *out, pc_error 
             st = pc_buf_appendf(out, err, "- %s\n", m->missing[j]);
         }
     }
+    return st;
+}
+
+pc_status pc_ui_parity_generate(const char *path, FILE *out, size_t *live, size_t *total, pc_error *err)
+{
+    pc_ui_parity p;
+    pc_status st = pc_ui_parity_compute(&p, err);
+    if (st != PC_OK) {
+        return st;
+    }
+    if (live != NULL) {
+        *live = p.live;
+    }
+    if (total != NULL) {
+        *total = p.total;
+    }
+    pc_buf md = PC_BUF_INIT;
+    st = pc_ui_parity_to_markdown(&p, &md, err);
+    if (st == PC_OK) {
+        const void *data = md.data != NULL ? (const void *)md.data : (const void *)"";
+        if (path != NULL) {
+            st = pc_file_write_atomic(path, data, md.len, err);
+        } else {
+            FILE *f = out != NULL ? out : stdout;
+            if (md.len > 0 && fwrite(data, 1, md.len, f) != md.len) {
+                st = pc_fail(err, PC_ERR_IO, "parity: writing the report failed");
+            }
+        }
+    }
+    pc_buf_fini(&md);
+    pc_ui_parity_free(&p);
     return st;
 }

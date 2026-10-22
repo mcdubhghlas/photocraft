@@ -19,6 +19,7 @@
 #include "base/status.h"
 #include "doc/doc.h"
 #include "doc/pattern.h"
+#include "raster/pixel.h"
 
 #include "engine_internal.h"
 
@@ -48,5 +49,15 @@ pc_status pc_engine_pattern_resolve_param(const pc_engine_session *s, const char
 void pc_engine_pattern_placement(yyjson_val *p, float *scale, float *angle, bool *link, float phase[2]);
 /* Copy pat into the document's patterns unless already there (by id). */
 pc_status pc_engine_pattern_ensure_in_doc(pc_document *doc, const pc_pattern *pat, pc_error *err);
+
+/* A thumbnail for the Pattern Overlay / pattern picker (the enumeration source is the pattern.list
+ * command): the pattern identified by `key` (id or name; document patterns first, then the library;
+ * an empty key picks the Patterns-panel selection) rendered as a `size` x `size` straight-alpha
+ * RGBA8 image, the tile area-averaged and centred with its aspect preserved (transparent around it).
+ * `size` is clamped to 8..256. *found is false (out untouched) when there is no such pattern.
+ * *out is written on success (release with pc_rgba8_image_fini). Never panics on any key or size
+ * (REWRITE_PLAN.md rule 9); bounded; PC_ERR_NOMEM on out of memory. */
+pc_status pc_engine_pattern_thumbnail(const pc_engine_session *s, const char *key, size_t keylen,
+                                      uint32_t size, pc_rgba8_image *out, bool *found, pc_error *err);
 
 #endif /* PC_ENGINE_PATTERN_CMDS_H */

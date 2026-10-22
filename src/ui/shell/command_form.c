@@ -4,6 +4,8 @@
 #include "filter_ui.h"
 #include "shell_internal.h"
 #include "ui/filter_dialog.h"
+#include "ui/autoform.h"
+#include "ui/file_paths.h"
 #include "ui/i18n.h"
 #include "ui/sizing.h"
 #include "engine/prefs.h"
@@ -76,6 +78,133 @@ pc_status pc_ui_shell_form_open(pc_ui_shell_app *app, const char *command, pc_js
     if (!ok) {
         yyjson_mut_doc_free(d);
         return pc_fail(err, PC_ERR_NOMEM, "command form");
+    }
+    return pc_ui_shell_dialog_store(app, PC_DIALOG_COMMAND, d, root, out, err);
+}
+/* The folder of the active document, or "." when nothing is saved (file_ui.rs default_dir). */
+static void autoform_default_dir(pc_engine_session *s, char *out, size_t cap)
+{
+    const pc_engine_doc_state *st = pc_engine_session_active(s);
+    if (cap && st && st->path && *st->path && pc_ui_last_used_dir(st->path, out, cap)) {
+        return;
+    }
+    if (cap) {
+        (void)snprintf(out, cap, ".");
+    }
+}
+/* The active document's name without its extension, or "Untitled" (file_ui.rs doc_stem). */
+static void autoform_doc_stem(pc_engine_session *s, char *out, size_t cap)
+{
+    const pc_engine_doc_state *st = pc_engine_session_active(s);
+    const char *name = st ? pc_str_c(&pc_doc_arc_get(st->doc)->name) : NULL;
+    if (!name || !*name) {
+        name = "Untitled";
+    }
+    const char *dot = strrchr(name, '.');
+    size_t n = (dot && dot != name) ? (size_t)(dot - name) : strlen(name);
+    if (!cap) {
+        return;
+    }
+    if (n + 1 > cap) {
+        n = cap - 1;
+    }
+    memcpy(out, name, n);
+    out[n] = 0;
+}
+static bool autoform_put_str(yyjson_mut_doc *d, yyjson_mut_val *root, const char *key, const char *value)
+{
+    yyjson_mut_val *k = yyjson_mut_strcpy(d, key), *v = yyjson_mut_strcpy(d, value);
+    return k && v && yyjson_mut_obj_put(root, k, v);
+}
+pc_status pc_ui_shell_autoform_open(pc_ui_shell_app *app, const char *command, pc_json_value *out,
+                                    pc_error *err)
+{
+    if (!pc_ui_autoform_command(command)) {
+        return pc_fail(err, PC_ERR_INVALID, "not an automate form command");
+    }
+    pc_engine_session *s = pc_ui_shell_app_session(app);
+    const pc_engine_command *spec = pc_engine_command_find(command);
+    if (!spec) {
+        return pc_fail(err, PC_ERR_NOT_FOUND, "unknown command");
+    }
+    pc_status status = spec->enabled ? spec->enabled(s, err) : PC_OK;
+    if (status != PC_OK) {
+        return status;
+    }
+    char dir[4096];
+    autoform_default_dir(s, dir, sizeof dir);
+    char dyn[4608];
+    const char *schema_text = pc_ui_autoform_spec(command);
+    if (!schema_text) {
+        /* file.export.pathsToIllustrator: the "paths" choice lists the document's named paths. */
+        const char *names[64];
+        size_t n = 0;
+        bool has_work = false;
+        const pc_engine_doc_state *st = pc_engine_session_active(s);
+        if (st) {
+            const pc_document *doc = pc_doc_arc_get(st->doc);
+            has_work = doc->has_work_path;
+            for (size_t i = 0; i < doc->npaths && n < 64; i++) {
+                names[n++] = pc_str_c(&doc->paths[i].name);
+            }
+        }
+        if (!pc_ui_autoform_paths_spec(names, n, has_work, dyn, sizeof dyn)) {
+            return pc_fail(err, PC_ERR_NOMEM, "paths form");
+        }
+        schema_text = dyn;
+    }
+    pc_ui_parameter_schema schema = {0};
+    status = pc_ui_parameter_schema_parse(&schema, schema_text, err);
+    if (status != PC_OK) {
+        return status;
+    }
+    yyjson_mut_doc *d = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *root = d ? yyjson_mut_obj(d) : NULL;
+    const char *label = pc_ui_autoform_label(command);
+    bool ok = root && yyjson_mut_obj_add_strcpy(d, root, "__command", command) &&
+              yyjson_mut_obj_add_strcpy(d, root, "__label",
+                                        label ? label : (spec->label ? spec->label : command)) &&
+              yyjson_mut_obj_add_strcpy(d, root, "__spec", schema_text) &&
+              yyjson_mut_obj_add_bool(d, root, "__form", true) &&
+              yyjson_mut_obj_add_bool(d, root, "__autoform", true);
+    pc_ui_autoform_browse bkind = PC_UI_AUTOFORM_BROWSE_NONE;
+    const char *bfield = pc_ui_autoform_browse_for(command, &bkind);
+    if (ok && bfield) {
+        ok = yyjson_mut_obj_add_strcpy(d, root, "__browseField", bfield) &&
+             yyjson_mut_obj_add_uint(d, root, "__browseKind", (uint64_t)bkind);
+    }
+    status = ok ? pc_ui_parameter_schema_defaults(&schema, d, root, err)
+                : pc_fail(err, PC_ERR_NOMEM, "automate form");
+    pc_ui_parameter_schema_fini(&schema);
+    if (status != PC_OK) {
+        yyjson_mut_doc_free(d);
+        return status;
+    }
+    /* Seed the folder/output fields the schema leaves blank with sensible runtime defaults. */
+    if (!strcmp(command, "file.automate.contactSheetII") || !strcmp(command, "file.scripts.statistics")) {
+        ok = autoform_put_str(d, root, "input", dir);
+    } else if (!strcmp(command, "file.package")) {
+        ok = autoform_put_str(d, root, "dir", dir);
+    } else if (!strcmp(command, "file.export.pathsToIllustrator")) {
+        char stem[1024], path[5248];
+        autoform_doc_stem(s, stem, sizeof stem);
+        (void)snprintf(path, sizeof path, "%s/%s.ai", dir, stem);
+        ok = autoform_put_str(d, root, "path", path);
+    }
+    if (ok && !strcmp(command, "file.scripts.scriptEventsManager")) {
+        pc_json_value pref = PC_JSON_VALUE_INIT;
+        if (pc_engine_prefs_get(s, "scriptEvents.enabled", &pref, NULL) == PC_OK) {
+            yyjson_mut_val *v = pc_json_value_root(&pref);
+            if (yyjson_mut_is_bool(v)) {
+                yyjson_mut_val *k = yyjson_mut_strcpy(d, "enabled");
+                ok = k && yyjson_mut_obj_put(root, k, yyjson_mut_bool(d, yyjson_mut_get_bool(v)));
+            }
+        }
+        pc_json_value_fini(&pref);
+    }
+    if (!ok) {
+        yyjson_mut_doc_free(d);
+        return pc_fail(err, PC_ERR_NOMEM, "automate form");
     }
     return pc_ui_shell_dialog_store(app, PC_DIALOG_COMMAND, d, root, out, err);
 }

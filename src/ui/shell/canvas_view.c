@@ -1,5 +1,7 @@
 #include "layer_picker_ui.h"
 #include "sampling_ui.h"
+#include "analysis_ui.h"
+#include "warp_ui.h"
 #include "engine/floating.h"
 #include "artboard_ui.h"
 #include "lasso_ui.h"
@@ -9,7 +11,11 @@
 #include "context_ui.h"
 #include "crop_ui.h"
 #include "jobs_ui.h"
+#include "retouch_ui.h"
+#include "color_range_ui.h"
+#include "adjust_ui.h"
 #include "canvas_view.h"
+#include "gradient_ui.h"
 #include "dialogs.h"
 
 #include <math.h>
@@ -94,6 +100,7 @@ void pc_ui_canvas_view_fini(pc_ui_canvas_view *v, const gl33 *gl)
     pc_ui_vector_preview_fini(&v->vector_preview);
     pc_ui_vector_preview_fini(&v->pen_preview);
     pc_ui_tool_gesture_fini(&v->gesture);
+    pc_doc_arc_release(v->grad_preview);
     pc_doc_arc_release(v->floating_display);
     for (size_t i = 0; i < PC_UI_CANVAS_TILE_CAP; i++) {
         pc_ui_canvas_tile_upload *upload = &v->tile_uploads[i];
@@ -606,6 +613,15 @@ pc_status pc_ui_canvas_view_draw(pc_ui_shell_app *app, pc_ui_canvas_view *v, con
         (v->gesture.document != pc_doc_arc_get(active->doc)->id || v->gesture.revision != active->revision)) {
         pc_ui_tool_gesture_fini(&v->gesture);
     }
+    if (v->grad_drag.active && v->grad_drag.document != pc_doc_arc_get(active->doc)->id) {
+        v->grad_drag.active = false;
+        pc_doc_arc_release(v->grad_preview);
+        v->grad_preview = NULL;
+    }
+    if (!v->grad_drag.active && v->grad_preview) {
+        pc_doc_arc_release(v->grad_preview);
+        v->grad_preview = NULL;
+    }
     pc_engine_doc_state preview;
     pc_doc_arc *floating = NULL;
     rc = pc_engine_floating_document(pc_ui_shell_app_session(app), &floating, err);
@@ -648,6 +664,12 @@ pc_status pc_ui_canvas_view_draw(pc_ui_shell_app *app, pc_ui_canvas_view *v, con
             preview.has_active_layer = true;
             preview.active_layer = v->gesture.preview_layer;
         }
+        active = &preview;
+    }
+    if (v->grad_preview) {
+        preview = *active;
+        preview.doc = v->grad_preview;
+        preview.revision = UINT64_MAX / 5 - v->grad_preview_rev;
         active = &preview;
     }
     bool rulers = pc_ui_shell_app_state(app)->extras.rulers;
@@ -735,6 +757,8 @@ pc_status pc_ui_canvas_view_draw(pc_ui_shell_app *app, pc_ui_canvas_view *v, con
         nk_draw_image(nk_window_get_canvas(pc_ui_shell_app_nk(app)), r, &image, nk_rgba(255, 255, 255, 255));
     }
     if (rc == PC_OK)
+        pc_ui_shell_color_range_overlay(app, dialog_preview, &v->xf);
+    if (rc == PC_OK)
         pc_ui_shell_artboard_pasteboard(app, &v->xf);
     if (rc == PC_OK) {
         rc = pc_ui_overlays_draw(app, active, &v->xf, &v->overlays, &v->guide_drag, err);
@@ -754,6 +778,10 @@ pc_status pc_ui_canvas_view_draw(pc_ui_shell_app *app, pc_ui_canvas_view *v, con
         pc_ui_shell_slice_draw(app, &v->xf);
         pc_ui_shell_artboard_frames(app, &v->xf);
         pc_ui_shell_sampling_draw(app, &v->xf);
+        pc_ui_shell_analysis_draw(app, &v->xf);
+        pc_ui_shell_warp_draw(app, &v->xf);
+        pc_ui_shell_clone_source_draw(app, &v->gesture, &v->xf);
+        pc_ui_shell_gradient_widget_draw(app, v, &v->xf);
     }
     if (rulers && rc == PC_OK) {
         draw_rulers(app, &v->xf);
@@ -901,6 +929,12 @@ bool pc_ui_canvas_view_event(pc_ui_shell_app *app, pc_ui_canvas_view *cv, const 
         pc_ui_shell_dialog_at(app, e->wheel.mouse_x * factor, e->wheel.mouse_y * factor)) {
         return false;
     }
+    /* Open-dialog canvas pointers: Levels/Curves eyedropper + Color Range pipette (A28/A35/A36).
+     * Clicks over a dialog already returned above, so reaching here means the pointer is on canvas. */
+    if (pc_ui_shell_adjust_eyedropper_canvas(app, xf, e, factor))
+        return true;
+    if (pc_ui_shell_color_range_canvas(app, xf, e, factor))
+        return true;
     if (pc_ui_brush_resize_event(app, cv, xf, e, factor))
         return true;
     if (pc_ui_canvas_touch_event(app, cv, xf, e)) {
@@ -1016,6 +1050,10 @@ bool pc_ui_canvas_view_event(pc_ui_shell_app *app, pc_ui_canvas_view *cv, const 
         return true;
     if (!tool_override && pc_ui_shell_sampling_canvas(app, xf, e, factor))
         return true;
+    if (!tool_override && pc_ui_shell_analysis_canvas(app, xf, e, factor))
+        return true;
+    if (!tool_override && pc_ui_shell_warp_canvas(app, xf, e, factor))
+        return true;
     if (!tool_override && pc_ui_shell_artboard_canvas(app, xf, e, factor))
         return true;
     if (!tool_override && pc_ui_shell_slice_canvas(app, xf, e, factor))
@@ -1123,6 +1161,12 @@ bool pc_ui_canvas_view_event(pc_ui_shell_app *app, pc_ui_canvas_view *cv, const 
         return true;
     }
     if (pc_ui_shell_type_canvas(app, xf, e, factor)) {
+        return true;
+    }
+    /* Live Gradient Fill tool: the on-canvas widget owns the Gradient tool's pointer in fill-layer
+     * mode. In classic mode this returns false and the generic gesture dispatches paint.gradient. */
+    if (!tool_override && pc_ui_shell_gradient_canvas(app, cv, xf, e, factor)) {
+        pc_ui_shell_app_changed(app);
         return true;
     }
     if (!pc_ui_shell_app_state(app)->n_dialogs && !pc_ui_shell_jobs_locked(app) &&

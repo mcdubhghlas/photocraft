@@ -44,6 +44,19 @@ typedef struct pc_action_state {
 bool pc_engine_actions_take_recording(pc_engine_session *s, size_t *from, size_t *idx);
 void pc_engine_actions_restore_recording(pc_engine_session *s, bool had, size_t from, size_t idx);
 
+/* The number of recorded actions (0 when none). The UI's Actions panel selection is a UI concept;
+ * the engine only exposes the list. */
+size_t pc_engine_actions_count(const pc_engine_session *s);
+
+/* Resolve an action reference -- a list index (number) or an action name (string), or NULL to mean
+ * the first action -- into an owned immutable doc whose root is the action's steps as
+ * [[id, params], ...] (the shape file.automate.createDroplet / file.automate.batch accept). The
+ * caller frees *out_doc with yyjson_doc_free. When out_name is non-NULL, *out_name is the action's
+ * name, borrowed from the session (valid until the action list changes). For the Create Droplet /
+ * Batch dialogs, which drive a command with the selected action's steps. */
+pc_status pc_engine_action_steps_doc(pc_engine_session *s, yyjson_val *ref, const char *cmd,
+                                     yyjson_doc **out_doc, const char **out_name, pc_error *err);
+
 /* Cross-module helpers (automate_cmds). */
 bool pc_engine_actions_shell_save_command(const char *id);
 bool pc_engine_actions_shell_view_command(const char *id);

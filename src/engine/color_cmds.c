@@ -15,11 +15,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "base/blob.h"
 #include "base/buf.h"
 #include "display_color.h"
 #include "base/file.h"
 #include "base/mem.h"
 #include "base/str.h"
+#include "codecs/resolution.h" /* pc_exif_color_space (open-policy EXIF sRGB tag) */
 #include "cms/builtin.h"
 #include "cms/gamut.h"
 #include "cms/transform.h"
@@ -1372,6 +1374,165 @@ static pc_status run_profile_info(pc_engine_session *s, yyjson_val *p, pc_json_v
     }
     yyjson_mut_obj_add_val(d, root, "builtins", bi);
     yyjson_mut_doc_set_root(d, root);
+    return PC_OK;
+}
+
+/* ============================================================== open policy (import) */
+
+static pc_color_policy policy_for_mode(const pc_color_settings *c, pc_color_mode mode)
+{
+    uint32_t space = cs_space(mode);
+    if (space == PC_CS_CMYK) {
+        return c->policy_cmyk;
+    }
+    if (space == PC_CS_GRAY) {
+        return c->policy_gray;
+    }
+    return c->policy_rgb;
+}
+
+/* Replace a document's embedded profile bytes with those of `prof` (NULL discards). */
+static pc_status set_doc_profile(pc_document *doc, const pc_profile *prof, pc_error *err)
+{
+    pc_blob *blob = NULL;
+    if (prof != NULL) {
+        pc_buf b = PC_BUF_INIT;
+        if (pc_profile_to_bytes(prof, &b, err) != PC_OK) {
+            pc_buf_fini(&b);
+            return PC_ERR_NOMEM;
+        }
+        pc_status rc = pc_blob_new(b.data, b.len, &blob, err);
+        pc_buf_fini(&b);
+        if (rc != PC_OK) {
+            return rc;
+        }
+    }
+    pc_blob_release(doc->icc_profile);
+    doc->icc_profile = blob;
+    return PC_OK;
+}
+
+pc_status pc_engine_color_open_policy(pc_engine_session *s, pc_document *doc, bool ignore_exif,
+                                      pc_json_value *report, pc_error *err)
+{
+    yyjson_mut_doc *d = NULL;
+    if (pc_engine_result_doc(report, &d, err) != PC_OK) {
+        return PC_ERR_NOMEM;
+    }
+    yyjson_mut_val *root = yyjson_mut_obj(d);
+    yyjson_mut_doc_set_root(d, root);
+    uint32_t space = cs_space(doc->mode);
+    if (space != PC_CS_RGB && space != PC_CS_CMYK && space != PC_CS_GRAY) {
+        yyjson_mut_obj_add_str(d, root, "action", "kept");
+        return PC_OK;
+    }
+
+    /* An RGB file with no profile but an EXIF ColorSpace=sRGB tag opens as sRGB (as in Photoshop),
+     * unless Ignore EXIF Profile Tag is set. */
+    bool exif_srgb = false;
+    if (space == PC_CS_RGB && !ignore_exif && doc->icc_profile == NULL &&
+        doc->metadata.exif != NULL) {
+        uint16_t tag = 0;
+        if (pc_exif_color_space(pc_blob_data(doc->metadata.exif), pc_blob_len(doc->metadata.exif),
+                                &tag) &&
+            tag == PC_EXIF_COLOR_SPACE_SRGB) {
+            if (set_doc_profile(doc, pc_builtin_profile(PC_BUILTIN_SRGB), err) != PC_OK) {
+                pc_json_value_fini(report);
+                return PC_ERR_NOMEM;
+            }
+            exif_srgb = true;
+        }
+    }
+
+    pc_profile working;
+    if (color_working(&s->color, doc->mode, &working, err) != PC_OK) {
+        pc_json_value_fini(report);
+        return PC_ERR_NOMEM;
+    }
+    pc_color_policy policy = policy_for_mode(&s->color.settings, doc->mode);
+
+    /* The embedded profile, but only when it matches the document's colour space. */
+    pc_profile emb;
+    bool have_emb = false;
+    if (doc->icc_profile != NULL) {
+        if (pc_profile_parse(pc_blob_data(doc->icc_profile), pc_blob_len(doc->icc_profile), &emb,
+                             NULL) == PC_OK) {
+            if (emb.space == space) {
+                have_emb = true;
+            } else {
+                pc_profile_fini(&emb);
+            }
+        }
+    }
+
+    if (have_emb) {
+        bool mismatch = !pc_profile_same_colors(&emb, &working);
+        obj_add_desc(d, root, "embedded", &emb);
+        obj_add_desc(d, root, "working", &working);
+        yyjson_mut_obj_add_bool(d, root, "mismatch", mismatch);
+        yyjson_mut_obj_add_str(d, root, "policy", pc_color_policy_id(policy));
+        /* 32-bit documents stay in a linear version of the working space (EXR/HDR import tagged
+         * linear sRGB or linear gray). */
+        bool linear_hdr = doc->depth == PC_SAMPLE_TYPE_F32 &&
+                          (pc_profile_same_colors(&emb, pc_builtin_profile(PC_BUILTIN_LINEAR_SRGB)) ||
+                           pc_profile_same_colors(&emb, pc_builtin_linear_gray()));
+        if (!mismatch || linear_hdr) {
+            yyjson_mut_obj_add_str(d, root, "action", "kept");
+        } else {
+            /* An input-only profile can't be the document's space; Preserve converts it instead. */
+            bool input_only = !pc_profile_can_be_destination(&emb);
+            const char *action = "kept";
+            if (policy == PC_COLOR_POLICY_OFF) {
+                if (set_doc_profile(doc, NULL, err) != PC_OK) {
+                    pc_profile_fini(&emb);
+                    pc_profile_fini(&working);
+                    pc_json_value_fini(report);
+                    return PC_ERR_NOMEM;
+                }
+                action = "discarded";
+            } else if (policy == PC_COLOR_POLICY_PRESERVE && !input_only) {
+                action = "kept";
+            } else {
+                /* Preserve + input-only, or Convert: convert the pixels to the working space. */
+                pc_intent intent = pc_color_settings_intent(&s->color.settings);
+                if (pc_engine_convert_document(doc, &working, intent, s->color.settings.bpc, NULL) ==
+                    PC_OK) {
+                    action = "converted";
+                } else {
+                    action = "kept";
+                }
+            }
+            yyjson_mut_obj_add_str(d, root, "action", action);
+            yyjson_mut_obj_add_bool(d, root, "ask", s->color.settings.ask_on_mismatch);
+            if (input_only) {
+                yyjson_mut_obj_add_bool(d, root, "inputOnly", true);
+            }
+        }
+        pc_profile_fini(&emb);
+    } else {
+        /* Untagged: assume the working space; tag it when it is not the built-in default. */
+        const pc_profile *def = pc_engine_working_profile(doc->mode);
+        uint64_t wh = 0, dh = 0;
+        (void)pc_profile_content_hash(&working, &wh, NULL);
+        (void)pc_profile_content_hash(def, &dh, NULL);
+        bool assign = policy != PC_COLOR_POLICY_OFF && wh != dh;
+        if (assign) {
+            if (set_doc_profile(doc, &working, err) != PC_OK) {
+                pc_profile_fini(&working);
+                pc_json_value_fini(report);
+                return PC_ERR_NOMEM;
+            }
+        }
+        yyjson_mut_obj_add_str(d, root, "action", assign ? "assigned" : "untagged");
+        obj_add_desc(d, root, "working", &working);
+        yyjson_mut_obj_add_str(d, root, "policy", pc_color_policy_id(policy));
+        yyjson_mut_obj_add_bool(d, root, "ask", s->color.settings.ask_on_missing);
+        yyjson_mut_obj_add_bool(d, root, "missing", true);
+    }
+    if (exif_srgb) {
+        yyjson_mut_obj_add_bool(d, root, "exif", true);
+    }
+    pc_profile_fini(&working);
     return PC_OK;
 }
 

@@ -20,6 +20,7 @@ void pc_ui_move_constrain(const double delta[2], const double *previous, unsigne
 }
 
 #include "ui/shortcuts.h"
+#include "ui/hold_keys.h"
 #include "ui/tool_cursor.h"
 #include "engine/floating.h"
 #include <stdio.h>
@@ -29,7 +30,13 @@ pc_status pc_ui_move_key(pc_engine_session *session, const pc_ui_state *ui, pc_u
     if (!ui || ui->n_dialogs || ui->has_text_edit || ui->transform.active ||
         !pc_engine_session_active(session))
         return PC_ERR_NOT_FOUND;
-    bool temporary = (modifiers & (PC_UI_MOD_COMMAND | PC_UI_MOD_CTRL)) != 0;
+    bool cmd = (modifiers & (PC_UI_MOD_COMMAND | PC_UI_MOD_CTRL)) != 0;
+    bool selecting = pc_ui_is_selection_tool(ui->tool);
+    /* ⌘ acts as the temporary Move tool only where hold_keys::cmd_nudges allows it: a cmd_moves
+     * tool, the Move tool itself, or a selection tool that is not mid polygon/magnetic draw. From
+     * Pen/Hand/Zoom/Crop/path/type/shape tools ⌘-arrows must leave the layer alone (#2474). */
+    bool temporary = cmd && (pc_ui_cmd_moves(ui->tool) || ui->tool == PC_TOOL_MOVE || selecting) &&
+                     !(selecting && ui->lasso.active);
     bool move = ui->tool == PC_TOOL_MOVE || temporary;
     if ((move || pc_ui_is_selection_tool(ui->tool)) && pc_engine_floating_offset(session, NULL) &&
         (key == PC_KEY_ENTER || key == PC_KEY_ESCAPE))

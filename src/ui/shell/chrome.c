@@ -1,9 +1,13 @@
 #include "sampling_ui.h"
+#include "analysis_ui.h"
 #include "artboard_ui.h"
 #include "lasso_ui.h"
 #include "slice_ui.h"
 #include "transform_ui.h"
+#include "warp_ui.h"
 #include "crop_ui.h"
+#include "retouch_ui.h"
+#include "gradient_ui.h"
 #include "ui/i18n.h"
 #include "chrome.h"
 #include "jobs_ui.h"
@@ -247,10 +251,14 @@ void pc_ui_shell_options(pc_ui_shell_app *app, float width)
         pc_ui_shell_transform_options(app);
         return;
     }
+    if (pc_ui_shell_warp_options(app))
+        return;
     if (pc_ui_sampling_tool_kind(ui->tool)) {
         pc_ui_shell_sampling_options(app);
         return;
     }
+    if (pc_ui_shell_analysis_options(app))
+        return;
     if (ui->tool == PC_TOOL_ARTBOARD) {
         pc_ui_shell_artboard_options(app);
         return;
@@ -265,6 +273,14 @@ void pc_ui_shell_options(pc_ui_shell_app *app, float width)
     }
     if (pc_ui_lasso_tool(ui->tool)) {
         pc_ui_shell_lasso_options(app);
+        return;
+    }
+    if (pc_ui_retouch_tool(ui->tool)) {
+        pc_ui_shell_retouch_options(app);
+        return;
+    }
+    if (ui->tool == PC_TOOL_GRADIENT) {
+        pc_ui_shell_gradient_options(app);
         return;
     }
     pc_ui_tool_options *o = &ui->tool_options;

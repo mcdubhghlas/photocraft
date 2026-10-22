@@ -30,6 +30,7 @@
 #include "compose/pattern.h"
 #include "doc/doc.h"
 #include "doc/pattern.h"
+#include "ops/ops.h"
 #include "paint/brush.h"
 #include "paint/render.h"
 #include "paint/retouch.h"
@@ -43,6 +44,7 @@
 #include "fill_cmds.h"
 #include "pattern_cmds.h"
 #include "presets.h"
+#include "retouch_cmds.h"
 
 /* ---- small param helpers (retouch_cmds.rs num/flag/string/point) -------------------------- */
 

@@ -9,8 +9,10 @@
 #include "ui/state.h"
 #include "ui/view_cmds.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 static void test_catalog_shape(void)
 {
@@ -181,7 +183,7 @@ static void test_parity(void)
      * is a port in progress: its registered commands cover CURRENT_LIVE at this point, and this
      * guard rises toward PC_UI_PARITY_FLOOR as later engine/UI chunks register the remaining
      * commands. Never lower CURRENT_LIVE; raise it when coverage grows. */
-    enum { CURRENT_LIVE = 602 };
+    enum { CURRENT_LIVE = 612 };
     CHECK(p.total == 631);
     CHECK(p.live >= CURRENT_LIVE);
     CHECK(p.live <= PC_UI_PARITY_FLOOR);
@@ -215,6 +217,48 @@ static void test_parity(void)
     pc_ui_parity_free(&p);
 }
 
+/* pc_ui_parity_generate: the one-shot entry point photocraft-parity / tools/parity.sh use. */
+static void test_parity_generate(void)
+{
+    pc_error e = {0};
+    size_t live = 0, total = 0;
+
+    /* Writes the report to a file atomically and reports the counts. */
+    const char *tmpdir = getenv("TMPDIR");
+    char path[256];
+    snprintf(path, sizeof path, "%s/pc_paritygen.XXXXXX", (tmpdir && *tmpdir) ? tmpdir : "/tmp");
+    int fd = mkstemp(path);
+    CHECK(fd >= 0);
+    if (fd >= 0) {
+        close(fd);
+        CHECK(pc_ui_parity_generate(path, NULL, &live, &total, &e) == PC_OK);
+        CHECK(total > 500 && live > 0 && live <= total);
+        FILE *f = fopen(path, "r");
+        CHECK(f != NULL);
+        if (f) {
+            char head[64] = {0};
+            size_t n = fread(head, 1, sizeof head - 1, f);
+            head[n] = '\0';
+            fclose(f);
+            CHECK(strstr(head, "# Photoshop menu parity") == head);
+        }
+        remove(path);
+    }
+
+    /* Printing to a FILE* produces the same Markdown head. */
+    FILE *tmp = tmpfile();
+    CHECK(tmp != NULL);
+    if (tmp) {
+        CHECK(pc_ui_parity_generate(NULL, tmp, NULL, NULL, &e) == PC_OK);
+        rewind(tmp);
+        char buf[64] = {0};
+        size_t n = fread(buf, 1, sizeof buf - 1, tmp);
+        buf[n] = '\0';
+        fclose(tmp);
+        CHECK(strstr(buf, "# Photoshop menu parity") == buf);
+    }
+}
+
 int main(int argc, char **argv)
 {
     RUN(test_catalog_shape);
@@ -223,5 +267,6 @@ int main(int argc, char **argv)
     RUN(test_tool_select_ids);
     RUN(test_menu_items);
     RUN(test_parity);
+    RUN(test_parity_generate);
     return pc_t_finish();
 }

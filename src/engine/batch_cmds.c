@@ -1498,7 +1498,6 @@ static pc_status run_create_droplet(pc_engine_session *s, yyjson_val *p, pc_json
                                     pc_error *err)
 {
     const char *CMD = "file.automate.createDroplet";
-    (void)s;
     const char *path = bf_str(p, "path");
     if (path == NULL) {
         return pc_engine_err_bad_params(err, CMD, "missing \"path\" (where to save the droplet)");
@@ -1510,12 +1509,25 @@ static pc_status run_create_droplet(pc_engine_session *s, yyjson_val *p, pc_json
     if (steps_val == NULL) {
         return pc_engine_err_bad_params(err, CMD, "missing \"steps\" (the action to run)");
     }
+    /* A non-array "action"/"steps" is a reference to a recorded action (its index or its name): the
+     * selected Action from the panel. Resolve it to the action's steps. */
+    yyjson_doc *resolved = NULL;
+    const char *action_name = NULL;
+    if (!yyjson_is_arr(steps_val)) {
+        pc_status rr = pc_engine_action_steps_doc(s, steps_val, CMD, &resolved, &action_name, err);
+        if (rr != PC_OK) {
+            return rr;
+        }
+        steps_val = yyjson_doc_get_root(resolved);
+    }
     yyjson_mut_doc *md = yyjson_mut_doc_new(NULL);
     if (md == NULL) {
+        yyjson_doc_free(resolved);
         return pc_fail(err, PC_ERR_NOMEM, CMD);
     }
     yyjson_mut_val *steps = yyjson_mut_arr(md);
     pc_status rc = bf_collect_steps(md, steps, steps_val, CMD, err);
+    yyjson_doc_free(resolved);
     if (rc != PC_OK) {
         yyjson_mut_doc_free(md);
         return rc;
@@ -1557,6 +1569,9 @@ static pc_status run_create_droplet(pc_engine_session *s, yyjson_val *p, pc_json
     }
     char nbuf[256];
     const char *nm = bf_str(p, "name");
+    if (nm == NULL && action_name != NULL && action_name[0] != '\0') {
+        nm = action_name; /* name the droplet after the selected action */
+    }
     if (nm == NULL) {
         pc_engine_file_stem(dpath, nbuf, sizeof nbuf);
         nm = nbuf;

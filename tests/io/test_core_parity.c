@@ -834,7 +834,7 @@ static void test_raws(void)
             res_imp(&s, st, &r, &e, lossy);
             CHECK_RESULT(l->f[1], l->f[3], pc_buf_cstr(&s));
         } else {
-            pc_io_raw_tuning t;
+            pc_io_raw_tuning t = {0};
             uint32_t bits[3];
             bool applied = false;
             for (int k = 0; k < 3; k++) {

@@ -8,6 +8,10 @@ typedef struct pc_ui_brush_panel {
     bool has_preview, shown;
     uint8_t pixels[256 * 64 * 4];
     uint8_t key[32];
+    /* Brush Tip Shape angle/roundness widget drag: which handle a press grabbed, held across
+     * frames until the mouse is released. */
+    bool ellipse_dragging;
+    int ellipse_grab; /* pc_ui_ellipse_grab */
 } pc_ui_brush_panel;
 void pc_ui_brush_panel_fini(pc_ui_brush_panel *panel);
 void pc_ui_brush_panel_draw(pc_ui_shell_app *app, pc_ui_brush_panel *panel);

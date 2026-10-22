@@ -721,10 +721,106 @@ static pc_status patch_plan(pc_engine_session *s, yyjson_val *p, const char *cmd
     return PC_OK;
 }
 
-/* Heal `surf` at the selection (shifted by dst) with texture read `src` away (patch_surface,
- * step 1 = exact). *dmg = the damaged rectangle. */
+/* Seamless clone with the membrane solved `step` times coarser (patch::heal_region_coarse): the
+ * texture stays the full-resolution source; the smooth boundary correction is solved on a grid of
+ * step x step cells and interpolated back. step 1 is exactly heal_region. The Patch dialog's live
+ * preview uses this so a large patch costs about the same whatever its size. */
+static pc_status heal_region_coarse(pc_pixel_format fmt, const pc_paint_region *src,
+                                    const pc_paint_region *dst, const bool *mask, size_t step,
+                                    pc_paint_region *out, pc_error *err)
+{
+    if (step <= 1) {
+        return heal_region(fmt, src, dst, mask, out, err);
+    }
+    size_t w = pc_paint_region_width(dst), h = pc_paint_region_height(dst), n = dst->ch;
+    size_t cw = (w + step - 1) / step, chh = (h + step - 1) / step;
+    size_t ncells = cw * chh;
+    float *diff = calloc((ncells * n > 0 ? ncells * n : 1), sizeof(float));
+    bool *hole = malloc((ncells > 0 ? ncells : 1) * sizeof(bool));
+    uint32_t *count = calloc((ncells > 0 ? ncells : 1), sizeof(uint32_t));
+    if (diff == NULL || hole == NULL || count == NULL) {
+        free(diff);
+        free(hole);
+        free(count);
+        return pc_fail(err, PC_ERR_NOMEM, "patch preview");
+    }
+    for (size_t c = 0; c < ncells; c++) {
+        hole[c] = true;
+    }
+    for (size_t y = 0; y < h; y++) {
+        for (size_t x = 0; x < w; x++) {
+            size_t i = y * w + x;
+            if (mask[i]) {
+                continue;
+            }
+            size_t c = (y / step) * cw + x / step;
+            hole[c] = false;
+            count[c]++;
+            for (size_t k = 0; k < n; k++) {
+                diff[c * n + k] += dst->data[i * n + k] - src->data[i * n + k];
+            }
+        }
+    }
+    for (size_t c = 0; c < ncells; c++) {
+        if (count[c] > 0) {
+            for (size_t k = 0; k < n; k++) {
+                diff[c * n + k] /= (float)count[c];
+            }
+        }
+    }
+    float *membrane = NULL;
+    pc_status rc = pc_algo_poisson_membrane_fill(cw, chh, n, diff, ncells * n, hole, ncells, NULL,
+                                                 &membrane, err);
+    free(diff);
+    free(hole);
+    free(count);
+    if (rc != PC_OK) {
+        return rc;
+    }
+    rc = pc_paint_region_clone(dst, out, err);
+    if (rc != PC_OK) {
+        free(membrane);
+        return rc;
+    }
+    for (size_t y = 0; y < h; y++) {
+        /* lerp along y. */
+        float fy = ((float)y + 0.5f) / (float)step - 0.5f;
+        float maxy = chh > 0 ? (float)(chh - 1) : 0.0f;
+        fy = fy < 0.0f ? 0.0f : (fy > maxy ? maxy : fy);
+        size_t y0 = (size_t)floorf(fy);
+        size_t y1 = (y0 + 1 < chh) ? y0 + 1 : (chh > 0 ? chh - 1 : 0);
+        float ty = fy - (float)y0;
+        for (size_t x = 0; x < w; x++) {
+            size_t i = y * w + x;
+            if (!mask[i]) {
+                continue;
+            }
+            float fx = ((float)x + 0.5f) / (float)step - 0.5f;
+            float maxx = cw > 0 ? (float)(cw - 1) : 0.0f;
+            fx = fx < 0.0f ? 0.0f : (fx > maxx ? maxx : fx);
+            size_t x0 = (size_t)floorf(fx);
+            size_t x1 = (x0 + 1 < cw) ? x0 + 1 : (cw > 0 ? cw - 1 : 0);
+            float tx = fx - (float)x0;
+            for (size_t k = 0; k < n; k++) {
+                float v00 = membrane[(y0 * cw + x0) * n + k];
+                float v10 = membrane[(y0 * cw + x1) * n + k];
+                float v01 = membrane[(y1 * cw + x0) * n + k];
+                float v11 = membrane[(y1 * cw + x1) * n + k];
+                float m = (v00 * (1.0f - tx) + v10 * tx) * (1.0f - ty) +
+                          (v01 * (1.0f - tx) + v11 * tx) * ty;
+                out->data[i * n + k] = src->data[i * n + k] + m;
+            }
+        }
+    }
+    free(membrane);
+    clamp_samples(fmt, out->data, out->len);
+    return PC_OK;
+}
+
+/* Heal `surf` at the selection (shifted by dst) with texture read `src` away (patch_surface);
+ * the membrane is solved `step` times coarser (1 = exact). *dmg = the damaged rectangle. */
 static pc_status patch_surface(pc_surface *surf, const pc_surface *sel, const struct patch_plan *pl, bool lock,
-                               pc_rect *dmg, pc_error *err)
+                               size_t step, pc_rect *dmg, pc_error *err)
 {
     pc_rect dst_area = pc_rect_translate(pl->area, pl->dst_dx, pl->dst_dy);
     pc_rect g = pc_rect_intersect(pc_rect_intersect(pc_rect_inflate(dst_area, 2), pl->canvas),
@@ -764,7 +860,7 @@ static pc_status patch_surface(pc_surface *surf, const pc_surface *sel, const st
         mask[i] = cov[i] > 0.0f;
     }
     pc_paint_region healed = {0};
-    rc = heal_region(fmt, &src, &dst, mask, &healed, err);
+    rc = heal_region_coarse(fmt, &src, &dst, mask, step, &healed, err);
     free(mask);
     pc_paint_region_fini(&dst);
     pc_paint_region_fini(&src);
@@ -790,7 +886,69 @@ static pc_status patch_work_fn(void *tool, const pc_document *pre, pc_surface *s
     if (sel == NULL) {
         return pc_engine_err_bad_params(err, "paint.patch", "select the area to patch first");
     }
-    return patch_surface(surf, sel, c->pl, lock, dmg, err);
+    return patch_surface(surf, sel, c->pl, lock, 1, dmg, err);
+}
+
+/* Patch live-heal preview (patch::preview): the active document as paint.patch with `p` would leave
+ * it, with no history step, plus the rectangle it changed. For large patches the membrane is solved
+ * coarser (max_cells caps the coarse grid, min_step floors the coarsening to the view's zoom-out),
+ * so the preview costs about the same whatever the selection's size. *out_doc is an owned doc arc
+ * (pc_doc_arc_release). Engine-internal, used by the Patch Tool UI. */
+pc_status pc_engine_patch_preview(pc_engine_session *s, yyjson_val *p, uint64_t max_cells,
+                                  uint32_t min_step, pc_doc_arc **out_doc, pc_rect *out_dmg, pc_error *err)
+{
+    *out_doc = NULL;
+    *out_dmg = PC_RECT_EMPTY;
+    struct patch_plan pl = {0};
+    pc_status rc = patch_plan(s, p, "paint.patch", &pl, err);
+    if (rc != PC_OK) {
+        return rc;
+    }
+    uint64_t pw = (uint64_t)(pc_rect_width(pl.area) + 4), ph = (uint64_t)(pc_rect_height(pl.area) + 4);
+    uint64_t pixels = pw * ph;
+    double need = ceil(sqrt((double)pixels / (double)(max_cells > 0 ? max_cells : 1)));
+    size_t step = (size_t)(need > 1.0 ? need : 1.0);
+    if (step < (size_t)min_step) {
+        step = (size_t)min_step;
+    }
+    if (step < 1) {
+        step = 1;
+    }
+    if (step > 64) {
+        step = 64;
+    }
+    const pc_engine_doc_state *d = pc_engine_session_active(s);
+    if (d == NULL) {
+        return pc_engine_err_no_document(err);
+    }
+    pc_document work;
+    if ((rc = pc_document_clone(pc_doc_arc_get(d->doc), &work, err)) != PC_OK) {
+        return rc;
+    }
+    if (!work.has_selection) {
+        pc_document_fini(&work);
+        return pc_engine_err_bad_params(err, "paint.patch", "select the area to patch first");
+    }
+    pc_surface *surf = NULL;
+    bool lock = false;
+    rc = pc_engine_target_surface(&work, pl.has_layer, pl.layer, p, &surf, &lock, err);
+    if (rc != PC_OK) {
+        pc_document_fini(&work);
+        return rc;
+    }
+    pc_rect dmg = PC_RECT_EMPTY;
+    rc = patch_surface(surf, &work.selection, &pl, lock, step, &dmg, err);
+    if (rc != PC_OK) {
+        pc_document_fini(&work);
+        return rc;
+    }
+    rc = pc_doc_arc_new(&work, out_doc, err);
+    if (rc != PC_OK) {
+        pc_document_fini(&work);
+        return rc;
+    }
+    *out_dmg = dmg;
+    return PC_OK;
 }
 
 /* Patch: Content-Aware (patch_content_aware): the selection is filled from where it was dragged.

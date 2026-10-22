@@ -1,9 +1,54 @@
 #include "ui/i18n.h"
 #include "adjust_controls.h"
 #include "shell_internal.h"
+#include "ui/widgets.h"
+#include "ui/channel_mixer.h"
+#include "ui/hue_spectrum.h"
+#include "ui/level_auto.h"
+#include "ui/filter_dialog.h"
+#include "engine/adjust_params.h"
+#include "compose/adjust.h"
+#include "base/json.h"
+#include "base/buf.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+/* The live adjusted-spectrum bar under the Hue/Saturation editor (A38): the full-saturation hue
+ * ribbon run through the dialog's current Hue/Saturation adjustment (master + per-range + Colorize)
+ * on a small sRGB RGBA8 strip, so the user sees how the edit remaps every hue. Falls back to the
+ * unadjusted input ribbon on any error (never blank, never crashes). */
+#define PC_HUE_SPECTRUM_SAMPLES 72
+static void hue_adjusted_bar(pc_ui_shell_app *app, yyjson_mut_val *root)
+{
+    struct nk_context *ctx = pc_ui_shell_app_nk(app);
+    struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
+    uint8_t strip[PC_HUE_SPECTRUM_SAMPLES * 4];
+    pc_ui_hue_spectrum_fill(strip, PC_HUE_SPECTRUM_SAMPLES);
+    pc_buf json = PC_BUF_INIT;
+    yyjson_doc *parsed = NULL;
+    pc_adjustment adj;
+    memset(&adj, 0, sizeof adj);
+    pc_error err = {0};
+    bool built = pc_ui_filter_dialog_params(root, &json, &err) == PC_OK &&
+                 pc_json_parse(pc_buf_cstr(&json), json.len, &parsed, &err) == PC_OK &&
+                 pc_engine_adjustment_from_params("hueSaturation", yyjson_doc_get_root(parsed), NULL,
+                                                  PC_COLOR_MODE_RGB, &adj, &err) == PC_OK;
+    if (built)
+        (void)pc_compose_adjust_apply_rgba8(&adj, strip, PC_HUE_SPECTRUM_SAMPLES, 1, &err);
+    if (built)
+        pc_adjustment_fini(&adj);
+    yyjson_doc_free(parsed);
+    pc_buf_fini(&json);
+    nk_layout_row_dynamic(ctx, 18, 1);
+    struct nk_rect bar;
+    if (nk_widget(&bar, ctx) == NK_WIDGET_INVALID)
+        return;
+    for (size_t i = 0; i < PC_HUE_SPECTRUM_SAMPLES; i++)
+        nk_fill_rect(canvas,
+                     nk_rect(bar.x + (float)i / PC_HUE_SPECTRUM_SAMPLES * bar.w, bar.y,
+                             fmaxf(1, bar.w / PC_HUE_SPECTRUM_SAMPLES), bar.h),
+                     0, nk_rgb(strip[i * 4], strip[i * 4 + 1], strip[i * 4 + 2]));
+}
 static void put(pc_ui_dialog *dialog, yyjson_mut_val *o, const char *key, yyjson_mut_val *value)
 {
     yyjson_mut_val *name = yyjson_mut_strcpy(dialog->fields, key);
@@ -117,6 +162,21 @@ static void mixer(pc_ui_shell_app *app, pc_ui_dialog_runtime *r, pc_ui_dialog *d
     } else
         defaults[r->adjustment_range] = 100;
     array_editor(app, dialog, mono ? "gray" : keys[r->adjustment_range], sliders, 4, defaults, -200, 200);
+    /* Total %: the sum of this output channel's three source weights, warning past 100% (clips). */
+    yyjson_mut_val *outrow = yyjson_mut_obj_get(root, mono ? "gray" : keys[r->adjustment_range]);
+    double rgbw[3];
+    for (size_t i = 0; i < 3; i++) {
+        yyjson_mut_val *vv = yyjson_mut_arr_get(outrow, i);
+        rgbw[i] = yyjson_mut_is_num(vv) && isfinite(yyjson_mut_get_num(vv)) ? yyjson_mut_get_num(vv)
+                                                                            : defaults[i];
+    }
+    double total = pc_ui_channel_mixer_total(rgbw[0], rgbw[1], rgbw[2]);
+    const pc_ui_tokens *tokens = pc_ui_shell_app_tokens(app);
+    char total_label[80];
+    (void)snprintf(total_label, sizeof total_label, "%s %+.0f%%", pc_i18n_t("Total:"), total);
+    nk_layout_row_dynamic(ctx, 22, 1);
+    nk_label_colored(ctx, total_label, NK_TEXT_LEFT,
+                     pc_ui_nk_color(pc_ui_channel_mixer_overload(total) ? tokens->warning : tokens->text));
 }
 static void hue(pc_ui_shell_app *app, pc_ui_dialog_runtime *r, pc_ui_dialog *dialog)
 {
@@ -129,6 +189,17 @@ static void hue(pc_ui_shell_app *app, pc_ui_dialog_runtime *r, pc_ui_dialog *dia
     if ((next != 0) != colorize) {
         colorize = next != 0;
         put(dialog, root, "colorize", yyjson_mut_bool(dialog->fields, colorize));
+        /* Colorize wraps hue into 0..360 and nudges a flat image to a visible tint (sat >= 25). */
+        double hue_v = value(root, "hue", 0);
+        if (colorize) {
+            double h = fmod(hue_v, 360);
+            if (h < 0)
+                h += 360;
+            put(dialog, root, "hue", yyjson_mut_real(dialog->fields, h));
+            put(dialog, root, "saturation",
+                yyjson_mut_real(dialog->fields, pc_ui_hue_colorize_saturation(value(root, "saturation", 25))));
+        } else if (hue_v > 180)
+            put(dialog, root, "hue", yyjson_mut_real(dialog->fields, hue_v - 360));
     }
     const char *labels[] = {"Master", "Reds", "Yellows", "Greens", "Cyans", "Blues", "Magentas"};
     const char *keys[] = {"", "reds", "yellows", "greens", "cyans", "blues", "magentas"};
@@ -164,6 +235,19 @@ static void hue(pc_ui_shell_app *app, pc_ui_dialog_runtime *r, pc_ui_dialog *dia
                 put(dialog, root, key, o);
         }
     }
+    /* Input hue spectrum bar (all hues at full saturation); the range band overlays it. */
+    const pc_ui_tokens *tokens = pc_ui_shell_app_tokens(app);
+    struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
+    nk_layout_row_dynamic(ctx, 18, 1);
+    struct nk_rect spectrum;
+    enum nk_widget_layout_states slayout = nk_widget(&spectrum, ctx);
+    for (size_t i = 0; i < 72; i++) {
+        float rgb[3];
+        pc_ui_hue_color((double)i / 72 * 360, rgb);
+        nk_fill_rect(canvas, nk_rect(spectrum.x + (float)i / 72 * spectrum.w, spectrum.y,
+                                     fmaxf(1, spectrum.w / 72), spectrum.h),
+                     0, nk_rgb_f(rgb[0], rgb[1], rgb[2]));
+    }
     if (!master) {
         target = yyjson_mut_obj_get(root, key);
         yyjson_mut_val *range = yyjson_mut_obj_get(target, "range");
@@ -176,6 +260,57 @@ static void hue(pc_ui_shell_app *app, pc_ui_dialog_runtime *r, pc_ui_dialog *dia
             yyjson_mut_val *v = yyjson_mut_arr_get(range, i);
             boundaries[i] = yyjson_mut_is_num(v) && isfinite(yyjson_mut_get_num(v)) ? yyjson_mut_get_num(v)
                                                                                     : center + offsets[i];
+        }
+        /* Draggable range band over the spectrum: outer fall-off, inner full-strength, 4 handles. */
+        float xof[4];
+        for (size_t i = 0; i < 4; i++) {
+            double deg = fmod(boundaries[i], 360);
+            if (deg < 0)
+                deg += 360;
+            xof[i] = spectrum.x + (float)(deg / 360) * spectrum.w;
+        }
+        float mid = spectrum.y + spectrum.h / 2;
+        nk_fill_rect(canvas, nk_rect(fminf(xof[0], xof[3]), mid - 3, fabsf(xof[3] - xof[0]), 6), 0,
+                     pc_ui_nk_color(tokens->text_faint));
+        nk_fill_rect(canvas, nk_rect(fminf(xof[1], xof[2]), mid - 3, fabsf(xof[2] - xof[1]), 6), 0,
+                     pc_ui_nk_color(tokens->text_dim));
+        for (size_t i = 0; i < 4; i++)
+            nk_fill_rect(canvas, nk_rect(xof[i] - 2, mid - 6, 5, 12), 1,
+                         pc_ui_nk_color(i == 1 || i == 2 ? tokens->text : tokens->field));
+        const struct nk_mouse_button *left = &ctx->input.mouse.buttons[NK_BUTTON_LEFT];
+        double xd[4] = {xof[0], xof[1], xof[2], xof[3]};
+        if (slayout != NK_WIDGET_INVALID && left->clicked && !r->hue_dragging &&
+            left->clicked_pos.y >= spectrum.y - 2 && left->clicked_pos.y <= spectrum.y + spectrum.h + 2 &&
+            left->clicked_pos.x >= spectrum.x - 8 && left->clicked_pos.x <= spectrum.x + spectrum.w + 8) {
+            size_t h = pc_ui_slider_nearest(xd, 4, left->clicked_pos.x);
+            if (h != SIZE_MAX && fabs(xd[h] - left->clicked_pos.x) < 12) {
+                r->hue_handle = h;
+                r->hue_dragging = true;
+            }
+        }
+        if (r->hue_dragging && r->hue_handle < 4) {
+            size_t h = r->hue_handle;
+            double deg = (ctx->input.mouse.pos.x - spectrum.x) / spectrum.w * 360;
+            if (deg < 0)
+                deg = 0;
+            else if (deg > 360)
+                deg = 360;
+            /* Keep the dragged handle near its old value across the 0/360 wrap. */
+            while (deg - boundaries[h] > 180)
+                deg -= 360;
+            while (boundaries[h] - deg > 180)
+                deg += 360;
+            double lo = h ? boundaries[h - 1] : -360, hi = h + 1 < 4 ? boundaries[h + 1] : 720;
+            if (deg < lo)
+                deg = lo;
+            else if (deg > hi)
+                deg = hi;
+            if (deg != boundaries[h]) {
+                boundaries[h] = deg;
+                moved = true;
+            }
+            if (!left->down)
+                r->hue_dragging = false;
         }
         for (size_t i = 0; i < 4; i++) {
             char id[128];
@@ -197,6 +332,7 @@ static void hue(pc_ui_shell_app *app, pc_ui_dialog_runtime *r, pc_ui_dialog *dia
             }
         }
     }
+    hue_adjusted_bar(app, root);
 }
 static void selective(pc_ui_shell_app *app, pc_ui_dialog_runtime *r, pc_ui_dialog *dialog)
 {

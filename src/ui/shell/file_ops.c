@@ -1,4 +1,5 @@
 #include "shell_internal.h"
+#include "profile_mismatch_ui.h"
 #include "engine/file_ui.h"
 #include "engine/prefs.h"
 #include "ui/recent.h"
@@ -36,5 +37,15 @@ pc_status pc_ui_shell_file_execute(pc_ui_shell_app *app, const char *command, yy
     }
     if (result == PC_OK)
         pc_ui_shell_result_warnings(app, command, out);
+    /* Edit › Color Settings open policy can ask what to do about an embedded-profile mismatch or a
+     * missing profile: file.openAs reports it in `color`, and the shell raises the prompt. */
+    if (result == PC_OK && (!strcmp(command, "file.open") || !strcmp(command, "file.openAs"))) {
+        yyjson_mut_val *root = pc_json_value_root(out);
+        yyjson_mut_val *color = root ? yyjson_mut_obj_get(root, "color") : NULL;
+        if (color) {
+            pc_error ignored = {0};
+            (void)pc_ui_shell_profile_mismatch_maybe_open(app, color, &ignored);
+        }
+    }
     return result;
 }

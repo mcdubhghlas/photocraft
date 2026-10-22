@@ -140,6 +140,243 @@ done:
     return st;
 }
 
+/* 3x3 box blur (clamped at the edges); out != px, both w*h (grabcut.rs box3). */
+static void box3(const float (*px)[3], size_t w, size_t h, float (*out)[3])
+{
+    for (size_t y = 0; y < h; y++) {
+        size_t y0 = y > 0 ? y - 1 : 0, y1 = (y + 2 < h) ? y + 2 : h;
+        for (size_t x = 0; x < w; x++) {
+            size_t x0 = x > 0 ? x - 1 : 0, x1 = (x + 2 < w) ? x + 2 : w;
+            float acc0 = 0.0f, acc1 = 0.0f, acc2 = 0.0f, n = 0.0f;
+            for (size_t yy = y0; yy < y1; yy++) {
+                for (size_t xx = x0; xx < x1; xx++) {
+                    const float *p = px[yy * w + xx];
+                    acc0 += p[0];
+                    acc1 += p[1];
+                    acc2 += p[2];
+                    n += 1.0f;
+                }
+            }
+            float inv = n > 0.0f ? 1.0f / n : 1.0f;
+            out[y * w + x][0] = acc0 * inv;
+            out[y * w + x][1] = acc1 * inv;
+            out[y * w + x][2] = acc2 * inv;
+        }
+    }
+}
+
+static float lab_dist(const float a[3], const float b[3])
+{
+    float dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
+    return sqrtf(dx * dx + dy * dy + dz * dz);
+}
+
+/* Region growing (4-connected) from (sx, sy) over pixels of similar CIELAB colour, bounded by the
+ * distance to the seed area's running mean and by the local edge step (grabcut.rs grow_similar).
+ * out: caller buffer of w*h bools. */
+static pc_status grow_similar(const float (*lab)[3], size_t w, size_t h, size_t sx, size_t sy, bool *out,
+                              pc_error *err)
+{
+    const float MEAN_DIST = 32.0f, EDGE_STEP = 10.0f;
+    size_t n = w * h;
+    memset(out, 0, n * sizeof(bool));
+    size_t seed = sy * w + sx;
+    if (seed >= n) {
+        return PC_OK;
+    }
+    size_t *stack = pc_malloc_array(n > 0 ? n : 1, sizeof *stack);
+    if (stack == NULL) {
+        return pc_fail(err, PC_ERR_NOMEM, "out of memory for the Object Finder");
+    }
+    double sum[3] = {(double)lab[seed][0], (double)lab[seed][1], (double)lab[seed][2]};
+    double cnt = 1.0;
+    size_t sp = 0;
+    stack[sp++] = seed;
+    out[seed] = true;
+    while (sp > 0) {
+        size_t i = stack[--sp];
+        size_t x = i % w, y = i / w;
+        const float *c = lab[i];
+        float mean[3] = {(float)(sum[0] / cnt), (float)(sum[1] / cnt), (float)(sum[2] / cnt)};
+        size_t nxs[4] = {x - 1, x + 1, x, x};
+        size_t nys[4] = {y, y, y - 1, y + 1};
+        for (int k = 0; k < 4; k++) {
+            size_t nx = nxs[k], ny = nys[k];
+            if (nx >= w || ny >= h) {
+                continue;
+            }
+            size_t j = ny * w + nx;
+            if (out[j]) {
+                continue;
+            }
+            const float *q = lab[j];
+            if (lab_dist(q, c) <= EDGE_STEP && lab_dist(q, mean) <= MEAN_DIST) {
+                out[j] = true;
+                sum[0] += (double)q[0];
+                sum[1] += (double)q[1];
+                sum[2] += (double)q[2];
+                cnt += 1.0;
+                stack[sp++] = j;
+            }
+        }
+    }
+    free(stack);
+    return PC_OK;
+}
+
+pc_status pc_algo_grabcut_object_at(const pc_algo_sampler *s, pc_rect canvas, float x, float y,
+                                    size_t work_px, pc_algo_region *out, pc_error *err)
+{
+    pc_algo_rgb_image img = {0, 0, NULL};
+    float (*lab)[3] = NULL, (*tmp)[3] = NULL;
+    bool *grown = NULL, *low = NULL, *seeds = NULL, *kept = NULL, *clean = NULL;
+    uint8_t *trimap = NULL;
+    pc_algo_gmm fg = {NULL, 0, 0.0f}, bg = {NULL, 0, 0.0f};
+    pc_status st = PC_OK;
+    out->bbox = PC_RECT_EMPTY;
+    out->mask = NULL;
+    out->len = 0;
+    if (pc_rect_width(canvas) < 4 || pc_rect_height(canvas) < 4 || !isfinite(x) || !isfinite(y)) {
+        return PC_OK;
+    }
+    int32_t ipx = (int32_t)floorf(x), ipy = (int32_t)floorf(y);
+    if (!pc_rect_contains(canvas, ipx, ipy)) {
+        return PC_OK;
+    }
+    size_t budget = work_px > 1024 ? work_px : 1024;
+    size_t step = pc_algo_segment_scale_for(canvas, budget);
+    st = pc_algo_sampler_rgb_scaled(s, canvas, step, &img, err);
+    if (st != PC_OK) {
+        return st;
+    }
+    size_t w = img.w, h = img.h, n = w * h;
+    if (w < 2 || h < 2) {
+        goto done;
+    }
+    lab = pc_malloc_array(n, sizeof *lab);
+    tmp = pc_malloc_array(n, sizeof *tmp);
+    grown = pc_malloc_array(n, sizeof(bool));
+    low = pc_malloc_array(n, sizeof(bool));
+    seeds = pc_malloc_array(n, sizeof(bool));
+    kept = pc_malloc_array(n, sizeof(bool));
+    clean = pc_malloc_array(n, sizeof(bool));
+    trimap = pc_malloc_array(n, 1);
+    if (lab == NULL || tmp == NULL || grown == NULL || low == NULL || seeds == NULL || kept == NULL ||
+        clean == NULL || trimap == NULL) {
+        st = pc_fail(err, PC_ERR_NOMEM, "out of memory for the Object Finder");
+        goto done;
+    }
+    /* Lightly smoothed (two box blurs), so noise and texture don't stop the growth; edges survive. */
+    box3((const float (*)[3])img.px, w, h, tmp);
+    box3((const float (*)[3])tmp, w, h, lab); /* lab holds the twice-blurred RGB for now */
+    for (size_t i = 0; i < n; i++) {
+        float rgb[3] = {lab[i][0], lab[i][1], lab[i][2]};
+        pc_algo_slic_rgb_to_lab(rgb, lab[i]);
+    }
+    size_t sx = (size_t)((ipx - canvas.x0)) / step;
+    size_t sy = (size_t)((ipy - canvas.y0)) / step;
+    if (sx > w - 1) {
+        sx = w - 1;
+    }
+    if (sy > h - 1) {
+        sy = h - 1;
+    }
+    st = grow_similar((const float (*)[3])lab, w, h, sx, sy, grown, err);
+    if (st != PC_OK) {
+        goto done;
+    }
+    size_t count = 0;
+    for (size_t i = 0; i < n; i++) {
+        count += grown[i] ? 1u : 0u;
+    }
+    /* Background (or a flat image): no single object under the cursor. */
+    if (count * 10 > n * 6 || count < 4) {
+        goto done;
+    }
+    size_t gx0 = w, gy0 = h, gx1 = 0, gy1 = 0;
+    for (size_t i = 0; i < n; i++) {
+        if (grown[i]) {
+            size_t gx = i % w, gy = i / w;
+            if (gx < gx0) gx0 = gx;
+            if (gy < gy0) gy0 = gy;
+            if (gx + 1 > gx1) gx1 = gx + 1;
+            if (gy + 1 > gy1) gy1 = gy + 1;
+        }
+    }
+    size_t spanx = gx1 - gx0, spany = gy1 - gy0;
+    size_t pad = (spanx > spany ? spanx : spany) / 6;
+    if (pad < 2) {
+        pad = 2;
+    }
+    size_t bx0 = gx0 > pad ? gx0 - pad : 0, by0 = gy0 > pad ? gy0 - pad : 0;
+    size_t bx1 = (gx1 + pad < w) ? gx1 + pad : w, by1 = (gy1 + pad < h) ? gy1 + pad : h;
+    bool any_bg = false;
+    for (size_t yy = 0; yy < h; yy++) {
+        for (size_t xx = 0; xx < w; xx++) {
+            size_t i = yy * w + xx;
+            bool inside = xx >= bx0 && xx < bx1 && yy >= by0 && yy < by1;
+            if (grown[i]) {
+                trimap[i] = PC_ALGO_GRABCUT_PR_FG;
+            } else if (inside) {
+                trimap[i] = PC_ALGO_GRABCUT_PR_BG;
+            } else {
+                trimap[i] = PC_ALGO_GRABCUT_BG;
+                any_bg = true;
+            }
+        }
+    }
+    if (!any_bg) {
+        /* The box is the whole canvas: the frame is background. */
+        for (size_t yy = 0; yy < h; yy++) {
+            for (size_t xx = 0; xx < w; xx++) {
+                if ((xx == 0 || yy == 0 || xx + 1 == w || yy + 1 == h) && !(xx == sx && yy == sy)) {
+                    trimap[yy * w + xx] = PC_ALGO_GRABCUT_BG;
+                }
+            }
+        }
+    }
+    trimap[sy * w + sx] = PC_ALGO_GRABCUT_FG;
+    bool some = false;
+    st = pc_algo_grabcut(&img, trimap, 5, &fg, &bg, &some, err);
+    if (st != PC_OK || !some) {
+        goto done;
+    }
+    for (size_t i = 0; i < n; i++) {
+        low[i] = is_fg(trimap[i]);
+        seeds[i] = false;
+    }
+    seeds[sy * w + sx] = true;
+    st = pc_algo_segment_keep_seeded(low, seeds, w, h, kept, err);
+    if (st != PC_OK) {
+        goto done;
+    }
+    st = pc_algo_segment_clean_mask(kept, w, h, 0.1f, 0.01f, clean, err);
+    if (st != PC_OK) {
+        goto done;
+    }
+    bool any = false;
+    for (size_t i = 0; i < n; i++) {
+        any = any || clean[i];
+    }
+    if (!any) {
+        goto done;
+    }
+    st = pc_algo_segment_finish_region(s, canvas, step, clean, w, h, &fg, &bg, out, err);
+done:
+    pc_algo_gmm_fini(&fg);
+    pc_algo_gmm_fini(&bg);
+    pc_algo_rgb_image_fini(&img);
+    free(lab);
+    free(tmp);
+    free(grown);
+    free(low);
+    free(seeds);
+    free(kept);
+    free(clean);
+    free(trimap);
+    return st;
+}
+
 pc_status pc_algo_grabcut_object_select(const pc_algo_sampler *s, pc_rect canvas, pc_rect rect,
                                         size_t work_px, pc_algo_region *out, pc_error *err)
 {

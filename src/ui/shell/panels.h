@@ -45,6 +45,10 @@ typedef struct pc_ui_panel_runtime {
     } drag;
     bool snapshot_selected;
     uint64_t snapshot;
+    struct {
+        char gradient[128]; /* selected gradient preset name (Gradients panel) */
+        char pattern[128];  /* selected pattern id (Patterns panel) */
+    } preset;
 } pc_ui_panel_runtime;
 void pc_ui_shell_panel_hit(pc_ui_shell_app *app, pc_ui_panel_runtime *runtime, const char *command,
                            pc_layer_id layer);

@@ -61,8 +61,14 @@ pc_status pc_ui_channel_cache_update_overlay(pc_ui_channel_cache *c, const pc_en
                       (!extra || (c->extra_key == overlay->key && c->extra_opacity == overlay->opacity &&
                                   !memcmp(c->extra_color, overlay->color, sizeof c->extra_color)));
     uint64_t key = pc_engine_channel_display_key(st);
-    if (c->valid && c->document == doc->id && c->key == key && c->source_generation == source->generation &&
-        c->in_color == in_color && same_extra) {
+    uint64_t view_tag =
+        (st->has_layer_mask_view ? UINT64_C(1) : 0) ^
+        ((uint64_t)st->layer_mask_view_mode * UINT64_C(0x9E3779B97F4A7C15)) ^
+        ((uint64_t)st->layer_mask_view_layer * UINT64_C(0xC2B2AE3D27D4EB4F)) ^
+        (uint64_t)(doc->has_quick_mask ? (pc_engine_channel_quick_mask_hidden(st) ? 2u : 3u) : 0u)
+            * UINT64_C(0xD6E8FEB86659FD93);
+    if (c->valid && c->document == doc->id && c->key == key && c->view_tag == view_tag &&
+        c->source_generation == source->generation && c->in_color == in_color && same_extra) {
         return PC_OK;
     }
     size_t colors = pc_engine_color_count(doc), visible = pc_engine_channel_visible_colors(st, colors);
@@ -218,6 +224,7 @@ pc_status pc_ui_channel_cache_update_overlay(pc_ui_channel_cache *c, const pc_en
         c->extra_opacity = overlay->opacity;
     }
     c->key = key;
+    c->view_tag = view_tag;
     c->source_generation = source->generation;
     c->generation++;
     c->valid = true;

@@ -837,8 +837,9 @@ static pc_status run_save_a_copy(pc_engine_session *s, yyjson_val *p, pc_json_va
 }
 
 /* Open As: read `path`, decode it as `as` (when given) by swapping the extension, add it as a new
- * active document. Color-management open policy (preserve/convert on profile mismatch) is deferred
- * to an E8 follow-up; the report is {"action":"opened"}. */
+ * active document. The Color Settings open policy (preserve / convert / discard / assign on a
+ * profile mismatch) is applied by pc_engine_color_open_policy and reported in the `color` field
+ * (an Embedded Profile Mismatch report the UI prompts on and color.profileMismatch resolves). */
 static pc_status run_open_as(pc_engine_session *s, yyjson_val *p, pc_json_value *out, pc_error *err)
 {
     const char *path = NULL;
@@ -888,11 +889,23 @@ static pc_status run_open_as(pc_engine_session *s, yyjson_val *p, pc_json_value 
     pc_document doc = r.document; /* move */
     bool read_only = r.source_read_only;
     pc_io_warnings warnings = r.warnings; /* move */
+    /* Apply the Color Settings open policy (preserve / convert / discard / assign) and build the
+     * Embedded Profile Mismatch report before the document joins the session. */
+    bool ignore_exif = fc_pref_bool(s, "fileHandling.ignoreExifProfileTag", false);
+    pc_json_value color_report = PC_JSON_VALUE_INIT;
+    rc = pc_engine_color_open_policy(s, &doc, ignore_exif, &color_report, err);
+    if (rc != PC_OK) {
+        pc_document_fini(&doc);
+        pc_io_warnings_fini(&warnings);
+        pc_json_value_fini(&color_report);
+        return rc;
+    }
     size_t index = 0;
     rc = pc_engine_session_add_document(s, &doc, read_only ? NULL : path, &index, err);
     if (rc != PC_OK) {
         pc_document_fini(&doc);
         pc_io_warnings_fini(&warnings);
+        pc_json_value_fini(&color_report);
         return rc;
     }
     pc_engine_doc_state *st = pc_engine_session_active_mut(s);
@@ -904,12 +917,14 @@ static pc_status run_open_as(pc_engine_session *s, yyjson_val *p, pc_json_value 
     rc = fc_result_obj(out, &jd, &root, err);
     if (rc != PC_OK) {
         pc_io_warnings_fini(&warnings);
+        pc_json_value_fini(&color_report);
         return rc;
     }
     yyjson_mut_obj_add_uint(jd, root, "document", index);
-    yyjson_mut_val *color = yyjson_mut_obj(jd);
-    yyjson_mut_obj_add_str(jd, color, "action", "opened");
-    yyjson_mut_obj_add_val(jd, root, "color", color);
+    yyjson_mut_val *rep = pc_json_value_root(&color_report);
+    yyjson_mut_obj_add_val(jd, root, "color",
+                           rep != NULL ? yyjson_mut_val_mut_copy(jd, rep) : yyjson_mut_obj(jd));
+    pc_json_value_fini(&color_report);
     yyjson_mut_obj_add_val(jd, root, "warnings", fc_warnings_json(jd, &warnings));
     pc_io_warnings_fini(&warnings);
     return PC_OK;

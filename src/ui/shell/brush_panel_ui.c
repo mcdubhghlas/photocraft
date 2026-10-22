@@ -3,9 +3,12 @@
 #include "shell_internal.h"
 #include "filter_ui.h"
 #include "ui/brush_settings.h"
+#include "ui/brush_tip.h"
 #include "ui/i18n.h"
 #include "ui/widgets.h"
 #include "paint/render.h"
+#include "paint/json.h"
+#include "paint/procedural.h"
 #include "engine/prefs.h"
 #include <blake3.h>
 #include <math.h>
@@ -189,6 +192,441 @@ static void fields(pc_ui_shell_app *app, pc_ui_brush_panel *panel, yyjson_mut_do
         }
     }
 }
+/* ---- Brush Tip Shape / Texture / Dual Brush bespoke panes (port of brush_sections.rs) ---- */
+
+static float clamp_f(float v, float lo, float hi)
+{
+    return v < lo ? lo : (v > hi ? hi : v);
+}
+static void patch_real(pc_ui_shell_app *app, pc_ui_brush_panel *panel, yyjson_mut_doc *d, const char *path,
+                       double value)
+{
+    patch(app, panel, d, path, yyjson_mut_real(d, value));
+}
+static void patch_uint(pc_ui_shell_app *app, pc_ui_brush_panel *panel, yyjson_mut_doc *d, const char *path,
+                       uint64_t value)
+{
+    patch(app, panel, d, path, yyjson_mut_uint(d, value));
+}
+
+/* Render a 34x34 thumbnail of preset `index`'s tip (one dab), cached by preset revision. */
+static bool tip_thumbnail(pc_ui_shell_app *app, const pc_engine_tool_state *tools, size_t index,
+                          struct nk_image *out)
+{
+    const pc_paint_brush *src = &tools->presets[index].brush;
+    blake3_hasher hasher;
+    uint8_t key[32];
+    blake3_hasher_init(&hasher);
+    const char category[] = "brush-tip-grid-v1";
+    blake3_hasher_update(&hasher, category, sizeof category);
+    blake3_hasher_update(&hasher, &tools->presets_rev, sizeof tools->presets_rev);
+    blake3_hasher_update(&hasher, &index, sizeof index);
+    blake3_hasher_finalize(&hasher, key, sizeof key);
+    if (pc_ui_shell_bitmap(app, key, 34, 34, NULL, out, NULL) == PC_OK)
+        return true;
+    pc_paint_brush brush;
+    pc_paint_brush_copy(&brush, src);
+    brush.size = 30;
+    brush.spacing_enabled = true;
+    brush.spacing = fmaxf(.08f, brush.spacing);
+    brush.build_up = brush.erase = false;
+    brush.seed = 0;
+    brush.color[0] = brush.color[1] = brush.color[2] = 0;
+    brush.color[3] = 1;
+    const float white[4] = {1, 1, 1, 1}, zero[1] = {0}, one[1] = {1};
+    pc_surface surface, clip;
+    pc_surface_init_default(&surface, PC_PIXEL_FORMAT_RGBA8, white, 4);
+    pc_surface_init_default(&clip, PC_PIXEL_FORMAT_GRAY8, zero, 1);
+    pc_rect rect = pc_rect_make(0, 0, 34, 34), damage;
+    pc_status status = pc_surface_fill_rect(&clip, rect, one, 1, NULL);
+    pc_paint_point point = pc_paint_point_make(17, 17, 1);
+    point.time = 0;
+    if (status == PC_OK)
+        status = pc_paint_render_stroke(&surface, &brush, &point, 1, &clip, false, 1, &damage, NULL);
+    uint8_t pixels[34 * 34 * 4];
+    if (status == PC_OK)
+        status = pc_surface_read_rgba8_into(&surface, rect, (uint8_t (*)[4])pixels, 34 * 34, NULL);
+    if (status == PC_OK)
+        status = pc_ui_shell_bitmap(app, key, 34, 34, pixels, out, NULL);
+    pc_surface_fini(&surface);
+    pc_surface_fini(&clip);
+    pc_paint_brush_fini(&brush);
+    return status == PC_OK;
+}
+
+/* A scrollable grid of preset tips; returns the clicked preset index, or -1. `highlight` marks the
+ * current preset (or -1). */
+static long tip_grid(pc_ui_shell_app *app, const char *id, long highlight)
+{
+    struct nk_context *ctx = pc_ui_shell_app_nk(app);
+    const pc_ui_tokens *t = pc_ui_shell_app_tokens(app);
+    const pc_engine_tool_state *tools = pc_engine_session_tools(pc_ui_shell_app_session(app));
+    long clicked = -1;
+    nk_layout_row_dynamic(ctx, 114, 1);
+    if (nk_group_begin(ctx, id, NK_WINDOW_BORDER)) {
+        nk_layout_row_static(ctx, 50, 44, 5);
+        for (size_t i = 0; i < tools->npresets; i++) {
+            struct nk_rect r = nk_widget_bounds(ctx), region = ctx->current->layout->clip;
+            if (r.y + r.h <= region.y || r.y >= region.y + region.h) {
+                nk_spacing(ctx, 1);
+                continue;
+            }
+            char mapping[64];
+            (void)snprintf(mapping, sizeof mapping, "%s.%zu", id, i);
+            pc_ui_shell_widget_mapping(app, mapping, r);
+            bool selected = highlight == (long)i;
+            if (selected)
+                nk_style_push_style_item(ctx, &ctx->style.button.normal,
+                                         nk_style_item_color(pc_ui_nk_color(t->accent_soft)));
+            bool hit = nk_button_label(ctx, "") != 0;
+            if (selected)
+                nk_style_pop_style_item(ctx);
+            if (hit)
+                clicked = (long)i;
+            struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
+            struct nk_image img;
+            if (tip_thumbnail(app, tools, i, &img)) {
+                float scale = pc_ui_brush_thumb_scale(tools->presets[i].brush.size);
+                float side = 34 * scale;
+                struct nk_rect ir =
+                    nk_rect(r.x + (r.w - side) / 2, r.y + 2 + (34 - side) / 2, side, side);
+                nk_draw_image(canvas, ir, &img, nk_rgba(255, 255, 255, 255));
+            }
+            char num[16];
+            (void)snprintf(num, sizeof num, "%ld", (long)lroundf(tools->presets[i].brush.size));
+            nk_draw_text(canvas, nk_rect(r.x, r.y + 36, r.w, 12), num, (int)strlen(num), ctx->style.font,
+                         nk_rgba(0, 0, 0, 0), pc_ui_nk_color(t->text_dim));
+        }
+        nk_group_end(ctx);
+    }
+    return clicked;
+}
+
+/* Apply preset `index`'s tip fields (tip, size, hardness, angle, roundness, spacing) to the primary
+ * tip (dual=false) or the Dual Brush tip (dual=true). The dynamics sections are untouched. For the
+ * primary grid the preset is also marked current (brush.presets.setCurrent). */
+static void apply_tip(pc_ui_shell_app *app, const pc_engine_tool_state *tools, size_t index, bool dual)
+{
+    const pc_paint_brush *src = &tools->presets[index].brush;
+    yyjson_mut_doc *d = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *params = d ? yyjson_mut_obj(d) : NULL;
+    yyjson_mut_val *brush = d ? yyjson_mut_obj(d) : NULL;
+    yyjson_mut_val *tip = d ? pc_paint_json_write(PC_PAINT_JSON_TIP, d, &src->tip, 0) : NULL;
+    yyjson_mut_val *target = dual ? yyjson_mut_obj(d) : brush;
+    bool ok = params && brush && tip && target;
+    if (ok)
+        ok = yyjson_mut_obj_add_val(d, target, "tip", tip) &&
+             yyjson_mut_obj_add_real(d, target, "size", (double)src->size) &&
+             yyjson_mut_obj_add_real(d, target, "hardness", (double)src->hardness) &&
+             yyjson_mut_obj_add_real(d, target, "angle", (double)src->angle) &&
+             yyjson_mut_obj_add_real(d, target, "roundness", (double)src->roundness) &&
+             yyjson_mut_obj_add_real(d, target, "spacing", (double)src->spacing);
+    if (ok && dual)
+        ok = yyjson_mut_obj_add_val(d, brush, "dualBrush", target);
+    if (ok)
+        ok = yyjson_mut_obj_add_val(d, params, "brush", brush);
+    if (!ok) {
+        pc_ui_shell_report(app, "Brush Settings", "Not enough memory to change brush", true);
+        yyjson_mut_doc_free(d);
+        return;
+    }
+    pc_ui_shell_queue(app, "tools.setBrush", params);
+    yyjson_mut_doc_free(d);
+    if (!dual) {
+        const char *name = pc_str_c(&tools->presets[index].name);
+        yyjson_mut_doc *nd = yyjson_mut_doc_new(NULL);
+        yyjson_mut_val *np = nd ? yyjson_mut_obj(nd) : NULL;
+        if (np && yyjson_mut_obj_add_strcpy(nd, np, "name", name))
+            pc_ui_shell_queue(app, "brush.presets.setCurrent", np);
+        yyjson_mut_doc_free(nd);
+    }
+}
+
+/* Photoshop's angle/roundness widget: drag the arrow to rotate, the dots to squash the tip. */
+static void ellipse_widget(pc_ui_shell_app *app, pc_ui_brush_panel *panel, yyjson_mut_doc *d, float angle,
+                           float roundness)
+{
+    struct nk_context *ctx = pc_ui_shell_app_nk(app);
+    const pc_ui_tokens *t = pc_ui_shell_app_tokens(app);
+    nk_layout_row_dynamic(ctx, 88, 1);
+    struct nk_rect region;
+    if (nk_widget(&region, ctx) == NK_WIDGET_INVALID)
+        return;
+    pc_ui_shell_widget_mapping(app, "brush.tipEllipse", region);
+    float cx = region.x + 44, cy = region.y + region.h / 2;
+    if (nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) &&
+        nk_input_is_mouse_hovering_rect(&ctx->input, region)) {
+        float rx = ctx->input.mouse.pos.x - cx, ry = ctx->input.mouse.pos.y - cy;
+        panel->ellipse_grab = (int)pc_ui_ellipse_grab_at(rx, ry, angle, roundness);
+        panel->ellipse_dragging = true;
+    }
+    if (panel->ellipse_dragging) {
+        if (nk_input_is_mouse_down(&ctx->input, NK_BUTTON_LEFT)) {
+            float rx = ctx->input.mouse.pos.x - cx, ry = ctx->input.mouse.pos.y - cy;
+            float na = angle, nr = roundness;
+            pc_ui_ellipse_drag((pc_ui_ellipse_grab)panel->ellipse_grab, rx, ry, &na, &nr);
+            if (na != angle)
+                patch_real(app, panel, d, "angle", (double)na);
+            if (nr != roundness)
+                patch_real(app, panel, d, "roundness", (double)nr);
+        } else
+            panel->ellipse_dragging = false;
+    }
+    struct nk_command_buffer *c = nk_window_get_canvas(ctx);
+    float outer_r = 40;
+    nk_fill_circle(c, nk_rect(cx - outer_r, cy - outer_r, 2 * outer_r, 2 * outer_r),
+                   pc_ui_nk_color(t->field));
+    nk_stroke_circle(c, nk_rect(cx - outer_r, cy - outer_r, 2 * outer_r, 2 * outer_r), 1,
+                     pc_ui_nk_color(t->field_border));
+    nk_stroke_line(c, cx - outer_r, cy, cx + outer_r, cy, 1, pc_ui_nk_color(t->separator));
+    nk_stroke_line(c, cx, cy - outer_r, cx, cy + outer_r, 1, pc_ui_nk_color(t->separator));
+    float rad = angle * (float)(3.14159265358979323846 / 180.0);
+    float s = sinf(rad), co = cosf(rad);
+    float mjx = co, mjy = -s, mnx = -s, mny = -co;
+    float rr = clamp_f(roundness, .01f, 1);
+    float pts[48 * 2];
+    for (int i = 0; i < 48; i++) {
+        float a = (float)i / 48.0f * 6.28318530717958648f;
+        float ca = cosf(a), sa = sinf(a);
+        pts[i * 2] = cx + mjx * ca * PC_UI_ELLIPSE_R + mnx * sa * PC_UI_ELLIPSE_R * rr;
+        pts[i * 2 + 1] = cy + mjy * ca * PC_UI_ELLIPSE_R + mny * sa * PC_UI_ELLIPSE_R * rr;
+    }
+    struct nk_color text = pc_ui_nk_color(t->text), accent = pc_ui_nk_color(t->accent);
+    struct nk_color fill = text;
+    fill.a = 46;
+    nk_fill_polygon(c, pts, 48, fill);
+    nk_stroke_polygon(c, pts, 48, 1.5f, text);
+    nk_stroke_line(c, cx, cy, cx + mjx * (PC_UI_ELLIPSE_R + 5), cy + mjy * (PC_UI_ELLIPSE_R + 5), 1.5f,
+                   accent);
+    float handles[2][2];
+    pc_ui_ellipse_handles(angle, roundness, handles);
+    for (int i = 0; i < 2; i++) {
+        struct nk_rect hr = nk_rect(cx + handles[i][0] - 4, cy + handles[i][1] - 4, 8, 8);
+        nk_fill_circle(c, hr, nk_rgb(255, 255, 255));
+        nk_stroke_circle(c, hr, 1, accent);
+    }
+}
+
+/* Size: a px value field over a logarithmic slider (small sizes get most of the travel). */
+static void size_row(pc_ui_shell_app *app, pc_ui_brush_panel *panel, yyjson_mut_doc *d, const char *label,
+                     const char *path, float size, float max)
+{
+    struct nk_context *ctx = pc_ui_shell_app_nk(app);
+    nk_layout_row_dynamic(ctx, 26, 1);
+    float px = size, before = px;
+    map(app, path);
+    nk_property_float(ctx, pc_i18n_t(label), 1, &px, max, 1, 1);
+    if (px != before)
+        patch_real(app, panel, d, path, (double)roundf(clamp_f(px, 1, max)));
+    nk_layout_row_dynamic(ctx, 12, 1);
+    float lv = pc_ui_brush_size_slider(size, max), lbefore = lv;
+    (void)nk_slider_float(ctx, 0, &lv, logf(max), .01f);
+    if (lv != lbefore)
+        patch_real(app, panel, d, path, (double)pc_ui_brush_slider_size(lv, max));
+}
+
+/* A percent field (0..1 fraction shown 0..maxpct); patches `path` with the fraction. */
+static void pct_row(pc_ui_shell_app *app, pc_ui_brush_panel *panel, yyjson_mut_doc *d, const char *label,
+                    const char *path, float frac, float minpct, float maxpct)
+{
+    struct nk_context *ctx = pc_ui_shell_app_nk(app);
+    nk_layout_row_dynamic(ctx, 26, 1);
+    float p = roundf(frac * 100), before = p;
+    map(app, path);
+    nk_property_float(ctx, pc_i18n_t(label), minpct, &p, maxpct, 1, 1);
+    if (p != before)
+        patch_real(app, panel, d, path, (double)clamp_f(p / 100, minpct / 100, maxpct / 100));
+}
+
+static void tip_shape_pane(pc_ui_shell_app *app, pc_ui_brush_panel *panel, yyjson_mut_doc *d)
+{
+    struct nk_context *ctx = pc_ui_shell_app_nk(app);
+    const pc_engine_tool_state *tools = pc_engine_session_tools(pc_ui_shell_app_session(app));
+    const pc_paint_brush *b = &tools->brush;
+    long highlight = -1;
+    if (tools->current_preset)
+        for (size_t i = 0; i < tools->npresets; i++)
+            if (!strcmp(pc_str_c(&tools->presets[i].name), tools->current_preset)) {
+                highlight = (long)i;
+                break;
+            }
+    long clicked = tip_grid(app, "brush-tip-grid", highlight);
+    if (clicked >= 0) {
+        apply_tip(app, tools, (size_t)clicked, false);
+        return;
+    }
+    size_row(app, panel, d, "Size", "size", b->size, PC_PAINT_MAX_BRUSH_SIZE);
+    nk_layout_row_dynamic(ctx, 24, 2);
+    boolean(app, panel, d, "Flip X", "flipX", b->flip_x);
+    boolean(app, panel, d, "Flip Y", "flipY", b->flip_y);
+    ellipse_widget(app, panel, d, b->angle, b->roundness);
+    nk_layout_row_dynamic(ctx, 26, 1);
+    float ang = b->angle, ab = ang;
+    map(app, "angle");
+    nk_property_float(ctx, pc_i18n_t("Angle"), -180, &ang, 180, 1, .5f);
+    if (ang != ab)
+        patch_real(app, panel, d, "angle", (double)roundf(clamp_f(ang, -180, 180)));
+    pct_row(app, panel, d, "Roundness", "roundness", b->roundness, 1, 100);
+    bool round_tip = b->tip.kind == PC_PAINT_TIP_ROUND;
+    if (!round_tip)
+        nk_widget_disable_begin(ctx);
+    pct_row(app, panel, d, "Hardness", "hardness", round_tip ? b->hardness : b->hardness, 0, 100);
+    if (!round_tip)
+        nk_widget_disable_end(ctx);
+    nk_layout_row_dynamic(ctx, 24, 1);
+    boolean(app, panel, d, "Spacing", "spacingEnabled", b->spacing_enabled);
+    bool sp_on = b->spacing_enabled;
+    if (!sp_on)
+        nk_widget_disable_begin(ctx);
+    pct_row(app, panel, d, "Spacing %", "spacing", b->spacing, 1, 1000);
+    if (!sp_on)
+        nk_widget_disable_end(ctx);
+}
+
+static void texture_swatch(pc_ui_shell_app *app, const pc_paint_texture *tx)
+{
+    struct nk_context *ctx = pc_ui_shell_app_nk(app);
+    const pc_ui_tokens *t = pc_ui_shell_app_tokens(app);
+    struct nk_rect r;
+    if (nk_widget(&r, ctx) == NK_WIDGET_INVALID)
+        return;
+    struct nk_rect box = nk_rect(r.x, r.y + 2, 56, 56);
+    struct nk_command_buffer *c = nk_window_get_canvas(ctx);
+    blake3_hasher hasher;
+    uint8_t key[32];
+    blake3_hasher_init(&hasher);
+    const char category[] = "brush-texture-swatch-v1";
+    blake3_hasher_update(&hasher, category, sizeof category);
+    blake3_hasher_update(&hasher, &tx->pattern.kind, sizeof tx->pattern.kind);
+    blake3_hasher_update(&hasher, &tx->pattern.style, sizeof tx->pattern.style);
+    blake3_hasher_update(&hasher, &tx->pattern.size, sizeof tx->pattern.size);
+    blake3_hasher_update(&hasher, &tx->pattern.seed, sizeof tx->pattern.seed);
+    blake3_hasher_update(&hasher, &tx->invert, sizeof tx->invert);
+    blake3_hasher_update(&hasher, &tx->brightness, sizeof tx->brightness);
+    blake3_hasher_update(&hasher, &tx->contrast, sizeof tx->contrast);
+    blake3_hasher_finalize(&hasher, key, sizeof key);
+    struct nk_image img;
+    if (pc_ui_shell_bitmap(app, key, 56, 56, NULL, &img, NULL) != PC_OK) {
+        uint8_t pixels[56 * 56 * 4];
+        pc_paint_pattern_image *pi = NULL;
+        bool have = tx->pattern.kind == PC_PAINT_PATTERN_PROCEDURAL &&
+                    pc_paint_pattern_generate(tx->pattern.style, tx->pattern.size ? tx->pattern.size : 128,
+                                              tx->pattern.seed, &pi, NULL) == PC_OK;
+        for (int yy = 0; yy < 56; yy++)
+            for (int xx = 0; xx < 56; xx++) {
+                float v = have ? pc_paint_pattern_sample_wrap(pi, (float)xx, (float)yy) : 0.5f;
+                v = pc_paint_texture_level(tx, v);
+                uint8_t g = (uint8_t)(clamp_f(v, 0, 1) * 255 + .5f);
+                size_t idx = ((size_t)yy * 56 + (size_t)xx) * 4;
+                pixels[idx] = pixels[idx + 1] = pixels[idx + 2] = g;
+                pixels[idx + 3] = 255;
+            }
+        pc_paint_pattern_image_release(pi);
+        (void)pc_ui_shell_bitmap(app, key, 56, 56, pixels, &img, NULL);
+    }
+    nk_draw_image(c, box, &img, nk_rgba(255, 255, 255, 255));
+    nk_stroke_rect(c, box, 0, 1, pc_ui_nk_color(t->field_border));
+}
+
+static void texture_pane(pc_ui_shell_app *app, pc_ui_brush_panel *panel, yyjson_mut_doc *d,
+                         yyjson_mut_val *root)
+{
+    struct nk_context *ctx = pc_ui_shell_app_nk(app);
+    const pc_engine_tool_state *tools = pc_engine_session_tools(pc_ui_shell_app_session(app));
+    const pc_paint_texture *tx = &tools->brush.texture;
+    nk_layout_row_static(ctx, 60, 56, 1);
+    texture_swatch(app, tx);
+    /* Style dropdown. */
+    const char *style_names[] = {"noise", "canvas", "paper", "dots"};
+    const char *style_labels[] = {"Noise", "Canvas", "Paper", "Dots"};
+    bool procedural = tx->pattern.kind == PC_PAINT_PATTERN_PROCEDURAL;
+    const char *current =
+        procedural && (size_t)tx->pattern.style < 4 ? style_labels[(size_t)tx->pattern.style] : "Custom";
+    nk_layout_row_dynamic(ctx, 24, 2);
+    nk_label(ctx, pc_i18n_t("Pattern"), NK_TEXT_LEFT);
+    map(app, "texture.pattern");
+    if (nk_combo_begin_label(ctx, pc_i18n_t(current), nk_vec2(150, 160))) {
+        nk_layout_row_dynamic(ctx, 22, 1);
+        for (size_t i = 0; i < 4; i++)
+            if (nk_combo_item_label(ctx, pc_i18n_t(style_labels[i]), NK_TEXT_LEFT)) {
+                uint32_t sz = procedural && tx->pattern.size ? tx->pattern.size : 128;
+                uint32_t seed = procedural ? tx->pattern.seed : 1;
+                yyjson_mut_val *proc = yyjson_mut_obj(d), *wrap = yyjson_mut_obj(d);
+                bool ok = proc && wrap && yyjson_mut_obj_add_strcpy(d, proc, "style", style_names[i]) &&
+                          yyjson_mut_obj_add_uint(d, proc, "size", sz) &&
+                          yyjson_mut_obj_add_uint(d, proc, "seed", seed) &&
+                          yyjson_mut_obj_add_val(d, wrap, "procedural", proc);
+                if (ok)
+                    patch(app, panel, d, "texture.pattern", wrap);
+                else
+                    pc_ui_shell_report(app, "Brush Settings", "Not enough memory", true);
+            }
+        nk_combo_end(ctx);
+    }
+    nk_layout_row_dynamic(ctx, 24, 1);
+    boolean(app, panel, d, "Invert", "texture.invert", tx->invert);
+    if (procedural) {
+        nk_layout_row_dynamic(ctx, 26, 1);
+        float ps = (float)tx->pattern.size, pb = ps;
+        map(app, "texture.pattern.procedural.size");
+        nk_property_float(ctx, pc_i18n_t("Pattern Size"), 16, &ps, 1024, 1, 1);
+        if (ps != pb)
+            patch_uint(app, panel, d, "texture.pattern.procedural.size", (uint64_t)clamp_f(ps, 16, 1024));
+    }
+    pct_row(app, panel, d, "Scale %", "texture.scale", tx->scale, 1, 1000);
+    /* Brightness and Contrast use Photoshop's slider ranges. */
+    nk_layout_row_dynamic(ctx, 26, 1);
+    float br = pc_ui_texture_brightness_to_ps(tx->brightness), brb = br;
+    map(app, "texture.brightness");
+    nk_property_float(ctx, pc_i18n_t("Brightness"), -150, &br, 150, 1, 1);
+    if (br != brb)
+        patch_real(app, panel, d, "texture.brightness", (double)pc_ui_texture_brightness_from_ps(br));
+    nk_layout_row_dynamic(ctx, 26, 1);
+    float ct = pc_ui_texture_contrast_to_ps(tx->contrast), ctb = ct;
+    map(app, "texture.contrast");
+    nk_property_float(ctx, pc_i18n_t("Contrast"), -50, &ct, 100, 1, 1);
+    if (ct != ctb)
+        patch_real(app, panel, d, "texture.contrast", (double)pc_ui_texture_contrast_from_ps(ct));
+    nk_layout_row_dynamic(ctx, 24, 1);
+    boolean(app, panel, d, "Texture Each Tip", "texture.eachTip", tx->each_tip);
+    nk_layout_row_dynamic(ctx, 24, 2);
+    enumeration(app, panel, d, "Mode", "texture.mode", "mode", masks[(size_t)tx->mode]);
+    pct_row(app, panel, d, "Depth", "texture.depth", tx->depth, 0, 100);
+    if (tx->each_tip) {
+        yyjson_mut_val *texv = root ? yyjson_mut_obj_get(root, "texture") : NULL;
+        yyjson_mut_val *dj = texv ? yyjson_mut_obj_get(texv, "depthJitter") : NULL;
+        if (yyjson_mut_is_obj(dj))
+            fields(app, panel, d, dj, "texture.depthJitter", 0);
+    }
+}
+
+static void dual_brush_pane(pc_ui_shell_app *app, pc_ui_brush_panel *panel, yyjson_mut_doc *d)
+{
+    struct nk_context *ctx = pc_ui_shell_app_nk(app);
+    const pc_engine_tool_state *tools = pc_engine_session_tools(pc_ui_shell_app_session(app));
+    const pc_paint_dual_brush *db = &tools->brush.dual_brush;
+    nk_layout_row_dynamic(ctx, 24, 2);
+    enumeration(app, panel, d, "Mode", "dualBrush.mode", "mode", masks[(size_t)db->mode]);
+    nk_layout_row_dynamic(ctx, 24, 1);
+    boolean(app, panel, d, "Flip", "dualBrush.flip", db->flip);
+    long clicked = tip_grid(app, "brush-dual-grid", -1);
+    if (clicked >= 0) {
+        apply_tip(app, tools, (size_t)clicked, true);
+        return;
+    }
+    size_row(app, panel, d, "Size", "dualBrush.size", db->size, 2500);
+    pct_row(app, panel, d, "Spacing %", "dualBrush.spacing", db->spacing, 1, 1000);
+    pct_row(app, panel, d, "Scatter %", "dualBrush.scatter", db->scatter, 0, 1000);
+    nk_layout_row_dynamic(ctx, 24, 1);
+    boolean(app, panel, d, "Both Axes", "dualBrush.bothAxes", db->both_axes);
+    nk_layout_row_dynamic(ctx, 26, 1);
+    float cn = (float)db->count, cb = cn;
+    map(app, "dualBrush.count");
+    nk_property_float(ctx, pc_i18n_t("Count"), 1, &cn, 16, 1, 1);
+    if (cn != cb)
+        patch_uint(app, panel, d, "dualBrush.count", (uint64_t)clamp_f(cn, 1, 16));
+}
+
 static void sections(pc_ui_shell_app *app, pc_ui_brush_panel *panel, yyjson_mut_doc *d, yyjson_mut_val *root)
 {
     struct nk_context *ctx = pc_ui_shell_app_nk(app);
@@ -240,8 +678,12 @@ static void sections(pc_ui_shell_app *app, pc_ui_brush_panel *panel, yyjson_mut_
         size_t selected = ui->brush_section;
         nk_layout_row_dynamic(ctx, 25, 1);
         nk_label(ctx, pc_i18n_t(section_names[selected]), NK_TEXT_LEFT);
-        if (!selected)
-            fields(app, panel, d, root, "", 0);
+        if (selected == 0)
+            tip_shape_pane(app, panel, d);
+        else if (selected == 3)
+            texture_pane(app, panel, d, root);
+        else if (selected == 4)
+            dual_brush_pane(app, panel, d);
         else {
             yyjson_mut_val *section = yyjson_mut_obj_get(root, section_keys[selected]);
             if (yyjson_mut_is_obj(section))

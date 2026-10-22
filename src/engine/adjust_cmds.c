@@ -10,7 +10,6 @@
  * DEFERRED in this build (graceful PC_ERR_* / UNSUPPORTED, never a crash), with owners:
  *   - a smart object records the adjustment as a smart filter -> E9-full (apply_filter_to_surface)
  *     + E6 add_smart_filter; here a smart-object target is edited destructively only if raster.
- *   - the Levels/Curves eyedropper -> needs the merged-composite sampler (E10 sample_cmds).
  *   - a "path" vector mask for a new adjustment layer -> needs vector path parsing export (E11).
  *   - Match Color `sourceLayer` -> needs single-layer render export. */
 #include <math.h>

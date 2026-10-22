@@ -69,6 +69,12 @@ static void display_f32(float v, char *out, size_t cap)
     }
 }
 
+/* A Camera Raw tone slider from untrusted input: clamped to -100..100, non-finite becomes 0. */
+static float raw_slider(float v)
+{
+    return isfinite(v) ? pc_clampf(v, -100.0f, 100.0f) : 0.0f;
+}
+
 /* Rust's {:+.N} of an f32 ("NaN" carries no sign; printf would print "+nan"). */
 static void signed_fixed(float v, int prec, char *out, size_t cap)
 {
@@ -275,7 +281,7 @@ pc_status pc_io_import_raw_tuned(const char *name, const uint8_t *bytes, size_t 
     pc_io_import_result r;
     bool applied = false;
     char wb[256];
-    char summary[512];
+    char summary[1024];
     pc_status st;
     if (!isfinite(exposure) || !(exposure >= -10.0 && exposure <= 10.0)) {
         char v[64];
@@ -288,6 +294,12 @@ pc_status pc_io_import_raw_tuned(const char *name, const uint8_t *bytes, size_t 
         return st;
     }
     o.exposure = exposure;
+    /* Raw-stage tone sliders, in linear light before the tone curve (clamped; non-finite = 0). */
+    o.tone.shadows = raw_slider(tuning->shadows);
+    o.tone.highlights = raw_slider(tuning->highlights);
+    o.tone.clarity = raw_slider(tuning->clarity);
+    o.tone.texture = raw_slider(tuning->texture);
+    o.tone.dehaze = raw_slider(tuning->dehaze);
     if (sensor.has_camera_wb) {
         float g[3];
         pc_algo_cr_white_balance_gains(pc_clampf(tuning->temperature, -100.0f, 100.0f),
@@ -314,8 +326,29 @@ pc_status pc_io_import_raw_tuned(const char *name, const uint8_t *bytes, size_t 
     }
     {
         char x[64];
+        char tone[256];
+        size_t tp = 0;
+        const struct {
+            const char *k;
+            float v;
+        } sliders[5] = {{"shadows", o.tone.shadows},       {"highlights", o.tone.highlights},
+                        {"clarity", o.tone.clarity},        {"texture", o.tone.texture},
+                        {"dehaze", o.tone.dehaze}};
+        tone[0] = '\0';
+        for (size_t i = 0; i < 5; i++) {
+            if (sliders[i].v != 0.0f) {
+                char sv[64];
+                int w2;
+                signed_fixed(sliders[i].v, 0, sv, sizeof sv);
+                w2 = snprintf(tone + tp, sizeof tone - tp, ", %s %s", sliders[i].k, sv);
+                if (w2 > 0 && (size_t)w2 < sizeof tone - tp) {
+                    tp += (size_t)w2;
+                }
+            }
+        }
         signed_fixed(tuning->exposure, 2, x, sizeof x);
-        (void)snprintf(summary, sizeof summary, "developed in Camera Raw (exposure %s EV, %s)", x, wb);
+        (void)snprintf(summary, sizeof summary, "developed in Camera Raw (exposure %s EV%s, %s)", x,
+                       tone, wb);
     }
     st = developed_document(name, format, &dev, summary, &r, err);
     if (st != PC_OK) {
@@ -323,5 +356,36 @@ pc_status pc_io_import_raw_tuned(const char *name, const uint8_t *bytes, size_t 
     }
     *out = r;
     *wb_applied = applied;
+    return PC_OK;
+}
+
+pc_status pc_io_raw_tone_curve(const uint8_t *bytes, size_t len, float (*out)[2], size_t cap, size_t *n,
+                               pc_error *err)
+{
+    pc_raw_sensor sensor;
+    pc_raw_limits limits = pc_io_raw_limits();
+    pc_status st;
+    if (n != NULL) {
+        *n = 0;
+    }
+    /* A file that does not decode yields no curve (the reference's empty Vec), not an error. */
+    st = pc_raw_decode(bytes, len, &limits, &sensor, NULL);
+    if (st != PC_OK) {
+        (void)err;
+        return PC_OK;
+    }
+    size_t total = sensor.ntone_curve;
+    size_t count = total < cap ? total : cap;
+    if (out != NULL && sensor.tone_curve != NULL) {
+        for (size_t i = 0; i < count; i++) {
+            out[i][0] = sensor.tone_curve[i][0];
+            out[i][1] = sensor.tone_curve[i][1];
+        }
+    }
+    pc_raw_sensor_fini(&sensor);
+    /* With no output buffer, report the total so the caller can size one. */
+    if (n != NULL) {
+        *n = out != NULL ? count : total;
+    }
     return PC_OK;
 }

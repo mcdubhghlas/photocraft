@@ -14,10 +14,10 @@
 | Solarized Dark | Ethan Schoonover's Solarized palette: base03 canvas, base02 panels, base0 text, Solarized blue accent |
 | Breeze Light | An adaptation of KDE Plasma's Breeze Light on the Studio layout: cool light blue-grey surfaces a few levels from Breeze's so the app blends into a Plasma desktop, Breeze-style blue accent, 5 px radii, red close button on hover; text and status colours are darker than Breeze's for contrast |
 | Breeze Dark | The same for Breeze Dark: cool dark blue-grey surfaces (darkest canvas, then dock, cards, chrome and controls) near Breeze's, blue accent, 5 px radii; secondary text and status colours are lighter than Breeze's for contrast |
-| Soft Dark | Low-contrast dark on the Studio layout: muted violet-grey surfaces (never near-black), softened off-white text, periwinkle accent, generous 7/10/14 px radii; text still holds 4.5:1 on every surface (`theme.rs` tests) |
+| Soft Dark | Low-contrast dark on the Studio layout: muted violet-grey surfaces (never near-black), softened off-white text, periwinkle accent, generous 7/10/14 px radii; text still holds 4.5:1 on every surface (`theme.c` tests) |
 | Soft Light | The light counterpart: pale violet-grey surfaces, softened dark-violet text instead of black, periwinkle accent, the same radii |
 
-Both Breeze themes are our own values close to Plasma's (not a copy of its colour schemes) and put text readability first: every text colour holds 4.5:1 on every surface and on hovered, pressed and selected states (`theme.rs` tests), so their secondary text, accent and status colours are darker (Light) or lighter (Dark) than Breeze's own, and the primary button is a deeper blue with white text.
+Both Breeze themes are our own values close to Plasma's (not a copy of its colour schemes) and put text readability first: every text colour holds 4.5:1 on every surface and on hovered, pressed and selected states (`theme.c` tests), so their secondary text, accent and status colours are darker (Light) or lighter (Dark) than Breeze's own, and the primary button is a deeper blue with white text.
 
 Edit → Preferences → Interface shows an Appearance Mode selector (Sync with system, Dark, Light) above separate light and dark theme cards with PhotoCraft editor previews and radio choices. Auto is opt-in and follows the operating system while the app is running. On Linux it reads the desktop portal once and then listens for its `SettingChanged` signal (no polling, and the UI repaints only when the value changes); `gsettings` runs at most once at start-up, by absolute path, when the portal gives no answer. A missing system appearance falls back to Dark. New installs keep Photoshop's default: Dark mode with Pro Medium (Studio Light is the saved light theme). Existing saved single-theme preferences migrate to a fixed Dark or Light mode with their chosen theme. The header appearance button cycles Auto → Light → Dark; its icon shows a monitor, moon or sun for the selected mode. Window → Theme and `ui.set {"theme":"classic"}` select a theme and fix the mode to its light or dark family.
 
@@ -27,11 +27,21 @@ The toolbar's foreground and background colour chips follow the `Tokens::round_c
 
 ## Rules
 
-- **Colours and radii come from tokens.** Read them with `Tokens::get(ctx)`; never hard-code a colour in a widget.
-- **Shared widgets live in `widgets.rs`:** `card` (panel group; Pro renders a Photoshop tab strip), `value_field`, `slider`/`slider_row`, `toggle`/`checkbox`, `primary_button`/`secondary_button`, `dropdown` (with a chevron icon), `hairline`/`vline`, `elided_label`.
+- **Colours and radii come from theme tokens.** The active theme's `pc_ui_tokens`
+  (`src/ui/theme.h`, `pc_ui_tokens_for_kind()`) carries every colour and radius; widgets apply them to
+  the Nuklear context with `pc_ui_apply_nk_style()` and `pc_ui_nk_color()` (`src/ui/widgets.h`). Never
+  hard-code a colour in a widget. The field order and meaning of `pc_ui_tokens` mirror the reference's
+  `Tokens`.
+- **Shared widgets live in `src/ui/widgets.c`:** `card` (panel group; Pro renders a Photoshop tab
+  strip), `value_field`, `slider`/`slider_row`, `toggle`/`checkbox`, `primary_button`/
+  `secondary_button`, `dropdown` (with a chevron icon), `hairline`/`vline`, `elided_label`.
 - **A label never overflows its row.** Wrap by default. Beside a fixed-width control, or anywhere the row cannot reflow, use `widgets::elided_label(ui, text, max_w)`: a longer translation shrinks with `…` and shows the full string on hover instead of running over its neighbours (#3580). A *redundant* caption may be dropped on a narrow dock where its control already carries the meaning (e.g. the Layers lock icons); an *essential* one elides. This mirrors Photoshop: a fixed layout with elision and tooltips, not per-locale reflow.
-- **Icons:** Lucide SVGs in `assets/icons` (ISC licence), embedded via `icon_data.rs`. Regenerate that file when you add icons.
-- **Fonts:** Inter (UI) and JetBrains Mono (numbers), both OFL. Named families `medium` and `semibold` are available via `theme::medium()` and `theme::semibold()`.
+- **Icons:** Lucide SVGs in `assets/icons` (ISC licence), embedded at build time by
+  `tools/embed-ui-icons.sh` (generates the icon table included via `src/ui/icon_data.h`). Add the SVG
+  and rebuild; no network access or generated Rust file is a build input.
+- **Fonts:** Inter (UI) and JetBrains Mono (numbers), both OFL, embedded uncompressed. The theme
+  exposes the medium and semibold UI weights. CJK and other scripts come from craft-fonts at run time
+  (`CRAFT_FONTS_DIR`; see `docs/development.md` › Fonts).
 - **Photoshop layout grammar (Pro):**
   - Essentials dock order: Color | Swatches, then Properties | Adjustments, then Layers | Channels | Paths (Layers fills the remaining height).
   - Options-bar labels end with a colon ("Size:").
@@ -41,26 +51,30 @@ The toolbar's foreground and background colour chips follow the `Tokens::round_c
 
 ## Adding icons
 
+Drop the Lucide SVG into `assets/icons/` and rebuild — `tools/embed-ui-icons.sh` regenerates the
+embedded icon table from every `assets/icons/*.svg` at build time:
+
 ```sh
-curl -sfL -o assets/icons/<name>.svg https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/<name>.svg
-# regenerate the embedded table
-{ printf '%s\n' '//! Lucide icons (ISC licence), embedded and tinted at runtime.' '' 'pub static ICONS: &[(&str, &[u8])] = &['; \
-  for f in assets/icons/*.svg; do n=$(basename $f .svg); echo "    (\"$n\", include_bytes!(\"../../../assets/icons/$n.svg\")),"; done; echo '];'; } \
-  > crates/ui-egui/src/icon_data.rs
+curl -sfL --user-agent Photocraft-dev \
+  -o assets/icons/<name>.svg \
+  https://raw.githubusercontent.com/lucide-icons/lucide/main/icons/<name>.svg
+make        # the build re-embeds the icons; no file is hand-edited
 ```
+
+Add the asset's licence/attribution row (`ATTRIBUTION.md`) in the same change.
 
 ## Interaction models (match Photoshop CC)
 
 | Feature | Module | Behaviour |
 |---|---|---|
-| Type tool | `type_tool.rs` | Click: point text with the placeholder "Lorem Ipsum" selected. Drag: paragraph box. Inline caret and selection drawn from the text engine layout. ⌥/⌘ word and line navigation, ↩ newline, ⌘↩ or Esc commits, a click outside commits. One history step per session (`coalesce`). A new layer is named after its text; an empty one is deleted. |
-| Free Transform | `transform_tool.rs` | ⌘T. Corners and edges scale proportionally (⇧ frees them: an edge then stretches one axis); ⌥ scales about the reference point; ⌘-corner distorts; dragging outside rotates (⇧ snaps to 15°); dragging inside moves. Preview = document without the moving pixels + a textured 24×24 mesh. ↩ or a double-click commits via `edit.transform {rect, quad}`. |
-| Quick layer pick | `quick_pick.rs` | macOS: ⌘⌥⌃-click with any tool selects the topmost visible layer with pixels under the pointer (`layer.pickAt`) without switching tools; the drag and release are swallowed. Windows/Linux have no third modifier distinct from the ⌃⌥ brush resize, so the gesture is a no-op there (use the Move tool's Auto-Select). A failed pick is a status-bar error. |
-| Layers rows | `panels.rs` | Double-click: on the name renames in place; on the Background makes it a normal layer; on an adjustment or fill thumbnail opens its Properties; on a Smart Object thumbnail opens its contents (Edit Contents); anywhere else on the row opens Layer Style. |
-| Layer masks | `panels.rs` | Clicking the mask thumbnail targets the mask (corner-bracket frame; the tab reads "Layer, Layer Mask/8"). Brush, eraser (paints background colour), gradient, bucket and moving the selected pixels (⌘-drag, `select.float`; the hole takes the background colour) then send `"target": "mask"`. Adjustment and fill layers target their mask automatically. |
-| Path thumbnails | `vector_ui.rs` | Ctrl/Cmd-click the thumbnail of a Work Path, saved path or layer path to load it as a selection; Shift adds, Alt subtracts, Shift+Alt intersects. Clicking the row name only selects the path. |
-| Levels / Curves | `tone.rs` | Histogram of the image *below* the adjustment. Curves: click to add a point, drag out to delete. Every change is a coalesced `layer.setAdjustment`, so one drag = one undo step and the canvas updates at full resolution on the GPU. |
-| Shape Stroke Options | `shape_stroke_ui.rs`, `vector_ui.rs` | Direct editing: valid changes apply immediately, with one numeric drag per undo step in Properties. Escape/outside click closes the popup and retains changes; a child dropdown keeps the parent open. The options bar sets new-shape defaults; Properties edits the selected shape. |
+| Type tool | `type_tool.c` | Click: point text with the placeholder "Lorem Ipsum" selected. Drag: paragraph box. Inline caret and selection drawn from the text engine layout. ⌥/⌘ word and line navigation, ↩ newline, ⌘↩ or Esc commits, a click outside commits. One history step per session (`coalesce`). A new layer is named after its text; an empty one is deleted. |
+| Free Transform | `transform.c` | ⌘T. Corners and edges scale proportionally (⇧ frees them: an edge then stretches one axis); ⌥ scales about the reference point; ⌘-corner distorts; dragging outside rotates (⇧ snaps to 15°); dragging inside moves. Preview = document without the moving pixels + a textured 24×24 mesh. ↩ or a double-click commits via `edit.transform {rect, quad}`. |
+| Quick layer pick | `move_mods.c` | macOS: ⌘⌥⌃-click with any tool selects the topmost visible layer with pixels under the pointer (`layer.pickAt`) without switching tools; the drag and release are swallowed. Windows/Linux have no third modifier distinct from the ⌃⌥ brush resize, so the gesture is a no-op there (use the Move tool's Auto-Select). A failed pick is a status-bar error. |
+| Layers rows | `shell/panels.c` | Double-click: on the name renames in place; on the Background makes it a normal layer; on an adjustment or fill thumbnail opens its Properties; on a Smart Object thumbnail opens its contents (Edit Contents); anywhere else on the row opens Layer Style. |
+| Layer masks | `shell/panels.c` | Clicking the mask thumbnail targets the mask (corner-bracket frame; the tab reads "Layer, Layer Mask/8"). Brush, eraser (paints background colour), gradient, bucket and moving the selected pixels (⌘-drag, `select.float`; the hole takes the background colour) then send `"target": "mask"`. Adjustment and fill layers target their mask automatically. |
+| Path thumbnails | `vector_tool.c` | Ctrl/Cmd-click the thumbnail of a Work Path, saved path or layer path to load it as a selection; Shift adds, Alt subtracts, Shift+Alt intersects. Clicking the row name only selects the path. |
+| Levels / Curves | `point_curve.c` | Histogram of the image *below* the adjustment. Curves: click to add a point, drag out to delete. Every change is a coalesced `layer.setAdjustment`, so one drag = one undo step and the canvas updates at full resolution on the GPU. |
+| Shape Stroke Options | `vector_tool.c` | Direct editing: valid changes apply immediately, with one numeric drag per undo step in Properties. Escape/outside click closes the popup and retains changes; a child dropdown keeps the parent open. The options bar sets new-shape defaults; Properties edits the selected shape. |
 
 Shape Stroke Options (updated 2026-10-11) sizes to its content and scrolls only when necessary.
 It has no Apply/Cancel footer. Solid, Dashed and Dotted are full clickable rows with line
@@ -93,10 +107,17 @@ missing-glyph boxes. Check every new panel with the offscreen snapshot tool (`do
 
 ## Title bar
 
-The app's top bar (`panels::title_bar`) starts with the brand mark (the app icon, `brand.rs`), then the menus, the document title and the workspace controls, like Photoshop's Ps tile and menu row.
+The app's top bar (shell chrome, `src/ui/shell/chrome.c`) starts with the brand mark (the app icon,
+`src/ui/brand.c`), then the menus, the document title and the workspace controls, like Photoshop's Ps
+tile and menu row. The menu bar is an in-window bar on every platform (the macOS native menu bar is
+deferred; REWRITE_PLAN §2 D19).
 
-- **Windows and Linux:** the window has no OS decorations, so there is one bar, not two stacked. The top bar is the title bar (`titlebar.rs`): Minimize, Maximize/Restore and Close (red on hover, `caption_close` tokens) sit flush in the window's top-right corner, the free gap between the menus and the controls drags the window and a double-click there maximizes it, and invisible 5 pt edges (12 pt corners) resize it. Close runs File › Exit, so unsaved documents are asked about first.
-- **macOS:** the traffic lights sit over the integrated title strip (`integrated_titlebar`).
+- **Linux:** the window can run without OS decorations, so there is one bar, not two stacked:
+  Minimize, Maximize/Restore and Close (red on hover, `caption_close` tokens) sit flush in the
+  window's top-right corner, the free gap between the menus and the controls drags the window, a
+  double-click there maximizes it, and invisible edges resize it. Close runs File › Exit, so unsaved
+  documents are asked about first.
+- **macOS:** the traffic lights sit over the integrated title strip.
 - **Narrow windows** drop controls that are also in a menu before anything overlaps: Discord (Help › Discord), then the theme toggle, then search (Edit › Search), then the workspace switcher narrows (Window › Workspace).
 
 ## Compact tool controls
@@ -106,13 +127,11 @@ and background colours stay visible below those rows, together with Pro's Quick 
 Mode controls. Long options rows scroll horizontally. Both scrollers bring newly focused
 controls into view and retain the existing tool actions and popups.
 
-The offscreen regression fixture uses production panels, fonts and SVG loaders across every
-theme, 800×480 and 1280×720 point viewports, and 1×, 1.5× and 2× display scales. To retain its
-60 initial/scrolled PNGs while running the compact geometry and interaction checks:
-
-```sh
-CRAFT_UI_VISUAL_FIXTURES=/tmp/photocraft-compact cargo test -p photocraft-ui-egui --lib compact_visual_regressions -- --nocapture
-```
+The offscreen regression checks exercise production panels, fonts and SVG loaders across every theme,
+several point viewports (e.g. 800×480 and 1280×720) and display scales (1×, 1.5×, 2×), rendered
+headless with `SDL_VIDEO_DRIVER=offscreen` through the GL-backed UI tests (`PC_TEST_GL=1`, in
+`tests/ui/`). Run them with the usual test gate (`PC_TEST_GL=1 SDL_VIDEO_DRIVER=offscreen` on the
+relevant `tests/ui/test_*` binary; see `docs/development.md` › GL and offscreen snapshots).
 
 Keyboard tests clear the configurable `window.togglePanels` canvas shortcut through preferences,
 then send normal Tab and Space events through the app's shortcut dispatcher. They exercise
@@ -135,7 +154,7 @@ including changes made from a ruler's context menu. It uses the document resolut
 units, each side's own extent for percentages and the selected point-size convention for points
 and picas. The readout retains the document's pixels-per-inch value.
 
-`menu_catalog.rs` holds Photoshop's menu tree (standard command names, order, separators, default shortcuts). Items whose id matches an engine or UI command are live; others render disabled until implemented. Give new commands the catalogue's id (for example `image.imageSize`) and they light up in the right place automatically.
+`src/ui/menu_catalog.c` holds Photoshop's menu tree (standard command names, order, separators, default shortcuts). Items whose id matches an engine or UI command are live; others render disabled until implemented. Give new commands the catalogue's id (for example `image.imageSize`) and they light up in the right place automatically.
 
 Menus never run off the window: the menu bar's menus and submenus scroll with arrows (`menu_nav::level`), and long right-click menus (Layers, canvas tools, Channels, Paths, document tabs) wrap their rows in `widgets::menu_scroll`, so they move up to fit and scroll only when taller than the visible window.
 
@@ -181,55 +200,44 @@ fonts use the same size, including fonts loaded after the preference changes.
 
 ## Localisation
 
-Strings in code stay English and are the default lookup keys. `crates/ui-egui/src/i18n` maps them
-to display text at render time from one catalog per language (`i18n/<code>.tsv`; the format is
-documented in the header of `ja.tsv`). Command ids, menu paths used for logic, the control channel,
-the CLI and MCP always use the English ids and labels.
+Strings in code stay English and are the default lookup keys. `src/ui/i18n` maps them to display text
+at render time from one catalog per language (`src/ui/i18n/<code>.tsv`; the format is documented in
+the header of `ja.tsv`, and the catalogs are embedded at build time). Command ids, menu paths used for
+logic, the control channel, the CLI and MCP always use the English ids and labels.
 
-Languages shipped (`complete_menus` marks a catalog that covers every menu string and `tl!` literal;
-the tests enforce it):
+Languages shipped: English (`en`, the source language) plus the catalogs under `src/ui/i18n/` —
+`ja`, `zh-hans`, `zh-hant`, `es`, `ru`, `uk`, `sr`, `cs`, `fr`, `id`, `ko`, `pl`, `de`, `pt-br`, `el`,
+`nl`, `it`, `hu`, `tr`, `vi`. The registry is enumerated by `pc_i18n_count()` / `pc_i18n_at()`;
+`pc_i18n_lang_complete_menus()` marks a catalog that covers every menu string and translatable
+literal (a test enforces it). The locale resolver distinguishes Simplified from Traditional Chinese
+(`zh-TW`, `zh-HK`, `zh-MO`, `zh-Hant-*` all resolve to `zh-hant`), and each language's plural rule is
+read with `pc_i18n_lang_plural()`.
 
-- English (`en`), the source language.
-- Japanese (`ja`), complete.
-- Simplified Chinese (`zh-hans`; see [`localization-zh-hans.md`](localization-zh-hans.md)), complete.
-- Traditional Chinese (`zh-hant`), complete, in the vocabulary used in Taiwan; `zh-TW`, `zh-HK`,
-  `zh-MO` and `zh-Hant-*` locales all resolve to it. The resolver distinguishes the two Chinese
-  scripts, so neither catalog is shown to the other script's locales.
-- Spanish (`es`), complete.
-- Russian (`ru`), complete, with three plural forms (`one|few|many`, see `plural_russian`).
-- Korean (`ko`), complete, with one plural form.
-- French (`fr`), complete, with two plural forms (0 and 1 use the singular).
-- Czech (`cs`), complete, with three plural forms.
-- Indonesian (`id`), complete, with one plural form.
-
-- `tr(lang, s)` plain strings; `tr_ctx` when one English word needs different translations;
-  `tr_id(lang, command_id, label)` for menu items (keyed by command id, English label as the
-  fallback); `trn(lang, n, one, other)` for plurals; `fmt` fills `{name}` placeholders, which
-  translators may reorder.
-- The language is Preferences › Interface › Language (`interface.language`: `auto` or a language
-  code; `auto` follows the system locale, an unknown code falls back to `auto`).
-- Language changes apply without a restart; Preferences previews the chosen language until
-  Apply or OK commits it. Cancel restores the committed language. Regional preference tags
-  resolve through the same locale matcher. See [`localization.md`](localization.md).
-- To add a language: add `<code>.tsv` and one row in `i18n::LANGUAGES` (code, native name, catalog,
-  plural rule). The dropdown, locale matching and the catalog tests (well-formed, no duplicates,
-  placeholders and ellipses agree, command ids exist) pick it up. Set `complete_menus` once every
-  menu string is translated; a test then enforces it. A language with more plural forms lists them
-  all in `@plural` entries (Russian: `one|few|many`); the row's plural rule picks the form.
+- Lookups (`src/ui/i18n.h`): `pc_i18n_tr(lang, s)` for plain strings; `pc_i18n_tr_ctx(lang, ctx, s)`
+  when one English word needs different translations; `pc_i18n_tr_id(lang, command_id, label)` for
+  menu items (keyed by command id, English label as the fallback); `pc_i18n_trn(lang, n, one, other)`
+  for plurals; placeholders like `{name}` are filled afterwards and may be reordered by translators.
+- The language is Preferences › Interface › Language (`interface.language`: `auto` or a language code;
+  `auto` follows the system locale, an unknown code falls back to `auto`). `PHOTOCRAFT_LOCALE`
+  overrides it for one launch.
+- Language changes apply without a restart; Preferences previews the chosen language until Apply or OK
+  commits it. Cancel restores the committed language.
+- To add a language: add `src/ui/i18n/<code>.tsv`, register it (code, native name, catalog, plural
+  rule), and add it to the Makefile's `I18N_CATS` so its catalog is embedded. The catalog tests
+  (well-formed, no duplicates, placeholders and ellipses agree, command ids exist) pick it up.
 - Translations are clean-room: written from the meaning of the English text in ordinary vocabulary,
   never from another product's localisation resources.
 
-Localised so far: menus, the command palette, dialogs and panels (literals wrapped in `tl!("…")`;
-widgets such as `checkbox`, `slider_row`, `dropdown` and the buttons translate their labels
-themselves). A test fails when a `tl!` literal, a menu string, a blend mode name, brush section name or a generated
-preference label has no entry in a language marked `complete_menus`. Not translated: status-bar
+Localised so far: menus, the command palette, dialogs and panels (widgets such as `checkbox`,
+`slider_row`, `dropdown` and the buttons translate their labels themselves). A test fails when a
+translatable literal, a menu string, a blend mode name, a brush section name or a generated
+preference label has no entry in a language marked complete. Not translated: status-bar
 messages and errors (they stay English, also for agents), names that are user data (layers, styles,
-documents), strings assembled with `format!` that were not converted to `fmt`/`trn`. Not done yet:
-right-to-left layout inside panels and dialogs (the shell mirrors, `direction.rs`),
-locale-aware number and date formats, automatic language detection on the web build (native
-builds read `LANG`/`LC_*`, the macOS preferred languages and the Windows user locale).
+documents), and strings assembled by hand that were not routed through `pc_i18n_trn`/placeholders.
+Not done yet: full right-to-left layout inside panels and dialogs, and locale-aware number and date
+formats. The UI language is detected from `LANG`/`LC_*` (and the macOS preferred languages).
 
-Camera Raw has explicit coverage for all ten available languages, including Korean and
+Camera Raw has explicit coverage across the shipped languages, including Korean and
 Simplified Chinese. Its contextual `cameraRaw` entries distinguish tonal regions,
 colour-band names and font-weight Light. The title uses a `{layer}` placeholder; user layer
 names and the universal RGB/Lab channel symbols stay unchanged. Collapse IDs use English
@@ -237,7 +245,7 @@ source keys, so switching languages preserves open sections. Mixer tabs wrap wit
 panel width. Catalog coverage and actual shell language-switch tests enforce these rules.
 
 Native CJK font fallback follows the selected UI script and resets its cache when switching
-languages; font delivery on the web remains separate work.
+languages.
 
 ## Arithmetic in numeric fields
 

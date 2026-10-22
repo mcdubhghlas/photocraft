@@ -1,9 +1,11 @@
 #include "layer_picker_ui.h"
 #include "sampling_ui.h"
+#include "analysis_ui.h"
 #include "ui/move_mods.h"
 #include "engine/floating.h"
 #include "artboard_ui.h"
 #include "transform_ui.h"
+#include "warp_ui.h"
 #include "context_ui.h"
 #include "crop_ui.h"
 #include "snap_ui.h"
@@ -12,7 +14,11 @@
 #include "brush_picker_ui.h"
 #include "rasterize_ui.h"
 #include "command_form.h"
+#include "ui/autoform.h"
+#include "fill_ui.h"
 #include "variables_ui.h"
+#include "web_export_ui.h"
+#include "print_ui.h"
 /* PhotocraftApp shell: see app.h. Reimplementation of the egui app root (crates/ui-egui/src/lib.rs)
  * against SDL3 + OpenGL 3.3 core + Nuklear + FreeType, built on the B3 spike's helpers. */
 #include "app.h"
@@ -49,6 +55,8 @@
 #include "shell_internal.h"
 #include "workspace_ui.h"
 #include "jobs_ui.h"
+#include "prefs_modals.h"
+#include "preset_manager_ui.h"
 #include "system_info.h"
 #include "ui/dock.h"
 #include "ui/menus.h"
@@ -66,6 +74,7 @@
 #include "type_panels_ui.h"
 #include "image_cache.h"
 #include "brush_panel_ui.h"
+#include "gradient_ui.h"
 #include "layer_interaction.h"
 #include "timeline_ui.h"
 
@@ -95,6 +104,8 @@ struct pc_ui_shell_app {
     pc_ui_crop_runtime crop;
     pc_ui_artboard_layout artboard_layout;
     pc_ui_sampling_tool sampling;
+    pc_ui_analysis analysis; /* U9: Ruler/Count/Note tools and the analysis panels/dialogs */
+    pc_ui_warp_runtime warp; /* U8: Perspective/Puppet/Liquify/Adaptive Wide Angle editors */
     pc_ui_notices notices; /* U3: lower-right notice stack */
     bool notices_hovered;
     uint64_t frame;
@@ -205,6 +216,7 @@ pc_status pc_ui_shell_app_new(pc_ui_shell_app **out, pc_error *err)
         return err ? err->code : PC_ERR_NOMEM;
     }
     pc_ui_state_init(&a->ui);
+    pc_ui_analysis_init(&a->analysis);
     pc_ui_notices_init(&a->notices);
     a->tokens = pc_ui_tokens_for_kind(a->ui.theme);
     pc_ui_menu_nav_reset(&a->menus.nav);
@@ -237,6 +249,7 @@ void pc_ui_shell_app_free(pc_ui_shell_app *a)
     pc_ui_type_panels_runtime_fini(&a->type_panels_runtime);
     pc_ui_brush_panel_fini(&a->brush_panel);
     pc_ui_shell_transform_fini(&a->transform);
+    pc_ui_shell_warp_fini(&a->warp);
     pc_ui_artboard_layout_fini(&a->artboard_layout);
     pc_ui_snap_fini(&a->snap);
     pc_ui_image_cache_fini(&a->image_cache, a->gl_ready ? &a->gl : NULL);
@@ -262,6 +275,7 @@ void pc_ui_shell_app_free(pc_ui_shell_app *a)
     }
     free(a->font_path);
     pc_ui_notices_fini(&a->notices);
+    pc_ui_analysis_fini(&a->analysis);
     pc_ui_state_fini(&a->ui);
     pc_engine_session_free(a->session);
     free(a);
@@ -648,9 +662,15 @@ pc_status pc_ui_shell_app_invoke(pc_ui_shell_app *a, const char *id, yyjson_val 
     pc_status transform = pc_ui_shell_transform_command(a, id, params, out, err);
     if (transform != PC_ERR_NOT_FOUND)
         return transform;
+    pc_status warp = pc_ui_shell_warp_command(a, id, params, out, err);
+    if (warp != PC_ERR_NOT_FOUND)
+        return warp;
     pc_status artboard = pc_ui_shell_artboard_command(a, id, params, out, err);
     if (artboard != PC_ERR_NOT_FOUND)
         return artboard;
+    pc_status analysis = pc_ui_shell_analysis_command(a, id, params, out, err);
+    if (analysis != PC_ERR_NOT_FOUND)
+        return analysis;
     if (!strcmp(id, "ui.notice.dismiss")) {
         uint64_t notice = 0;
         if (!pc_json_as_u64(pc_json_get(params, "notice"), &notice))
@@ -876,6 +896,10 @@ pc_status pc_ui_shell_app_invoke(pc_ui_shell_app *a, const char *id, yyjson_val 
         return rasterize_filter;
     if (!params && pc_ui_shell_form_command(id))
         return pc_ui_shell_form_open(a, id, out, err);
+    if (!params && pc_ui_autoform_command(id))
+        return pc_ui_shell_autoform_open(a, id, out, err);
+    if (!params && !strcmp(id, "edit.fill") && pc_engine_session_active(pc_ui_shell_app_session(a)))
+        return pc_ui_shell_fill_open(a, out, err);
     if (!params && pc_ui_shell_variables_command(id))
         return pc_ui_shell_variables_open(a, id, out, err);
     const char *style_kind = NULL;
@@ -885,11 +909,34 @@ pc_status pc_ui_shell_app_invoke(pc_ui_shell_app *a, const char *id, yyjson_val 
     if (!params && pc_ui_filter_dialog_command(id)) {
         return pc_ui_shell_filter_open(a, id, out, err);
     }
+    if (!params && !strcmp(id, "file.export.saveForWebLegacy")) {
+        return pc_ui_shell_web_export_open(a, out, err);
+    }
+    if (!params && !strcmp(id, "file.print")) {
+        return pc_ui_shell_print_open(a, out, err);
+    }
     if (strcmp(id, "file.new") == 0 && !params) {
         return pc_ui_shell_dialog_new(a, out, err);
     }
     if (!strncmp(id, "edit.preferences.", 17)) {
         return pc_ui_shell_preferences_open(a, id + 17, out, err);
+    }
+    if (!params || (yyjson_is_obj(params) && !yyjson_obj_size(params))) {
+        if (!strcmp(id, "edit.keyboardShortcuts")) {
+            return pc_ui_shell_shortcuts_open(a, 0, out, err);
+        }
+        if (!strcmp(id, "edit.menus")) {
+            return pc_ui_shell_shortcuts_open(a, 1, out, err);
+        }
+        if (!strcmp(id, "edit.toolbar")) {
+            return pc_ui_shell_shortcuts_open(a, 2, out, err);
+        }
+        if (!strcmp(id, "edit.presets.presetManager")) {
+            return pc_ui_shell_preset_manager_open(a, out, err);
+        }
+        if (!strcmp(id, "edit.presets.exportImportPresets")) {
+            return pc_ui_shell_presets_io_open(a, out, err);
+        }
     }
     if (!params && (!strcmp(id, "file.open") || !strcmp(id, "file.openAs") || !strcmp(id, "file.saveAs") ||
                     !strcmp(id, "file.saveACopy") || !strcmp(id, "file.placeEmbedded") ||
@@ -1592,8 +1639,10 @@ static void build_ui(pc_ui_shell_app *a, float w, float h)
     if (!a->ui.n_dialogs && !a->jobs.modal) {
         pc_ui_shell_type_panels_draw(a);
         pc_ui_brush_panel_draw(a, &a->brush_panel);
+        pc_ui_shell_gradient_editor_draw(a, w, h);
         pc_ui_shell_brush_picker_draw(a, &a->brush_picker, w, h);
         pc_ui_shell_timeline_draw(a);
+        pc_ui_shell_analysis_windows(a);
         pc_ui_shell_context_draw(a, w, h);
         pc_ui_native_menu_popups(a, &a->menus, a->items, a->nitems, w, h);
     }
@@ -1947,6 +1996,9 @@ static pc_status pointer_impl(pc_ui_shell_app *a, pc_ui_pointer_kind kind, pc_ui
     if (kind == PC_UI_POINTER_DOWN || kind == PC_UI_POINTER_UP) {
         a->menu_dirty = true;
     }
+    pc_status warp = pc_ui_shell_warp_pointer(a, kind, point, modifiers, out, err);
+    if (warp != PC_ERR_NOT_FOUND)
+        return warp;
     pc_status transform = pc_ui_shell_transform_pointer(a, kind, point, modifiers, out, err);
     if (transform != PC_ERR_NOT_FOUND)
         return transform;
@@ -1957,6 +2009,10 @@ static pc_status pointer_impl(pc_ui_shell_app *a, pc_ui_pointer_kind kind, pc_ui
                                                 view ? view->zoom / a->ui_scale : 1, out, err);
     if (sampling != PC_ERR_NOT_FOUND)
         return sampling;
+    pc_status analysis = pc_ui_analysis_pointer(&a->analysis, a->session, &a->ui, kind, point, modifiers,
+                                                view ? view->zoom / a->ui_scale : 1, out, err);
+    if (analysis != PC_ERR_NOT_FOUND)
+        return analysis;
     pc_status crop = pc_ui_shell_crop_pointer(a, kind, point, modifiers, out, err);
     if (crop != PC_ERR_NOT_FOUND)
         return crop;
@@ -2248,4 +2304,13 @@ pc_ui_artboard_layout *pc_ui_shell_artboard_layout(pc_ui_shell_app *app)
 pc_ui_sampling_tool *pc_ui_shell_sampling_runtime(pc_ui_shell_app *app)
 {
     return &app->sampling;
+}
+
+pc_ui_warp_runtime *pc_ui_shell_warp_runtime(pc_ui_shell_app *app)
+{
+    return &app->warp;
+}
+pc_ui_analysis *pc_ui_shell_analysis_runtime(pc_ui_shell_app *app)
+{
+    return &app->analysis;
 }

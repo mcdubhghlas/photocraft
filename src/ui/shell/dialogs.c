@@ -1,5 +1,8 @@
 #include "rasterize_ui.h"
 #include "command_form.h"
+#include "fill_ui.h"
+#include "web_export_ui.h"
+#include "print_ui.h"
 #include "variables_ui.h"
 /* Modal data lives in UiState. Native fields and control-channel edits share the same values. */
 #include "dialogs.h"
@@ -7,8 +10,12 @@
 #include "workspace_ui.h"
 #include "jobs_ui.h"
 #include "system_info.h"
+#include "prefs_modals.h"
+#include "preset_manager_ui.h"
+#include "profile_mismatch_ui.h"
 #include "filter_ui.h"
 #include "layer_style_ui.h"
+#include "camera_raw_ui.h"
 #include "ui/filter_dialog.h"
 #include "preferences.h"
 #include "discard.h"
@@ -16,6 +23,9 @@
 #include "base/mem.h"
 #include "ui/brand.h"
 #include "ui/color_picker.h"
+#include "ui/file_paths.h"
+#include "ui/autoform.h"
+#include "tiff_options.h"
 #include "ui/new_document.h"
 #include "ui/i18n.h"
 #include "engine/prefs.h"
@@ -27,16 +37,30 @@
 #include <stdlib.h>
 #include <string.h>
 /* SDL can complete on a worker after the app has closed. The callback owns only this mailbox. */
+/* At most this many files are kept from a multi-select Open; a hostile chooser cannot grow the list
+ * without bound (Rule 9). */
+#define PC_UI_FILE_REPLY_MAX 4096
 struct pc_ui_file_reply {
     atomic_uint refs, ready;
     uint64_t dialog;
+    /* `path` aliases `paths[0]` (not separately owned); NULL when nothing was chosen. */
     char *path;
+    char **paths; /* every chosen path (owned); one entry for save/place/single open */
+    size_t npaths;
+    bool multi; /* a multi-select Open: open every path in natural order */
+    /* 0 = generic file dialog (confirm the command with the chosen path); 1 = Camera Raw Load
+     * Settings; 2 = Camera Raw Save Settings; 3 = fill an autoform field (no confirm). */
+    int kind;
+    char field[64]; /* kind 3: the dialog field the chosen path fills */
     char error[256];
 };
 static void file_reply_release(struct pc_ui_file_reply *reply)
 {
     if (reply && atomic_fetch_sub_explicit(&reply->refs, 1, memory_order_acq_rel) == 1) {
-        free(reply->path);
+        for (size_t i = 0; i < reply->npaths; i++) {
+            free(reply->paths[i]);
+        }
+        free(reply->paths);
         free(reply);
     }
 }
@@ -47,12 +71,28 @@ static void SDLCALL file_chosen(void *userdata, const char *const *files, int fi
     if (!files) {
         (void)snprintf(reply->error, sizeof reply->error, "%s", SDL_GetError());
     } else if (files[0]) {
-        size_t len = strlen(files[0]);
-        if (len > 65536) {
-            (void)snprintf(reply->error, sizeof reply->error, "File path is too long");
+        size_t count = 0;
+        while (files[count] && count < PC_UI_FILE_REPLY_MAX) {
+            count++;
+        }
+        reply->paths = count ? calloc(count, sizeof *reply->paths) : NULL;
+        if (!reply->paths) {
+            (void)snprintf(reply->error, sizeof reply->error, "Cannot allocate file list");
         } else {
-            reply->path = pc_strndup(files[0], len);
-            if (!reply->path) {
+            for (size_t i = 0; i < count; i++) {
+                size_t len = strlen(files[i]);
+                if (len > 65536) {
+                    continue; /* skip an implausibly long path rather than open it */
+                }
+                char *copy = pc_strndup(files[i], len);
+                if (!copy) {
+                    break;
+                }
+                reply->paths[reply->npaths++] = copy;
+            }
+            if (reply->npaths) {
+                reply->path = reply->paths[0];
+            } else {
                 (void)snprintf(reply->error, sizeof reply->error, "Cannot allocate file path");
             }
         }
@@ -89,13 +129,148 @@ static void choose_file(pc_ui_shell_app *app, pc_ui_dialog_runtime *runtime, pc_
                                                         {"OpenEXR image", "exr"},
                                                         {"All files", "*"}};
     bool saving = command && (!strcmp(command, "file.saveAs") || !strcmp(command, "file.saveACopy") ||
-                              !strcmp(command, "file.export.exportAs"));
+                              !strcmp(command, "file.export.exportAs") ||
+                              !strcmp(command, "file.export.saveForWebLegacy"));
     if (saving) {
         SDL_ShowSaveFileDialog(file_chosen, reply, pc_ui_shell_app_sdl_window(app), save_filters,
                                (int)(sizeof save_filters / sizeof *save_filters), path);
     } else {
+        /* Open starts in the folder of the most-recent file when no path was given (UI-217-3). */
+        char dir[4096];
+        const char *location = path;
+        if (!location || !*location) {
+            pc_ui_state *ui = pc_ui_shell_app_state(app);
+            if (ui->n_recent_files && pc_ui_last_used_dir(ui->recent_files[0], dir, sizeof dir)) {
+                location = dir;
+            }
+        }
+        /* File › Open selects multiple files; every other open (Place, Open As with a path) is
+         * single (B1). The chosen files open in natural_cmp order. */
+        bool many = command && (!strcmp(command, "file.open") || !strcmp(command, "file.openAs"));
+        reply->multi = many;
         SDL_ShowOpenFileDialog(file_chosen, reply, pc_ui_shell_app_sdl_window(app), open_filters,
-                               (int)(sizeof open_filters / sizeof *open_filters), path, false);
+                               (int)(sizeof open_filters / sizeof *open_filters), location, many);
+    }
+}
+/* The "Browse…" chooser for an autoform field (B5): fills `field` without confirming the dialog. */
+static void choose_autoform_file(pc_ui_shell_app *app, pc_ui_dialog_runtime *runtime, pc_ui_dialog *dialog,
+                                 const char *field, pc_ui_autoform_browse bkind)
+{
+    if (runtime->file_reply || !field) {
+        return;
+    }
+    struct pc_ui_file_reply *reply = calloc(1, sizeof *reply);
+    if (!reply) {
+        (void)snprintf(runtime->error, sizeof runtime->error, "Cannot allocate file chooser");
+        return;
+    }
+    atomic_init(&reply->refs, 2);
+    atomic_init(&reply->ready, 0);
+    reply->dialog = dialog->id;
+    reply->kind = 3;
+    (void)snprintf(reply->field, sizeof reply->field, "%s", field);
+    runtime->file_reply = reply;
+    yyjson_mut_val *root = yyjson_mut_doc_get_root(dialog->fields);
+    const char *current = yyjson_mut_get_str(yyjson_mut_obj_get(root, field));
+    char dir[4096];
+    const char *location = NULL;
+    if (current && *current && pc_ui_last_used_dir(current, dir, sizeof dir)) {
+        location = dir;
+    }
+    SDL_Window *window = pc_ui_shell_app_sdl_window(app);
+    if (bkind == PC_UI_AUTOFORM_BROWSE_OPEN_FOLDER) {
+        SDL_ShowOpenFolderDialog(file_chosen, reply, window, location, false);
+    } else if (bkind == PC_UI_AUTOFORM_BROWSE_SAVE_FILE) {
+        SDL_ShowSaveFileDialog(file_chosen, reply, window, NULL, 0, current && *current ? current : location);
+    } else {
+        SDL_ShowOpenFileDialog(file_chosen, reply, window, NULL, 0, location, false);
+    }
+}
+/* The chooser for Export/Import Presets: a Save (saving) or Open chooser whose reply kind (4 = write
+ * the stashed export text, 5 = import the chosen file) is handled in pc_ui_shell_dialogs_draw. */
+static void choose_presets_file(pc_ui_shell_app *app, pc_ui_dialog_runtime *runtime, pc_ui_dialog *dialog,
+                                bool saving)
+{
+    if (runtime->file_reply) {
+        return;
+    }
+    struct pc_ui_file_reply *reply = calloc(1, sizeof *reply);
+    if (!reply) {
+        (void)snprintf(runtime->error, sizeof runtime->error, "Cannot allocate file chooser");
+        return;
+    }
+    atomic_init(&reply->refs, 2);
+    atomic_init(&reply->ready, 0);
+    reply->dialog = dialog->id;
+    reply->kind = saving ? 4 : 5;
+    runtime->file_reply = reply;
+    static const SDL_DialogFileFilter filters[] = {{"PhotoCraft presets", "pcpresets"}, {"All files", "*"}};
+    SDL_Window *window = pc_ui_shell_app_sdl_window(app);
+    if (saving) {
+        SDL_ShowSaveFileDialog(file_chosen, reply, window, filters,
+                               (int)(sizeof filters / sizeof *filters), "Presets.pcpresets");
+    } else {
+        SDL_ShowOpenFileDialog(file_chosen, reply, window, filters,
+                               (int)(sizeof filters / sizeof *filters), NULL, false);
+    }
+}
+/* qsort comparator ordering paths by pc_ui_natural_cmp (File_2 before File_10). */
+static int natural_path_cmp(const void *a, const void *b)
+{
+    const char *const *x = a, *const *y = b;
+    return pc_ui_natural_cmp(*x, *y);
+}
+/* Open one file through the engine (file.openAs), pushing it onto the recent list. */
+static pc_status open_one_path(pc_ui_shell_app *app, const char *path, pc_error *err)
+{
+    yyjson_mut_doc *d = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *o = d ? yyjson_mut_obj(d) : NULL;
+    pc_buf text = PC_BUF_INIT;
+    yyjson_doc *read = NULL;
+    pc_json_value out = PC_JSON_VALUE_INIT;
+    pc_status rc = (o && yyjson_mut_obj_add_strcpy(d, o, "path", path))
+                       ? PC_OK
+                       : pc_fail(err, PC_ERR_NOMEM, "open path");
+    if (rc == PC_OK) {
+        rc = pc_json_write(o, 0, &text, err);
+    }
+    if (rc == PC_OK) {
+        rc = pc_json_parse(pc_buf_cstr(&text), text.len, &read, err);
+    }
+    if (rc == PC_OK) {
+        rc = pc_ui_shell_file_execute(app, "file.openAs", yyjson_doc_get_root(read), &out, err);
+    }
+    pc_json_value_fini(&out);
+    yyjson_doc_free(read);
+    pc_buf_fini(&text);
+    yyjson_mut_doc_free(d);
+    return rc;
+}
+void pc_ui_shell_dialog_camera_raw_settings(pc_ui_shell_app *app, bool saving)
+{
+    pc_ui_dialog_runtime *runtime = pc_ui_shell_dialog_runtime(app);
+    pc_ui_state *ui = pc_ui_shell_app_state(app);
+    if (runtime->file_reply || !ui->n_dialogs) {
+        return;
+    }
+    pc_ui_dialog *dialog = &ui->dialogs[ui->n_dialogs - 1];
+    struct pc_ui_file_reply *reply = calloc(1, sizeof *reply);
+    if (!reply) {
+        (void)snprintf(runtime->error, sizeof runtime->error, "Cannot allocate file chooser");
+        return;
+    }
+    atomic_init(&reply->refs, 2);
+    atomic_init(&reply->ready, 0);
+    reply->dialog = dialog->id;
+    reply->kind = saving ? 2 : 1;
+    runtime->file_reply = reply;
+    static const SDL_DialogFileFilter filters[] = {{"Camera Raw settings", "xmp"}, {"All files", "*"}};
+    if (saving) {
+        SDL_ShowSaveFileDialog(file_chosen, reply, pc_ui_shell_app_sdl_window(app), filters,
+                               (int)(sizeof filters / sizeof *filters), NULL);
+    } else {
+        SDL_ShowOpenFileDialog(file_chosen, reply, pc_ui_shell_app_sdl_window(app), filters,
+                               (int)(sizeof filters / sizeof *filters), NULL, false);
     }
 }
 static pc_status null_result(pc_json_value *out, pc_error *err)
@@ -383,6 +558,31 @@ static pc_status confirm(pc_ui_shell_app *app, uint64_t id, bool apply, pc_json_
     if (pc_ui_shell_is_preferences(fields)) {
         return pc_ui_shell_preferences_commit(app, id, !apply, out, err);
     }
+    if (!apply && pc_ui_shell_shortcuts_owns(fields)) {
+        return pc_ui_shell_shortcuts_confirm(app, id, out, err);
+    }
+    if (!apply && pc_ui_shell_profile_mismatch_owns(fields)) {
+        return pc_ui_shell_profile_mismatch_confirm(app, id, out, err);
+    }
+    if (!apply && pc_ui_shell_preset_manager_owns(fields)) {
+        /* The manager acts entirely through its body buttons; OK just dismisses it. */
+        pc_ui_state_close_dialog(ui, id);
+        return null_result(out, err);
+    }
+    if (!apply && pc_ui_shell_presets_io_owns(fields)) {
+        /* OK runs the export/import and opens a file chooser; the dialog stays up until the chooser
+         * result is handled (pc_ui_shell_dialogs_draw). */
+        bool saving = false;
+        pc_status rc = pc_ui_shell_presets_io_begin(app, dialog, &saving, err);
+        if (rc != PC_OK) {
+            return rc;
+        }
+        choose_presets_file(app, pc_ui_shell_dialog_runtime(app), dialog, saving);
+        return null_result(out, err);
+    }
+    if (!apply && pc_ui_shell_is_tiff_options(fields)) {
+        return pc_ui_shell_tiff_options_confirm(app, id, out, err);
+    }
     if (yyjson_mut_get_bool(yyjson_mut_obj_get(fields, "__variables"))) {
         const pc_engine_doc_state *state = pc_engine_session_active(pc_ui_shell_app_session(app));
         if (!state ||
@@ -393,8 +593,11 @@ static pc_status confirm(pc_ui_shell_app *app, uint64_t id, bool apply, pc_json_
     if (apply) {
         return pc_fail(err, PC_ERR_INVALID, "Apply is only available for Preferences");
     }
+    /* Autoforms (automate/scripts commands, B5) do not bind to the active document, so they skip
+     * the filter-dialog revision guard; filters and document-bound forms keep it. */
+    bool autoform = yyjson_mut_get_bool(yyjson_mut_obj_get(fields, "__autoform"));
     if (yyjson_mut_get_bool(yyjson_mut_obj_get(fields, "__filter")) ||
-        yyjson_mut_get_bool(yyjson_mut_obj_get(fields, "__form"))) {
+        (yyjson_mut_get_bool(yyjson_mut_obj_get(fields, "__form")) && !autoform)) {
         pc_status guard = pc_ui_filter_dialog_guard(pc_ui_shell_app_session(app), fields, err);
         if (guard != PC_OK)
             return guard;
@@ -1233,9 +1436,100 @@ void pc_ui_shell_dialogs_draw(pc_ui_shell_app *app, pc_ui_dialog_runtime *r, flo
     if (r->file_reply && atomic_load_explicit(&r->file_reply->ready, memory_order_acquire)) {
         struct pc_ui_file_reply *reply = r->file_reply;
         pc_ui_dialog *target = pc_ui_state_dialog_mut(ui, reply->dialog);
-        if (target && reply->path) {
+        if (target && reply->kind == 3) {
+            /* Autoform Browse (B5): fill the target field; keep the dialog open. */
+            if (reply->path && reply->field[0]) {
+                yyjson_mut_val *root = yyjson_mut_doc_get_root(target->fields);
+                if (!put(target->fields, root, reply->field,
+                         yyjson_mut_strcpy(target->fields, reply->path))) {
+                    (void)snprintf(r->error, sizeof r->error, "Cannot allocate file path");
+                }
+            } else if (reply->error[0]) {
+                (void)snprintf(r->error, sizeof r->error, "%s", reply->error);
+            }
+        } else if (target && (reply->kind == 4 || reply->kind == 5)) {
+            /* Export/Import Presets: write the stashed file (4) or import the chosen one (5). A
+             * cancelled chooser (no path, no error) leaves the dialog open. */
+            if (reply->path) {
+                pc_error error = {0};
+                pc_status rc = reply->kind == 4
+                                   ? pc_ui_shell_presets_io_write(app, target, reply->path, &error)
+                                   : pc_ui_shell_presets_io_read(app, target, reply->path, &error);
+                if (rc != PC_OK) {
+                    (void)snprintf(r->error, sizeof r->error, "%s", error.msg);
+                } else {
+                    pc_ui_state_close_dialog(ui, reply->dialog);
+                }
+            } else if (reply->error[0]) {
+                (void)snprintf(r->error, sizeof r->error, "%s", reply->error);
+            }
+        } else if (target && reply->path && reply->kind != 0) {
+            pc_error error = {0};
+            if (pc_ui_shell_camera_raw_settings_file(app, target, reply->path, reply->kind == 2, &error) !=
+                PC_OK) {
+                (void)snprintf(r->error, sizeof r->error, "%s", error.msg);
+            } else if (reply->kind == 1) {
+                r->curve_valid = false;
+            }
+        } else if (target && reply->multi) {
+            /* File › Open with several files: open each in natural order, failures reported but
+             * never stopping the rest (B1). */
+            if (reply->npaths) {
+                qsort(reply->paths, reply->npaths, sizeof *reply->paths, natural_path_cmp);
+                pc_error last = {0};
+                bool failed = false;
+                for (size_t i = 0; i < reply->npaths; i++) {
+                    pc_error one = {0};
+                    if (open_one_path(app, reply->paths[i], &one) != PC_OK) {
+                        failed = true;
+                        last = one;
+                    }
+                }
+                pc_error sync = {0};
+                (void)pc_ui_shell_app_sync_views(app, &sync);
+                if (failed) {
+                    (void)snprintf(r->error, sizeof r->error, "%s", last.msg);
+                }
+            } else if (reply->error[0]) {
+                (void)snprintf(r->error, sizeof r->error, "%s", reply->error);
+            }
+            pc_ui_state_close_dialog(ui, reply->dialog);
+        } else if (target && reply->path) {
             yyjson_mut_val *root = yyjson_mut_doc_get_root(target->fields);
-            if (put(target->fields, root, "path", yyjson_mut_strcpy(target->fields, reply->path))) {
+            /* Lowercase the chosen extension on save when the preference is on (default). */
+            const char *store = reply->path;
+            char lowered[4096];
+            const char *saved_cmd = yyjson_mut_get_str(yyjson_mut_obj_get(root, "__command"));
+            bool saving = saved_cmd &&
+                          (!strcmp(saved_cmd, "file.saveAs") || !strcmp(saved_cmd, "file.saveACopy") ||
+                           !strcmp(saved_cmd, "file.export.exportAs"));
+            if (saving && strlen(reply->path) < sizeof lowered) {
+                bool on = true;
+                pc_json_value pref = PC_JSON_VALUE_INIT;
+                if (pc_engine_prefs_get(pc_ui_shell_app_session(app), "fileHandling.lowercaseExtension",
+                                        &pref, NULL) == PC_OK) {
+                    yyjson_mut_val *value = pc_json_value_root(&pref);
+                    if (yyjson_mut_is_bool(value)) {
+                        on = yyjson_mut_get_bool(value);
+                    }
+                }
+                pc_json_value_fini(&pref);
+                if (on && pc_ui_lowercase_extension(reply->path, lowered, sizeof lowered)) {
+                    store = lowered;
+                }
+            }
+            /* Save As to a layered TIFF parks the save behind the TIFF Options prompt (B2). */
+            if (saved_cmd && !strcmp(saved_cmd, "file.saveAs") &&
+                pc_ui_shell_tiff_options_wants(app, store)) {
+                pc_json_value tr = PC_JSON_VALUE_INIT;
+                pc_error te = {0};
+                if (pc_ui_shell_tiff_options_open(app, store, &tr, &te) != PC_OK) {
+                    (void)snprintf(r->error, sizeof r->error, "%s", te.msg);
+                } else {
+                    pc_ui_state_close_dialog(ui, reply->dialog);
+                }
+                pc_json_value_fini(&tr);
+            } else if (put(target->fields, root, "path", yyjson_mut_strcpy(target->fields, store))) {
                 pc_json_value result = PC_JSON_VALUE_INIT;
                 pc_error error;
                 pc_status status = confirm(app, reply->dialog, false, &result, &error);
@@ -1286,6 +1580,9 @@ void pc_ui_shell_dialogs_draw(pc_ui_shell_app *app, pc_ui_dialog_runtime *r, flo
     bool is_style =
         yyjson_mut_get_bool(yyjson_mut_obj_get(yyjson_mut_doc_get_root(dialog->fields), "__style"));
     bool is_form = yyjson_mut_get_bool(yyjson_mut_obj_get(yyjson_mut_doc_get_root(dialog->fields), "__form"));
+    bool is_web = yyjson_mut_get_bool(yyjson_mut_obj_get(yyjson_mut_doc_get_root(dialog->fields), "__web"));
+    bool is_print =
+        yyjson_mut_get_bool(yyjson_mut_obj_get(yyjson_mut_doc_get_root(dialog->fields), "__print"));
     bool is_variables =
         yyjson_mut_get_bool(yyjson_mut_obj_get(yyjson_mut_doc_get_root(dialog->fields), "__variables"));
     bool is_gallery =
@@ -1295,12 +1592,22 @@ void pc_ui_shell_dialogs_draw(pc_ui_shell_app *app, pc_ui_dialog_runtime *r, flo
             ? yyjson_mut_get_str(yyjson_mut_obj_get(yyjson_mut_doc_get_root(dialog->fields), "__command"))
             : "",
         "filter.cameraRaw");
+    bool is_shortcuts = pc_ui_shell_shortcuts_owns(yyjson_mut_doc_get_root(dialog->fields));
+    bool is_preset_mgr = pc_ui_shell_preset_manager_owns(yyjson_mut_doc_get_root(dialog->fields));
+    bool is_presets_io = pc_ui_shell_presets_io_owns(yyjson_mut_doc_get_root(dialog->fields));
+    bool is_mismatch = pc_ui_shell_profile_mismatch_owns(yyjson_mut_doc_get_root(dialog->fields));
     float w = fminf(dialog->kind == PC_DIALOG_ABOUT          ? 980
+                    : is_web                                 ? 1000
+                    : is_print                               ? 760
                     : is_form                                ? 700
                     : is_variables                           ? 760
                     : is_camera                              ? 1000
                     : is_gallery                             ? 1100
                     : is_style                               ? 820
+                    : is_shortcuts                           ? 760
+                    : is_preset_mgr                          ? 520
+                    : is_presets_io                          ? 460
+                    : is_mismatch                            ? 520
                     : is_filter                              ? 460
                     : is_picker                              ? 560
                     : is_preferences                         ? 820
@@ -1308,11 +1615,17 @@ void pc_ui_shell_dialogs_draw(pc_ui_shell_app *app, pc_ui_dialog_runtime *r, flo
                                                              : 440,
                     width - 24),
           h = fminf(dialog->kind == PC_DIALOG_ABOUT ? 650
+                    : is_web                        ? 720
+                    : is_print                      ? 700
                     : is_form                       ? 720
                     : is_variables                  ? 650
                     : is_camera                     ? 720
                     : is_gallery                    ? 700
                     : is_style                      ? 650
+                    : is_shortcuts                  ? 660
+                    : is_preset_mgr                 ? 480
+                    : is_presets_io                 ? 320
+                    : is_mismatch                   ? 320
                     : is_filter
                         ? fminf(650, 192 + 30 * (float)yyjson_mut_get_uint(yyjson_mut_obj_get(
                                                     yyjson_mut_doc_get_root(dialog->fields), "__rows")))
@@ -1350,6 +1663,8 @@ void pc_ui_shell_dialogs_draw(pc_ui_shell_app *app, pc_ui_dialog_runtime *r, flo
         if (nk_group_begin(ctx, "dialog-body", 0)) {
             if (yyjson_mut_get_bool(yyjson_mut_obj_get(root, "__rasterize"))) {
                 pc_ui_shell_rasterize_body(app, dialog);
+            } else if (pc_ui_shell_is_tiff_options(root)) {
+                pc_ui_shell_tiff_options_body(app, dialog);
             } else if (is_discard) {
                 const char *message = "Save changes before closing?";
                 const char *request = yyjson_mut_get_str(yyjson_mut_obj_get(root, "__request"));
@@ -1374,6 +1689,14 @@ void pc_ui_shell_dialogs_draw(pc_ui_shell_app *app, pc_ui_dialog_runtime *r, flo
                 new_document_body(app, ctx, r, dialog);
             } else if (is_preferences) {
                 pc_ui_shell_preferences_draw(app, r, dialog);
+            } else if (pc_ui_shell_shortcuts_owns(root)) {
+                pc_ui_shell_shortcuts_body(app, r, dialog);
+            } else if (pc_ui_shell_profile_mismatch_owns(root)) {
+                pc_ui_shell_profile_mismatch_body(app, r, dialog);
+            } else if (pc_ui_shell_preset_manager_owns(root)) {
+                pc_ui_shell_preset_manager_body(app, r, dialog);
+            } else if (pc_ui_shell_presets_io_owns(root)) {
+                pc_ui_shell_presets_io_body(app, r, dialog);
             } else if (yyjson_mut_get_bool(yyjson_mut_obj_get(root, "__fileDialog"))) {
                 text_field(ctx, r, dialog, "path", "File path");
                 nk_layout_row_dynamic(ctx, 28, 1);
@@ -1386,6 +1709,16 @@ void pc_ui_shell_dialogs_draw(pc_ui_shell_app *app, pc_ui_dialog_runtime *r, flo
                 if ((choose || automatic) && !r->file_reply) {
                     choose_file(app, r, dialog);
                 }
+            } else if (yyjson_mut_get_bool(yyjson_mut_obj_get(root, "__fill"))) {
+                pc_ui_shell_fill_body(app, dialog);
+            } else if (is_web) {
+                pc_ui_shell_web_export_body(app, r, dialog);
+                if (yyjson_mut_get_bool(yyjson_mut_obj_get(root, "__choose")) && !r->file_reply) {
+                    (void)put(dialog->fields, root, "__choose", yyjson_mut_bool(dialog->fields, false));
+                    choose_file(app, r, dialog);
+                }
+            } else if (is_print) {
+                pc_ui_shell_print_body(app, r, dialog);
             } else if (is_form) {
                 pc_ui_shell_form_body(app, r, dialog);
                 if (yyjson_mut_get_bool(yyjson_mut_obj_get(root, "__export"))) {
@@ -1393,6 +1726,18 @@ void pc_ui_shell_dialogs_draw(pc_ui_shell_app *app, pc_ui_dialog_runtime *r, flo
                     nk_layout_row_dynamic(ctx, 26, 1);
                     if (nk_button_label(ctx, pc_i18n_t("Browse…")))
                         choose_file(app, r, dialog);
+                }
+                /* Autoforms (B5) offer a Browse button that fills their folder/path field. */
+                const char *browse_field = yyjson_mut_get_str(yyjson_mut_obj_get(root, "__browseField"));
+                if (browse_field) {
+                    nk_layout_row_dynamic(ctx, 26, 1);
+                    bool click = nk_button_label(
+                        ctx, r->file_reply ? pc_i18n_t("Waiting for file chooser...") : pc_i18n_t("Browse…"));
+                    if (click && !r->file_reply) {
+                        pc_ui_autoform_browse bk =
+                            (pc_ui_autoform_browse)yyjson_mut_get_uint(yyjson_mut_obj_get(root, "__browseKind"));
+                        choose_autoform_file(app, r, dialog, browse_field, bk);
+                    }
                 }
             } else if (is_variables) {
                 pc_ui_shell_variables_body(app, r, dialog);
@@ -1445,7 +1790,16 @@ void pc_ui_shell_dialogs_draw(pc_ui_shell_app *app, pc_ui_dialog_runtime *r, flo
             r->apply[1] = button.y;
             r->apply[2] = button.w;
             r->apply[3] = button.h;
+            /* Apply is enabled only when the Preferences draft differs from the live prefs (B7). */
+            bool disabled = is_preferences && !pc_ui_shell_preferences_changed(app, root);
+            if (disabled) {
+                nk_widget_disable_begin(ctx);
+            }
             applied = nk_button_label(ctx, pc_i18n_t(is_discard ? "Don't Save" : "Apply"));
+            if (disabled) {
+                nk_widget_disable_end(ctx);
+                applied = false;
+            }
         }
     }
     nk_end(ctx);

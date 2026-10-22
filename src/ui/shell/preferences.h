@@ -7,4 +7,6 @@ pc_status pc_ui_shell_preferences_open(pc_ui_shell_app *app, const char *section
 pc_status pc_ui_shell_preferences_commit(pc_ui_shell_app *app, uint64_t id, bool close, pc_json_value *out,
                                          pc_error *err);
 void pc_ui_shell_preferences_draw(pc_ui_shell_app *app, pc_ui_dialog_runtime *runtime, pc_ui_dialog *dialog);
+/* True when the Preferences draft differs from the live preferences (Apply is enabled only then). */
+bool pc_ui_shell_preferences_changed(pc_ui_shell_app *app, yyjson_mut_val *fields);
 #endif

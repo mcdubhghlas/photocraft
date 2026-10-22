@@ -655,6 +655,72 @@ pc_doc_arc *pc_ui_shell_transform_preview(pc_ui_shell_app *app, uint64_t *genera
     *generation = r->preview.generation;
     return r->preview.result;
 }
+static bool show_transformation_values(pc_ui_shell_app *app)
+{
+    pc_json_value v = PC_JSON_VALUE_INIT;
+    (void)pc_engine_prefs_get(pc_ui_shell_app_session(app), "tools.showTransformationValues", &v, NULL);
+    yyjson_mut_val *root = pc_json_value_root(&v);
+    bool show = !yyjson_mut_is_bool(root) || yyjson_mut_get_bool(root);
+    pc_json_value_fini(&v);
+    return show;
+}
+/* Round to `places` decimals, mapping a hair-below-zero to a clean 0 so a readout never shows -0. */
+static double tidy(double v, int places)
+{
+    double k = pow(10, places), r = round(v * k) / k;
+    return r == 0 ? 0 : r;
+}
+/* Feedback-only overlays: the rotate-cursor arc at the hovered corner and Photoshop's
+ * "Show Transformation Values" readout beside the pointer while a drag is in progress. */
+static void draw_transform_feedback(pc_ui_shell_app *app, const pc_ui_canvas_xform *xf)
+{
+    struct nk_context *ctx = pc_ui_shell_app_nk(app);
+    struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
+    const pc_ui_transform *t = &pc_ui_shell_app_state(app)->transform;
+    const pc_ui_transform_runtime *r = pc_ui_shell_transform_runtime(app);
+    struct nk_color color = pc_ui_nk_color(pc_ui_shell_app_tokens(app)->accent_border);
+    float mx = ctx->input.mouse.pos.x, my = ctx->input.mouse.pos.y;
+    if (!isfinite(mx) || !isfinite(my))
+        return;
+    float hover[2];
+    if (pc_ui_canvas_to_doc(xf, mx, my, hover) == PC_OK) {
+        double p[2] = {hover[0], hover[1]}, dir[2];
+        double tol = 12 / fmax(.01, (double)xf->zoom);
+        bool rotating = r->dragging && r->drag.hit.part == PC_TRANSFORM_OUTSIDE;
+        float s0[2], s1[2];
+        if (pc_ui_transform_rotate_dir(&t->frame, p, tol, t->mode, rotating, dir) &&
+            pc_ui_canvas_to_screen(xf, (float)p[0], (float)p[1], s0) == PC_OK &&
+            pc_ui_canvas_to_screen(xf, (float)(p[0] + dir[0]), (float)(p[1] + dir[1]), s1) == PC_OK) {
+            double a = atan2((double)(s1[1] - s0[1]), (double)(s1[0] - s0[0]));
+            nk_stroke_arc(canvas, mx, my, 11, (float)(a - 0.9), (float)(a + 0.9), 2, color);
+        }
+    }
+    if (!r->dragging || !show_transformation_values(app))
+        return;
+    double out[2];
+    char label[96];
+    switch (pc_ui_transform_readout(&t->frame, (const double(*)[2])r->drag.before.quad, r->drag.hit.part, out)) {
+    case PC_TRANSFORM_READOUT_ANGLE:
+        (void)snprintf(label, sizeof label, "%s %.1f\xC2\xB0", pc_i18n_t("Angle:"), tidy(out[0], 1));
+        break;
+    case PC_TRANSFORM_READOUT_SCALE:
+        (void)snprintf(label, sizeof label, "W: %.1f%%  H: %.1f%%", tidy(out[0], 1), tidy(out[1], 1));
+        break;
+    case PC_TRANSFORM_READOUT_OFFSET:
+        (void)snprintf(label, sizeof label, "\xCE\x94X: %.0f px  \xCE\x94Y: %.0f px", tidy(out[0], 0),
+                       tidy(out[1], 0));
+        break;
+    default:
+        return;
+    }
+    const pc_ui_tokens *tokens = pc_ui_shell_app_tokens(app);
+    struct nk_rect box = nk_rect(fminf(mx + 16, xf->x + xf->width - 150),
+                                 fminf(my + 20, xf->y + xf->height - 24), 140, 20);
+    nk_fill_rect(canvas, box, 3, pc_ui_nk_color(tokens->chrome));
+    nk_draw_text(canvas, box, label, (int)strlen(label), ctx->style.font, pc_ui_nk_color(tokens->chrome),
+                 pc_ui_nk_color(tokens->text));
+    pc_ui_shell_widget_mapping(app, "transform.readout", box);
+}
 void pc_ui_shell_transform_draw(pc_ui_shell_app *app, const pc_ui_canvas_xform *xf)
 {
     const pc_ui_transform *t = &pc_ui_shell_app_state(app)->transform;
@@ -687,6 +753,7 @@ void pc_ui_shell_transform_draw(pc_ui_shell_app *app, const pc_ui_canvas_xform *
             pc_ui_shell_widget_mapping(app, id, nk_rect(rect.x - 5, rect.y - 5, 16, 16));
         }
     }
+    draw_transform_feedback(app, xf);
     if (!pc_ui_canvas_ink_visible(xf, pivot[0], pivot[1], 10))
         return;
     nk_stroke_circle(canvas, nk_rect(pivot[0] - 4, pivot[1] - 4, 8, 8), 1, color);

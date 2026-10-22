@@ -7,6 +7,7 @@
 #include "transform_ui.h"
 #include "context_ui.h"
 #include "crop_ui.h"
+#include "warp_ui.h"
 #include "brush_picker_ui.h"
 /* SDL3 -> Nuklear input translation and keyboard-shortcut dispatch for the frame loop. Kept apart
  * from main.c so the control test (which links the shell objects without main) still resolves
@@ -17,6 +18,7 @@
 #include "shell_internal.h"
 #include "pen_ui.h"
 #include "jobs_ui.h"
+#include "prefs_modals.h"
 #include "ui/enable_rules.h"
 #include "base/num.h"
 #include "ui/shortcut_dispatch.h"
@@ -274,6 +276,8 @@ void pc_ui_shell_input_event(pc_ui_shell_app *a, const SDL_Event *e)
         return;
     if (pc_ui_shell_crop_event(a, e))
         return;
+    if (pc_ui_shell_warp_key(a, e))
+        return;
     if (pc_ui_shell_transform_key(a, e))
         return;
     if (pc_ui_shell_brush_picker_event(a, e))
@@ -286,6 +290,9 @@ void pc_ui_shell_input_event(pc_ui_shell_app *a, const SDL_Event *e)
         return;
     }
     if (pc_ui_shell_dock_cancel(a, e)) {
+        return;
+    }
+    if (pc_ui_shell_shortcuts_key(a, e)) {
         return;
     }
     if (pc_ui_shell_dialog_key(a, e)) {

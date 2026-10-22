@@ -394,6 +394,127 @@ bool pc_ui_transform_numeric(pc_ui_transform_frame *f, unsigned reference, unsig
     *f = next;
     return true;
 }
+/* True when the quad is still an affine image of the box (opposite sides parallel), so a single W/H
+ * scale describes it; a distorted or perspective box has none (transform_tool::parallelogram). */
+static bool parallelogram(const double q[4][2])
+{
+    double scale = 1.0;
+    for (size_t i = 0; i < 4; i++)
+        for (size_t a = 0; a < 2; a++)
+            scale = fmax(scale, fabs(q[i][a]));
+    for (size_t k = 0; k < 2; k++)
+        if (fabs((q[0][k] + q[2][k]) - (q[1][k] + q[3][k])) > scale * 1e-9)
+            return false;
+    return true;
+}
+/* W/H scale percents from the box's affine part (transform_tool::readout via Parts::from_columns,
+ * taking the session's typed V skew as zero: C does not carry one). */
+static bool scale_percent(const pc_ui_transform_frame *f, double *w, double *h)
+{
+    double w0 = f->rect[2] - f->rect[0], h0 = f->rect[3] - f->rect[1];
+    if (fabs(w0) < 1e-9 || fabs(h0) < 1e-9)
+        return false;
+    const double(*q)[2] = f->quad;
+    double c0[2] = {(q[1][0] - q[0][0]) / w0, (q[1][1] - q[0][1]) / w0};
+    double c1[2] = {(q[3][0] - q[0][0]) / h0, (q[3][1] - q[0][1]) / h0};
+    if (!isfinite(c0[0]) || !isfinite(c0[1]) || !isfinite(c1[0]) || !isfinite(c1[1]))
+        return false;
+    double angle = atan2(c0[1], c0[0]), sn = sin(angle), cs = cos(angle);
+    double gy = -c1[0] * sn + c1[1] * cs; /* unturn(c1, angle).1 */
+    *w = hypot(c0[0], c0[1]) * 100;
+    *h = fabs(gy) * 100;
+    return isfinite(*w) && isfinite(*h);
+}
+/* Clockwise degrees of the box's top edge in canvas coordinates (transform_tool::rotation_degrees). */
+static double rotation_degrees(const double q[4][2])
+{
+    double dx = q[1][0] - q[0][0], dy = q[1][1] - q[0][1];
+    if (isfinite(dx) && isfinite(dy) && hypot(dx, dy) > 1e-9)
+        return atan2(dy, dx) * 180 / 3.14159265358979323846;
+    return 0;
+}
+pc_ui_transform_readout_kind pc_ui_transform_readout(const pc_ui_transform_frame *f,
+                                                     const double before[4][2],
+                                                     pc_ui_transform_part part, double out[2])
+{
+    if (!out)
+        return PC_TRANSFORM_READOUT_NONE;
+    out[0] = out[1] = 0;
+    if (!f || !before || !finite_frame(f))
+        return PC_TRANSFORM_READOUT_NONE;
+    for (size_t i = 0; i < 4; i++)
+        for (size_t a = 0; a < 2; a++)
+            if (!isfinite(before[i][a]) || fabs(before[i][a]) > 1000000)
+                return PC_TRANSFORM_READOUT_NONE;
+    switch (part) {
+    case PC_TRANSFORM_OUTSIDE:
+        out[0] = rotation_degrees((const double(*)[2])f->quad);
+        return PC_TRANSFORM_READOUT_ANGLE;
+    case PC_TRANSFORM_INSIDE:
+        out[0] = f->quad[0][0] - before[0][0];
+        out[1] = f->quad[0][1] - before[0][1];
+        return PC_TRANSFORM_READOUT_OFFSET;
+    case PC_TRANSFORM_CORNER:
+    case PC_TRANSFORM_EDGE:
+        if (parallelogram((const double(*)[2])f->quad) && scale_percent(f, &out[0], &out[1]))
+            return PC_TRANSFORM_READOUT_SCALE;
+        return PC_TRANSFORM_READOUT_NONE;
+    default:
+        return PC_TRANSFORM_READOUT_NONE;
+    }
+}
+/* The rotate feedback zone: just outside a corner (any mode but Distort), or a Rotate-mode handle,
+ * and within 3 tolerances of a corner (transform_tool::near_rotate_corner). */
+static bool near_rotate_corner(const pc_ui_transform_frame *f, const double p[2], double tol,
+                               pc_ui_transform_mode mode)
+{
+    if (mode == PC_TRANSFORM_DISTORT)
+        return false;
+    pc_ui_transform_hit h = pc_ui_transform_hit_test(f, p, tol);
+    bool zone = h.part == PC_TRANSFORM_OUTSIDE || (mode == PC_TRANSFORM_ROTATE &&
+                                                   (h.part == PC_TRANSFORM_CORNER || h.part == PC_TRANSFORM_EDGE));
+    if (!zone)
+        return false;
+    for (size_t i = 0; i < 4; i++)
+        if (hypot(p[0] - f->quad[i][0], p[1] - f->quad[i][1]) <= tol * 3)
+            return true;
+    return false;
+}
+bool pc_ui_transform_rotate_dir(const pc_ui_transform_frame *f, const double p[2], double tol,
+                                pc_ui_transform_mode mode, bool rotating, double out[2])
+{
+    if (!out)
+        return false;
+    out[0] = out[1] = 0;
+    if (!f || !p || !finite_frame(f) || !isfinite(p[0]) || !isfinite(p[1]) || !isfinite(tol) || tol <= 0 ||
+        mode == PC_TRANSFORM_DISTORT || mode == PC_TRANSFORM_SKEW)
+        return false;
+    if (!rotating && !near_rotate_corner(f, p, tol, mode))
+        return false;
+    size_t i = 0;
+    double best = INFINITY;
+    for (size_t k = 0; k < 4; k++) {
+        double d = hypot(p[0] - f->quad[k][0], p[1] - f->quad[k][1]);
+        if (d < best) {
+            best = d;
+            i = k;
+        }
+    }
+    if (!isfinite(best))
+        return false;
+    const double *from = f->quad[i], *na = f->quad[(i + 1) % 4], *nb = f->quad[(i + 3) % 4];
+    double la = hypot(na[0] - from[0], na[1] - from[1]), lb = hypot(nb[0] - from[0], nb[1] - from[1]);
+    if (!(isfinite(la) && la > 1e-9) || !(isfinite(lb) && lb > 1e-9))
+        return false;
+    double s[2] = {(na[0] - from[0]) / la + (nb[0] - from[0]) / lb,
+                   (na[1] - from[1]) / la + (nb[1] - from[1]) / lb};
+    double ls = hypot(s[0], s[1]);
+    if (!(isfinite(ls) && ls > 1e-9))
+        return false;
+    out[0] = s[0] / ls;
+    out[1] = s[1] / ls;
+    return true;
+}
 static yyjson_mut_val *array(yyjson_mut_doc *d, const double *values, size_t count)
 {
     yyjson_mut_val *a = yyjson_mut_arr(d);

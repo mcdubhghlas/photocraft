@@ -414,7 +414,7 @@ static void test_raw_tuning(void)
     tg_cr2 spec;
     tg_bytes b;
     pc_io_import_result r;
-    pc_io_raw_tuning t = {25.0f, -10.0f, 0.5f};
+    pc_io_raw_tuning t = {.temperature = 25.0f, .tint = -10.0f, .exposure = 0.5f};
     bool applied = false;
     pc_error e;
     memset(&spec, 0, sizeof spec);

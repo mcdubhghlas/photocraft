@@ -30,7 +30,7 @@ allowed() {
     automation) echo "base geom doc compose codecs io format engine" ;;
     cli) echo "base automation engine io format codecs" ;;
     ui) echo "base geom color cms raster doc compose gpu engine io plugins algo text vector paint format codecs" ;;
-    app) echo "base doc color raster geom compose engine codecs io format automation ui" ;;
+    app) echo "base doc color cms raster geom compose engine codecs io format automation ui" ;;
     *) echo "UNKNOWN" ;;
     esac
 }

@@ -54,6 +54,25 @@ bool pc_ui_transform_apply(pc_ui_transform_frame *frame, const pc_ui_transform_d
 void pc_ui_transform_measure(const pc_ui_transform_frame *frame, unsigned reference, double values[7]);
 bool pc_ui_transform_numeric(pc_ui_transform_frame *frame, unsigned reference, unsigned field, double value,
                              bool linked);
+/* Live "Show Transformation Values" readout for the drag in progress (transform_tool::live_readout):
+ * an Outside drag reads its angle, an Inside drag its offset, a Corner/Edge drag of a still-affine
+ * (parallelogram) box its W/H scale. A pivot drag, a distorted box, or non-finite input read NONE.
+ * `before_quad` is the frame's quad at the press. `out[2]` receives {angle,_} / {dx,dy} / {w%,h%}. */
+typedef enum pc_ui_transform_readout_kind {
+    PC_TRANSFORM_READOUT_NONE = 0,
+    PC_TRANSFORM_READOUT_ANGLE,
+    PC_TRANSFORM_READOUT_SCALE,
+    PC_TRANSFORM_READOUT_OFFSET
+} pc_ui_transform_readout_kind;
+pc_ui_transform_readout_kind pc_ui_transform_readout(const pc_ui_transform_frame *frame,
+                                                     const double before_quad[4][2],
+                                                     pc_ui_transform_part part, double out[2]);
+/* Rotate-cursor feedback direction (transform_tool::rotate_dir): the inward bisector at the nearest
+ * corner when the point is just outside a corner (or anywhere while an Outside rotate drag is on),
+ * so a rotate arc can be drawn there. Returns false (no arc) for Distort/Skew, non-finite input, or
+ * away from any corner. `rotating` is true while the active drag grabbed Outside. */
+bool pc_ui_transform_rotate_dir(const pc_ui_transform_frame *frame, const double point[2],
+                                double tolerance, pc_ui_transform_mode mode, bool rotating, double out[2]);
 pc_status pc_ui_transform_to_json(const pc_ui_transform *transform, yyjson_mut_doc *doc, yyjson_mut_val **out,
                                   pc_error *err);
 pc_status pc_ui_transform_from_json(pc_ui_transform *transform, yyjson_val *value, pc_error *err);

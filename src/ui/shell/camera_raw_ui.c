@@ -1,10 +1,18 @@
 #include "ui/i18n.h"
 #include "camera_raw_ui.h"
+#include "camera_raw_scope_draw.h"
 #include "filter_ui.h"
+#include "ui/filter_dialog.h"
 #include "shell_internal.h"
 #include "ui/widgets.h"
+#include "rgb_histogram_draw.h"
 #include "base/hash.h"
+#include "base/file.h"
+#include "base/json.h"
+#include "base/buf.h"
 #include "algo/camera_raw.h"
+#include "algo/histogram.h"
+#include "io/camera_raw_xmp.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -249,47 +257,86 @@ static void structured(pc_ui_shell_app *app, pc_ui_dialog_runtime *r, pc_ui_dial
         }
     }
 }
+pc_status pc_ui_shell_camera_raw_settings_file(pc_ui_shell_app *app, pc_ui_dialog *dialog, const char *path,
+                                               bool saving, pc_error *err)
+{
+    if (!dialog || !path)
+        return pc_fail(err, PC_ERR_INVALID, "no settings file");
+    yyjson_mut_val *root = yyjson_mut_doc_get_root(dialog->fields);
+    pc_buf json = PC_BUF_INIT;
+    yyjson_doc *parsed = NULL;
+    pc_algo_camera_raw params;
+    pc_algo_camera_raw_default(&params);
+    /* The clean command params (the engine's own view of the dialog: no __-prefixed UI state). */
+    pc_status rc = pc_ui_filter_dialog_params(root, &json, err);
+    if (rc == PC_OK)
+        rc = pc_json_parse(pc_buf_cstr(&json), json.len, &parsed, err);
+    if (rc == PC_OK)
+        rc = pc_algo_camera_raw_from_json(yyjson_doc_get_root(parsed), &params, err);
+    yyjson_doc_free(parsed);
+    pc_buf_fini(&json);
+    if (rc != PC_OK) {
+        pc_algo_camera_raw_fini(&params);
+        return rc;
+    }
+    if (saving) {
+        pc_buf out = PC_BUF_INIT;
+        rc = pc_io_camera_raw_xmp_save(&params, &out, err);
+        if (rc == PC_OK)
+            rc = pc_file_write_atomic(path, out.data, out.len, err);
+        pc_buf_fini(&out);
+    } else {
+        pc_buf bytes = PC_BUF_INIT;
+        pc_io_cr_xmp_report report = {0};
+        rc = pc_file_read(path, PC_IO_CR_XMP_MAX_BYTES, &bytes, err);
+        if (rc == PC_OK)
+            rc = pc_io_camera_raw_xmp_load(&params, bytes.data, bytes.len, &report, err);
+        pc_buf_fini(&bytes);
+        if (rc == PC_OK) {
+            yyjson_mut_val *applied = pc_algo_camera_raw_to_json(dialog->fields, &params);
+            yyjson_mut_obj_iter it = yyjson_mut_obj_iter_with(applied);
+            yyjson_mut_val *key;
+            while ((key = yyjson_mut_obj_iter_next(&it)))
+                put(dialog, root, yyjson_mut_get_str(key),
+                    yyjson_mut_val_mut_copy(dialog->fields, yyjson_mut_obj_iter_get_val(key)));
+            if (report.nignored) {
+                char note[256];
+                (void)snprintf(note, sizeof note,
+                               "Loaded Camera Raw settings; %zu unsupported setting%s ignored.",
+                               report.nignored, report.nignored == 1 ? "" : "s");
+                pc_ui_shell_report(app, pc_i18n_t("Camera Raw"), note, false);
+            }
+        }
+        pc_io_cr_xmp_report_fini(&report);
+    }
+    pc_algo_camera_raw_fini(&params);
+    return rc;
+}
 void pc_ui_shell_camera_raw_body(pc_ui_shell_app *app, pc_ui_dialog_runtime *r, pc_ui_dialog *d)
 {
     struct nk_context *ctx = pc_ui_shell_app_nk(app);
     yyjson_mut_val *root = yyjson_mut_doc_get_root(d->fields);
-    nk_layout_row_begin(ctx, NK_DYNAMIC, 510, 2);
+    const pc_ui_camera_raw_scope *scope = &pc_ui_shell_app_state(app)->camera_raw_scope;
+    nk_layout_row_begin(ctx, NK_DYNAMIC, 560, 2);
     nk_layout_row_push(ctx, .52f);
     if (nk_group_begin(ctx, "camera-preview", NK_WINDOW_BORDER)) {
-        nk_layout_row_dynamic(ctx, 28, 1);
-        nk_label(ctx, pc_i18n_t("Canvas Preview"), NK_TEXT_LEFT);
-        nk_layout_row_dynamic(ctx, 360, 1);
-        struct nk_rect bounds;
-        (void)nk_widget(&bounds, ctx);
-        struct nk_image image;
-        float aspect;
-        if (pc_ui_shell_canvas_preview(app, &image, &aspect)) {
-            float w = fminf(bounds.w, bounds.h * aspect), h = w / aspect;
-            struct nk_rect rect = nk_rect(bounds.x + (bounds.w - w) / 2, bounds.y + (bounds.h - h) / 2, w, h);
-            pc_ui_shell_widget_mapping(app, "camera.preview", rect);
-            nk_draw_image(nk_window_get_canvas(ctx), rect, &image, nk_rgba(255, 255, 255, 255));
-        }
-        if (r->preview.has_histogram) {
-            nk_layout_row_dynamic(ctx, 22, 1);
-            nk_label(ctx, pc_i18n_t("Source Histogram"), NK_TEXT_LEFT);
-            nk_layout_row_dynamic(ctx, 80, 1);
-            struct nk_rect graph;
-            (void)nk_widget(&graph, ctx);
-            struct nk_color colors[] = {nk_rgb(240, 90, 90), nk_rgb(80, 230, 110), nk_rgb(90, 140, 240)};
-            size_t offset = r->preview.histogram.channels == 4 ? 1 : 0;
-            size_t count = r->preview.histogram.channels < 3 ? r->preview.histogram.channels : 3;
-            uint32_t max = 1;
-            for (size_t c = 0; c < count; c++)
-                for (size_t i = 0; i < 256; i++)
-                    if (r->preview.histogram.bins[c + offset][i] > max)
-                        max = r->preview.histogram.bins[c + offset][i];
-            struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
-            for (size_t c = 0; c < count; c++)
-                for (size_t i = 0; i < 256; i++) {
-                    float x = graph.x + (float)i / 255 * graph.w,
-                          height = (float)r->preview.histogram.bins[c + offset][i] / (float)max * graph.h;
-                    nk_stroke_line(canvas, x, graph.y + graph.h, x, graph.y + graph.h - height, 1, colors[c]);
-                }
+        pc_ui_shell_cr_toolbar(app, r, d);
+        nk_layout_row_dynamic(ctx, 300, 1);
+        struct nk_rect box;
+        enum nk_widget_layout_states layout = nk_widget(&box, ctx);
+        pc_ui_shell_cr_preview(app, r, d, box, layout);
+        nk_layout_row_dynamic(ctx, 22, 1);
+        nk_label(ctx, pc_i18n_t(scope->floating ? "Scopes (Floating)" : "Histogram"), NK_TEXT_LEFT);
+        nk_layout_row_dynamic(ctx, 90, 1);
+        struct nk_rect graph;
+        (void)nk_widget(&graph, ctx);
+        pc_ui_shell_cr_histogram(app, r, d, graph);
+        pc_ui_shell_cr_scope_options(app, d);
+        if (scope->vectorscope) {
+            nk_layout_row_dynamic(ctx, 200, 1);
+            struct nk_rect vs;
+            (void)nk_widget(&vs, ctx);
+            pc_ui_shell_cr_vectorscope(app, r, d, vs);
         }
         nk_group_end(ctx);
     }
@@ -323,6 +370,15 @@ void pc_ui_shell_camera_raw_body(pc_ui_shell_app *app, pc_ui_dialog_runtime *r, 
         pc_algo_camera_raw_fini(&settings);
         r->curve_valid = false;
     }
+    /* Save/Load Settings (.xmp): open a native file chooser; completion applies or writes the file
+     * (gap B9). The chooser is busy-guarded by the shared runtime file_reply. */
+    nk_layout_row_dynamic(ctx, 28, 2);
+    pc_ui_shell_widget_mapping(app, "camera.loadSettings", nk_widget_bounds(ctx));
+    if (nk_button_label(ctx, pc_i18n_t("Load Settings...")))
+        pc_ui_shell_dialog_camera_raw_settings(app, false);
+    pc_ui_shell_widget_mapping(app, "camera.saveSettings", nk_widget_bounds(ctx));
+    if (nk_button_label(ctx, pc_i18n_t("Save Settings...")))
+        pc_ui_shell_dialog_camera_raw_settings(app, true);
     nk_layout_row_dynamic(ctx, 24, 1);
     if (pc_ui_filter_preview_busy(&r->preview))
         nk_label(ctx, pc_i18n_t("Updating preview..."), NK_TEXT_LEFT);

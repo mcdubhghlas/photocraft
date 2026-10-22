@@ -5,6 +5,7 @@
 #include "color_range_ui.h"
 #include "adjust_ui.h"
 #include "adjust_controls.h"
+#include "pattern_picker_ui.h"
 #include "shell_internal.h"
 #include "ui/filter_dialog.h"
 #include "ui/color_picker.h"
@@ -213,7 +214,12 @@ void pc_ui_shell_filter_fields(pc_ui_shell_app *app, pc_ui_dialog_runtime *r, pc
                 put(dialog->fields, root, p->key, yyjson_mut_strcpy(dialog->fields, p->choices[next]));
         } else if (p->kind == PC_UI_PARAM_COLOR)
             color_field(app, dialog, p);
-        else if (p->kind == PC_UI_PARAM_TEXT) {
+        else if (p->kind == PC_UI_PARAM_TEXT && !strcmp(p->key, "pattern")) {
+            /* Pattern fill / any command whose "pattern" names a library pattern: a thumbnail
+             * picker instead of a raw id text field (A24). */
+            nk_label(ctx, pc_i18n_t(label), NK_TEXT_LEFT);
+            pc_ui_shell_pattern_picker(app, dialog, root, p->key, yyjson_mut_get_str(v), "filter");
+        } else if (p->kind == PC_UI_PARAM_TEXT) {
             nk_layout_row_dynamic(ctx, 26, 2);
             text(ctx, r, dialog, p);
         } else if (p->kind == PC_UI_PARAM_GRID)

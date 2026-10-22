@@ -83,6 +83,29 @@ static void test_unicode_edit_preedit_and_one_undo(void)
     pc_ui_state_fini(&ui);
     pc_engine_session_free(s);
 }
+static void test_empty_ime_preedit_keeps_selection(void) /* #1381 */
+{
+    pc_ui_state ui;
+    pc_engine_session *s = fresh(&ui);
+    pc_ui_type_layout layout = {0};
+    const float start[] = {30, 60};
+    create(s, &ui, start, start);
+    pc_layer_id id = ui.text_edit.layer;
+    insert(s, &ui, "Hello");
+    press(s, &ui, &layout, PC_KEY_A, PC_UI_MOD_COMMAND); /* select all */
+    CHECK(ui.text_edit.anchor != ui.text_edit.caret);
+    size_t a = ui.text_edit.anchor, c = ui.text_edit.caret;
+    pc_json_value out = PC_JSON_VALUE_INIT;
+    /* an empty preedit while nothing is composed must not delete the selection */
+    CHECK(pc_ui_type_preedit(s, &ui, "", 0, &out, NULL) == PC_OK);
+    pc_json_value_fini(&out);
+    CHECK_EQ_STR(pc_str_c(&text(s, id)->text), "Hello");
+    CHECK(!ui.text_edit.has_preedit);
+    CHECK(ui.text_edit.anchor == a && ui.text_edit.caret == c);
+    pc_ui_type_layout_fini(&layout);
+    pc_ui_state_fini(&ui);
+    pc_engine_session_free(s);
+}
 static void test_existing_edit_cancel_invalid_input_and_document_guard(void)
 {
     pc_ui_state ui;
@@ -365,6 +388,7 @@ int main(int argc, char **argv)
     RUN(test_pointer_hit_selection_drag_and_guards);
     RUN(test_type_mask_display_cache_and_clear);
     RUN(test_unicode_edit_preedit_and_one_undo);
+    RUN(test_empty_ime_preedit_keeps_selection);
     RUN(test_existing_edit_cancel_invalid_input_and_document_guard);
     RUN(test_paragraph_vertical_and_type_mask_commit);
     return pc_t_finish();

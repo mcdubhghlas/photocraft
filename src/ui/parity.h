@@ -6,6 +6,7 @@
 #define PC_UI_PARITY_H
 
 #include <stddef.h>
+#include <stdio.h>
 
 #include "base/buf.h"
 #include "base/status.h"
@@ -42,5 +43,11 @@ void pc_ui_parity_free(pc_ui_parity *p);
 
 /* Render the report as Markdown (the body of docs/parity-checklist.md) into `out` (cleared first). */
 pc_status pc_ui_parity_to_markdown(const pc_ui_parity *p, pc_buf *out, pc_error *err);
+
+/* Compute the report and render it to Markdown. When `path` is non-NULL the Markdown is written
+ * there atomically (docs/parity-checklist.md); otherwise it is written to `out` (defaulting to
+ * stdout). `live`/`total` (if non-NULL) receive the counts. This is the one-shot entry point the
+ * photocraft-parity tool (tools/parity.sh, Z1) and tests use. */
+pc_status pc_ui_parity_generate(const char *path, FILE *out, size_t *live, size_t *total, pc_error *err);
 
 #endif

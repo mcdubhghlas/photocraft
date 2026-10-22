@@ -1,12 +1,20 @@
 #include "ui/i18n.h"
 #include "layer_style_ui.h"
+#include "pattern_picker_ui.h"
 #include "shell_internal.h"
 #include "ui/filter_dialog.h"
 #include "ui/widgets.h"
+#include "ui/angle_dial.h"
 #include "ui/pen_tool.h"
 #include "ui/type_tool.h"
+#include "ui/preset_thumb.h"
 #include "engine/style_editor.h"
+#include "engine/layer_style.h"
+#include "engine/engine_internal.h"
 #include "color/blend.h"
+#include "raster/pixel.h"
+#include "base/json.h"
+#include <blake3.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -119,6 +127,47 @@ static int choose(pc_ui_shell_app *app, const char *id, const char *const *label
     }
     return next;
 }
+/* `Label [dial] [field°]` for an effect angle: a wheel you drag plus the degree field. Returns
+ * whether `value` changed this frame. */
+static bool angle_dial_widget(pc_ui_shell_app *app, const char *label, double *value)
+{
+    struct nk_context *ctx = pc_ui_shell_app_nk(app);
+    const pc_ui_tokens *t = pc_ui_shell_app_tokens(app);
+    struct nk_command_buffer *cb = nk_window_get_canvas(ctx);
+    nk_layout_row_begin(ctx, NK_STATIC, 44, 2);
+    nk_layout_row_push(ctx, 44);
+    struct nk_rect dial;
+    enum nk_widget_layout_states layout = nk_widget(&dial, ctx);
+    bool changed = false;
+    float cx = dial.x + dial.w / 2, cy = dial.y + dial.h / 2, radius = fminf(dial.w, dial.h) / 2 - 2;
+    if (radius < 4)
+        radius = 4;
+    const struct nk_mouse_button *left = &ctx->input.mouse.buttons[NK_BUTTON_LEFT];
+    bool press_in = left->clicked_pos.x >= dial.x && left->clicked_pos.x <= dial.x + dial.w &&
+                    left->clicked_pos.y >= dial.y && left->clicked_pos.y <= dial.y + dial.h;
+    if (layout != NK_WIDGET_INVALID && left->down && press_in) {
+        double out = *value;
+        if (pc_ui_angle_from_point(cx, cy, ctx->input.mouse.pos.x, ctx->input.mouse.pos.y, -180, 180, &out) &&
+            out != *value) {
+            *value = out;
+            changed = true;
+        }
+    }
+    nk_fill_circle(cb, nk_rect(cx - radius, cy - radius, radius * 2, radius * 2), pc_ui_nk_color(t->field));
+    nk_stroke_circle(cb, nk_rect(cx - radius, cy - radius, radius * 2, radius * 2), 1,
+                     pc_ui_nk_color(t->field_border));
+    double tx = cx, ty = cy;
+    pc_ui_angle_tip(*value, cx, cy, radius - 4, &tx, &ty);
+    nk_stroke_line(cb, cx, cy, (float)tx, (float)ty, 2, pc_ui_nk_color(t->accent));
+    nk_fill_circle(cb, nk_rect(cx - 2, cy - 2, 4, 4), pc_ui_nk_color(t->text_dim));
+    nk_layout_row_push(ctx, 150);
+    pc_ui_shell_widget_mapping(app, "style.angle", nk_widget_bounds(ctx));
+    double old = *value;
+    nk_property_double(ctx, label, -180, value, 180, 1, 1);
+    nk_layout_row_end(ctx);
+    return changed || *value != old;
+}
+
 static void title(const char *key, char out[96])
 {
     size_t n = 0;
@@ -420,9 +469,20 @@ static void properties(pc_ui_shell_app *app, pc_ui_dialog_runtime *r, pc_ui_dial
                 if (yyjson_mut_is_num(value))
                     current = yyjson_mut_get_num(value);
             }
-            if (number_widget(app, p->key, text, &current, min, max))
+            bool edited = !strcmp(p->key, "angle")
+                              ? angle_dial_widget(app, text, &current)
+                              : number_widget(app, p->key, text, &current, min, max);
+            if (edited)
                 put(dialog, global ? light : params, p->key, yyjson_mut_real(dialog->fields, current));
-        } else if (p->kind == PC_UI_PARAM_TEXT || !strcmp(p->key, "texture") || !strcmp(p->key, "pattern")) {
+        } else if (!strcmp(p->key, "pattern") || !strcmp(p->key, "texture")) {
+            /* Pattern Overlay's pattern and Bevel's texture reference a library/document pattern:
+             * a thumbnail picker instead of a raw id text field (A24). */
+            char prefix[96];
+            (void)snprintf(prefix, sizeof prefix, "style.%s.%zu", p->key, index);
+            nk_layout_row_dynamic(ctx, 26, 1);
+            nk_label(ctx, text, NK_TEXT_LEFT);
+            pc_ui_shell_pattern_picker(app, dialog, params, p->key, yyjson_mut_get_str(v), prefix);
+        } else if (p->kind == PC_UI_PARAM_TEXT) {
             const char *value = yyjson_mut_get_str(v);
             if (!value)
                 value = "";
@@ -502,6 +562,178 @@ static void blending(pc_ui_shell_app *app, pc_ui_dialog_runtime *r, pc_ui_dialog
     }
     pc_ui_shell_style_blend_if(app, r, dialog);
 }
+/* ---- Styles preset gallery (A19) ---------------------------------------------------------- */
+
+/* A style preset's swatch (cached by library revision + position + size), rendered through the
+ * engine on a cache miss. false (no image) on any failure. */
+static bool style_thumb(pc_ui_shell_app *app, size_t gi, size_t ii, const pc_style_preset *style,
+                        uint32_t px, struct nk_image *out)
+{
+    const pc_engine_session *s = pc_ui_shell_app_session(app);
+    uint64_t rev = s->presets.rev;
+    blake3_hasher h;
+    uint8_t key[32];
+    blake3_hasher_init(&h);
+    const char category[] = "style-thumb-v1";
+    blake3_hasher_update(&h, category, sizeof category);
+    blake3_hasher_update(&h, &rev, sizeof rev);
+    blake3_hasher_update(&h, &gi, sizeof gi);
+    blake3_hasher_update(&h, &ii, sizeof ii);
+    blake3_hasher_update(&h, &px, sizeof px);
+    blake3_hasher_finalize(&h, key, sizeof key);
+    if (pc_ui_shell_bitmap(app, key, (uint16_t)px, (uint16_t)px, NULL, out, NULL) == PC_OK)
+        return true;
+    pc_rgba8_image img;
+    memset(&img, 0, sizeof img);
+    pc_error err = {0};
+    bool ok = pc_engine_style_preset_thumbnail(s, style, px, &img, &err) == PC_OK && img.pixels &&
+              pc_ui_shell_bitmap(app, key, (uint16_t)img.width, (uint16_t)img.height, img.pixels, out, NULL) ==
+                  PC_OK;
+    pc_rgba8_image_fini(&img);
+    return ok;
+}
+
+/* Replace the dialog's working effect list (and blend/fill) with a preset's, keeping everything in
+ * the modal copy so OK commits it as one step. */
+static void apply_style_preset(pc_ui_shell_app *app, pc_ui_dialog_runtime *r, pc_ui_dialog *dialog,
+                               const pc_style_preset *style)
+{
+    (void)app;
+    yyjson_mut_doc *d = dialog->fields;
+    yyjson_mut_val *root = yyjson_mut_doc_get_root(d), *effects = yyjson_mut_arr(d);
+    bool ok = effects != NULL;
+    const char *first = NULL;
+    for (size_t i = 0; ok && i < style->neffects && i < 256; i++) {
+        yyjson_mut_val *entry = NULL;
+        pc_error err = {0};
+        if (pc_engine_style_editor_entry(NULL, &style->effects[i], i + 1, d, &entry, &err) == PC_OK && entry) {
+            ok = yyjson_mut_arr_add_val(effects, entry);
+            if (ok && !first)
+                first = yyjson_mut_get_str(yyjson_mut_obj_get(entry, "id"));
+        } else
+            (void)snprintf(r->error, sizeof r->error, "%s", err.msg);
+    }
+    if (!ok)
+        return;
+    put(dialog, root, "effects", effects);
+    put(dialog, root, "selected", first ? yyjson_mut_strcpy(d, first) : yyjson_mut_str(d, "blendingOptions"));
+    /* Blend mode / fill opacity: into the blending deltas object. */
+    yyjson_mut_val *blending = yyjson_mut_obj_get(root, "blending");
+    if (!yyjson_mut_is_obj(blending)) {
+        blending = yyjson_mut_obj(d);
+        put(dialog, root, "blending", blending);
+    }
+    if (blending && style->has_blend)
+        put(dialog, blending, "blend", yyjson_mut_strcpy(d, pc_blend_label(style->blend)));
+    if (blending && style->has_fill_opacity)
+        put(dialog, blending, "fillOpacity", yyjson_mut_real(d, (double)style->fill_opacity * 100));
+}
+
+/* Save the dialog's current effects + blending as a new preset (style.presets.new). */
+static void new_style_from_dialog(pc_ui_shell_app *app, pc_ui_dialog_runtime *r, pc_ui_dialog *dialog)
+{
+    yyjson_mut_val *root = yyjson_mut_doc_get_root(dialog->fields),
+                   *effects = yyjson_mut_obj_get(root, "effects");
+    yyjson_mut_doc *rd = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *req = rd ? yyjson_mut_obj(rd) : NULL, *earr = rd ? yyjson_mut_arr(rd) : NULL;
+    bool ok = req && earr && yyjson_mut_obj_add_strcpy(rd, req, "name", "Style");
+    size_t count = yyjson_mut_arr_size(effects);
+    for (size_t i = 0; ok && i < count && i < 256; i++) {
+        yyjson_mut_val *entry = yyjson_mut_arr_get(effects, i);
+        const char *kind = yyjson_mut_get_str(yyjson_mut_obj_get(entry, "kind"));
+        if (!kind || yyjson_mut_is_false(yyjson_mut_obj_get(entry, "on")))
+            continue;
+        yyjson_mut_val *merged = yyjson_mut_val_mut_copy(rd, yyjson_mut_obj_get(entry, "values"));
+        if (!yyjson_mut_is_obj(merged))
+            merged = yyjson_mut_obj(rd);
+        yyjson_mut_obj_iter it = yyjson_mut_obj_iter_with(yyjson_mut_obj_get(entry, "params"));
+        yyjson_mut_val *k;
+        while (merged && (k = yyjson_mut_obj_iter_next(&it))) {
+            yyjson_mut_val *nk = yyjson_mut_val_mut_copy(rd, k),
+                           *nv = yyjson_mut_val_mut_copy(rd, yyjson_mut_obj_iter_get_val(k));
+            ok = ok && nk && nv && yyjson_mut_obj_put(merged, nk, nv);
+        }
+        yyjson_mut_val *pair = yyjson_mut_arr(rd);
+        ok = ok && merged && pair && yyjson_mut_arr_add_strcpy(rd, pair, kind) &&
+             yyjson_mut_arr_add_val(pair, merged) && yyjson_mut_arr_add_val(earr, pair);
+    }
+    /* Blend mode / fill opacity from the dialog's effective blending options. */
+    yyjson_mut_val *blend = effective(yyjson_mut_obj_get(root, "blending"),
+                                      yyjson_mut_obj_get(root, "blendingValues"), "blend");
+    const char *blend_name = yyjson_mut_get_str(blend);
+    if (ok && blend_name)
+        ok = yyjson_mut_obj_add_strcpy(rd, req, "blend", blend_name);
+    yyjson_mut_val *fill = effective(yyjson_mut_obj_get(root, "blending"),
+                                     yyjson_mut_obj_get(root, "blendingValues"), "fillOpacity");
+    if (ok && yyjson_mut_is_num(fill))
+        ok = yyjson_mut_obj_add_real(rd, req, "fillOpacity", yyjson_mut_get_num(fill));
+    ok = ok && yyjson_mut_obj_add_val(rd, req, "effects", earr);
+    pc_buf json = PC_BUF_INIT;
+    pc_json_value result = PC_JSON_VALUE_INIT;
+    pc_error err = {0};
+    pc_status status = ok ? pc_json_write(req, 0, &json, &err) : pc_fail(&err, PC_ERR_NOMEM, "New Style");
+    if (status == PC_OK)
+        status = pc_engine_session_execute_json(pc_ui_shell_app_session(app), "style.presets.new",
+                                                pc_buf_cstr(&json), &result, &err);
+    if (status != PC_OK)
+        (void)snprintf(r->error, sizeof r->error, "%s", err.msg);
+    pc_buf_fini(&json);
+    pc_json_value_fini(&result);
+    yyjson_mut_doc_free(rd);
+}
+
+static void styles_gallery(pc_ui_shell_app *app, pc_ui_dialog_runtime *r, pc_ui_dialog *dialog)
+{
+    struct nk_context *ctx = pc_ui_shell_app_nk(app);
+    const pc_engine_session *s = pc_ui_shell_app_session(app);
+    nk_layout_row_dynamic(ctx, 26, 1);
+    nk_label(ctx, pc_i18n_t("Styles"), NK_TEXT_LEFT);
+    nk_layout_row_dynamic(ctx, 26, 2);
+    pc_ui_shell_widget_mapping(app, "style.presets.new", nk_widget_bounds(ctx));
+    bool make = nk_button_label(ctx, pc_i18n_t("New Style..."));
+    pc_ui_shell_widget_mapping(app, "style.presets.reset", nk_widget_bounds(ctx));
+    bool reset = nk_button_label(ctx, pc_i18n_t("Restore Default Styles"));
+    if (make)
+        new_style_from_dialog(app, r, dialog);
+    if (reset) {
+        pc_json_value result = PC_JSON_VALUE_INIT;
+        pc_error err = {0};
+        if (pc_engine_session_execute_json(pc_ui_shell_app_session(app), "style.presets.reset", "{}", &result,
+                                           &err) != PC_OK)
+            (void)snprintf(r->error, sizeof r->error, "%s", err.msg);
+        pc_json_value_fini(&result);
+    }
+    uint32_t px = pc_ui_preset_thumb_px(40, (double)pc_ui_shell_app_ui_scale(app));
+    const pc_preset_groups *groups = &s->presets.styles;
+    if (groups->n == 0) {
+        nk_layout_row_dynamic(ctx, 28, 1);
+        nk_label_wrap(ctx, pc_i18n_t("No styles yet. Use New Style... to save the current effects."));
+        return;
+    }
+    for (size_t gi = 0; gi < groups->n; gi++) {
+        const pc_preset_group *group = &groups->v[gi];
+        if (group->name) {
+            nk_layout_row_dynamic(ctx, 20, 1);
+            nk_label(ctx, group->name, NK_TEXT_LEFT);
+        }
+        const pc_style_preset *items = (const pc_style_preset *)group->items;
+        for (size_t ii = 0; ii < group->n; ii++) {
+            const pc_style_preset *style = &items[ii];
+            struct nk_image thumb;
+            bool has = style_thumb(app, gi, ii, style, px, &thumb);
+            nk_layout_row_dynamic(ctx, 44, 1);
+            char item[96];
+            (void)snprintf(item, sizeof item, "style.preset.%zu.%zu", gi, ii);
+            pc_ui_shell_widget_mapping(app, item, nk_widget_bounds(ctx));
+            const char *name = style->name ? style->name : "Style";
+            nk_bool clicked = has ? nk_button_image_label(ctx, thumb, name, NK_TEXT_LEFT)
+                                  : nk_button_label(ctx, name);
+            if (clicked)
+                apply_style_preset(app, r, dialog, style);
+        }
+    }
+}
+
 void pc_ui_shell_style_body(pc_ui_shell_app *app, pc_ui_dialog_runtime *r, pc_ui_dialog *dialog)
 {
     struct nk_context *ctx = pc_ui_shell_app_nk(app);
@@ -517,12 +749,17 @@ void pc_ui_shell_style_body(pc_ui_shell_app *app, pc_ui_dialog_runtime *r, pc_ui
         r->style_dialog = dialog->id;
         r->style_kind = 0;
         r->style_blend_channel = 0;
+        r->blend_if_dragging = false;
     }
     const char *selected = yyjson_mut_get_str(yyjson_mut_obj_get(root, "selected"));
     size_t selected_index = SIZE_MAX;
     nk_layout_row_begin(ctx, NK_DYNAMIC, 460, 2);
     nk_layout_row_push(ctx, .34f);
     if (nk_group_begin(ctx, "style-list", NK_WINDOW_BORDER)) {
+        nk_layout_row_dynamic(ctx, 26, 1);
+        pc_ui_shell_widget_mapping(app, "style.styles", nk_widget_bounds(ctx));
+        if (nk_button_label(ctx, pc_i18n_t("Styles")))
+            put(dialog, root, "selected", yyjson_mut_str(dialog->fields, "styles"));
         nk_layout_row_dynamic(ctx, 26, 1);
         pc_ui_shell_widget_mapping(app, "style.blending", nk_widget_bounds(ctx));
         if (nk_button_label(ctx, pc_i18n_t("Blending Options")))
@@ -550,6 +787,51 @@ void pc_ui_shell_style_body(pc_ui_shell_app *app, pc_ui_dialog_runtime *r, pc_ui
                 selected_index = i;
             }
             nk_layout_row_end(ctx);
+        }
+        /* The reorder/duplicate toolbar sits directly under the effect list so the greyed
+         * placeholder rows below it cannot push it out of the scroll group's clickable area. */
+        instance_controls(app, dialog, &selected_index);
+        effects = yyjson_mut_obj_get(root, "effects");
+        count = yyjson_mut_arr_size(effects);
+        /* Greyed placeholder rows for every effect kind not on the layer (#1357): a click adds it. */
+        bool present[10] = {false};
+        for (size_t i = 0; i < count; i++) {
+            const char *kind = yyjson_mut_get_str(yyjson_mut_obj_get(yyjson_mut_arr_get(effects, i), "kind"));
+            for (size_t j = 0; kind && j < 10; j++)
+                if (!strcmp(kind, KINDS[j]))
+                    present[j] = true;
+        }
+        const pc_ui_tokens *tk = pc_ui_shell_app_tokens(app);
+        struct nk_color faint = pc_ui_nk_color(tk->text_faint);
+        for (size_t k = 0; k < 10; k++) {
+            if (present[k])
+                continue;
+            nk_layout_row_dynamic(ctx, 26, 1);
+            char mapping[96];
+            (void)snprintf(mapping, sizeof mapping, "style.placeholder.%s", KINDS[k]);
+            pc_ui_shell_widget_mapping(app, mapping, nk_widget_bounds(ctx));
+            nk_style_push_color(ctx, &ctx->style.button.text_normal, faint);
+            nk_style_push_color(ctx, &ctx->style.button.text_hover, faint);
+            nk_style_push_color(ctx, &ctx->style.button.text_active, faint);
+            bool add_placeholder = nk_button_label(ctx, LABELS[k]) && count < 256;
+            nk_style_pop_color(ctx);
+            nk_style_pop_color(ctx);
+            nk_style_pop_color(ctx);
+            if (add_placeholder) {
+                uint64_t id_num = next_effect_id(effects);
+                char id[40];
+                (void)snprintf(id, sizeof id, "fx%llu", (unsigned long long)id_num);
+                yyjson_mut_val *entry = NULL;
+                pc_error error = {0};
+                if (pc_engine_style_editor_new_entry(pc_ui_shell_app_session(app), KINDS[k], id_num,
+                                                     dialog->fields, &entry, &error) == PC_OK &&
+                    yyjson_mut_arr_add_val(effects, entry)) {
+                    put(dialog, root, "selected", yyjson_mut_strcpy(dialog->fields, id));
+                    selected_index = count++;
+                    present[k] = true;
+                } else
+                    (void)snprintf(r->error, sizeof r->error, "%s", error.msg);
+            }
         }
         nk_layout_row_dynamic(ctx, 26, 1);
         int kind = (int)(r->style_kind < 10 ? r->style_kind : 0);
@@ -580,7 +862,6 @@ void pc_ui_shell_style_body(pc_ui_shell_app *app, pc_ui_dialog_runtime *r, pc_ui
             selected_index = SIZE_MAX;
             put(dialog, root, "selected", yyjson_mut_str(dialog->fields, "blendingOptions"));
         }
-        instance_controls(app, dialog, &selected_index);
         effects = yyjson_mut_obj_get(root, "effects");
         count = yyjson_mut_arr_size(effects);
         nk_layout_row_dynamic(ctx, 24, 1);
@@ -600,7 +881,10 @@ void pc_ui_shell_style_body(pc_ui_shell_app *app, pc_ui_dialog_runtime *r, pc_ui
     }
     nk_layout_row_push(ctx, .66f);
     if (nk_group_begin(ctx, "style-properties", NK_WINDOW_BORDER)) {
-        if (selected_index < count)
+        const char *shown = yyjson_mut_get_str(yyjson_mut_obj_get(root, "selected"));
+        if (shown && !strcmp(shown, "styles"))
+            styles_gallery(app, r, dialog);
+        else if (selected_index < count)
             properties(app, r, dialog, yyjson_mut_arr_get(effects, selected_index), selected_index);
         else
             blending(app, r, dialog);

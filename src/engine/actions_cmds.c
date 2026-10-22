@@ -206,10 +206,10 @@ static bool num_of(yyjson_val *v, int64_t *out)
     return false;
 }
 
-/* resolve "action" (name or index) into a list index. */
-static pc_status resolve(const pc_action_state *a, yyjson_val *p, const char *cmd, size_t *out, pc_error *err)
+/* resolve an action reference value (name or index) into a list index. */
+static pc_status resolve_ref(const pc_action_state *a, yyjson_val *v, const char *cmd, size_t *out,
+                             pc_error *err)
 {
-    yyjson_val *v = p != NULL ? pc_json_get(p, "action") : NULL;
     if (v == NULL) {
         return pc_engine_err_bad_params(err, cmd, "needs \"action\" (a name or an index)");
     }
@@ -240,6 +240,67 @@ static pc_status resolve(const pc_action_state *a, yyjson_val *p, const char *cm
         }
     }
     return pc_engine_err_bad_params(err, cmd, "no action named `%.*s`", (int)nl, name);
+}
+
+/* resolve "action" (name or index) into a list index. */
+static pc_status resolve(const pc_action_state *a, yyjson_val *p, const char *cmd, size_t *out, pc_error *err)
+{
+    return resolve_ref(a, p != NULL ? pc_json_get(p, "action") : NULL, cmd, out, err);
+}
+
+size_t pc_engine_actions_count(const pc_engine_session *s)
+{
+    return s != NULL && s->actions != NULL ? s->actions->nlist : 0;
+}
+
+pc_status pc_engine_action_steps_doc(pc_engine_session *s, yyjson_val *ref, const char *cmd,
+                                     yyjson_doc **out_doc, const char **out_name, pc_error *err)
+{
+    *out_doc = NULL;
+    if (out_name != NULL) {
+        *out_name = NULL;
+    }
+    pc_action_state *a = actions_ensure(s);
+    if (a == NULL) {
+        return pc_fail(err, PC_ERR_NOMEM, cmd);
+    }
+    size_t idx = 0;
+    if (ref == NULL) {
+        /* No reference: the first action (the UI's "selected, else first"). */
+        if (a->nlist == 0) {
+            return pc_engine_err_bad_params(err, cmd, "no recorded actions");
+        }
+    } else {
+        pc_status rr = resolve_ref(a, ref, cmd, &idx, err);
+        if (rr != PC_OK) {
+            return rr;
+        }
+    }
+    const pc_action *action = &a->list[idx];
+    yyjson_mut_doc *md = yyjson_mut_doc_new(NULL);
+    if (md == NULL) {
+        return pc_fail(err, PC_ERR_NOMEM, cmd);
+    }
+    yyjson_mut_val *steps = yyjson_mut_arr(md);
+    for (size_t i = 0; i < action->nsteps; i++) {
+        yyjson_mut_val *pair = yyjson_mut_arr(md);
+        yyjson_mut_arr_add_strcpy(md, pair, action->steps[i].id);
+        yyjson_mut_val *pr = pc_json_value_root(&action->steps[i].params);
+        yyjson_mut_arr_append(pair,
+                              pr != NULL ? yyjson_mut_val_mut_copy(md, pr) : yyjson_mut_obj(md));
+        yyjson_mut_arr_append(steps, pair);
+    }
+    yyjson_mut_doc_set_root(md, steps);
+    yyjson_doc *imut = yyjson_mut_doc_imut_copy(md, NULL);
+    yyjson_mut_doc_free(md);
+    if (imut == NULL) {
+        return pc_fail(err, PC_ERR_NOMEM, cmd);
+    }
+    *out_doc = imut;
+    if (out_name != NULL) {
+        *out_name = action->name;
+    }
+    return PC_OK;
 }
 
 static pc_status not_playing(const pc_action_state *a, const char *cmd, pc_error *err)

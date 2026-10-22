@@ -56,6 +56,18 @@ pc_status pc_compose_adjust_apply_depth(const pc_adjustment *adj, struct pc_comp
                                         pc_compose_transfer transfer, bool has_depth, pc_sample_type depth,
                                         pc_error *err);
 
+/* Apply an adjustment to a small caller-provided straight-alpha RGBA8 buffer (w * h pixels, row
+ * major, 4 bytes per pixel), in place, for UI previews: colour-tracked sliders, adjusted spectrum
+ * bars and live mini-previews that must not run a full document render. The buffer is treated as an
+ * sRGB 8-bit RGB document (pc_compose_adjust_apply), so values are the unrounded result Photoshop
+ * shows for an sRGB image. Bounded: PC_ERR_LIMIT when w * h overflows or exceeds
+ * PC_COMPOSE_PREVIEW_MAX_PIXELS; PC_ERR_INVALID for a NULL buffer with a non-empty size; a zero
+ * size is a no-op. An Unsupported or empty adjustment leaves the buffer unchanged. Never panics on
+ * any params or size (REWRITE_PLAN.md rule 9). */
+#define PC_COMPOSE_PREVIEW_MAX_PIXELS ((uint64_t)1 << 22) /* 4 Mi pixels: UI strips and tiles */
+pc_status pc_compose_adjust_apply_rgba8(const pc_adjustment *adj, uint8_t *rgba, uint32_t w, uint32_t h,
+                                        pc_error *err);
+
 /* adjust::apply_in: pc_compose_adjust_apply_depth in a document of colour mode, except that in Lab
  * and CMYK documents the adjustments Photoshop evaluates on the document's own channels do so
  * (pc_compose_lab_channel_adjustment and pc_compose_cmyk_channel_adjustment). */

@@ -27,6 +27,7 @@
 #include "color/blend.h"
 #include "doc/effects.h"
 #include "doc/vector.h"
+#include "raster/pixel.h"
 
 /* ---- generic group machinery (Rust Group<T> + Named) -------------------------------------- */
 
@@ -219,6 +220,14 @@ pc_status pc_style_preset_clone(const pc_style_preset *src, pc_style_preset *out
 const pc_preset_item_ops *pc_style_preset_ops(void);
 pc_status pc_styles_builtin(pc_preset_groups *out, pc_error *err);
 yyjson_mut_val *pc_style_preset_to_json(yyjson_mut_doc *d, const pc_style_preset *s);
+/* Swatch for the Styles panel (gap B2): the style applied to a rounded grey square, rendered as a
+ * `size` x `size` straight-alpha RGBA8 image (transparent around the square). `size` is clamped to
+ * 8..256. Any pattern an effect references is resolved against the session (document first, then
+ * library) and effects whose pattern cannot be resolved are skipped, as in the reference. *out is
+ * written on success only (release with pc_rgba8_image_fini). Never panics on any style or size
+ * (REWRITE_PLAN.md rule 9); PC_ERR_NOMEM on out of memory. */
+pc_status pc_engine_style_preset_thumbnail(const struct pc_engine_session *s, const pc_style_preset *style,
+                                           uint32_t size, pc_rgba8_image *out, pc_error *err);
 
 /* ---- shapes ------------------------------------------------------------------------------- */
 

@@ -1,8 +1,8 @@
 /* ADJ-parameter machinery (port of crates/engine/src/adjust_params.rs + the Selective Color and
  * Color Lookup readers of adjust_cmds.rs). See adjust_params.h.
  *
- * The Levels/Curves eyedropper (Set Black/Neutral Gray/White Point) is NOT ported here: it needs
- * the merged-composite sampler (E10 sample_cmds); the commands report `eyedropper` as unsupported. */
+ * The Levels/Curves eyedropper (Set Black/Neutral Gray/White Point) lives in adjust_eyedropper.c:
+ * it samples the merged composite via pc_engine_sample_color and the commands accept `eyedropper`. */
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>

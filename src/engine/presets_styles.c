@@ -5,9 +5,14 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "base/num.h"
+#include "compose/compose.h"
 #include "doc/doc.h"
 #include "doc/effects.h"
 #include "doc/pattern.h"
+#include "geom/geom.h"
+#include "raster/pixel.h"
+#include "raster/surface.h"
 
 #include "brush_cmds.h"   /* pc_engine_blend_from_str */
 #include "engine_internal.h"
@@ -842,4 +847,192 @@ const pc_engine_command *pc_engine_style_preset_specs(size_t *n)
 {
     *n = sizeof STYLE_SPECS / sizeof STYLE_SPECS[0];
     return STYLE_SPECS;
+}
+
+/* Draw the rounded-square swatch backdrop into a raster layer's surface (grey 0.86, 1 px AA). */
+static pc_status thumbnail_backdrop(pc_surface *surf, uint32_t size, pc_error *err)
+{
+    size_t channels = pc_surface_channels(surf);
+    pc_pixel_format fmt = pc_surface_format(surf);
+    bool has_alpha = fmt.alpha;
+    size_t alpha_ch = channels > 0 ? channels - 1 : 0;
+    size_t ncolor = has_alpha ? alpha_ch : channels;
+    uint64_t count = (uint64_t)size * size * channels;
+    float *px;
+    float m = roundf((float)size * 0.2f);
+    float x0 = m, x1 = (float)size - m;
+    float r = (float)size * 0.12f;
+    float cen = (x0 + x1) / 2.0f;
+    float half = (x1 - x0) / 2.0f - r;
+    pc_status rc;
+    if (channels == 0 || count > (uint64_t)SIZE_MAX / sizeof(float)) {
+        return pc_fail(err, PC_ERR_LIMIT, "style thumbnail size");
+    }
+    px = malloc((size_t)count * sizeof *px);
+    if (px == NULL) {
+        return pc_fail(err, PC_ERR_NOMEM, "style thumbnail");
+    }
+    for (uint32_t y = 0; y < size; y++) {
+        for (uint32_t x = 0; x < size; x++) {
+            float cx = (float)x + 0.5f, cy = (float)y + 0.5f;
+            float qx = fabsf(cx - cen) - half;
+            float qy = fabsf(cy - cen) - half;
+            float mx = qx > 0.0f ? qx : 0.0f;
+            float my = qy > 0.0f ? qy : 0.0f;
+            float corner = qx > qy ? qx : qy;
+            if (corner > 0.0f) {
+                corner = 0.0f;
+            }
+            float d = (hypotf(mx, my) + corner) - r;
+            float a = pc_clampf(0.5f - d, 0.0f, 1.0f);
+            size_t base = ((size_t)y * size + x) * channels;
+            for (size_t c = 0; c < channels; c++) {
+                px[base + c] = (has_alpha && c == alpha_ch) ? a : (c < ncolor ? 0.86f : a);
+            }
+        }
+    }
+    rc = pc_surface_write_region(surf, pc_rect_make(0, 0, (int32_t)size, (int32_t)size), px,
+                                 (size_t)count, err);
+    free(px);
+    return rc;
+}
+
+/* Clone one effect into the thumbnail layer, resolving a Pattern Overlay's pattern into the doc.
+ * *skip is set when the effect references a pattern that cannot be resolved (it is then dropped). */
+static pc_status thumbnail_effect(const pc_engine_session *s, pc_document *doc, const pc_effect *src,
+                                  pc_effect *out, bool *skip, pc_error *err)
+{
+    pc_status rc = pc_effect_clone(src, out, err);
+    *skip = false;
+    if (rc != PC_OK) {
+        return rc;
+    }
+    if (out->kind != PC_FX_PATTERN_OVERLAY) {
+        return PC_OK;
+    }
+    const pc_str *key = out->u.pattern_overlay.id.len ? &out->u.pattern_overlay.id
+                                                      : &out->u.pattern_overlay.name;
+    pc_pattern pat;
+    bool found = false;
+    rc = pc_engine_pattern_resolve(s, pc_str_c(key), key->len, &pat, &found, err);
+    if (rc != PC_OK) {
+        pc_effect_fini(out);
+        return rc;
+    }
+    if (!found) {
+        pc_effect_fini(out);
+        *skip = true;
+        return PC_OK;
+    }
+    pc_str name = PC_STR_INIT, id = PC_STR_INIT;
+    rc = pc_str_clone(&pat.name, &name, err);
+    if (rc == PC_OK) {
+        rc = pc_str_clone(&pat.id, &id, err);
+    }
+    if (rc == PC_OK) {
+        rc = pc_engine_pattern_ensure_in_doc(doc, &pat, err);
+    }
+    pc_pattern_fini(&pat);
+    if (rc != PC_OK) {
+        pc_str_fini(&name);
+        pc_str_fini(&id);
+        pc_effect_fini(out);
+        return rc;
+    }
+    pc_str_fini(&out->u.pattern_overlay.name);
+    pc_str_fini(&out->u.pattern_overlay.id);
+    out->u.pattern_overlay.name = name;
+    out->u.pattern_overlay.id = id;
+    return PC_OK;
+}
+
+pc_status pc_engine_style_preset_thumbnail(const pc_engine_session *s, const pc_style_preset *style,
+                                           uint32_t size, pc_rgba8_image *out, pc_error *err)
+{
+    pc_document doc;
+    pc_layer layer;
+    pc_compose_buffer buf;
+    pc_rgba8_image img;
+    pc_surface *surf;
+    pc_effect *fx = NULL;
+    size_t nfx = 0;
+    pc_status rc;
+    if (style == NULL) {
+        return pc_fail(err, PC_ERR_INVALID, "style thumbnail: no style");
+    }
+    size = size < 8u ? 8u : (size > 256u ? 256u : size);
+
+    rc = pc_document_init(&doc, "style", pc_size_make(size, size), PC_COLOR_MODE_RGB,
+                          PC_SAMPLE_TYPE_U8, err);
+    if (rc != PC_OK) {
+        return rc;
+    }
+    rc = pc_layer_raster(&layer, "swatch", pc_document_pixel_format(&doc), err);
+    if (rc != PC_OK) {
+        pc_document_fini(&doc);
+        return rc;
+    }
+    surf = pc_layer_surface_mut(&layer);
+    if (surf != NULL) {
+        rc = thumbnail_backdrop(surf, size, err);
+        if (rc != PC_OK) {
+            pc_layer_fini(&layer);
+            pc_document_fini(&doc);
+            return rc;
+        }
+    }
+    /* Resolve and attach the effects (skipping any with an unresolvable pattern). */
+    if (style->neffects > 0) {
+        fx = calloc(style->neffects, sizeof *fx);
+        if (fx == NULL) {
+            pc_layer_fini(&layer);
+            pc_document_fini(&doc);
+            return pc_fail(err, PC_ERR_NOMEM, "style thumbnail");
+        }
+        for (size_t i = 0; i < style->neffects; i++) {
+            bool skip = false;
+            rc = thumbnail_effect(s, &doc, &style->effects[i], &fx[nfx], &skip, err);
+            if (rc != PC_OK) {
+                for (size_t k = 0; k < nfx; k++) {
+                    pc_effect_fini(&fx[k]);
+                }
+                free(fx);
+                pc_layer_fini(&layer);
+                pc_document_fini(&doc);
+                return rc;
+            }
+            if (!skip) {
+                nfx++;
+            }
+        }
+    }
+    pc_effects_fini(&layer.effects);
+    layer.effects.enabled = true;
+    layer.effects.items = fx;
+    layer.effects.nitems = nfx;
+    if (style->has_blend) {
+        layer.blend = style->blend;
+    }
+    if (style->has_fill_opacity) {
+        layer.fill_opacity = style->fill_opacity;
+    }
+    rc = pc_document_insert_above(&doc, NULL, &layer, NULL, err);
+    if (rc != PC_OK) {
+        pc_layer_fini(&layer);
+        pc_document_fini(&doc);
+        return rc;
+    }
+    rc = pc_compose_render(&doc, pc_document_bounds(&doc), &buf, err);
+    if (rc != PC_OK) {
+        pc_document_fini(&doc);
+        return rc;
+    }
+    rc = pc_compose_buffer_to_rgba8(&buf, &img, err);
+    pc_compose_buffer_fini(&buf);
+    pc_document_fini(&doc);
+    if (rc != PC_OK) {
+        return rc;
+    }
+    *out = img;
+    return PC_OK;
 }

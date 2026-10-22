@@ -176,8 +176,79 @@ static void test_numeric_reference_link_rotation_skew_and_bounds(void)
     for (size_t i = 0; i < 4; i++)
         CHECK(isfinite(f.quad[i][0]) && isfinite(f.quad[i][1]));
 }
+static void test_live_readout(void)
+{
+    pc_ui_transform_frame f = frame();
+    double before[4][2];
+    memcpy(before, f.quad, sizeof before);
+    double out[2];
+    /* No movement yet: an inside drag reads a zero offset. */
+    CHECK(pc_ui_transform_readout(&f, (const double(*)[2])before, PC_TRANSFORM_INSIDE, out) == PC_TRANSFORM_READOUT_OFFSET);
+    CHECK_NEAR(out[0], 0, 1e-8);
+    CHECK_NEAR(out[1], 0, 1e-8);
+    /* Translate the box: the offset reads the delta since the press. */
+    for (size_t i = 0; i < 4; i++) {
+        f.quad[i][0] += 5;
+        f.quad[i][1] -= 3;
+    }
+    CHECK(pc_ui_transform_readout(&f, (const double(*)[2])before, PC_TRANSFORM_INSIDE, out) == PC_TRANSFORM_READOUT_OFFSET);
+    CHECK_NEAR(out[0], 5, 1e-8);
+    CHECK_NEAR(out[1], -3, 1e-8);
+    /* A still-affine corner drag reads W/H percent (doubled width, same height). */
+    f = frame();
+    const double scaled[4][2] = {{0, 0}, {200, 0}, {200, 100}, {0, 100}};
+    memcpy(f.quad, scaled, sizeof f.quad);
+    CHECK(pc_ui_transform_readout(&f, (const double(*)[2])before, PC_TRANSFORM_CORNER, out) == PC_TRANSFORM_READOUT_SCALE);
+    CHECK_NEAR(out[0], 200, 1e-6);
+    CHECK_NEAR(out[1], 100, 1e-6);
+    /* A rotated box read from an outside drag reads its angle. */
+    f = frame();
+    const double turned[4][2] = {{0, 0}, {0, 100}, {-100, 100}, {-100, 0}};
+    memcpy(f.quad, turned, sizeof f.quad);
+    CHECK(pc_ui_transform_readout(&f, (const double(*)[2])before, PC_TRANSFORM_OUTSIDE, out) == PC_TRANSFORM_READOUT_ANGLE);
+    CHECK_NEAR(out[0], 90, 1e-6);
+    /* The pivot has no readout, and a distorted box has no single scale. */
+    CHECK(pc_ui_transform_readout(&f, (const double(*)[2])before, PC_TRANSFORM_PIVOT, out) == PC_TRANSFORM_READOUT_NONE);
+    f = frame();
+    f.quad[2][0] += 30;
+    CHECK(pc_ui_transform_readout(&f, (const double(*)[2])before, PC_TRANSFORM_CORNER, out) == PC_TRANSFORM_READOUT_NONE);
+    /* Hostile input preserves nothing and reads NONE. */
+    CHECK(pc_ui_transform_readout(&f, (const double(*)[2])before, PC_TRANSFORM_INSIDE, NULL) == PC_TRANSFORM_READOUT_NONE);
+    double poison[4][2];
+    memcpy(poison, before, sizeof poison);
+    poison[0][0] = NAN;
+    CHECK(pc_ui_transform_readout(&f, (const double(*)[2])poison, PC_TRANSFORM_INSIDE, out) == PC_TRANSFORM_READOUT_NONE);
+}
+static void test_rotate_cursor_direction(void)
+{
+    pc_ui_transform_frame f = frame();
+    double out[2];
+    /* Just outside the top-left corner (beyond the handle, within three tolerances): the arc
+     * bends along the corner's inward 45 degree bisector. */
+    const double outside[2] = {-20, -20};
+    CHECK(pc_ui_transform_rotate_dir(&f, outside, 12, PC_TRANSFORM_FREE, false, out));
+    CHECK_NEAR(hypot(out[0], out[1]), 1, 1e-9);
+    CHECK_NEAR(out[0], 0.70710678, 1e-6);
+    CHECK_NEAR(out[1], 0.70710678, 1e-6);
+    /* Far from every corner and not rotating: no arc. */
+    const double far[2] = {50, -20};
+    CHECK(!pc_ui_transform_rotate_dir(&f, far, 12, PC_TRANSFORM_FREE, false, out));
+    /* Distort and Skew never show a rotate arc. */
+    CHECK(!pc_ui_transform_rotate_dir(&f, outside, 12, PC_TRANSFORM_DISTORT, false, out));
+    CHECK(!pc_ui_transform_rotate_dir(&f, outside, 12, PC_TRANSFORM_SKEW, false, out));
+    /* While an outside rotate drag is on, the arc shows at the nearest corner anywhere. */
+    const double inside[2] = {10, 10};
+    CHECK(pc_ui_transform_rotate_dir(&f, inside, 12, PC_TRANSFORM_FREE, true, out));
+    CHECK_NEAR(out[0], 0.70710678, 1e-6);
+    /* Hostile input returns no arc. */
+    const double nan_point[2] = {NAN, 0};
+    CHECK(!pc_ui_transform_rotate_dir(&f, nan_point, 12, PC_TRANSFORM_FREE, true, out));
+    CHECK(!pc_ui_transform_rotate_dir(&f, outside, 0, PC_TRANSFORM_FREE, false, out));
+}
 int main(int argc, char **argv)
 {
+    RUN(test_live_readout);
+    RUN(test_rotate_cursor_direction);
     RUN(test_numeric_reference_link_rotation_skew_and_bounds);
     RUN(test_handles_scaling_modifiers_and_pivot);
     RUN(test_rotate_skew_distort_perspective_and_type);

@@ -21,6 +21,9 @@
 #include "ui/shell/crop_ui.h"
 #include "ui/shell/control.h"
 #include "ui/shell/shell_internal.h"
+#include "ui/shell/preset_manager_ui.h"
+#include "ui/shell/profile_mismatch_ui.h"
+#include "base/file.h"
 
 /* Call a control method with JSON params text (NULL = none). Fills *out_text with the serialised
  * result on success; returns the pc_status. */
@@ -614,6 +617,401 @@ static void test_gl_canvas(void)
     int rw = 0, rh = 0;
     CHECK(pc_ui_shell_app_capture(a, &ruled, &rw, &rh, &err) == PC_OK);
     free(ruled);
+    pc_ui_shell_app_free(a);
+    SDL_Quit();
+}
+
+/* U7 render smoke: the retouch/gradient options bars, the Gradient Editor window and the Fill dialog
+ * all render offscreen without crashing (Rule 6). */
+static void test_gl_u7_surfaces(void)
+{
+    if (!getenv("PC_TEST_GL")) {
+        return;
+    }
+    CHECK(SDL_Init(SDL_INIT_VIDEO));
+    pc_ui_shell_app *a = NULL;
+    pc_error err;
+    CHECK(pc_ui_shell_app_new(&a, &err) == PC_OK);
+    pc_document doc;
+    CHECK(pc_document_with_background(&doc, "white", pc_size_make(128, 96), PC_COLOR_MODE_RGB,
+                                      PC_SAMPLE_TYPE_F32, pc_color_rgb(1, 1, 1), &err) == PC_OK);
+    size_t index;
+    CHECK(pc_engine_session_add_document(pc_ui_shell_app_session(a), &doc, NULL, &index, &err) == PC_OK);
+    CHECK(pc_ui_shell_app_open_window(a, "assets/fonts/Inter-Regular.ttf", 1, true, &err) == PC_OK);
+    const char *tools[] = {"Gradient",        "CloneStamp", "Healing", "PatternStamp", "SpotHealing",
+                           "Patch",           "ContentAwareMove", "RedEye",  "Dodge",        "Burn",
+                           "Sponge",          "Blur",       "Sharpen", "Smudge",       "ColorReplacement"};
+    for (size_t i = 0; i < sizeof tools / sizeof *tools; i++) {
+        char p[64];
+        (void)snprintf(p, sizeof p, "{\"tool\":\"%s\"}", tools[i]);
+        CHECK(call(a, "ui.set", p, NULL) == PC_OK);
+        uint8_t *rgba = NULL;
+        int w = 0, h = 0;
+        pc_status rc = pc_ui_shell_app_capture(a, &rgba, &w, &h, &err);
+        if (rc != PC_OK) {
+            PC_T_FAIL("capture %s: %s", tools[i], err.msg);
+        }
+        CHECK(rc == PC_OK);
+        free(rgba);
+    }
+    /* Gradient Editor window renders. */
+    CHECK(call(a, "ui.set", "{\"tool\":\"Gradient\",\"panels\":{\"gradient_editor\":true}}", NULL) == PC_OK);
+    CHECK(pc_ui_shell_app_state(a)->panels.gradient_editor);
+    uint8_t *rgba = NULL;
+    int w = 0, h = 0;
+    CHECK(pc_ui_shell_app_capture(a, &rgba, &w, &h, &err) == PC_OK);
+    free(rgba);
+    /* Fill dialog opens and renders. */
+    CHECK(call(a, "ui.menu.invoke", "{\"command\":\"edit.fill\"}", NULL) == PC_OK);
+    CHECK(pc_ui_shell_app_state(a)->n_dialogs >= 1);
+    rgba = NULL;
+    CHECK(pc_ui_shell_app_capture(a, &rgba, &w, &h, &err) == PC_OK);
+    free(rgba);
+    pc_ui_shell_app_free(a);
+    SDL_Quit();
+}
+
+/* GL render smoke: the bespoke Brush Settings panes (Brush Tip Shape with its tip grid and
+ * angle/roundness widget, Texture, Dual Brush) all render offscreen without crashing (Rule 6). */
+static void test_gl_brush_tip_panes(void)
+{
+    if (!getenv("PC_TEST_GL")) {
+        return;
+    }
+    CHECK(SDL_Init(SDL_INIT_VIDEO));
+    pc_ui_shell_app *a = NULL;
+    pc_error err;
+    CHECK(pc_ui_shell_app_new(&a, &err) == PC_OK);
+    pc_document doc;
+    CHECK(pc_document_with_background(&doc, "white", pc_size_make(64, 64), PC_COLOR_MODE_RGB,
+                                      PC_SAMPLE_TYPE_F32, pc_color_rgb(1, 1, 1), &err) == PC_OK);
+    size_t index;
+    CHECK(pc_engine_session_add_document(pc_ui_shell_app_session(a), &doc, NULL, &index, &err) == PC_OK);
+    CHECK(pc_ui_shell_app_open_window(a, "assets/fonts/Inter-Regular.ttf", 1, true, &err) == PC_OK);
+    pc_json_value out = PC_JSON_VALUE_INIT;
+    CHECK(pc_engine_session_execute_json(
+              pc_ui_shell_app_session(a), "tools.setBrush",
+              "{\"brush\":{\"texture\":{\"enabled\":true,\"eachTip\":true},\"dualBrush\":{\"enabled\":true}}}",
+              &out, &err) == PC_OK);
+    pc_json_value_fini(&out);
+    pc_ui_state *ui = pc_ui_shell_app_state(a);
+    ui->panels.brush_settings = true;
+    ui->brush_tab = 0;
+    for (size_t section = 0; section <= 4; section++) {
+        ui->brush_section = section;
+        uint8_t *rgba = NULL;
+        int w = 0, h = 0;
+        /* Two frames: the first opens the window disabled, the second interacts live. */
+        for (int frame = 0; frame < 2; frame++) {
+            pc_status rc = pc_ui_shell_app_capture(a, &rgba, &w, &h, &err);
+            if (rc != PC_OK) {
+                PC_T_FAIL("capture brush section %zu: %s", section, err.msg);
+            }
+            CHECK(rc == PC_OK);
+            free(rgba);
+            rgba = NULL;
+        }
+    }
+    pc_ui_shell_app_free(a);
+    SDL_Quit();
+}
+
+/* B8: the Keyboard Shortcuts / Menus editor opens as a modal, its draft commits an override and a
+ * hidden menu item, and invoking the command with real params bypasses the modal (goes to engine). */
+static void test_shortcuts_editor_opens_edits_and_confirms(void)
+{
+    pc_ui_shell_app *app = NULL;
+    CHECK(pc_ui_shell_app_new(&app, NULL) == PC_OK);
+    pc_ui_state *ui = pc_ui_shell_app_state(app);
+    /* Keyboard Shortcuts (tab 0). */
+    CHECK(call(app, "ui.menu.invoke", "{\"id\":\"edit.keyboardShortcuts\"}", NULL) == PC_OK);
+    CHECK(ui->n_dialogs == 1);
+    uint64_t id = ui->dialogs[0].id;
+    yyjson_mut_val *root = yyjson_mut_doc_get_root(ui->dialogs[0].fields);
+    CHECK_EQ_STR(yyjson_mut_get_str(yyjson_mut_obj_get(root, "__prefsui")), "shortcuts");
+    CHECK_EQ_UINT(yyjson_mut_get_uint(yyjson_mut_obj_get(root, "tab")), 0u);
+    char request[512];
+    (void)snprintf(request, sizeof request,
+                   "{\"dialog\":%llu,\"field\":\"overrides\",\"value\":{\"view.zoomIn\":\"Cmd+Alt+0\"}}",
+                   (unsigned long long)id);
+    CHECK(call(app, "ui.dialog.set", request, NULL) == PC_OK);
+    (void)snprintf(request, sizeof request, "{\"dialog\":%llu}", (unsigned long long)id);
+    CHECK(call(app, "ui.dialog.confirm", request, NULL) == PC_OK);
+    CHECK(ui->n_dialogs == 0);
+    pc_buf result = PC_BUF_INIT;
+    CHECK(call(app, "engine.execute", "{\"id\":\"prefs.get\",\"params\":{\"path\":\"shortcuts\"}}", &result) ==
+          PC_OK);
+    CHECK_CONTAINS(pc_buf_cstr(&result), "view.zoomIn");
+    pc_buf_fini(&result);
+    /* Menus (tab 1): hide a menu item. */
+    CHECK(call(app, "ui.menu.invoke", "{\"id\":\"edit.menus\"}", NULL) == PC_OK);
+    CHECK(ui->n_dialogs == 1);
+    id = ui->dialogs[0].id;
+    root = yyjson_mut_doc_get_root(ui->dialogs[0].fields);
+    CHECK_EQ_UINT(yyjson_mut_get_uint(yyjson_mut_obj_get(root, "tab")), 1u);
+    (void)snprintf(request, sizeof request,
+                   "{\"dialog\":%llu,\"field\":\"hidden\",\"value\":[\"image.imageSize\"]}",
+                   (unsigned long long)id);
+    CHECK(call(app, "ui.dialog.set", request, NULL) == PC_OK);
+    (void)snprintf(request, sizeof request, "{\"dialog\":%llu}", (unsigned long long)id);
+    CHECK(call(app, "ui.dialog.confirm", request, NULL) == PC_OK);
+    CHECK(ui->n_dialogs == 0);
+    result = (pc_buf)PC_BUF_INIT;
+    CHECK(call(app, "engine.execute", "{\"id\":\"prefs.get\",\"params\":{\"path\":\"menus.hidden\"}}",
+               &result) == PC_OK);
+    CHECK_CONTAINS(pc_buf_cstr(&result), "image.imageSize");
+    pc_buf_fini(&result);
+    /* With real params the command runs through the engine, not the modal. */
+    CHECK(call(app, "ui.menu.invoke",
+               "{\"id\":\"edit.keyboardShortcuts\",\"params\":{\"reset\":true}}", NULL) == PC_OK);
+    CHECK(ui->n_dialogs == 0);
+    pc_ui_shell_app_free(app);
+}
+
+/* Rule 6: the shortcuts editor (all three tabs) and the Interface theme cards render offscreen. */
+static void test_gl_prefs_and_shortcuts_surfaces(void)
+{
+    if (!getenv("PC_TEST_GL")) {
+        return;
+    }
+    CHECK(SDL_Init(SDL_INIT_VIDEO));
+    pc_ui_shell_app *a = NULL;
+    pc_error err;
+    CHECK(pc_ui_shell_app_new(&a, &err) == PC_OK);
+    CHECK(pc_ui_shell_app_open_window(a, "assets/fonts/Inter-Regular.ttf", 1, true, &err) == PC_OK);
+    pc_ui_state *ui = pc_ui_shell_app_state(a);
+    CHECK(call(a, "ui.menu.invoke", "{\"id\":\"edit.keyboardShortcuts\"}", NULL) == PC_OK);
+    CHECK(ui->n_dialogs == 1);
+    uint64_t id = ui->dialogs[0].id;
+    for (int tab = 0; tab < 3; tab++) {
+        char request[128];
+        (void)snprintf(request, sizeof request, "{\"dialog\":%llu,\"field\":\"tab\",\"value\":%d}",
+                       (unsigned long long)id, tab);
+        CHECK(call(a, "ui.dialog.set", request, NULL) == PC_OK);
+        uint8_t *rgba = NULL;
+        int w = 0, h = 0;
+        for (int frame = 0; frame < 2; frame++) {
+            CHECK(pc_ui_shell_app_capture(a, &rgba, &w, &h, &err) == PC_OK);
+            free(rgba);
+            rgba = NULL;
+        }
+    }
+    char request[128];
+    (void)snprintf(request, sizeof request, "{\"dialog\":%llu}", (unsigned long long)id);
+    CHECK(call(a, "ui.dialog.cancel", request, NULL) == PC_OK);
+    /* Interface theme cards. */
+    CHECK(call(a, "ui.menu.invoke", "{\"id\":\"edit.preferences.interface\"}", NULL) == PC_OK);
+    uint8_t *rgba = NULL;
+    int w = 0, h = 0;
+    for (int frame = 0; frame < 2; frame++) {
+        CHECK(pc_ui_shell_app_capture(a, &rgba, &w, &h, &err) == PC_OK);
+        free(rgba);
+        rgba = NULL;
+    }
+    pc_ui_shell_app_free(a);
+    SDL_Quit();
+}
+
+/* The Preset Manager opens from its menu id, lists a kind, and OK dismisses it; with real params the
+ * command still runs through the engine. */
+static void test_preset_manager_opens_and_lists(void)
+{
+    pc_ui_shell_app *app = NULL;
+    CHECK(pc_ui_shell_app_new(&app, NULL) == PC_OK);
+    pc_ui_state *ui = pc_ui_shell_app_state(app);
+    CHECK(call(app, "ui.menu.invoke", "{\"id\":\"edit.presets.presetManager\"}", NULL) == PC_OK);
+    CHECK(ui->n_dialogs == 1);
+    uint64_t id = ui->dialogs[0].id;
+    yyjson_mut_val *root = yyjson_mut_doc_get_root(ui->dialogs[0].fields);
+    CHECK_EQ_STR(yyjson_mut_get_str(yyjson_mut_obj_get(root, "__presetui")), "manager");
+    CHECK_EQ_STR(yyjson_mut_get_str(yyjson_mut_obj_get(root, "kind")), "brushes");
+    CHECK(pc_ui_shell_preset_manager_owns(root));
+    /* The engine lists every library (what the body renders each frame). */
+    pc_buf result = PC_BUF_INIT;
+    CHECK(call(app, "engine.execute", "{\"id\":\"edit.presets.presetManager\"}", &result) == PC_OK);
+    CHECK_CONTAINS(pc_buf_cstr(&result), "patterns");
+    CHECK_CONTAINS(pc_buf_cstr(&result), "brushes");
+    pc_buf_fini(&result);
+    /* OK just dismisses the manager. */
+    char request[128];
+    (void)snprintf(request, sizeof request, "{\"dialog\":%llu}", (unsigned long long)id);
+    CHECK(call(app, "ui.dialog.confirm", request, NULL) == PC_OK);
+    CHECK(ui->n_dialogs == 0);
+    /* With real params the command runs through the engine, not the modal. */
+    CHECK(call(app, "ui.menu.invoke",
+               "{\"id\":\"edit.presets.presetManager\",\"params\":{\"kind\":\"brushes\"}}", NULL) == PC_OK);
+    CHECK(ui->n_dialogs == 0);
+    pc_ui_shell_app_free(app);
+}
+
+/* Export/Import Presets: the dialog's begin/write/read round-trip a preset file without a chooser. */
+static void test_presets_io_round_trip(void)
+{
+    char path[] = "/dev/shm/pc-build/test-presets-XXXXXX";
+    int fd = mkstemp(path);
+    CHECK(fd >= 0);
+    if (fd >= 0) {
+        close(fd);
+    }
+    /* Export from one session. */
+    pc_ui_shell_app *app = NULL;
+    pc_error err;
+    CHECK(pc_ui_shell_app_new(&app, &err) == PC_OK);
+    pc_ui_state *ui = pc_ui_shell_app_state(app);
+    pc_json_value out = PC_JSON_VALUE_INIT;
+    CHECK(pc_ui_shell_presets_io_open(app, &out, &err) == PC_OK);
+    pc_json_value_fini(&out);
+    CHECK(ui->n_dialogs == 1);
+    pc_ui_dialog *dialog = &ui->dialogs[0];
+    CHECK(pc_ui_shell_presets_io_owns(yyjson_mut_doc_get_root(dialog->fields)));
+    bool saving = false;
+    CHECK(pc_ui_shell_presets_io_begin(app, dialog, &saving, &err) == PC_OK);
+    CHECK(saving); /* export direction by default */
+    yyjson_mut_val *droot = yyjson_mut_doc_get_root(dialog->fields);
+    const char *data = yyjson_mut_get_str(yyjson_mut_obj_get(droot, "__exportData"));
+    CHECK(data != NULL);
+    CHECK(data && strstr(data, "photocraft-presets") != NULL);
+    CHECK(pc_ui_shell_presets_io_write(app, dialog, path, &err) == PC_OK);
+    pc_ui_shell_app_free(app);
+
+    /* The file holds a valid preset document. */
+    pc_buf bytes = PC_BUF_INIT;
+    CHECK(pc_file_read(path, 1u << 24, &bytes, &err) == PC_OK);
+    CHECK_CONTAINS(pc_buf_cstr(&bytes), "photocraft-presets");
+    pc_buf_fini(&bytes);
+
+    /* Import into a fresh session via the dialog's read path. */
+    pc_ui_shell_app *app2 = NULL;
+    CHECK(pc_ui_shell_app_new(&app2, &err) == PC_OK);
+    pc_ui_state *ui2 = pc_ui_shell_app_state(app2);
+    out = (pc_json_value)PC_JSON_VALUE_INIT;
+    CHECK(pc_ui_shell_presets_io_open(app2, &out, &err) == PC_OK);
+    pc_json_value_fini(&out);
+    pc_ui_dialog *dialog2 = &ui2->dialogs[0];
+    /* The Open-chooser result path: read the file and import it. */
+    CHECK(pc_ui_shell_presets_io_read(app2, dialog2, path, &err) == PC_OK);
+    pc_ui_shell_app_free(app2);
+    remove(path);
+
+    /* Bad path is an error, not a crash. */
+    pc_ui_shell_app *app3 = NULL;
+    CHECK(pc_ui_shell_app_new(&app3, &err) == PC_OK);
+    pc_ui_state *ui3 = pc_ui_shell_app_state(app3);
+    out = (pc_json_value)PC_JSON_VALUE_INIT;
+    CHECK(pc_ui_shell_presets_io_open(app3, &out, &err) == PC_OK);
+    pc_json_value_fini(&out);
+    CHECK(pc_ui_shell_presets_io_read(app3, &ui3->dialogs[0], "/no/such/preset/file", &err) != PC_OK);
+    pc_ui_shell_app_free(app3);
+}
+
+/* The profile-mismatch prompt opens from a synthetic report and OK dismisses it when the chosen
+ * action matches what the open policy already applied (no engine edit, so no document needed). */
+static void test_profile_mismatch_prompt(void)
+{
+    pc_ui_shell_app *app = NULL;
+    pc_error err;
+    CHECK(pc_ui_shell_app_new(&app, &err) == PC_OK);
+    pc_ui_state *ui = pc_ui_shell_app_state(app);
+    /* A "kept" report that does not ask -> no prompt. */
+    yyjson_doc *q = NULL;
+    const char *kept = "{\"action\":\"kept\",\"ask\":false}";
+    CHECK(pc_json_parse(kept, strlen(kept), &q, &err) == PC_OK);
+    yyjson_mut_doc *qm = yyjson_doc_mut_copy(q, NULL);
+    CHECK(pc_ui_shell_profile_mismatch_maybe_open(app, yyjson_mut_doc_get_root(qm), &err) == PC_OK);
+    CHECK(ui->n_dialogs == 0);
+    yyjson_mut_doc_free(qm);
+    yyjson_doc_free(q);
+    /* A real mismatch that asks -> a prompt whose initial action is what was applied. */
+    const char *text = "{\"mismatch\":true,\"ask\":true,\"embedded\":\"sRGB IEC61966-2.1\","
+                       "\"working\":\"Adobe RGB (1998)\",\"action\":\"kept\",\"policy\":\"preserve\"}";
+    CHECK(pc_json_parse(text, strlen(text), &q, &err) == PC_OK);
+    qm = yyjson_doc_mut_copy(q, NULL);
+    CHECK(pc_ui_shell_profile_mismatch_maybe_open(app, yyjson_mut_doc_get_root(qm), &err) == PC_OK);
+    CHECK(ui->n_dialogs == 1);
+    uint64_t id = ui->dialogs[0].id;
+    yyjson_mut_val *root = yyjson_mut_doc_get_root(ui->dialogs[0].fields);
+    CHECK(pc_ui_shell_profile_mismatch_owns(root));
+    CHECK_EQ_STR(yyjson_mut_get_str(yyjson_mut_obj_get(root, "action")), "preserve");
+    CHECK_EQ_STR(yyjson_mut_get_str(yyjson_mut_obj_get(root, "applied")), "preserve");
+    CHECK(yyjson_mut_get_str(yyjson_mut_obj_get(root, "message")) != NULL);
+    yyjson_mut_doc_free(qm);
+    yyjson_doc_free(q);
+    /* OK with the already-applied action is a no-op that closes the prompt. */
+    char request[128];
+    (void)snprintf(request, sizeof request, "{\"dialog\":%llu}", (unsigned long long)id);
+    pc_buf result = PC_BUF_INIT;
+    CHECK(call(app, "ui.dialog.confirm", request, &result) == PC_OK);
+    CHECK_CONTAINS(pc_buf_cstr(&result), "preserve");
+    pc_buf_fini(&result);
+    CHECK(ui->n_dialogs == 0);
+    pc_ui_shell_app_free(app);
+}
+
+/* Rule 6: the Preset Manager, Export/Import Presets and Embedded Profile Mismatch dialogs all render
+ * offscreen without crashing. */
+static void test_gl_preset_and_mismatch_surfaces(void)
+{
+    if (!getenv("PC_TEST_GL")) {
+        return;
+    }
+    CHECK(SDL_Init(SDL_INIT_VIDEO));
+    pc_ui_shell_app *a = NULL;
+    pc_error err;
+    CHECK(pc_ui_shell_app_new(&a, &err) == PC_OK);
+    CHECK(pc_ui_shell_app_open_window(a, "assets/fonts/Inter-Regular.ttf", 1, true, &err) == PC_OK);
+    pc_ui_state *ui = pc_ui_shell_app_state(a);
+    uint8_t *rgba = NULL;
+    int w = 0, h = 0;
+    /* Preset Manager, cycling the kind so each list body renders. */
+    CHECK(call(a, "ui.menu.invoke", "{\"id\":\"edit.presets.presetManager\"}", NULL) == PC_OK);
+    CHECK(ui->n_dialogs == 1);
+    uint64_t id = ui->dialogs[0].id;
+    const char *kinds[] = {"brushes", "customShapes", "patterns"};
+    for (size_t k = 0; k < 3; k++) {
+        char request[128];
+        (void)snprintf(request, sizeof request, "{\"dialog\":%llu,\"field\":\"kind\",\"value\":\"%s\"}",
+                       (unsigned long long)id, kinds[k]);
+        CHECK(call(a, "ui.dialog.set", request, NULL) == PC_OK);
+        for (int frame = 0; frame < 2; frame++) {
+            CHECK(pc_ui_shell_app_capture(a, &rgba, &w, &h, &err) == PC_OK);
+            free(rgba);
+            rgba = NULL;
+        }
+    }
+    char request[128];
+    (void)snprintf(request, sizeof request, "{\"dialog\":%llu}", (unsigned long long)id);
+    CHECK(call(a, "ui.dialog.cancel", request, NULL) == PC_OK);
+    /* Export/Import Presets. */
+    CHECK(call(a, "ui.menu.invoke", "{\"id\":\"edit.presets.exportImportPresets\"}", NULL) == PC_OK);
+    for (int frame = 0; frame < 2; frame++) {
+        CHECK(pc_ui_shell_app_capture(a, &rgba, &w, &h, &err) == PC_OK);
+        free(rgba);
+        rgba = NULL;
+    }
+    id = ui->dialogs[ui->n_dialogs - 1].id;
+    (void)snprintf(request, sizeof request, "{\"dialog\":%llu}", (unsigned long long)id);
+    CHECK(call(a, "ui.dialog.cancel", request, NULL) == PC_OK);
+    /* Embedded Profile Mismatch (both the embedded and missing layouts). */
+    const char *reports[] = {
+        "{\"mismatch\":true,\"ask\":true,\"embedded\":\"sRGB\",\"working\":\"Adobe RGB\",\"action\":\"kept\"}",
+        "{\"missing\":true,\"ask\":true,\"working\":\"sRGB\",\"action\":\"assigned\"}"};
+    for (size_t i = 0; i < 2; i++) {
+        yyjson_doc *q = NULL;
+        CHECK(pc_json_parse(reports[i], strlen(reports[i]), &q, &err) == PC_OK);
+        yyjson_mut_doc *qm = yyjson_doc_mut_copy(q, NULL);
+        CHECK(pc_ui_shell_profile_mismatch_maybe_open(a, yyjson_mut_doc_get_root(qm), &err) == PC_OK);
+        CHECK(ui->n_dialogs == 1);
+        for (int frame = 0; frame < 2; frame++) {
+            CHECK(pc_ui_shell_app_capture(a, &rgba, &w, &h, &err) == PC_OK);
+            free(rgba);
+            rgba = NULL;
+        }
+        id = ui->dialogs[0].id;
+        (void)snprintf(request, sizeof request, "{\"dialog\":%llu}", (unsigned long long)id);
+        CHECK(call(a, "ui.dialog.cancel", request, NULL) == PC_OK);
+        yyjson_mut_doc_free(qm);
+        yyjson_doc_free(q);
+    }
     pc_ui_shell_app_free(a);
     SDL_Quit();
 }
@@ -2049,6 +2447,189 @@ static void test_layer_picker_control_overrides_hand_tool_and_prunes(void)
     CHECK(call(app, "ui.set", "{\"tool\":\"Hand\"}", NULL) == PC_OK && !ui->layer_picker.armed);
     pc_ui_shell_app_free(app);
 }
+
+/* ---- U10 Save for Web (Legacy) + Print dialogs (web_export_ui.c / print_ui.c) ---- */
+
+static pc_ui_shell_app *wp_app(void)
+{
+    pc_ui_shell_app *a = NULL;
+    pc_error err;
+    if (pc_ui_shell_app_new(&a, &err) != PC_OK) {
+        return NULL;
+    }
+    pc_document doc;
+    if (pc_document_with_background(&doc, "web", pc_size_make(64, 48), PC_COLOR_MODE_RGB,
+                                    PC_SAMPLE_TYPE_F32, pc_color_rgb(0.5f, 0.6f, 0.7f), &err) != PC_OK) {
+        pc_ui_shell_app_free(a);
+        return NULL;
+    }
+    size_t index;
+    if (pc_engine_session_add_document(pc_ui_shell_app_session(a), &doc, NULL, &index, &err) != PC_OK) {
+        pc_document_fini(&doc);
+        pc_ui_shell_app_free(a);
+        return NULL;
+    }
+    return a;
+}
+
+static uint64_t wp_last_dialog(pc_ui_shell_app *a)
+{
+    pc_ui_state *s = pc_ui_shell_app_state(a);
+    return s->n_dialogs ? s->dialogs[s->n_dialogs - 1].id : 0;
+}
+
+static const char *wp_field(pc_ui_shell_app *a, uint64_t id, const char *key)
+{
+    pc_ui_state *s = pc_ui_shell_app_state(a);
+    for (size_t i = 0; i < s->n_dialogs; i++) {
+        if (s->dialogs[i].id == id) {
+            return yyjson_mut_get_str(yyjson_mut_obj_get(yyjson_mut_doc_get_root(s->dialogs[i].fields), key));
+        }
+    }
+    return NULL;
+}
+
+static bool wp_starts_with(const char *path, const char *magic, size_t n)
+{
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        return false;
+    }
+    char buf[16] = {0};
+    size_t got = fread(buf, 1, n < sizeof buf ? n : sizeof buf, f);
+    fclose(f);
+    return got == n && memcmp(buf, magic, n) == 0;
+}
+
+static void test_web_dialog_defaults_export_and_guard(void)
+{
+    pc_ui_shell_app *a = wp_app();
+    CHECK(a != NULL);
+    if (!a) {
+        return;
+    }
+    CHECK(call(a, "ui.menu.invoke", "{\"command\":\"file.export.saveForWebLegacy\"}", NULL) == PC_OK);
+    uint64_t id = wp_last_dialog(a);
+    CHECK(id != 0);
+    CHECK(wp_field(a, id, "format") && !strcmp(wp_field(a, id, "format"), "jpeg"));
+    CHECK(wp_field(a, id, "palette") && !strcmp(wp_field(a, id, "palette"), "selective"));
+    CHECK(wp_field(a, id, "matte") && !strcmp(wp_field(a, id, "matte"), "#ffffff"));
+
+    char params[64];
+    (void)snprintf(params, sizeof params, "{\"dialog\":%llu}", (unsigned long long)id);
+    /* No destination yet: confirm reports an error, not a crash, and the dialog stays open. */
+    CHECK(call(a, "ui.dialog.confirm", params, NULL) != PC_OK);
+    CHECK(pc_ui_shell_app_state(a)->n_dialogs == 1);
+
+    char path[256];
+    const char *tmp = getenv("TMPDIR");
+    (void)snprintf(path, sizeof path, "%s/pc-webui-%d.gif", tmp && *tmp ? tmp : "/tmp", (int)getpid());
+    char p[384];
+    (void)snprintf(p, sizeof p, "{\"dialog\":%llu,\"field\":\"format\",\"value\":\"gif\"}",
+                   (unsigned long long)id);
+    CHECK(call(a, "ui.dialog.set", p, NULL) == PC_OK);
+    (void)snprintf(p, sizeof p, "{\"dialog\":%llu,\"field\":\"path\",\"value\":\"%s\"}",
+                   (unsigned long long)id, path);
+    CHECK(call(a, "ui.dialog.set", p, NULL) == PC_OK);
+    CHECK(call(a, "ui.dialog.confirm", params, NULL) == PC_OK);
+    CHECK(wp_starts_with(path, "GIF89a", 6));
+    CHECK(pc_ui_shell_app_state(a)->n_dialogs == 0);
+    (void)remove(path);
+    pc_ui_shell_app_free(a);
+}
+
+static void test_print_dialog_defaults_and_pdf(void)
+{
+    pc_ui_shell_app *a = wp_app();
+    CHECK(a != NULL);
+    if (!a) {
+        return;
+    }
+    CHECK(call(a, "ui.menu.invoke", "{\"command\":\"file.print\"}", NULL) == PC_OK);
+    uint64_t id = wp_last_dialog(a);
+    CHECK(id != 0);
+    CHECK(wp_field(a, id, "paper") && !strcmp(wp_field(a, id, "paper"), "letter"));
+    CHECK(wp_field(a, id, "colorHandling") &&
+          !strcmp(wp_field(a, id, "colorHandling"), "printerManages"));
+
+    char path[256];
+    const char *tmp = getenv("TMPDIR");
+    (void)snprintf(path, sizeof path, "%s/pc-printui-%d.pdf", tmp && *tmp ? tmp : "/tmp", (int)getpid());
+    char p[384];
+    (void)snprintf(p, sizeof p, "{\"dialog\":%llu,\"field\":\"output\",\"value\":\"%s\"}",
+                   (unsigned long long)id, path);
+    CHECK(call(a, "ui.dialog.set", p, NULL) == PC_OK);
+    char params[64];
+    (void)snprintf(params, sizeof params, "{\"dialog\":%llu}", (unsigned long long)id);
+    /* Output to a file avoids any spooler dependency. */
+    pc_status rc = call(a, "ui.dialog.confirm", params, NULL);
+    CHECK(rc == PC_OK);
+    if (rc == PC_OK) {
+        CHECK(wp_starts_with(path, "%PDF", 4));
+    }
+    (void)remove(path);
+    pc_ui_shell_app_free(a);
+}
+
+/* GL render smoke: both dialog bodies and every view render offscreen without crashing (Rule 6). */
+static void test_gl_web_print_surfaces(void)
+{
+    if (!getenv("PC_TEST_GL")) {
+        return;
+    }
+    CHECK(SDL_Init(SDL_INIT_VIDEO));
+    pc_ui_shell_app *a = wp_app();
+    CHECK(a != NULL);
+    if (!a) {
+        SDL_Quit();
+        return;
+    }
+    pc_error err;
+    CHECK(pc_ui_shell_app_open_window(a, "assets/fonts/Inter-Regular.ttf", 1, true, &err) == PC_OK);
+
+    CHECK(call(a, "ui.menu.invoke", "{\"command\":\"file.export.saveForWebLegacy\"}", NULL) == PC_OK);
+    uint64_t id = wp_last_dialog(a);
+    const char *views[] = {"original", "optimized", "2up", "4up"};
+    for (size_t i = 0; i < sizeof views / sizeof *views; i++) {
+        char p[128];
+        (void)snprintf(p, sizeof p, "{\"dialog\":%llu,\"field\":\"__view\",\"value\":\"%s\"}",
+                       (unsigned long long)id, views[i]);
+        (void)call(a, "ui.dialog.set", p, NULL);
+        uint8_t *rgba = NULL;
+        int w = 0, h = 0;
+        pc_status rc = pc_ui_shell_app_capture(a, &rgba, &w, &h, &err);
+        if (rc != PC_OK) {
+            PC_T_FAIL("web capture %s: %s", views[i], err.msg);
+        }
+        CHECK(rc == PC_OK);
+        free(rgba);
+    }
+    char cancel[64];
+    (void)snprintf(cancel, sizeof cancel, "{\"dialog\":%llu}", (unsigned long long)id);
+    (void)call(a, "ui.dialog.cancel", cancel, NULL);
+
+    CHECK(call(a, "ui.menu.invoke", "{\"command\":\"file.print\"}", NULL) == PC_OK);
+    id = wp_last_dialog(a);
+    uint8_t *rgba = NULL;
+    int w = 0, h = 0;
+    CHECK(pc_ui_shell_app_capture(a, &rgba, &w, &h, &err) == PC_OK);
+    free(rgba);
+    char p[128];
+    (void)snprintf(p, sizeof p,
+                   "{\"dialog\":%llu,\"field\":\"colorHandling\",\"value\":\"photocraftManages\"}",
+                   (unsigned long long)id);
+    (void)call(a, "ui.dialog.set", p, NULL);
+    (void)snprintf(p, sizeof p, "{\"dialog\":%llu,\"field\":\"center\",\"value\":false}",
+                   (unsigned long long)id);
+    (void)call(a, "ui.dialog.set", p, NULL);
+    rgba = NULL;
+    CHECK(pc_ui_shell_app_capture(a, &rgba, &w, &h, &err) == PC_OK);
+    free(rgba);
+
+    pc_ui_shell_app_free(a);
+    SDL_Quit();
+}
+
 int main(int argc, char **argv)
 {
     RUN(test_layer_picker_control_overrides_hand_tool_and_prunes);
@@ -2098,6 +2679,17 @@ int main(int argc, char **argv)
     RUN(test_brush_opacity_and_resize_input);
     RUN(test_gl_canvas_damage);
     RUN(test_gl_canvas);
+    RUN(test_gl_u7_surfaces);
+    RUN(test_gl_brush_tip_panes);
+    RUN(test_web_dialog_defaults_export_and_guard);
+    RUN(test_print_dialog_defaults_and_pdf);
+    RUN(test_gl_web_print_surfaces);
+    RUN(test_shortcuts_editor_opens_edits_and_confirms);
+    RUN(test_gl_prefs_and_shortcuts_surfaces);
+    RUN(test_preset_manager_opens_and_lists);
+    RUN(test_presets_io_round_trip);
+    RUN(test_profile_mismatch_prompt);
+    RUN(test_gl_preset_and_mismatch_surfaces);
     RUN(test_display_commands);
     RUN(test_document_cameras);
     RUN(test_camera_rejects_atomically);

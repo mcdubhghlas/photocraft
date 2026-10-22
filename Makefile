@@ -21,14 +21,15 @@ CFLAGS ?= -O2 -g
 ARFLAGS = rcs
 
 # Modules in layer order (REWRITE_PLAN.md §3). Each chunk appends its module here.
-MODULES = base geom cms color raster psd codecs raw affinity doc ops paint algo vector text compose gpu format io plugins engine automation ui
+MODULES = base geom cms color raster psd codecs raw affinity doc ops paint algo vector text compose gpu format io plugins engine automation ui app
 # pkg-config packages the current modules need.
 PKGS = zlib libzstd libblake3 libpng16 libjpeg libwebp libwebpmux libwebpdemux freetype2 harfbuzz fribidi libunibreak
 # Vendored third-party C (REWRITE_PLAN.md D17), compiled without our strict warnings: it isn't
 # our code to fix, and upstream builds it warning-free with its own flags.
 THIRD_PARTY = yyjson nuklear pocketfft
-# Executables (src/cli, src/app) once they exist.
-PROGRAMS = photocraft-cli
+# Executables (src/cli, src/app) once they exist. photocraft-parity is a headless ui-level dev tool
+# (src/ui/paritygen) used by tools/parity.sh (Z1) to regenerate docs/parity-checklist.md.
+PROGRAMS = photocraft-cli photocraft-parity
 # Libraries only the UI layer may use (REWRITE_PLAN.md D4). Their flags are applied to src/ui
 # objects only, so nothing lower can include SDL by accident.
 GUI_PKGS = sdl3 freetype2
@@ -67,6 +68,18 @@ CODEC_CFLAGS = $(EXR_CFLAGS) $(HEIF_CFLAGS)
 WITH_JXL ?= $(shell $(PKG_CONFIG) --exists libjxl 2>/dev/null && echo 1)
 JXL_CFLAGS := $(if $(filter 1,$(WITH_JXL)),$(shell $(PKG_CONFIG) --cflags libjxl),-DPC_NO_JXL)
 JXL_LIBS := $(if $(filter 1,$(WITH_JXL)),$(shell $(PKG_CONFIG) --libs libjxl))
+
+# Linux desktop OS-integration (REWRITE_PLAN.md P2): X11 screen-pixel grab (xcb) for the
+# screen eyedropper, and colord (dbus-1) for live per-monitor ICC. On when found, or force
+# WITH_X11SCREEN=0 / WITH_COLORD=0 (those paths then report "unsupported"). Flags reach
+# src/app/screen_color and src/app/monitor_profile (+ their tests) only.
+WITH_X11SCREEN ?= $(shell $(PKG_CONFIG) --exists xcb xcb-randr xcb-image 2>/dev/null && echo 1)
+X11SCREEN_CFLAGS := $(if $(filter 1,$(WITH_X11SCREEN)),$(shell $(PKG_CONFIG) --cflags xcb xcb-randr xcb-image),-DPC_NO_X11SCREEN)
+X11SCREEN_LIBS := $(if $(filter 1,$(WITH_X11SCREEN)),$(shell $(PKG_CONFIG) --libs xcb xcb-randr xcb-image))
+WITH_COLORD ?= $(shell $(PKG_CONFIG) --exists dbus-1 2>/dev/null && echo 1)
+COLORD_CFLAGS := $(if $(filter 1,$(WITH_COLORD)),$(shell $(PKG_CONFIG) --cflags dbus-1),-DPC_NO_COLORD)
+COLORD_LIBS := $(if $(filter 1,$(WITH_COLORD)),$(shell $(PKG_CONFIG) --libs dbus-1))
+APP_OSINT_CFLAGS = $(X11SCREEN_CFLAGS) $(COLORD_CFLAGS)
 
 # WebAssembly plug-ins (REWRITE_PLAN.md D13): vendored WAMR (third_party/wamr), fast interpreter
 # only: no AOT/JIT, no WASI or libc imports, no SIMD/shared memory; software bounds checks (no
@@ -126,9 +139,12 @@ GUI_LIBS := $(if $(HAVE_GUI),$(shell $(PKG_CONFIG) --libs $(GUI_PKGS)))
 ALL_CPPFLAGS = -D_POSIX_C_SOURCE=200809L -Isrc $(THIRD_PARTY:%=-Ithird_party/%) $(PKG_CFLAGS) $(EXTRA_CPPFLAGS) $(CPPFLAGS)
 ALL_CFLAGS = -std=c17 $(FP_STRICT) $(WARN) $(WERROR) $(PTHREAD) $(CFLAGS) $(EXTRA_CFLAGS)
 ALL_LDFLAGS = $(PTHREAD) $(LDFLAGS) $(EXTRA_LDFLAGS)
-ALL_LDLIBS = $(PKG_LIBS) $(EXR_LIBS) $(HEIF_LIBS) $(JXL_LIBS) $(LDLIBS) -lm
+ALL_LDLIBS = $(PKG_LIBS) $(EXR_LIBS) $(HEIF_LIBS) $(JXL_LIBS) $(X11SCREEN_LIBS) $(COLORD_LIBS) $(LDLIBS) -lm
 
 SRCS := $(foreach m,$(MODULES),$(wildcard src/$(m)/*.c))
+# The desktop entry src/app/main.c is GUI-coupled (SDL): built as its own program below, never the
+# GUI-free app library. The rest of src/app/ is pure POSIX and goes into libphotocraft.a.
+SRCS := $(filter-out src/app/main.c,$(SRCS))
 THIRD_SRCS := $(foreach t,$(THIRD_PARTY),$(wildcard third_party/$(t)/*.c))
 # Binary data compiled in (POSIX od + sed; no xxd): name = file under data/ (see GEN rules below).
 # Bundled fonts (src/text/bundled.h), embedded the same way (assets/fonts/<name>.ttf).
@@ -173,6 +189,10 @@ UISHELL_SRCS := $(wildcard src/ui/shell/*.c)
 UISHELL_OBJS := $(UISHELL_SRCS:%.c=$(BUILD)/obj/%.o)
 UISHELL_TEST_OBJS := $(filter-out $(BUILD)/obj/src/ui/shell/main.o,$(UISHELL_OBJS))
 UISHELL := $(BUILD)/bin/photocraft-ui-shell
+# photocraft: the desktop application (Phase 9 P1). Its GUI entry point src/app/main.c links the
+# shell objects (minus the shell's own dev main) and the app library; the rest of src/app/ is in LIB.
+PHOTOCRAFT_MAIN_OBJ := $(BUILD)/obj/src/app/main.o
+PHOTOCRAFT := $(BUILD)/bin/photocraft
 TEST_SRCS := $(wildcard tests/*/test_*.c)
 # The shell control test needs the GUI packages (it links SDL, never inits video); drop it when they
 # are absent so a headless build host still runs the rest of the suite.
@@ -184,10 +204,10 @@ CLI_OBJS := $(CLI_SRCS:%.c=$(BUILD)/obj/%.o)
 APP_SRCS := $(CLI_SRCS)
 APP_OBJS := $(CLI_OBJS)
 
-.PHONY: all spike corpus test check sanitize tsan analyze valgrind install clean
+.PHONY: all spike corpus test check sanitize tsan analyze valgrind install clean parity scorecard stats perf
 .DEFAULT_GOAL := all
 
-all: $(LIB) $(PROGRAMS:%=$(BUILD)/bin/%) $(if $(HAVE_GUI),$(SPIKE) $(SNAP) $(UISHELL))
+all: $(LIB) $(PROGRAMS:%=$(BUILD)/bin/%) $(if $(HAVE_GUI),$(SPIKE) $(SNAP) $(UISHELL) $(PHOTOCRAFT))
 
 # Listed first: GNU make 3.81 takes the first matching pattern rule, not the most specific.
 $(BUILD)/obj/third_party/%.o: third_party/%.c
@@ -280,12 +300,17 @@ $(LIB): $(OBJS)
 $(SPIKE_OBJS): EXTRA_CPPFLAGS = $(GUI_CFLAGS)
 $(SNAP_OBJS): EXTRA_CPPFLAGS = $(GUI_CFLAGS) -Isrc/ui/spike
 $(UISHELL_OBJS): EXTRA_CPPFLAGS = $(GUI_CFLAGS) -Isrc/ui/spike
+# The desktop entry is GUI-coupled: SDL + Nuklear (via the shell's internal header) + the shell's
+# public headers in src/ui/shell.
+$(PHOTOCRAFT_MAIN_OBJ): EXTRA_CPPFLAGS = $(GUI_CFLAGS) -Isrc/ui/spike -Isrc/ui/shell
 # Only the codecs and their tests see the optional libraries' headers (and PC_NO_EXR / PC_NO_HEIF).
 # Only the codecs see the optional libraries' headers.
 $(filter $(BUILD)/obj/src/codecs/%,$(OBJS)): EXTRA_CPPFLAGS = $(CODEC_CFLAGS)
 $(BUILD)/tests/codecs/%: EXTRA_CPPFLAGS = $(CODEC_CFLAGS)
 $(filter $(BUILD)/obj/src/raw/%,$(OBJS)): EXTRA_CPPFLAGS = $(JXL_CFLAGS)
 $(BUILD)/tests/raw/%: EXTRA_CPPFLAGS = $(JXL_CFLAGS)
+$(BUILD)/obj/src/app/screen_color.o $(BUILD)/obj/src/app/monitor_profile.o: EXTRA_CPPFLAGS = $(APP_OSINT_CFLAGS)
+$(BUILD)/tests/app/test_screen_color $(BUILD)/tests/app/test_monitor_profile: EXTRA_CPPFLAGS = $(APP_OSINT_CFLAGS)
 # Only src/plugins sees WAMR's API header (and PC_HAVE_WAMR); WAMR itself gets its configuration
 # and no FMA contraction (wasm float operations are IEEE single operations).
 $(filter $(BUILD)/obj/src/plugins/%,$(OBJS)): EXTRA_CPPFLAGS = $(PLUGINS_CFLAGS)
@@ -311,10 +336,22 @@ $(UISHELL): $(UISHELL_OBJS) $(SNAP_HELPERS) $(LIB)
 	@mkdir -p $(@D)
 	$(CC) $(UISHELL_OBJS) $(SNAP_HELPERS) $(LIB) $(ALL_LDFLAGS) $(GUI_LIBS) $(ALL_LDLIBS) -o $@
 
+# photocraft: the desktop app. Links its GUI entry, the shell objects (minus the shell's dev main)
+# and the library (which holds the rest of src/app). The app library itself stays GUI-free.
+$(PHOTOCRAFT): $(PHOTOCRAFT_MAIN_OBJ) $(UISHELL_TEST_OBJS) $(SNAP_HELPERS) $(LIB)
+	@mkdir -p $(@D)
+	$(CC) $(PHOTOCRAFT_MAIN_OBJ) $(UISHELL_TEST_OBJS) $(SNAP_HELPERS) $(LIB) $(ALL_LDFLAGS) $(GUI_LIBS) $(ALL_LDLIBS) -o $@
+
 # photocraft-cli (src/cli): the headless command line, linked against the library.
 $(BUILD)/bin/photocraft-cli: $(CLI_OBJS) $(LIB)
 	@mkdir -p $(@D)
 	$(CC) $(CLI_OBJS) $(LIB) $(ALL_LDFLAGS) $(ALL_LDLIBS) -o $@
+
+# photocraft-parity (src/ui/paritygen): headless menu-parity report writer (no GUI), linked against
+# the library. Used by tools/parity.sh to regenerate docs/parity-checklist.md.
+$(BUILD)/bin/photocraft-parity: $(BUILD)/obj/src/ui/paritygen/main.o $(LIB)
+	@mkdir -p $(@D)
+	$(CC) $(BUILD)/obj/src/ui/paritygen/main.o $(LIB) $(ALL_LDFLAGS) $(ALL_LDLIBS) -o $@
 
 spike:
 ifeq ($(HAVE_GUI),)
@@ -357,6 +394,19 @@ check:
 corpus:
 	@sh tools/corpus.sh fetch all
 
+# Generated docs and dev reports (REWRITE_PLAN.md Z1; replace the Rust xtask subcommands).
+parity: $(BUILD)/bin/photocraft-parity
+	@BUILD=$(BUILD) sh tools/parity.sh
+
+scorecard:
+	@sh tools/scorecard.sh
+
+stats:
+	@sh tools/stats.sh
+
+perf:
+	@sh tools/perf.sh $(PERF_ARGS)
+
 SAN := $(if $(call cc_accepts,-fsanitize=address$(,)undefined),-fsanitize=address$(,)undefined -fno-sanitize-recover=all -fno-omit-frame-pointer)
 sanitize:
 ifeq ($(SAN),)
@@ -387,7 +437,11 @@ analyze:
 		for f in $(if $(HAVE_GUI),$(UISHELL_SRCS)); do \
 			clang --analyze -Xclang -analyzer-werror -std=c17 -D_POSIX_C_SOURCE=200809L -Isrc -Isrc/ui/spike $(THIRD_PARTY:%=-Ithird_party/%) $(PKG_CFLAGS) \
 				$(GUI_CFLAGS) -o /dev/null $$f || exit 1; \
-		done; echo "analyze: clang static analyzer clean ($(words $(SRCS) $(APP_SRCS) $(if $(HAVE_GUI),$(SPIKE_SRCS) $(SNAP_SRCS) $(UISHELL_SRCS))) files)"; \
+		done; \
+		for f in $(if $(HAVE_GUI),src/app/main.c); do \
+			clang --analyze -Xclang -analyzer-werror -std=c17 -D_POSIX_C_SOURCE=200809L -Isrc -Isrc/ui/spike -Isrc/ui/shell $(THIRD_PARTY:%=-Ithird_party/%) $(PKG_CFLAGS) \
+				$(GUI_CFLAGS) -o /dev/null $$f || exit 1; \
+		done; echo "analyze: clang static analyzer clean ($(words $(SRCS) $(APP_SRCS) $(if $(HAVE_GUI),$(SPIKE_SRCS) $(SNAP_SRCS) $(UISHELL_SRCS) src/app/main.c)) files)"; \
 	elif command -v cppcheck >/dev/null 2>&1; then \
 		cppcheck --error-exitcode=1 --std=c11 --enable=warning,portability -Isrc $(THIRD_PARTY:%=-Ithird_party/%) $(SRCS); \
 	else echo "analyze: neither clang nor cppcheck found; skipped"; fi
@@ -418,4 +472,4 @@ install: all
 clean:
 	rm -rf build
 
--include $(OBJS:.o=.d) $(SPIKE_OBJS:.o=.d) $(SNAP_OBJS:.o=.d) $(UISHELL_OBJS:.o=.d) $(APP_OBJS:.o=.d) $(TEST_BINS:=.d)
+-include $(OBJS:.o=.d) $(SPIKE_OBJS:.o=.d) $(SNAP_OBJS:.o=.d) $(UISHELL_OBJS:.o=.d) $(PHOTOCRAFT_MAIN_OBJ:.o=.d) $(APP_OBJS:.o=.d) $(TEST_BINS:=.d)

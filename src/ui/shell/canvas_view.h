@@ -10,6 +10,25 @@
 #include "ui/channel_view.h"
 #include "engine/display_color.h"
 #include "ui/tool_gesture.h"
+#include "ui/gradient_widget.h"
+
+/* Live Gradient Fill tool drag state (on-canvas widget). Endpoints are document coordinates.
+ * Mutually exclusive with pc_ui_tool_gesture (live gradient mode bypasses the generic gesture). */
+typedef struct pc_ui_grad_drag {
+    bool active;   /* a press/drag is in progress */
+    bool creating; /* Draw a NEW gradient fill layer (no existing one to edit) */
+    bool moved;    /* the pointer has moved past the click threshold */
+    pc_doc_id document;
+    pc_layer_id layer; /* the gradient fill layer being edited/redrawn (0 while creating) */
+    pc_ui_grad_grab grab;
+    unsigned modifiers;
+    char style[16]; /* gradient style of the layer being drawn/edited (for the on-canvas decoration) */
+    double down[2];               /* press, document coordinates */
+    double from[2], to[2];        /* base endpoints captured at the press */
+    double cur_from[2], cur_to[2]; /* live endpoints shown while dragging */
+    double cur_u;                 /* pending stop/midpoint location along the line (0..1) */
+    bool tear_off;                /* a stop dragged far enough off the line to be deleted */
+} pc_ui_grad_drag;
 
 typedef struct pc_ui_canvas_tile_upload {
     pc_rect coverage;
@@ -21,6 +40,9 @@ typedef struct pc_ui_canvas_tile_upload {
 
 typedef struct pc_ui_canvas_view {
     pc_ui_tool_gesture gesture;
+    pc_ui_grad_drag grad_drag;
+    pc_doc_arc *grad_preview; /* live engine preview of the gradient being drawn/edited (may be NULL) */
+    uint64_t grad_preview_rev;
     pc_doc_arc *floating_display;
     uint64_t floating_generation;
     struct {

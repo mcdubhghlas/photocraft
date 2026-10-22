@@ -3,6 +3,9 @@
 #include "shell_internal.h"
 #include "engine/prefs.h"
 #include "ui/i18n.h"
+#include "ui/color_picker.h"
+#include "ui/theme_cards.h"
+#include "ui/widgets.h"
 #include "base/num.h"
 #include <math.h>
 #include <stdio.h>
@@ -258,6 +261,37 @@ static void field(struct nk_context *ctx, pc_ui_dialog_runtime *runtime, pc_ui_d
         }
         return;
     }
+    if (pc_pref_is_color(path) && yyjson_mut_is_str(value)) {
+        const char *hex = yyjson_mut_get_str(value);
+        if (!hex) {
+            hex = "#000000";
+        }
+        float rgb[3];
+        struct nk_color col = nk_rgb(40, 40, 40);
+        if (pc_ui_picker_parse_hex(hex, strlen(hex), rgb)) {
+            col = nk_rgb((int)(rgb[0] * 255 + 0.5f), (int)(rgb[1] * 255 + 0.5f),
+                         (int)(rgb[2] * 255 + 0.5f));
+        }
+        nk_layout_row_template_begin(ctx, 26);
+        nk_layout_row_template_push_dynamic(ctx);
+        nk_layout_row_template_push_static(ctx, 28);
+        nk_layout_row_template_push_static(ctx, 92);
+        nk_layout_row_template_end(ctx);
+        nk_label(ctx, pc_i18n_t(label), NK_TEXT_LEFT);
+        (void)nk_button_color(ctx, col);
+        pc_ui_dialog_text *buffer = pc_ui_dialog_text_buffer(runtime, dialog->id, path, hex);
+        if (buffer) {
+            nk_flags result = nk_edit_string_zero_terminated(
+                ctx, NK_EDIT_FIELD, (char *)buffer->text.data, (int)buffer->text.cap, nk_filter_default);
+            buffer->active = (result & NK_EDIT_ACTIVE) != 0;
+            buffer->text.len = strlen(pc_buf_cstr(&buffer->text));
+            if (strcmp(hex, pc_buf_cstr(&buffer->text))) {
+                replace(doc, parent, key, index,
+                        yyjson_mut_strncpy(doc, pc_buf_cstr(&buffer->text), buffer->text.len));
+            }
+        }
+        return;
+    }
     nk_layout_row_dynamic(ctx, 26, yyjson_mut_is_bool(value) ? 1 : 2);
     if (yyjson_mut_is_bool(value)) {
         nk_bool enabled = yyjson_mut_get_bool(value);
@@ -343,63 +377,388 @@ static void field(struct nk_context *ctx, pc_ui_dialog_runtime *runtime, pc_ui_d
         }
     }
 }
-void pc_ui_shell_preferences_draw(pc_ui_shell_app *app, pc_ui_dialog_runtime *runtime, pc_ui_dialog *dialog)
+/* Case-insensitive substring: does `haystack` contain `needle` (ASCII fold)? */
+static bool contains_ci(const char *haystack, const char *needle)
 {
-    struct nk_context *ctx = pc_ui_shell_app_nk(app);
-    yyjson_mut_val *fields = yyjson_mut_doc_get_root(dialog->fields);
-    const char *section = yyjson_mut_get_str(yyjson_mut_obj_get(fields, "__section"));
-    size_t selected = 0;
-    for (size_t i = 0; section && i < sizeof sections / sizeof *sections; i++) {
-        if (!strcmp(section, sections[i].id)) {
-            selected = i;
-            break;
+    if (!needle || !*needle) {
+        return true;
+    }
+    if (!haystack) {
+        return false;
+    }
+    size_t nlen = strlen(needle);
+    for (const char *h = haystack; *h; h++) {
+        size_t i = 0;
+        while (i < nlen && h[i]) {
+            unsigned char a = (unsigned char)h[i], b = (unsigned char)needle[i];
+            if (a >= 'A' && a <= 'Z') {
+                a = (unsigned char)(a + ('a' - 'A'));
+            }
+            if (b >= 'A' && b <= 'Z') {
+                b = (unsigned char)(b + ('a' - 'A'));
+            }
+            if (a != b) {
+                break;
+            }
+            i++;
+        }
+        if (i == nlen) {
+            return true;
         }
     }
-    nk_layout_row_dynamic(ctx, 28, 1);
-    if (nk_combo_begin_label(ctx, pc_i18n_t(sections[selected].label), nk_vec2(300, 340))) {
+    return false;
+}
+/* Does the preference `key` (its id or humanised label) match the search query? */
+static bool field_matches(const char *key, const char *query)
+{
+    if (!query || !*query) {
+        return true;
+    }
+    char label[192];
+    humanize(key, label, sizeof label);
+    return contains_ci(key, query) || contains_ci(label, query);
+}
+/* Does a section (its label or any visible field) match the query? */
+static bool section_matches(yyjson_mut_val *values, const char *id, const char *label, const char *query)
+{
+    if (!query || !*query || contains_ci(label, query)) {
+        return true;
+    }
+    yyjson_mut_val *object = yyjson_mut_obj_get(values, id);
+    if (!yyjson_mut_is_obj(object)) {
+        return false;
+    }
+    size_t i, n;
+    yyjson_mut_val *key, *value;
+    yyjson_mut_obj_foreach(object, i, n, key, value)
+    {
+        const char *k = yyjson_mut_get_str(key);
+        char path[256];
+        int len = k ? snprintf(path, sizeof path, "%s.%s", id, k) : -1;
+        if (len > 0 && (size_t)len < sizeof path && show_field(path, object, k) && field_matches(k, query)) {
+            return true;
+        }
+    }
+    return false;
+}
+/* Whether a section has any field the grid would actually draw (for the faint styling). */
+static bool section_has_visible(yyjson_mut_val *values, const char *id)
+{
+    yyjson_mut_val *object = yyjson_mut_obj_get(values, id);
+    if (!yyjson_mut_is_obj(object)) {
+        return false;
+    }
+    size_t i, n;
+    yyjson_mut_val *key, *value;
+    yyjson_mut_obj_foreach(object, i, n, key, value)
+    {
+        const char *k = yyjson_mut_get_str(key);
+        char path[256];
+        int len = k ? snprintf(path, sizeof path, "%s.%s", id, k) : -1;
+        if (len > 0 && (size_t)len < sizeof path && show_field(path, object, k)) {
+            return true;
+        }
+    }
+    return false;
+}
+bool pc_ui_shell_preferences_changed(pc_ui_shell_app *app, yyjson_mut_val *fields)
+{
+    yyjson_mut_val *draft = yyjson_mut_obj_get(fields, "values");
+    if (!yyjson_mut_is_obj(draft)) {
+        return false;
+    }
+    pc_json_value live = PC_JSON_VALUE_INIT;
+    bool changed = true;
+    if (pc_engine_prefs_get(pc_ui_shell_app_session(app), "", &live, NULL) == PC_OK) {
+        yyjson_mut_doc *tmp = yyjson_mut_doc_new(NULL);
+        yyjson_mut_val *current = tmp ? editable_values(tmp, pc_json_value_root(&live)) : NULL;
+        pc_buf a = PC_BUF_INIT, b = PC_BUF_INIT;
+        if (current && pc_json_write(draft, PC_JSON_SORT_KEYS, &a, NULL) == PC_OK &&
+            pc_json_write(current, PC_JSON_SORT_KEYS, &b, NULL) == PC_OK) {
+            changed = a.len != b.len || memcmp(a.data, b.data, a.len) != 0;
+        }
+        pc_buf_fini(&a);
+        pc_buf_fini(&b);
+        yyjson_mut_doc_free(tmp);
+    }
+    pc_json_value_fini(&live);
+    return changed;
+}
+/* Does the favourite-themes array contain `id`? */
+static bool favorite_has(yyjson_mut_val *favorites, const char *id)
+{
+    if (!yyjson_mut_is_arr(favorites) || !id) {
+        return false;
+    }
+    size_t i, n;
+    yyjson_mut_val *item;
+    yyjson_mut_arr_foreach(favorites, i, n, item)
+    {
+        const char *v = yyjson_mut_get_str(item);
+        if (v && !strcmp(v, id)) {
+            return true;
+        }
+    }
+    return false;
+}
+/* Add `id` to the favourites (bounded to PC_UI_THEME_COUNT) or remove every copy of it. */
+static void favorite_toggle(yyjson_mut_doc *doc, yyjson_mut_val *favorites, const char *id, bool add)
+{
+    if (!yyjson_mut_is_arr(favorites) || !id) {
+        return;
+    }
+    if (add) {
+        if (!favorite_has(favorites, id) && yyjson_mut_arr_size(favorites) < (size_t)PC_UI_THEME_COUNT) {
+            yyjson_mut_val *v = yyjson_mut_strcpy(doc, id);
+            if (v) {
+                (void)yyjson_mut_arr_append(favorites, v);
+            }
+        }
+        return;
+    }
+    for (size_t i = yyjson_mut_arr_size(favorites); i-- > 0;) {
+        const char *v = yyjson_mut_get_str(yyjson_mut_arr_get(favorites, i));
+        if (v && !strcmp(v, id)) {
+            (void)yyjson_mut_arr_remove(favorites, i);
+        }
+    }
+}
+/* A small, non-interactive strip of the theme's key colours, so the card previews the look. */
+static void theme_preview(struct nk_context *ctx, pc_ui_theme_kind kind)
+{
+    pc_ui_tokens tk = pc_ui_tokens_for_kind(kind);
+    pc_ui_color colors[] = {tk.chrome, tk.card, tk.field, tk.text, tk.accent};
+    nk_layout_row_static(ctx, 30, 30, (int)(sizeof colors / sizeof *colors));
+    for (size_t i = 0; i < sizeof colors / sizeof *colors; i++) {
+        (void)nk_button_color(ctx, pc_ui_nk_color(colors[i]));
+    }
+}
+/* One theme card: a radio list of the slot's themes with a favourite star per row, over a preview
+ * of the selected theme. Edits `slot_key` and `favoriteThemes` in the interface draft. */
+static void theme_card(struct nk_context *ctx, yyjson_mut_doc *doc, yyjson_mut_val *iface,
+                       const char *title, bool active, const char *slot_key, bool dark)
+{
+    const char *selected = yyjson_mut_get_str(yyjson_mut_obj_get(iface, slot_key));
+    const pc_ui_theme_option *options = NULL;
+    size_t count = pc_ui_theme_options(dark, &options);
+    if (!selected || !count) {
+        selected = count ? options[0].id : "";
+    }
+    yyjson_mut_val *favorites = yyjson_mut_obj_get(iface, "favoriteThemes");
+    if (!yyjson_mut_is_arr(favorites)) {
+        favorites = yyjson_mut_arr(doc);
+        if (favorites) {
+            (void)put(doc, iface, "favoriteThemes", favorites);
+        }
+    }
+    nk_layout_row_dynamic(ctx, 22, 1);
+    char heading[128];
+    (void)snprintf(heading, sizeof heading, "%s%s", pc_i18n_t(title), active ? "  •" : "");
+    nk_label(ctx, heading, NK_TEXT_LEFT);
+    pc_ui_theme_kind preview = count ? options[0].kind : PC_UI_THEME_DEFAULT;
+    for (size_t i = 0; i < count; i++) {
+        if (!strcmp(selected, options[i].id)) {
+            preview = options[i].kind;
+        }
+    }
+    theme_preview(ctx, preview);
+    for (size_t i = 0; i < count; i++) {
+        nk_layout_row_template_begin(ctx, 26);
+        nk_layout_row_template_push_dynamic(ctx);
+        nk_layout_row_template_push_static(ctx, 28);
+        nk_layout_row_template_end(ctx);
+        nk_bool chosen = !strcmp(selected, options[i].id);
+        if (nk_option_label(ctx, pc_i18n_t(pc_ui_theme_kind_label(options[i].kind)), chosen) && !chosen) {
+            (void)put(doc, iface, slot_key, yyjson_mut_str(doc, options[i].id));
+        }
+        bool fav = favorite_has(favorites, options[i].id);
+        if (nk_button_label(ctx, fav ? "\xe2\x98\x85" : "\xe2\x98\x86")) {
+            favorite_toggle(doc, favorites, options[i].id, !fav);
+        }
+    }
+}
+/* Preferences › Interface appearance: the mode selector and the two theme cards (B7). Replaces the
+ * generic combos for appearanceMode/darkTheme/lightTheme/favoriteThemes. */
+static void appearance_rows(struct nk_context *ctx, yyjson_mut_doc *doc, yyjson_mut_val *iface)
+{
+    if (!yyjson_mut_is_obj(iface)) {
+        return;
+    }
+    nk_layout_row_dynamic(ctx, 24, 1);
+    nk_label(ctx, pc_i18n_t("Appearance"), NK_TEXT_LEFT);
+    const char *mode = yyjson_mut_get_str(yyjson_mut_obj_get(iface, "appearanceMode"));
+    if (!mode) {
+        mode = "auto";
+    }
+    static const struct {
+        const char *id, *label;
+    } modes[] = {{"auto", "Sync with system"}, {"dark", "Dark"}, {"light", "Light"}};
+    const char *shown = mode;
+    for (size_t i = 0; i < sizeof modes / sizeof *modes; i++) {
+        if (!strcmp(mode, modes[i].id)) {
+            shown = modes[i].label;
+        }
+    }
+    nk_layout_row_template_begin(ctx, 26);
+    nk_layout_row_template_push_static(ctx, 160);
+    nk_layout_row_template_push_static(ctx, 210);
+    nk_layout_row_template_end(ctx);
+    nk_label(ctx, pc_i18n_t("Appearance Mode"), NK_TEXT_LEFT);
+    if (nk_combo_begin_label(ctx, pc_i18n_t(shown), nk_vec2(210, 120))) {
         nk_layout_row_dynamic(ctx, 24, 1);
-        for (size_t i = 0; i < sizeof sections / sizeof *sections; i++) {
-            if (nk_combo_item_label(ctx, pc_i18n_t(sections[i].label), NK_TEXT_LEFT)) {
-                selected = i;
-                (void)put(dialog->fields, fields, "__section",
-                          yyjson_mut_str(dialog->fields, sections[i].id));
+        for (size_t i = 0; i < sizeof modes / sizeof *modes; i++) {
+            if (nk_combo_item_label(ctx, pc_i18n_t(modes[i].label), NK_TEXT_LEFT)) {
+                (void)put(doc, iface, "appearanceMode", yyjson_mut_str(doc, modes[i].id));
+                mode = modes[i].id;
             }
         }
         nk_combo_end(ctx);
     }
-    yyjson_mut_val *values = yyjson_mut_obj_get(fields, "values"),
-                   *object = yyjson_mut_obj_get(values, sections[selected].id);
-    size_t budget = 256, i, n, count = 0;
-    yyjson_mut_val *key, *value;
-    const char *keys[256];
-    if (yyjson_mut_is_obj(object)) {
-        yyjson_mut_obj_foreach(object, i, n, key, value)
-        {
-            if (!value || !key) {
-                break;
-            }
-            if (count < 256) {
-                keys[count++] = yyjson_mut_get_str(key);
-            }
+    bool system_light = (SDL_WasInit(SDL_INIT_VIDEO) & SDL_INIT_VIDEO) &&
+                        SDL_GetSystemTheme() == SDL_SYSTEM_THEME_LIGHT;
+    bool light_active = pc_ui_theme_light_active(mode, system_light);
+    nk_layout_row_template_begin(ctx, 300);
+    nk_layout_row_template_push_dynamic(ctx);
+    nk_layout_row_template_push_dynamic(ctx);
+    nk_layout_row_template_end(ctx);
+    if (nk_group_begin(ctx, "theme-light", NK_WINDOW_BORDER)) {
+        theme_card(ctx, doc, iface, "Light Theme", light_active, "lightTheme", false);
+        nk_group_end(ctx);
+    }
+    if (nk_group_begin(ctx, "theme-dark", NK_WINDOW_BORDER)) {
+        theme_card(ctx, doc, iface, "Dark Theme", !light_active, "darkTheme", true);
+        nk_group_end(ctx);
+    }
+}
+/* Interface theme keys the theme cards own, hidden from the generic field grid. */
+static bool is_appearance_key(const char *section, const char *key)
+{
+    return section && key && !strcmp(section, "interface") &&
+           (!strcmp(key, "theme") || !strcmp(key, "appearanceMode") || !strcmp(key, "darkTheme") ||
+            !strcmp(key, "lightTheme") || !strcmp(key, "favoriteThemes"));
+}
+void pc_ui_shell_preferences_draw(pc_ui_shell_app *app, pc_ui_dialog_runtime *runtime, pc_ui_dialog *dialog)
+{
+    struct nk_context *ctx = pc_ui_shell_app_nk(app);
+    yyjson_mut_val *fields = yyjson_mut_doc_get_root(dialog->fields);
+    yyjson_mut_val *values = yyjson_mut_obj_get(fields, "values");
+    /* Search field (B7): filters both the section list and the fields shown. */
+    const char *stored = yyjson_mut_get_str(yyjson_mut_obj_get(fields, "__search"));
+    if (!stored) {
+        stored = "";
+    }
+    pc_ui_dialog_text *sb = pc_ui_dialog_text_buffer(runtime, dialog->id, "__search", stored);
+    nk_layout_row_dynamic(ctx, 26, 1);
+    const char *query = stored;
+    if (sb) {
+        nk_flags edited = nk_edit_string_zero_terminated(ctx, NK_EDIT_FIELD, (char *)sb->text.data,
+                                                         (int)sb->text.cap, nk_filter_default);
+        sb->active = (edited & NK_EDIT_ACTIVE) != 0;
+        sb->text.len = strlen(pc_buf_cstr(&sb->text));
+        if (strcmp(stored, pc_buf_cstr(&sb->text))) {
+            (void)put(dialog->fields, fields, "__search",
+                      yyjson_mut_strncpy(dialog->fields, pc_buf_cstr(&sb->text), sb->text.len));
         }
-        for (size_t j = 0; j < count; j++) {
-            char path[256];
-            int len = snprintf(path, sizeof path, "%s.%s", sections[selected].id, keys[j]);
-            if (len > 0 && (size_t)len < sizeof path) {
-                field(ctx, runtime, dialog, object, keys[j], 0, path, 0, &budget);
-            }
+        query = pc_buf_cstr(&sb->text);
+    } else {
+        nk_label(ctx, pc_i18n_t("Search settings…"), NK_TEXT_LEFT);
+    }
+    /* Which sections survive the search, and which one is selected. */
+    size_t matching[sizeof sections / sizeof *sections];
+    size_t nmatch = 0;
+    for (size_t i = 0; i < sizeof sections / sizeof *sections; i++) {
+        if (section_matches(values, sections[i].id, sections[i].label, query)) {
+            matching[nmatch++] = i;
         }
     }
-    nk_layout_row_dynamic(ctx, 28, 1);
-    if (nk_button_label(ctx, pc_i18n_t("Reset Section"))) {
-        pc_json_value defaults = PC_JSON_VALUE_INIT;
-        if (pc_engine_prefs_defaults(&defaults, NULL) == PC_OK) {
-            yyjson_mut_val *source = yyjson_mut_obj_get(pc_json_value_root(&defaults), sections[selected].id);
-            if (source) {
-                (void)put(dialog->fields, values, sections[selected].id,
-                          yyjson_mut_val_mut_copy(dialog->fields, source));
+    const char *section = yyjson_mut_get_str(yyjson_mut_obj_get(fields, "__section"));
+    size_t selected = nmatch ? matching[0] : 0;
+    bool selected_ok = false;
+    for (size_t i = 0; section && i < nmatch; i++) {
+        if (!strcmp(section, sections[matching[i]].id)) {
+            selected = matching[i];
+            selected_ok = true;
+            break;
+        }
+    }
+    if (!selected_ok && nmatch) {
+        (void)put(dialog->fields, fields, "__section",
+                  yyjson_mut_str(dialog->fields, sections[selected].id));
+    }
+    float height = fmaxf(220, nk_window_get_content_region(ctx).h - 70);
+    nk_layout_row_template_begin(ctx, height);
+    nk_layout_row_template_push_static(ctx, 170);
+    nk_layout_row_template_push_dynamic(ctx);
+    nk_layout_row_template_end(ctx);
+    if (nk_group_begin(ctx, "prefs-sections", NK_WINDOW_BORDER)) {
+        nk_layout_row_dynamic(ctx, 24, 1);
+        if (!nmatch) {
+            nk_label(ctx, pc_i18n_t("No matching settings"), NK_TEXT_LEFT);
+        }
+        for (size_t i = 0; i < nmatch; i++) {
+            size_t idx = matching[i];
+            bool empty = !section_has_visible(values, sections[idx].id);
+            if (empty) {
+                nk_widget_disable_begin(ctx);
+            }
+            if (nk_select_label(ctx, pc_i18n_t(sections[idx].label), NK_TEXT_LEFT, idx == selected)) {
+                (void)put(dialog->fields, fields, "__section",
+                          yyjson_mut_str(dialog->fields, sections[idx].id));
+            }
+            if (empty) {
+                nk_widget_disable_end(ctx);
             }
         }
-        pc_json_value_fini(&defaults);
+        nk_group_end(ctx);
+    }
+    if (nk_group_begin(ctx, "prefs-fields", 0)) {
+        yyjson_mut_val *object = yyjson_mut_obj_get(values, sections[selected].id);
+        /* Within a section whose label already matches (or with no query), show every field; else
+         * only the fields matching the query. */
+        bool show_all = !query || !*query || contains_ci(sections[selected].label, query);
+        /* Interface appearance: the theme cards replace the generic combos (B7). */
+        if (!strcmp(sections[selected].id, "interface") &&
+            (show_all || field_matches("appearance mode", query) || field_matches("theme", query))) {
+            appearance_rows(ctx, dialog->fields, object);
+        }
+        size_t budget = 256, i, n, count = 0;
+        yyjson_mut_val *key, *value;
+        const char *keys[256];
+        if (yyjson_mut_is_obj(object)) {
+            yyjson_mut_obj_foreach(object, i, n, key, value)
+            {
+                if (!value || !key) {
+                    break;
+                }
+                const char *k = yyjson_mut_get_str(key);
+                if (is_appearance_key(sections[selected].id, k)) {
+                    continue; /* owned by the theme cards above */
+                }
+                if (count < 256 && (show_all || field_matches(k, query))) {
+                    keys[count++] = k;
+                }
+            }
+            for (size_t j = 0; j < count; j++) {
+                char path[256];
+                int len = snprintf(path, sizeof path, "%s.%s", sections[selected].id, keys[j]);
+                if (len > 0 && (size_t)len < sizeof path) {
+                    field(ctx, runtime, dialog, object, keys[j], 0, path, 0, &budget);
+                }
+            }
+        }
+        nk_layout_row_dynamic(ctx, 28, 1);
+        if (nk_button_label(ctx, pc_i18n_t("Reset Section"))) {
+            pc_json_value defaults = PC_JSON_VALUE_INIT;
+            if (pc_engine_prefs_defaults(&defaults, NULL) == PC_OK) {
+                yyjson_mut_val *source =
+                    yyjson_mut_obj_get(pc_json_value_root(&defaults), sections[selected].id);
+                if (source) {
+                    (void)put(dialog->fields, values, sections[selected].id,
+                              yyjson_mut_val_mut_copy(dialog->fields, source));
+                }
+            }
+            pc_json_value_fini(&defaults);
+        }
+        nk_group_end(ctx);
     }
 }

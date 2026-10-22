@@ -7,6 +7,8 @@
 #include "ui/artboard.h"
 #include "engine/floating.h"
 #include "ui/shell/sampling_ui.h"
+#include "ui/shell/analysis_ui.h"
+#include "ui/shell/warp_ui.h"
 #include "ui/layer_picker.h"
 #include "ui/shell/brush_picker_ui.h"
 #include "ui/i18n.h"
@@ -28,6 +30,11 @@
 #include "font.h"
 #include "ui/shell/control.h"
 #include "ui/shell/dialogs.h"
+#include "ui/shell/command_form.h"
+#include "ui/shell/tiff_options.h"
+#include "ui/shell/preferences.h"
+#include "ui/autoform.h"
+#include "ui/shell/color_range_ui.h"
 #include "ui/shell/type_controls.h"
 #include "engine/live_stroke.h"
 #include "engine/display_color.h"
@@ -2295,6 +2302,137 @@ static void test_native_color_range_eyedropper_preview_cancel_and_commit(void)
     pc_ui_shell_app_free(app);
     SDL_Quit();
 }
+/* A single canvas left-click at an image-space point, confirmed clear of the right-docked dialog. */
+static void canvas_click_doc(pc_ui_shell_app *app, float dx, float dy)
+{
+    pc_ui_canvas_xform xf;
+    CHECK(pc_ui_shell_app_canvas_mapping(app, &xf));
+    float p[2];
+    CHECK(pc_ui_canvas_to_screen(&xf, dx, dy, p) == PC_OK);
+    CHECK(!pc_ui_shell_dialog_at(app, p[0], p[1]));
+    button(app, true, p[0], p[1]);
+    button(app, false, p[0], p[1]);
+}
+/* Headless: the Color Range sample-point accumulator (tool 0 replaces, 1 adds, 2 subtracts) and its
+ * NaN/inf guard, exercised without GL. */
+static void test_color_range_add_point_logic(void)
+{
+    yyjson_mut_doc *d = yyjson_mut_doc_new(NULL);
+    CHECK(d != NULL);
+    yyjson_mut_val *root = yyjson_mut_obj(d);
+    yyjson_mut_doc_set_root(d, root);
+    CHECK(yyjson_mut_obj_add_val(d, root, "points", yyjson_mut_arr(d)));
+    CHECK(yyjson_mut_obj_add_val(d, root, "subtractPoints", yyjson_mut_arr(d)));
+    CHECK(yyjson_mut_obj_add_val(d, root, "order", yyjson_mut_arr(d)));
+    pc_ui_dialog dialog = {.id = 1, .kind = PC_DIALOG_COMMAND, .fields = d};
+    pc_ui_shell_color_range_add_point(&dialog, 10, 20, 0); /* sample: resets then adds one "+" */
+    pc_ui_shell_color_range_add_point(&dialog, 30, 40, 1); /* add */
+    pc_ui_shell_color_range_add_point(&dialog, 50, 60, 2); /* subtract */
+    yyjson_mut_val *points = yyjson_mut_obj_get(root, "points"),
+                   *subtract = yyjson_mut_obj_get(root, "subtractPoints"),
+                   *order = yyjson_mut_obj_get(root, "order");
+    CHECK(yyjson_mut_arr_size(points) == 2);
+    CHECK(yyjson_mut_arr_size(subtract) == 1);
+    CHECK(yyjson_mut_arr_size(order) == 3);
+    CHECK_EQ_STR(yyjson_mut_get_str(yyjson_mut_arr_get(order, 0)), "+");
+    CHECK_EQ_STR(yyjson_mut_get_str(yyjson_mut_arr_get(order, 2)), "-");
+    CHECK(yyjson_mut_get_num(yyjson_mut_arr_get(yyjson_mut_arr_get(points, 0), 0)) == 10);
+    /* Hostile coords are ignored, not crashed on. */
+    pc_ui_shell_color_range_add_point(&dialog, (float)NAN, 1, 1);
+    pc_ui_shell_color_range_add_point(&dialog, 1, (float)INFINITY, 1);
+    pc_ui_shell_color_range_add_point(NULL, 1, 1, 1);
+    CHECK(yyjson_mut_arr_size(yyjson_mut_obj_get(root, "points")) == 2);
+    yyjson_mut_doc_free(d);
+}
+/* GL: the on-canvas Color Range pipette (A28) adds a point from a canvas click, and the canvas
+ * selection-preview matte (A29) renders over unselected pixels (Rule 6). */
+static void test_native_color_range_canvas_pipette_and_overlay(void)
+{
+    if (!getenv("PC_TEST_GL"))
+        return;
+    CHECK(SDL_Init(SDL_INIT_VIDEO));
+    pc_ui_shell_app *app = NULL;
+    CHECK(pc_ui_shell_app_new(&app, NULL) == PC_OK);
+    pc_document doc;
+    CHECK(pc_document_with_background(&doc, "cr", pc_size_make(200, 160), PC_COLOR_MODE_RGB,
+                                      PC_SAMPLE_TYPE_F32, pc_color_rgb(1, 0, 0), NULL) == PC_OK);
+    float blue[4] = {0, 0, 1, 1};
+    for (int32_t y = 80; y < 160; y++)
+        for (int32_t x = 0; x < 200; x++)
+            CHECK(pc_surface_write_pixel(pc_layer_surface_mut(&doc.layers[0]), x, y, blue, 4, NULL) == PC_OK);
+    size_t index;
+    CHECK(pc_engine_session_add_document(pc_ui_shell_app_session(app), &doc, NULL, &index, NULL) == PC_OK);
+    CHECK(pc_ui_shell_app_open_window(app, "assets/fonts/Inter-Regular.ttf", 1, true, NULL) == PC_OK);
+    CHECK(pc_ui_shell_app_render_frame(app, 1280, 800, NULL) == PC_OK);
+    open_adjustment(app, "select.colorRange");
+    /* On-canvas pipette: click a red (top-left) pixel; the router adds it to the sampled points. */
+    canvas_click_doc(app, 20, 20);
+    CHECK(yyjson_mut_arr_size(yyjson_mut_obj_get(adjustment_fields(app), "points")) == 1);
+    /* Turn on the Black Matte selection preview and let the color-range selection settle. */
+    yyjson_mut_val *fields = adjustment_fields(app);
+    CHECK(yyjson_mut_obj_add_strcpy(pc_ui_shell_app_state(app)->dialogs[0].fields, fields,
+                                    "__selectionPreview", "blackMatte"));
+    wait_filter_preview(app);
+    pc_ui_dialog_runtime *r = pc_ui_shell_dialog_runtime(app);
+    const pc_document *preview = pc_doc_arc_get(r->preview.result);
+    CHECK(preview->has_selection && pc_surface_sample_channel(&preview->selection, 20, 20, 0) > .9f);
+    CHECK(pc_surface_sample_channel(&preview->selection, 20, 140, 0) < .1f);
+    uint8_t *pixels = NULL;
+    int w = 0, h = 0;
+    capture(app, &pixels, &w, &h);
+    pc_ui_canvas_xform xf;
+    CHECK(pc_ui_shell_app_canvas_mapping(app, &xf));
+    float red_pt[2], blue_pt[2];
+    CHECK(pc_ui_canvas_to_screen(&xf, 20, 20, red_pt) == PC_OK);
+    CHECK(pc_ui_canvas_to_screen(&xf, 20, 140, blue_pt) == PC_OK);
+    CHECK(!pc_ui_shell_dialog_at(app, red_pt[0], red_pt[1]));
+    CHECK(!pc_ui_shell_dialog_at(app, blue_pt[0], blue_pt[1]));
+    if (pixels && red_pt[0] >= 0 && red_pt[0] < (float)w && red_pt[1] >= 0 && red_pt[1] < (float)h) {
+        const uint8_t *c = pixels + ((size_t)red_pt[1] * (size_t)w + (size_t)red_pt[0]) * 4;
+        CHECK(c[0] > 150 && c[1] < 90 && c[2] < 90); /* selected: image shows through the matte. */
+    }
+    if (pixels && blue_pt[0] >= 0 && blue_pt[0] < (float)w && blue_pt[1] >= 0 && blue_pt[1] < (float)h) {
+        const uint8_t *c = pixels + ((size_t)blue_pt[1] * (size_t)w + (size_t)blue_pt[0]) * 4;
+        CHECK(c[0] < 80 && c[1] < 80 && c[2] < 80); /* unselected: covered by the black matte. */
+    }
+    free(pixels);
+    click_dialog_action(app, "cancel");
+    pc_ui_shell_app_free(app);
+    SDL_Quit();
+}
+/* GL: a Levels dialog's Set Black Point eyedropper, armed by its button and sampled by a canvas
+ * click, rewrites the dialog's working adjustment from the merged composite (A35/A36). */
+static void test_native_levels_eyedropper_canvas(void)
+{
+    if (!getenv("PC_TEST_GL"))
+        return;
+    CHECK(SDL_Init(SDL_INIT_VIDEO));
+    pc_ui_shell_app *app = NULL;
+    CHECK(pc_ui_shell_app_new(&app, NULL) == PC_OK);
+    invoke(app, "file.new", "{\"width\":120,\"height\":100,\"background\":\"white\"}");
+    invoke(app, "edit.fill", "{\"color\":\"#808080\"}");
+    CHECK(pc_ui_shell_app_open_window(app, "assets/fonts/Inter-Regular.ttf", 1, true, NULL) == PC_OK);
+    CHECK(pc_ui_shell_app_render_frame(app, 1280, 800, NULL) == PC_OK);
+    uint64_t revision = pc_engine_session_active(pc_ui_shell_app_session(app))->revision;
+    open_adjustment(app, "image.adjustments.levels");
+    CHECK(pc_ui_shell_app_state(app)->n_dialogs == 1);
+    /* Arm the Set Black Point eyedropper from its dialog button. */
+    click_widget(app, "dialog.eyedropper.black");
+    CHECK_EQ_STR(yyjson_mut_get_str(yyjson_mut_obj_get(adjustment_fields(app), "__eyedropper")), "black");
+    CHECK(yyjson_mut_obj_get(adjustment_fields(app), "red") == NULL);
+    /* Click the gray image: the black point for each RGB channel moves to ~0.5 (128/255). */
+    canvas_click_doc(app, 6, 6);
+    yyjson_mut_val *red = yyjson_mut_obj_get(adjustment_fields(app), "red");
+    CHECK(yyjson_mut_is_obj(red));
+    double in_black = yyjson_mut_get_num(yyjson_mut_obj_get(red, "inBlack"));
+    CHECK(in_black > 118 && in_black < 138);
+    CHECK(pc_ui_shell_app_state(app)->n_dialogs == 1); /* the pick keeps the dialog open */
+    click_dialog_action(app, "confirm");
+    CHECK(pc_ui_shell_app_state(app)->n_dialogs == 0);
+    CHECK(pc_engine_session_active(pc_ui_shell_app_session(app))->revision == revision + 1);
+    pc_ui_shell_app_free(app);
+    SDL_Quit();
+}
 static void test_native_about_credits_names_models_and_sort(void)
 {
     if (!getenv("PC_TEST_GL"))
@@ -4197,8 +4335,416 @@ static void test_native_adjustment_layer_picker_buttons_sample_and_cancel(void)
     pc_ui_shell_app_free(app);
     SDL_Quit();
 }
+static void test_native_analysis_tools_overlays_panels_and_dialogs(void)
+{
+    if (!getenv("PC_TEST_GL"))
+        return;
+    CHECK(SDL_Init(SDL_INIT_VIDEO));
+    pc_ui_shell_app *app = NULL;
+    CHECK(pc_ui_shell_app_new(&app, NULL) == PC_OK);
+    invoke(app, "file.new", "{\"width\":200,\"height\":100}");
+    CHECK(pc_ui_shell_app_open_window(app, "assets/fonts/Inter-Regular.ttf", 1, true, NULL) == PC_OK);
+    /* The first frame syncs the per-document view list. */
+    CHECK(pc_ui_shell_app_render_frame(app, 1280, 800, NULL) == PC_OK);
+    pc_ui_state *ui = pc_ui_shell_app_state(app);
+    CHECK(ui->n_views > 0);
+    ui->views[0].zoom = 2;
+    ui->views[0].center[0] = 100;
+    ui->views[0].center[1] = 50;
+    ui->views[0].fit_pending = ui->views[0].fill_pending = false;
+    pc_ui_analysis *a = pc_ui_shell_analysis_runtime(app);
+
+    /* Ruler Tool menu front end selects the tool; a canvas drag lays the line down. */
+    invoke(app, "image.analysis.rulerTool", "{}");
+    CHECK(ui->tool == PC_TOOL_RULER);
+    CHECK(pc_ui_shell_app_render_frame(app, 1280, 800, NULL) == PC_OK);
+    crop_drag(app, 10, 10, 120, 70);
+    CHECK(document(app)->measurement.has_ruler);
+    CHECK(pc_ui_shell_app_render_frame(app, 1280, 800, NULL) == PC_OK);
+
+    /* Count Tool: a click adds a marker; the overlay and options bar draw. */
+    invoke(app, "image.analysis.countTool", "{}");
+    CHECK(ui->tool == PC_TOOL_COUNT_TOOL);
+    crop_drag(app, 60, 50, 60, 50);
+    CHECK(document(app)->measurement.ncount_groups == 1 &&
+          document(app)->measurement.count_groups[0].npoints == 1);
+
+    /* Note Tool: a click adds a note and opens the Notes panel. */
+    ui->tool = PC_TOOL_NOTE;
+    crop_drag(app, 30, 40, 30, 40);
+    CHECK(document(app)->nnotes == 1);
+    CHECK(a->notes_panel && a->has_note_selected);
+
+    /* Measurement Log panel + Record Measurements (from the Count tool). */
+    ui->tool = PC_TOOL_COUNT_TOOL;
+    a->measurement_log = true;
+    invoke(app, "image.analysis.recordMeasurements", "{}");
+    CHECK(pc_ui_shell_app_render_frame(app, 1280, 800, NULL) == PC_OK);
+
+    /* Each dialog opens from its menu front end and renders. */
+    invoke(app, "image.analysis.setMeasurementScale", "{}");
+    CHECK(a->dialog == PC_UI_ANALYSIS_DIALOG_SCALE);
+    CHECK(pc_ui_shell_app_render_frame(app, 1280, 800, NULL) == PC_OK);
+    a->dialog = PC_UI_ANALYSIS_DIALOG_NONE;
+    invoke(app, "image.analysis.placeScaleMarker", "{}");
+    CHECK(a->dialog == PC_UI_ANALYSIS_DIALOG_SCALE_MARKER);
+    CHECK(pc_ui_shell_app_render_frame(app, 1280, 800, NULL) == PC_OK);
+    a->dialog = PC_UI_ANALYSIS_DIALOG_NONE;
+    invoke(app, "image.analysis.selectDataPoints", "{}");
+    CHECK(a->dialog == PC_UI_ANALYSIS_DIALOG_DATA_POINTS);
+    CHECK(pc_ui_shell_app_render_frame(app, 1280, 800, NULL) == PC_OK);
+    a->dialog = PC_UI_ANALYSIS_DIALOG_NONE;
+
+    /* The panel-toggle front ends honour an explicit show flag. */
+    invoke(app, "window.panel.notes", "{\"show\":false}");
+    CHECK(!a->notes_panel);
+    invoke(app, "window.panel.measurementLog", "{\"show\":false}");
+    CHECK(!a->measurement_log);
+
+    pc_ui_shell_app_free(app);
+    SDL_Quit();
+}
+/* ------------------------------------------------------------------ U8: warp editors */
+
+static pc_status warp_invoke_rc(pc_ui_shell_app *a, const char *id, const char *params)
+{
+    yyjson_doc *doc = NULL;
+    yyjson_val *root = NULL;
+    if (params) {
+        CHECK(pc_json_parse(params, strlen(params), &doc, NULL) == PC_OK);
+        root = yyjson_doc_get_root(doc);
+    }
+    pc_json_value out = PC_JSON_VALUE_INIT;
+    pc_error err = {0};
+    pc_status rc = pc_ui_shell_app_invoke(a, id, root, &out, &err);
+    pc_json_value_fini(&out);
+    yyjson_doc_free(doc);
+    return rc;
+}
+
+static void warp_add_bg_doc(pc_ui_shell_app *a)
+{
+    pc_document doc;
+    CHECK(pc_document_with_background(&doc, "warp", pc_size_make(200, 150), PC_COLOR_MODE_RGB,
+                                      PC_SAMPLE_TYPE_U8, pc_color_rgb(.4f, .4f, .4f), NULL) == PC_OK);
+    size_t index;
+    CHECK(pc_engine_session_add_document(pc_ui_shell_app_session(a), &doc, NULL, &index, NULL) == PC_OK);
+}
+
+static void warp_pt(pc_ui_shell_app *a, pc_ui_pointer_kind kind, double x, double y)
+{
+    pc_json_value out = PC_JSON_VALUE_INIT;
+    pc_error err = {0};
+    pc_ui_tool_point p = {.x = (float)x, .y = (float)y, .pressure = 1};
+    (void)pc_ui_shell_warp_pointer(a, kind, p, 0, &out, &err);
+    pc_json_value_fini(&out);
+}
+
+static void test_warp_begin_route_and_commit(void)
+{
+    pc_ui_shell_app *a = NULL;
+    CHECK(pc_ui_shell_app_new(&a, NULL) == PC_OK);
+    warp_add_bg_doc(a);
+
+    /* Perspective: begins, drags out a plane, cancel. */
+    CHECK(warp_invoke_rc(a, "edit.perspectiveWarp", "{}") == PC_OK);
+    CHECK(pc_ui_shell_warp_active(a));
+    CHECK(pc_ui_shell_warp_runtime(a)->kind == PC_UI_WARP_PERSP);
+    warp_pt(a, PC_UI_POINTER_DOWN, 20, 20);
+    warp_pt(a, PC_UI_POINTER_MOVE, 120, 110);
+    warp_pt(a, PC_UI_POINTER_UP, 120, 110);
+    CHECK(pc_ui_shell_warp_runtime(a)->persp.nplanes == 1);
+    CHECK(warp_invoke_rc(a, "ui.warp.cancel", NULL) == PC_OK);
+    CHECK(!pc_ui_shell_warp_active(a));
+
+    /* Puppet: add a pin, drag it, undo removes it, cancel. */
+    CHECK(warp_invoke_rc(a, "edit.puppetWarp", "{}") == PC_OK);
+    CHECK(pc_ui_shell_warp_runtime(a)->kind == PC_UI_WARP_PUPPET);
+    warp_pt(a, PC_UI_POINTER_DOWN, 100, 75);
+    warp_pt(a, PC_UI_POINTER_MOVE, 110, 80);
+    warp_pt(a, PC_UI_POINTER_UP, 110, 80);
+    CHECK(pc_ui_shell_warp_runtime(a)->puppet.warp.npins == 1);
+    CHECK(warp_invoke_rc(a, "edit.undo", NULL) == PC_OK);
+    CHECK(pc_ui_shell_warp_runtime(a)->puppet.warp.npins == 0);
+    CHECK(warp_invoke_rc(a, "ui.warp.cancel", NULL) == PC_OK);
+
+    /* Liquify: a brush stroke records; commit applies and closes. */
+    CHECK(warp_invoke_rc(a, "filter.liquify", "{}") == PC_OK);
+    CHECK(pc_ui_shell_warp_runtime(a)->kind == PC_UI_WARP_LIQUIFY);
+    warp_pt(a, PC_UI_POINTER_DOWN, 90, 70);
+    warp_pt(a, PC_UI_POINTER_MOVE, 110, 80);
+    warp_pt(a, PC_UI_POINTER_UP, 110, 80);
+    CHECK(pc_ui_shell_warp_runtime(a)->liquify.nstrokes >= 1);
+    CHECK(warp_invoke_rc(a, "ui.warp.commit", NULL) == PC_OK);
+    CHECK(!pc_ui_shell_warp_active(a));
+
+    /* Adaptive Wide Angle: drags out a constraint, cancel. */
+    CHECK(warp_invoke_rc(a, "filter.adaptiveWideAngle", "{}") == PC_OK);
+    CHECK(pc_ui_shell_warp_runtime(a)->kind == PC_UI_WARP_WIDE);
+    warp_pt(a, PC_UI_POINTER_DOWN, 30, 40);
+    warp_pt(a, PC_UI_POINTER_MOVE, 160, 42);
+    warp_pt(a, PC_UI_POINTER_UP, 160, 42);
+    CHECK(pc_ui_shell_warp_runtime(a)->wide.params.n_constraints == 1);
+    CHECK(warp_invoke_rc(a, "ui.warp.cancel", NULL) == PC_OK);
+    CHECK(!pc_ui_shell_warp_active(a));
+
+    /* Commit/cancel with no editor error gracefully, never crash. */
+    pc_json_value out = PC_JSON_VALUE_INIT;
+    pc_error err = {0};
+    CHECK(pc_ui_shell_app_invoke(a, "ui.warp.commit", NULL, &out, &err) != PC_OK);
+    pc_json_value_fini(&out);
+
+    pc_ui_shell_app_free(a);
+}
+
+static void test_warp_hostile_and_no_pixels(void)
+{
+    pc_ui_shell_app *a = NULL;
+    CHECK(pc_ui_shell_app_new(&a, NULL) == PC_OK);
+    warp_add_bg_doc(a);
+    CHECK(warp_invoke_rc(a, "edit.puppetWarp", "{}") == PC_OK);
+    /* NaN / huge coordinates must be refused, not crash. */
+    warp_pt(a, PC_UI_POINTER_DOWN, NAN, 10);
+    warp_pt(a, PC_UI_POINTER_MOVE, 1e300, -1e300);
+    warp_pt(a, PC_UI_POINTER_UP, 10, NAN);
+    CHECK(pc_ui_shell_warp_active(a));
+    CHECK(warp_invoke_rc(a, "ui.warp.cancel", NULL) == PC_OK);
+
+    /* A document with no opaque pixels: begin puppet fails gracefully. */
+    pc_document empty;
+    CHECK(pc_document_init(&empty, "empty", pc_size_make(64, 64), PC_COLOR_MODE_RGB, PC_SAMPLE_TYPE_U8,
+                           NULL) == PC_OK);
+    size_t index;
+    CHECK(pc_engine_session_add_document(pc_ui_shell_app_session(a), &empty, NULL, &index, NULL) == PC_OK);
+    CHECK(warp_invoke_rc(a, "edit.puppetWarp", "{}") != PC_OK);
+    CHECK(!pc_ui_shell_warp_active(a));
+    pc_ui_shell_app_free(a);
+}
+
+static void warp_gl_editor(pc_ui_shell_app *a, const char *begin_id, pc_ui_warp_kind kind)
+{
+    CHECK(warp_invoke_rc(a, begin_id, "{}") == PC_OK);
+    CHECK(pc_ui_shell_warp_active(a));
+    CHECK(pc_ui_shell_warp_runtime(a)->kind == kind);
+    warp_pt(a, PC_UI_POINTER_DOWN, 60, 50);
+    warp_pt(a, PC_UI_POINTER_MOVE, 140, 100);
+    warp_pt(a, PC_UI_POINTER_UP, 140, 100);
+    /* Render a frame: exercises the overlay draw path and the options bar. */
+    uint8_t *pixels = NULL;
+    int w = 0, h = 0;
+    capture(a, &pixels, &w, &h);
+    CHECK(pixels != NULL && w > 0 && h > 0);
+    free(pixels);
+    CHECK(warp_invoke_rc(a, "ui.warp.cancel", NULL) == PC_OK);
+    CHECK(!pc_ui_shell_warp_active(a));
+}
+
+static void test_gl_warp_overlays(void)
+{
+    if (!getenv("PC_TEST_GL"))
+        return;
+    CHECK(SDL_Init(SDL_INIT_VIDEO));
+    pc_ui_shell_app *a = NULL;
+    CHECK(pc_ui_shell_app_new(&a, NULL) == PC_OK);
+    warp_add_bg_doc(a);
+    CHECK(pc_ui_shell_app_open_window(a, "assets/fonts/Inter-Regular.ttf", 1, true, NULL) == PC_OK);
+    CHECK(pc_ui_shell_app_sync_views(a, NULL) == PC_OK);
+    pc_ui_state *ui = pc_ui_shell_app_state(a);
+    CHECK(ui->n_views >= 1);
+    ui->views[0].zoom = 1;
+    ui->views[0].center[0] = 100;
+    ui->views[0].center[1] = 75;
+    ui->views[0].fit_pending = ui->views[0].fill_pending = false;
+
+    warp_gl_editor(a, "edit.perspectiveWarp", PC_UI_WARP_PERSP);
+    warp_gl_editor(a, "edit.puppetWarp", PC_UI_WARP_PUPPET);
+    warp_gl_editor(a, "filter.liquify", PC_UI_WARP_LIQUIFY);
+    warp_gl_editor(a, "filter.adaptiveWideAngle", PC_UI_WARP_WIDE);
+
+    pc_ui_shell_app_free(a);
+    SDL_Quit();
+}
+
+/* U10: the automate/scripts autoform bodies, the TIFF Options prompt, and the Preferences search
+ * (B5/B2/B7). Opens each dialog and renders it offscreen (Rule 6), checking its wiring. */
+static void test_native_u10_autoform_tiff_prefs(void)
+{
+    if (!getenv("PC_TEST_GL")) {
+        return;
+    }
+    /* --- B5: an automate autoform opens with __form + __autoform and seeded fields. --- */
+    CHECK(SDL_Init(SDL_INIT_VIDEO));
+    pc_ui_shell_app *app = NULL;
+    CHECK(pc_ui_shell_app_new(&app, NULL) == PC_OK);
+    CHECK(pc_ui_shell_app_open_window(app, "assets/fonts/Inter-Regular.ttf", 1, true, NULL) == PC_OK);
+    pc_ui_state *ui = pc_ui_shell_app_state(app);
+    pc_json_value out = PC_JSON_VALUE_INIT;
+    CHECK(pc_ui_shell_app_invoke(app, "file.automate.contactSheetII", NULL, &out, NULL) == PC_OK);
+    pc_json_value_fini(&out);
+    CHECK(ui->n_dialogs == 1);
+    yyjson_mut_val *root = yyjson_mut_doc_get_root(ui->dialogs[0].fields);
+    CHECK(yyjson_mut_get_bool(yyjson_mut_obj_get(root, "__autoform")));
+    CHECK(yyjson_mut_get_bool(yyjson_mut_obj_get(root, "__form")));
+    const char *bf = yyjson_mut_get_str(yyjson_mut_obj_get(root, "__browseField"));
+    CHECK(bf && !strcmp(bf, "input"));
+    CHECK(yyjson_mut_get_str(yyjson_mut_obj_get(root, "input")) != NULL); /* seeded default dir */
+    CHECK(pc_ui_shell_app_render_frame(app, 1280, 800, NULL) == PC_OK);
+    /* Cancel it. */
+    yyjson_doc *req = NULL;
+    char cancel[64];
+    (void)snprintf(cancel, sizeof cancel, "{\"dialog\":%llu}", (unsigned long long)ui->dialogs[0].id);
+    CHECK(pc_json_parse(cancel, strlen(cancel), &req, NULL) == PC_OK);
+    CHECK(pc_ui_control_handle(app, "ui.dialog.cancel", yyjson_doc_get_root(req), &out, NULL) == PC_OK);
+    yyjson_doc_free(req);
+    pc_json_value_fini(&out);
+    CHECK(ui->n_dialogs == 0);
+    pc_ui_shell_app_free(app);
+    SDL_Quit();
+
+    /* --- B2: TIFF Options wants() + body for a layered document saved as .tif. --- */
+    CHECK(SDL_Init(SDL_INIT_VIDEO));
+    app = NULL;
+    CHECK(pc_ui_shell_app_new(&app, NULL) == PC_OK);
+    CHECK(pc_ui_shell_app_open_window(app, "assets/fonts/Inter-Regular.ttf", 1, true, NULL) == PC_OK);
+    ui = pc_ui_shell_app_state(app);
+    invoke(app, "file.new", "{\"width\":32,\"height\":32}");
+    /* A single background layer does not write layer data. */
+    CHECK(!pc_ui_shell_tiff_options_wants(app, "/tmp/x.tif"));
+    invoke(app, "layer.new.layer", "{}");
+    CHECK(pc_ui_shell_tiff_options_wants(app, "/tmp/x.tif")); /* now layered */
+    CHECK(!pc_ui_shell_tiff_options_wants(app, "/tmp/x.png")); /* not a TIFF */
+    CHECK(pc_ui_shell_tiff_options_open(app, "/dev/shm/pc-build/pc_t.tif", &out, NULL) == PC_OK);
+    pc_json_value_fini(&out);
+    CHECK(ui->n_dialogs == 1);
+    root = yyjson_mut_doc_get_root(ui->dialogs[0].fields);
+    CHECK(pc_ui_shell_is_tiff_options(root));
+    CHECK(pc_ui_shell_app_render_frame(app, 1280, 800, NULL) == PC_OK);
+    pc_ui_state_close_dialog(ui, ui->dialogs[0].id); /* Cancel: do not write a file. */
+    CHECK(ui->n_dialogs == 0);
+    pc_ui_shell_app_free(app);
+    SDL_Quit();
+
+    /* --- B7: Preferences search + changed() detection + filtered render. --- */
+    CHECK(SDL_Init(SDL_INIT_VIDEO));
+    app = NULL;
+    CHECK(pc_ui_shell_app_new(&app, NULL) == PC_OK);
+    CHECK(pc_ui_shell_app_open_window(app, "assets/fonts/Inter-Regular.ttf", 1, true, NULL) == PC_OK);
+    ui = pc_ui_shell_app_state(app);
+    CHECK(pc_ui_shell_app_invoke(app, "edit.preferences.general", NULL, &out, NULL) == PC_OK);
+    pc_json_value_fini(&out);
+    CHECK(ui->n_dialogs == 1);
+    root = yyjson_mut_doc_get_root(ui->dialogs[0].fields);
+    CHECK(pc_ui_shell_is_preferences(root));
+    CHECK(!pc_ui_shell_preferences_changed(app, root)); /* fresh draft equals live prefs */
+    CHECK(pc_ui_shell_app_render_frame(app, 1280, 800, NULL) == PC_OK);
+    /* An edit to the draft makes Apply live. */
+    yyjson_mut_val *values = yyjson_mut_obj_get(root, "values");
+    yyjson_mut_val *general = yyjson_mut_obj_get(values, "general");
+    CHECK(general != NULL);
+    (void)yyjson_mut_obj_put(general, yyjson_mut_strcpy(ui->dialogs[0].fields, "__probe"),
+                             yyjson_mut_bool(ui->dialogs[0].fields, true));
+    CHECK(pc_ui_shell_preferences_changed(app, root));
+    /* A search term renders the filtered section list + fields without crashing. */
+    (void)yyjson_mut_obj_put(root, yyjson_mut_strcpy(ui->dialogs[0].fields, "__search"),
+                             yyjson_mut_strcpy(ui->dialogs[0].fields, "canvas"));
+    CHECK(pc_ui_shell_app_render_frame(app, 1280, 800, NULL) == PC_OK);
+    pc_ui_shell_app_free(app);
+    SDL_Quit();
+}
+
+/* Live Gradient Fill tool: a canvas drag creates a Gradient Fill layer (with a live preview before
+ * release and the on-canvas widget overlay), then dragging an endpoint edits it. Also renders the
+ * fill-layer Properties section. Rule 6 offscreen render. */
+static void test_gl_gradient_fill_widget(void)
+{
+    if (!getenv("PC_TEST_GL")) {
+        return;
+    }
+    CHECK(SDL_Init(SDL_INIT_VIDEO));
+    pc_ui_shell_app *a = NULL;
+    CHECK(pc_ui_shell_app_new(&a, NULL) == PC_OK);
+    invoke(a, "file.new", "{\"width\":64,\"height\":64}");
+    CHECK(pc_ui_shell_app_open_window(a, "assets/fonts/Inter-Regular.ttf", 1, true, NULL) == PC_OK);
+    pc_ui_state *ui = pc_ui_shell_app_state(a);
+    ui->tool = PC_TOOL_GRADIENT;
+    ui->tool_options.gradient_classic = false; /* live fill-layer mode */
+    uint8_t *pixels = NULL;
+    int w = 0, h = 0;
+    capture(a, &pixels, &w, &h); /* first render allocates the per-document view */
+    free(pixels);
+    ui->views[0].zoom = 4;
+    ui->views[0].center[0] = ui->views[0].center[1] = 32;
+    ui->views[0].fit_pending = ui->views[0].fill_pending = false;
+    capture(a, &pixels, &w, &h);
+    free(pixels);
+    pc_ui_canvas_xform xf;
+    CHECK(pc_ui_shell_app_canvas_mapping(a, &xf));
+    float first[2], last[2];
+    CHECK(pc_ui_canvas_to_screen(&xf, 12, 12, first) == PC_OK);
+    CHECK(pc_ui_canvas_to_screen(&xf, 52, 52, last) == PC_OK);
+    struct nk_context *ctx = pc_ui_shell_app_nk(a);
+    size_t layers0 = document(a)->nlayers;
+    nk_input_begin(ctx);
+    motion(a, first[0], first[1]);
+    button(a, true, first[0], first[1]);
+    nk_input_end(ctx);
+    CHECK(pc_ui_shell_app_render_frame(a, 1280, 800, NULL) == PC_OK);
+    nk_input_begin(ctx);
+    motion(a, last[0], last[1]);
+    nk_input_end(ctx);
+    CHECK(pc_ui_shell_app_render_frame(a, 1280, 800, NULL) == PC_OK);
+    /* Not committed until release: still the live preview only. */
+    CHECK(document(a)->nlayers == layers0);
+    nk_input_begin(ctx);
+    button(a, false, last[0], last[1]);
+    nk_input_end(ctx);
+    CHECK(pc_ui_shell_app_render_frame(a, 1280, 800, NULL) == PC_OK);
+    /* A Gradient Fill layer was created. */
+    CHECK(document(a)->nlayers == layers0 + 1);
+    pc_json_value out = PC_JSON_VALUE_INIT;
+    CHECK(pc_ui_shell_app_invoke(a, "gradient.fill.get", NULL, &out, NULL) == PC_OK);
+    yyjson_mut_val *root = pc_json_value_root(&out);
+    yyjson_mut_val *to = yyjson_mut_obj_get(root, "to");
+    CHECK(yyjson_mut_arr_size(yyjson_mut_obj_get(root, "from")) == 2);
+    double to_before = yyjson_mut_get_num(yyjson_mut_arr_get(to, 0));
+    pc_json_value_fini(&out);
+    /* Render the widget overlay and the Properties section. */
+    ui->panels.properties = true;
+    capture(a, &pixels, &w, &h);
+    free(pixels);
+    /* Drag the end handle to a new location: the geometry changes (one more history step). */
+    CHECK(pc_ui_shell_app_canvas_mapping(a, &xf));
+    float end_screen[2], moved_screen[2];
+    CHECK(pc_ui_canvas_to_screen(&xf, 52, 52, end_screen) == PC_OK);
+    CHECK(pc_ui_canvas_to_screen(&xf, 30, 50, moved_screen) == PC_OK);
+    size_t layers1 = document(a)->nlayers;
+    nk_input_begin(ctx);
+    motion(a, end_screen[0], end_screen[1]);
+    button(a, true, end_screen[0], end_screen[1]);
+    nk_input_end(ctx);
+    CHECK(pc_ui_shell_app_render_frame(a, 1280, 800, NULL) == PC_OK);
+    nk_input_begin(ctx);
+    motion(a, moved_screen[0], moved_screen[1]);
+    nk_input_end(ctx);
+    CHECK(pc_ui_shell_app_render_frame(a, 1280, 800, NULL) == PC_OK);
+    nk_input_begin(ctx);
+    button(a, false, moved_screen[0], moved_screen[1]);
+    nk_input_end(ctx);
+    CHECK(pc_ui_shell_app_render_frame(a, 1280, 800, NULL) == PC_OK);
+    CHECK(document(a)->nlayers == layers1); /* edited in place, no new layer */
+    CHECK(pc_ui_shell_app_invoke(a, "gradient.fill.get", NULL, &out, NULL) == PC_OK);
+    root = pc_json_value_root(&out);
+    double to_after = yyjson_mut_get_num(yyjson_mut_arr_get(yyjson_mut_obj_get(root, "to"), 0));
+    CHECK(fabs(to_after - to_before) > 1.0); /* the endpoint moved */
+    pc_json_value_fini(&out);
+    pc_ui_shell_app_free(a);
+    SDL_Quit();
+}
+
 int main(int argc, char **argv)
 {
+    RUN(test_native_u10_autoform_tiff_prefs);
+    RUN(test_native_analysis_tools_overlays_panels_and_dialogs);
     RUN(test_native_adjustment_layer_picker_buttons_sample_and_cancel);
     RUN(test_native_eyedropper_ring_alt_sampling_and_color_sampler);
     RUN(test_native_move_transform_controls_start_real_resize_and_layer_edges);
@@ -4231,6 +4777,9 @@ int main(int argc, char **argv)
     RUN(test_native_workspace_dialog_saved_menu_and_reset);
     RUN(test_native_about_credits_names_models_and_sort);
     RUN(test_native_color_range_eyedropper_preview_cancel_and_commit);
+    RUN(test_color_range_add_point_logic);
+    RUN(test_native_color_range_canvas_pipette_and_overlay);
+    RUN(test_native_levels_eyedropper_canvas);
     RUN(test_native_camera_raw_panels_curves_preview_and_commit);
     RUN(test_native_gallery_stack_preview_and_one_commit);
     RUN(test_native_layer_style_user_defaults);
@@ -4264,5 +4813,9 @@ int main(int argc, char **argv)
     RUN(test_gl_tiled_detail);
     RUN(test_native_gestures_and_temporary_tools);
     RUN(test_served_gpu_fallback);
+    RUN(test_warp_begin_route_and_commit);
+    RUN(test_warp_hostile_and_no_pixels);
+    RUN(test_gl_warp_overlays);
+    RUN(test_gl_gradient_fill_widget);
     return pc_t_finish();
 }

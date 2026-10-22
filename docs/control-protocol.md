@@ -40,7 +40,10 @@ Each reply is one JSON line with the same `id`:
 
 The desktop server waits up to 60 seconds for a reply. A request still queued at that deadline is rejected before dispatch; a timeout does not cancel work that has already started. The two timeouts read differently, both starting with `timeout`: a request that was never dispatched (still queued at the deadline) says `timeout: not run` and is safe to re-send, while `timeout: no reply in 60s` means the command was dispatched and may still be running and still apply, so check the document before re-sending it. The timeout error names the likely causes: the command may still be running, or the request was queued while the window was not drawing frames — on Wayland the frame update (and with it the control drain) only runs on compositor frame callbacks, so a display that is asleep or a fully occluded window makes every request time out while the app itself is healthy.
 
-The transport is `apps/photocraft/src/control_server.rs`, and the handlers are in `crates/ui-egui/src/control.rs`. The MCP server (`photocraft-cli mcp --bridge 127.0.0.1:<port>`, crate `photocraft-automation`) wraps this same protocol. See [MCP bridge](#mcp-bridge) below.
+The TCP transport is `src/app/control_server.c`, and the `ui.*` handlers are in
+`src/ui/shell/control.c`. The MCP server (`photocraft-cli mcp --bridge 127.0.0.1:<port>`, module
+`src/automation`) wraps this same protocol — own JSON-RPC over stdio/TCP driven by `poll()`, with no
+async runtime, matching the reference's framing byte for byte. See [MCP bridge](#mcp-bridge) below.
 
 ## C17 shell canvas status
 
@@ -160,10 +163,10 @@ The remaining sections describe the Rust reference contract; broader C17 shell s
 - `ui.click {x, y, button?, count?}` / `ui.move {x, y}`: synthetic pointer input in screen points (`button`: `left` (default), `right` (or `secondary`) or `middle`). `count` (default 1, `2` for a double-click) is at most 256; a larger one is an error and queues nothing
 - `ui.key {key, command?, shift?, alt?, ctrl?}` (flags may also be grouped under `modifiers`): press and release a key, e.g. `{"key": "ArrowLeft", "shift": true}`
 - `ui.pointer`, `ui.click`, `ui.move`, `ui.key` and `ui.screenshot` validate every parameter before acting, as `ui.set` does: an unknown field (top-level, under `modifiers` or in an event), a value of the wrong JSON type (`"x": "abc"`, `"ctrl": "yes"`), a `button`, `kind`, `tool` or `key` outside the accepted set, or a number outside its range (`pressure`, tilt, `rotation`, `count`) is an error naming the parameter, and nothing is queued or applied. A `null` field counts as omitted and takes its default
-- Engine commands (`engine.execute`, `photocraft-cli run`, MCP `command_run`) reject a param key their `params` doc does not name for the commands listed in `STRICT` (`crates/engine/src/param_check.rs`, today `layer.hideLayers` and `layer.showLayers`): `{"ids":[4]}` is the error `unknown parameter \`ids\` (expected: layer)`, and nothing runs. Other commands still ignore unknown keys until their `params` doc is complete and they are added to that list (`coalesce` and `target` are always accepted).
+- Engine commands (`engine.execute`, `photocraft-cli run`, MCP `command_run`) reject a param key their `params` doc does not name for the commands on the strict list (`src/engine/param_check.c`, today `layer.hideLayers` and `layer.showLayers`): `{"ids":[4]}` is the error `unknown parameter \`ids\` (expected: layer)`, and nothing runs. Other commands still ignore unknown keys until their `params` doc is complete and they are added to that list (`coalesce` and `target` are always accepted).
 - `ui.type {text}`: type text (goes to the focused widget, or to the canvas while the Type tool is editing)
 - `ui.resize {width, height}`: resize the main window
-- `ui.gpu.simulateLoss {error?}`: act as if the wgpu device was lost (or reported an error with `error: true`). The app switches to the CPU image compositor for the rest of the session and shows the same recovery warning as on a real loss. `gpuFallbackNotice` in `ui.inspect` contains the reason while the warning is open. Keep Using CPU saves CPU compatibility for the next launch; Retry GPU saves GPU mode and asks the user to save and restart. The window renderer still requires a working graphics or software adapter. Returns `wasActive` and `gpuInfo`. For testing the fallback
+- `ui.gpu.simulateLoss {error?}`: act as if the GPU (OpenGL) device was lost (or reported an error with `error: true`). The app switches to the CPU image compositor for the rest of the session and shows the same recovery warning as on a real loss. `gpuFallbackNotice` in `ui.inspect` contains the reason while the warning is open. Keep Using CPU saves CPU compatibility for the next launch; Retry GPU saves GPU mode and asks the user to save and restart. The window renderer still requires a working graphics or software adapter. Returns `wasActive` and `gpuInfo`. For testing the fallback
 - `ui.screenshot {path?, focus?}`: capture the main window (PNG). With no path the reply contains
   base64 PNG data; a path is relative to the automation write root. Raises the window first
   (default) because occluded macOS windows stop rendering
@@ -241,7 +244,7 @@ automation permissions.
 
 UI-level commands (`view.zoomIn`, `window.theme.pro`, `edit.search`, …) are also accepted by `engine.execute` and `ui.menu.invoke`.
 
-Commands that read or write files by path, instead of through the automation roots, are refused with "automation command `…` uses ambient filesystem paths and is disabled; use capability-scoped document methods". That covers every `file.*` command except `file.new`, the `file.close*` commands and a few path-free ones such as `file.fileInfo`, so `file.open`, `file.save`, `file.saveAs` and `file.saveACopy` always fail here: open and save with `app.open` / `app.save`. Path parameters of other commands (`layer.exportAs {path}`, `filter.distort.displace {mapPath}`, preset imports, and plug-in install/reload) are refused the same way. `prefs.set` rejects whole-preference updates and file-backed sections (`colorSettings`, `scriptEvents`, `historyLog`, `plugIns` and `scratchDisks`) so automation cannot configure ambient file access indirectly. The desktop app also refuses `image.mode.*`, which can load the colour profiles set in its preferences. The rules are in `crates/automation/src/workspace.rs`.
+Commands that read or write files by path, instead of through the automation roots, are refused with "automation command `…` uses ambient filesystem paths and is disabled; use capability-scoped document methods". That covers every `file.*` command except `file.new`, the `file.close*` commands and a few path-free ones such as `file.fileInfo`, so `file.open`, `file.save`, `file.saveAs` and `file.saveACopy` always fail here: open and save with `app.open` / `app.save`. Path parameters of other commands (`layer.exportAs {path}`, `filter.distort.displace {mapPath}`, preset imports, and plug-in install/reload) are refused the same way. `prefs.set` rejects whole-preference updates and file-backed sections (`colorSettings`, `scriptEvents`, `historyLog`, `plugIns` and `scratchDisks`) so automation cannot configure ambient file access indirectly. The desktop app also refuses `image.mode.*`, which can load the colour profiles set in its preferences. The rules are in `src/automation/workspace.c`.
 
 Embedded Smart Objects can be opened with `layer.smartObjects.editContents {layer?}` or
 unpacked with `layer.smartObjects.convertToLayers {layer?}`. This includes Photoshop sources
@@ -333,12 +336,12 @@ magenta alignment lines. `ui.pointer` drives the same code, so agents get identi
 
 ## MCP bridge
 
-`photocraft-automation` provides an MCP server built on the official Rust SDK (`rmcp`). It runs in one of two modes:
+`src/automation` provides an MCP server as own JSON-RPC over stdio/TCP driven by `poll()` (no async runtime; the framing matches the reference). It runs in one of two modes:
 
-- **Headless** (`photocraft-cli mcp`): an in-process `photocraft_engine::Session`. There is no window.
+- **Headless** (`photocraft-cli mcp`): an in-process engine session. There is no window.
 - **Bridge** (`photocraft-cli mcp --bridge 127.0.0.1:7878 --control-token-file <path>`): every tool is forwarded to a running `photocraft --control 7878 --control-token-file <path>` over this protocol, so agents see and drive the live app.
 
-The bridge keeps one authenticated TCP connection open, and drops and reconnects before a call once the connection has been idle long enough that the app (which closes idle connections after 30s) may have dropped it. A transport failure while sending a request or waiting for its reply, including a reply timeout, drops the connection and reports that the operation may have completed; inspect the document before retrying an edit. Edits are never automatically resent (#1007); a connection that could not be established is reported as "the request was not sent" instead. The MCP server opts its pure-read tools (`ui_inspect`, `doc_inspect`, `command_list`, `jobs_list`, `session_list`, `ui_screenshot`) into one automatic retry on a fresh connection, since a read applies nothing; clients driving `BridgeClient` directly opt in per call with `call_read`. The next separate call reconnects and authenticates, and reply lines whose `id` does not match the request are skipped. The client's call timeout is 55s, strictly below the server's 60s reply deadline, so the bridge's error is the one callers see; commands that can run longer should pass `"wait": false` and poll `jobs.list`. It only accepts loopback addresses, because the app only listens on loopback. Supply its bearer token with `--control-token-file`, `--control-token`, `PHOTOCRAFT_CONTROL_TOKEN_FILE`, or `PHOTOCRAFT_CONTROL_TOKEN`:
+The bridge keeps one authenticated TCP connection open, and drops and reconnects before a call once the connection has been idle long enough that the app (which closes idle connections after 30s) may have dropped it. A transport failure while sending a request or waiting for its reply, including a reply timeout, drops the connection and reports that the operation may have completed; inspect the document before retrying an edit. Edits are never automatically resent (#1007); a connection that could not be established is reported as "the request was not sent" instead. The MCP server opts its pure-read tools (`ui_inspect`, `doc_inspect`, `command_list`, `jobs_list`, `session_list`, `ui_screenshot`) into one automatic retry on a fresh connection, since a read applies nothing; a client driving the bridge directly opts in per call. The next separate call reconnects and authenticates, and reply lines whose `id` does not match the request are skipped. The client's call timeout is 55s, strictly below the server's 60s reply deadline, so the bridge's error is the one callers see; commands that can run longer should pass `"wait": false` and poll `jobs.list`. It only accepts loopback addresses, because the app only listens on loopback. Supply its bearer token with `--control-token-file`, `--control-token`, `PHOTOCRAFT_CONTROL_TOKEN_FILE`, or `PHOTOCRAFT_CONTROL_TOKEN`:
 
 ```sh
 photocraft-cli mcp --bridge 127.0.0.1:7878 \
@@ -403,7 +406,7 @@ token options as desktop control. Stdio does not require this TCP handshake beca
 inherited from the process pipe. It is the fastest way for a script or agent to make many edits:
 no MCP framing, no app start-up per command. Configure its file access with the same
 `--automation-read-root` and `--automation-write-root` flags. Implementation:
-`crates/automation/src/rpc.rs`.
+`src/automation/rpc.c`.
 
 | Method | Params |
 |---|---|
@@ -492,13 +495,12 @@ a driver process crash is detected by the startup marker on the next launch.
 
 On the desktop the dialog is a window of its own (title bar, moved and resized like any window), as Adobe Camera Raw is; the main window is dimmed and takes no input while it is open, and closing the window is Cancel. Where the platform has no extra windows (the web build) it is drawn over the main window.
 
-**Screenshots:** `ui.screenshot` captures the main window only, and eframe cannot capture an
-immediate viewport, so while Camera Raw has its own window the PNG shows the dimmed main window,
-not the dialog. Read the dialog's state through `ui.inspect` (`cameraRaw`: params, histogram,
-zoom, control rectangles) and drive it with the `ui` params below. To *see* it, render offscreen
-(`cargo run -p photocraft-ui-egui --example snapshot -- --script '[["ui.menu.invoke", {"id": "filter.cameraRaw"}]]'`
-or an `egui_kittest` harness): those embed
-viewports, so the dialog is drawn over the main window and appears in the image.
+**Screenshots:** `ui.screenshot` captures the main window only, so while Camera Raw has its own
+window the PNG shows the dimmed main window, not the dialog. Read the dialog's state through
+`ui.inspect` (`cameraRaw`: params, histogram, zoom, control rectangles) and drive it with the `ui`
+params below. To *see* it, render offscreen with the snapshot path
+(`SDL_VIDEO_DRIVER=offscreen photocraft --snapshot out.png`, driven with a control script), which
+draws the dialog over the main window into the image.
 
 `ui.menu.invoke {"id":"filter.cameraRaw","params":{}}` opens Camera Raw on the active
 RGB/Grayscale layer. `params: {"smartFilter": {"layer": id, "index": i}}` opens it on an existing
@@ -537,8 +539,7 @@ The response and `ui.inspect.cameraRaw` contain:
   `blue`, `samples`, `transparent`, `invalid`, per-channel `underflow` / `overflow`, and exact
   endpoint counters `shadows` (≤0) / `highlights` (≥1). Counts describe the bounded preview
   proxy in its RGB sample domain, not full-resolution or ICC display-gamut statistics.
-- `previewRevision` (advances only when the proxy is re-developed), `renderMs`, `histogramMs`
-  (CPU only; zero on WebAssembly).
+- `previewRevision` (advances only when the proxy is re-developed), `renderMs`, `histogramMs`.
 - `curveState` (`selected`, `drag`) and `curveRect: [left, top, right, bottom] | null` (null while
   the Curve section is closed). Changing `set.pointCurve` cancels a stale gesture.
 - `scope` (the view state below), `hasScopeSelection`, `vectorscope` (`bins`, `samples`,
@@ -577,8 +578,7 @@ pan/zoom reuse developed pixels. Before and neutral settings read the original p
 Absurd proxy domains (over 512 MP, including distant sparse off-canvas pixels) are rejected
 before reading pixels. Full-resolution refinement is capped at 64 MP to bound the existing full-image engine pipeline;
 above that it explicitly reports unavailability and keeps the proxy. Oversized viewport crops
-also retain the proxy. Without a browser worker, wasm explicitly retains the filtered proxy
-rather than block its UI; Before and neutral settings still crop the original source pixels.
+also retain the proxy. Before and neutral settings still crop the original source pixels.
 The histogram and vectorscope continue to analyse the bounded proxy; readouts and clipping
 warnings use the full-resolution pixels once refinement is visible.
 

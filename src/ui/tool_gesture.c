@@ -9,8 +9,10 @@
 #include "engine/move.h"
 #include "ui/hold_keys.h"
 #include "ui/vector_tool.h"
+#include "raster/surface.h"
 #include <math.h>
 #include <stdatomic.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -70,7 +72,20 @@ bool pc_ui_tool_gesture_supported(pc_ui_tool tool)
            tool == PC_TOOL_MOVE || tool == PC_TOOL_RECT_MARQUEE || tool == PC_TOOL_ELLIPSE_MARQUEE ||
            tool == PC_TOOL_SINGLE_ROW_MARQUEE || tool == PC_TOOL_SINGLE_COLUMN_MARQUEE ||
            tool == PC_TOOL_LASSO || tool == PC_TOOL_CROP || tool == PC_TOOL_GRADIENT ||
-           tool == PC_TOOL_PAINT_BUCKET || tool == PC_TOOL_MAGIC_WAND || tool == PC_TOOL_MAGIC_ERASER;
+           tool == PC_TOOL_PAINT_BUCKET || tool == PC_TOOL_MAGIC_WAND || tool == PC_TOOL_MAGIC_ERASER ||
+           tool == PC_TOOL_RED_EYE || tool == PC_TOOL_QUICK_SELECTION ||
+           tool == PC_TOOL_CLONE_STAMP || tool == PC_TOOL_HEALING || tool == PC_TOOL_PATTERN_STAMP ||
+           tool == PC_TOOL_PATCH || tool == PC_TOOL_CONTENT_AWARE_MOVE;
+}
+/* Is the document point inside the current selection? (Patch / Content-Aware Move drag test.) */
+static bool point_in_selection(const pc_document *doc, double x, double y)
+{
+    if (doc == NULL || !doc->has_selection || !isfinite(x) || !isfinite(y) || fabs(x) > 1e8 ||
+        fabs(y) > 1e8) {
+        return false;
+    }
+    int32_t ix = (int32_t)floor(x), iy = (int32_t)floor(y);
+    return pc_surface_sample_channel(&doc->selection, ix, iy, 0) > 0.0f;
 }
 void pc_ui_tool_gesture_fini(pc_ui_tool_gesture *g)
 {
@@ -110,8 +125,11 @@ static void finish(pc_ui_tool_gesture *g)
     pc_buf_truncate(&g->brush, 0);
     g->active = false;
     g->move_has_last = false;
+    g->patch_dragging = false;
     g->handoff = 0;
     g->count = 0;
+    g->stroke_axis = (pc_ui_stroke_axis){0};
+    /* last_stroke_* persist across gestures for Shift-click line connection. */
 }
 static unsigned current_target(const pc_engine_session *session, const pc_ui_state *ui, size_t *alpha)
 {
@@ -161,6 +179,21 @@ static yyjson_mut_val *pair(yyjson_mut_doc *d, float x, float y)
     yyjson_mut_arr_add_float(d, a, y);
     return a;
 }
+/* Append the gesture's samples as the 8-float `points` array the paint commands expect. */
+static void add_points(yyjson_mut_doc *d, yyjson_mut_val *root, const pc_ui_tool_gesture *g)
+{
+    yyjson_mut_val *points = yyjson_mut_arr(d);
+    for (size_t i = 0; i < g->count; i++) {
+        pc_ui_tool_point p = g->points[i];
+        yyjson_mut_val *sample = yyjson_mut_arr(d);
+        const float values[] = {p.x, p.y, p.pressure, p.tilt_x, p.tilt_y, p.rotation, p.time_ms, p.wheel};
+        for (size_t j = 0; j < 8; j++) {
+            yyjson_mut_arr_add_float(d, sample, values[j]);
+        }
+        yyjson_mut_arr_add_val(points, sample);
+    }
+    yyjson_mut_obj_add_val(d, root, "points", points);
+}
 static pc_status commit(pc_ui_tool_gesture *g, pc_engine_session *session, bool preview, pc_json_value *out,
                         pc_error *err)
 {
@@ -185,6 +218,17 @@ static pc_status commit(pc_ui_tool_gesture *g, pc_engine_session *session, bool 
                                                 : "pixels");
     }
     const char *command = stroke_command(g->tool);
+    /* Alt at the press flips Dodge/Burn and Blur/Sharpen; the tool (and its params) stay the same. */
+    if (g->alt_start) {
+        if (g->tool == PC_TOOL_DODGE)
+            command = "paint.burn";
+        else if (g->tool == PC_TOOL_BURN)
+            command = "paint.dodge";
+        else if (g->tool == PC_TOOL_BLUR)
+            command = "paint.sharpen";
+        else if (g->tool == PC_TOOL_SHARPEN)
+            command = "paint.blur";
+    }
     const char *modes[] = {"replace", "add", "subtract", "intersect"};
     const char *selection = modes[g->selection_mode < 4 ? g->selection_mode : 0];
     if (command) {
@@ -218,6 +262,16 @@ static pc_status commit(pc_ui_tool_gesture *g, pc_engine_session *session, bool 
             yyjson_mut_obj_add_strcpy(d, root, "limits", pc_str_c(&o->cr_limits));
             yyjson_mut_obj_add_float(d, root, "tolerance", o->cr_tolerance);
             yyjson_mut_obj_add_bool(d, root, "antiAlias", o->cr_anti_alias);
+            /* Pin the foreground colour so a replayed stroke paints the same colour. */
+            char hex[8];
+            int chan[3];
+            for (size_t c = 0; c < 3; c++) {
+                float v = g->colors[0][c];
+                v = isfinite(v) ? (v < 0 ? 0 : (v > 1 ? 1 : v)) : 0;
+                chan[c] = (int)(v * 255 + .5f);
+            }
+            (void)snprintf(hex, sizeof hex, "#%02x%02x%02x", chan[0], chan[1], chan[2]);
+            yyjson_mut_obj_add_strcpy(d, root, "color", hex);
         }
         if (g->tool == PC_TOOL_DODGE || g->tool == PC_TOOL_BURN) {
             yyjson_mut_obj_add_strcpy(d, root, "range", pc_str_c(&o->tone_range));
@@ -308,6 +362,95 @@ static pc_status commit(pc_ui_tool_gesture *g, pc_engine_session *session, bool 
                 yyjson_mut_obj_add_str(d, root, "contents",
                                        o->bucket_fill_pattern ? "pattern" : "foreground");
             }
+        }
+    } else if (g->tool == PC_TOOL_RED_EYE) {
+        command = "paint.redEye";
+        yyjson_mut_obj_add_float(d, root, "x", first.x);
+        yyjson_mut_obj_add_float(d, root, "y", first.y);
+        yyjson_mut_obj_add_float(d, root, "pupilSize", fmaxf(1, fminf(100, o->red_eye_pupil_size)));
+        yyjson_mut_obj_add_float(d, root, "darken", fmaxf(0, fminf(100, o->red_eye_darken)));
+    } else if (g->tool == PC_TOOL_QUICK_SELECTION) {
+        command = "select.quick";
+        yyjson_mut_val *points = yyjson_mut_arr(d);
+        for (size_t i = 0; i < g->count; i++) {
+            yyjson_mut_arr_add_val(points, pair(d, g->points[i].x, g->points[i].y));
+        }
+        yyjson_mut_obj_add_val(d, root, "points", points);
+        yyjson_mut_obj_add_float(d, root, "size", pc_engine_session_tools(session)->brush.size);
+        yyjson_mut_obj_add_str(d, root, "mode", g->alt_start ? "subtract" : "add");
+        yyjson_mut_obj_add_bool(d, root, "enhanceEdge", o->enhance_edge);
+        yyjson_mut_obj_add_bool(d, root, "sampleAllLayers", o->sample_all_layers);
+    } else if (g->tool == PC_TOOL_CLONE_STAMP || g->tool == PC_TOOL_HEALING) {
+        /* Alt-click set the source (cloneSource.set); the engine owns the source + aligned pairing. */
+        command = g->tool == PC_TOOL_CLONE_STAMP ? "paint.cloneStamp" : "paint.healingBrush";
+        add_points(d, root, g);
+        yyjson_mut_obj_add_bool(d, root, "aligned", o->clone_aligned);
+        yyjson_mut_obj_add_strcpy(d, root, "sampleLayer", pc_str_c(&o->clone_sample));
+        if (g->tool == PC_TOOL_CLONE_STAMP) {
+            const pc_paint_brush *brush = &pc_engine_session_tools(session)->brush;
+            yyjson_mut_obj_add_float(d, root, "opacity", brush->opacity * 100.0f);
+            yyjson_mut_obj_add_float(d, root, "flow", brush->flow * 100.0f);
+        }
+    } else if (g->tool == PC_TOOL_PATTERN_STAMP) {
+        command = "paint.patternStamp";
+        add_points(d, root, g);
+        yyjson_mut_obj_add_bool(d, root, "aligned", o->pattern_stamp_aligned);
+        yyjson_mut_obj_add_bool(d, root, "impressionist", o->pattern_stamp_impressionist);
+        yyjson_mut_obj_add_float(d, root, "scale", o->pattern_stamp_scale);
+        yyjson_mut_obj_add_float(d, root, "angle", o->pattern_stamp_angle);
+        if (o->pattern_stamp_aligned && g->has_pattern_phase && g->pattern_phase_doc == g->document) {
+            yyjson_mut_obj_add_val(d, root, "phase",
+                                   pair(d, (float)g->pattern_phase[0], (float)g->pattern_phase[1]));
+        }
+    } else if (g->tool == PC_TOOL_PATCH || g->tool == PC_TOOL_CONTENT_AWARE_MOVE) {
+        if (g->patch_dragging) {
+            /* Drag the selection: dispatch paint.patch / paint.contentAwareMove with the whole-pixel
+             * destination offset. The source region is the current selection (owned by the engine). */
+            double dx = round((double)last.x - (double)first.x);
+            double dy = round((double)last.y - (double)first.y);
+            if (!isfinite(dx) || !isfinite(dy) || fabs(dx) > 1e7 || fabs(dy) > 1e7) {
+                yyjson_mut_doc_free(d);
+                return pc_fail(err, PC_ERR_INVALID, "patch offset out of range");
+            }
+            if (dx == 0 && dy == 0) { /* a click inside the selection does nothing */
+                yyjson_mut_doc_free(d);
+                return PC_OK;
+            }
+            command = g->tool == PC_TOOL_PATCH ? "paint.patch" : "paint.contentAwareMove";
+            yyjson_mut_obj_add_val(d, root, "offset", pair(d, (float)dx, (float)dy));
+            if (g->tool == PC_TOOL_PATCH) {
+                if (o->patch_content_aware) {
+                    long st = lroundf(o->patch_structure), co = lroundf(o->patch_color);
+                    yyjson_mut_obj_add_bool(d, root, "contentAware", true);
+                    yyjson_mut_obj_add_int(d, root, "structure", st < 1 ? 1 : (st > 7 ? 7 : st));
+                    yyjson_mut_obj_add_int(d, root, "color", co < 0 ? 0 : (co > 10 ? 10 : co));
+                    yyjson_mut_obj_add_bool(d, root, "sampleAllLayers", o->sample_all_layers);
+                } else {
+                    yyjson_mut_obj_add_strcpy(d, root, "mode", pc_str_c(&o->patch_mode));
+                }
+            } else {
+                long st = lroundf(o->cam_structure), co = lroundf(o->cam_color);
+                yyjson_mut_obj_add_strcpy(d, root, "mode", pc_str_c(&o->cam_mode));
+                yyjson_mut_obj_add_int(d, root, "structure", st < 1 ? 1 : (st > 7 ? 7 : st));
+                yyjson_mut_obj_add_int(d, root, "color", co < 0 ? 0 : (co > 10 ? 10 : co));
+                yyjson_mut_obj_add_bool(d, root, "sampleAllLayers", o->sample_all_layers);
+            }
+        } else {
+            /* No drag: the gesture is a freehand lasso selection (feather is forced off, unlike the
+             * Lasso tool, because the patch/move samples hard-edged regions). */
+            if (g->count < 3) {
+                yyjson_mut_doc_free(d);
+                return PC_OK;
+            }
+            command = "select.lasso";
+            yyjson_mut_val *points = yyjson_mut_arr(d);
+            for (size_t i = 0; i < g->count; i++) {
+                yyjson_mut_arr_add_val(points, pair(d, g->points[i].x, g->points[i].y));
+            }
+            yyjson_mut_obj_add_val(d, root, "points", points);
+            yyjson_mut_obj_add_str(d, root, "mode", selection);
+            yyjson_mut_obj_add_float(d, root, "feather", 0);
+            yyjson_mut_obj_add_bool(d, root, "antiAlias", o->anti_alias);
         }
     } else {
         bool crop = g->tool == PC_TOOL_CROP;
@@ -425,6 +568,31 @@ static pc_status gesture_event(pc_ui_tool_gesture *g, pc_engine_session *session
         if (ui->n_dialogs) {
             return pc_fail(err, PC_ERR_INVALID, "confirm or cancel the open dialog first");
         }
+        /* Alt-click with Clone Stamp / Healing Brush sets the clone source; it never starts a stroke. */
+        if ((ui->tool == PC_TOOL_CLONE_STAMP || ui->tool == PC_TOOL_HEALING) && (modifiers & PC_UI_MOD_ALT)) {
+            finish(g);
+            yyjson_mut_doc *d = yyjson_mut_doc_new(NULL);
+            if (!d) {
+                return pc_fail(err, PC_ERR_NOMEM, "clone source");
+            }
+            double sx = round(p.x), sy = round(p.y);
+            yyjson_mut_val *params = yyjson_mut_obj(d);
+            yyjson_mut_obj_add_val(d, params, "source", pair(d, (float)sx, (float)sy));
+            pc_buf text = PC_BUF_INIT;
+            pc_status rc = pc_json_write(params, 0, &text, err);
+            if (rc == PC_OK) {
+                rc = pc_engine_session_execute_json(session, "cloneSource.set", pc_buf_cstr(&text), out, err);
+            }
+            pc_buf_fini(&text);
+            yyjson_mut_doc_free(d);
+            if (rc == PC_OK) {
+                g->has_clone_source = true;
+                g->clone_source_doc = pc_doc_arc_get(state->doc)->id;
+                g->clone_source[0] = sx;
+                g->clone_source[1] = sy;
+            }
+            return rc;
+        }
         if (ui->tool == PC_TOOL_MOVE && handoff != 1 && handoff != 3 && (modifiers & PC_UI_MOD_ALT) &&
             pc_engine_floating_can_move(session) && pc_engine_floating_offset(session, NULL)) {
             pc_status dropped = pc_engine_session_execute_json(session, "select.drop", "{}", out, err);
@@ -496,6 +664,29 @@ static pc_status gesture_event(pc_ui_tool_gesture *g, pc_engine_session *session
         g->selection_mode = (modifiers & PC_UI_MOD_SHIFT) ? ((modifiers & PC_UI_MOD_ALT) ? 3u : 1u)
                             : (modifiers & PC_UI_MOD_ALT) ? 2u
                                                           : ui->selection_mode;
+        g->alt_start = (modifiers & PC_UI_MOD_ALT) != 0;
+        /* Patch / Content-Aware Move: with no modifiers, pressing inside the current selection drags
+         * that selection (the patch/move); otherwise the gesture builds a freehand lasso. */
+        if (g->tool == PC_TOOL_PATCH || g->tool == PC_TOOL_CONTENT_AWARE_MOVE) {
+            g->patch_dragging = !(modifiers & (PC_UI_MOD_SHIFT | PC_UI_MOD_ALT)) &&
+                                point_in_selection(pc_doc_arc_get(state->doc), p.x, p.y);
+        }
+        /* Shift-click after a painting stroke connects a straight line from the previous stroke's
+         * end to the click: the previous endpoint (with its pen pressure) becomes this stroke's
+         * first point, so it is one command and one undo step. */
+        if ((modifiers & PC_UI_MOD_SHIFT) && pc_ui_stroke_constraint_connects(g->tool) &&
+            g->has_last_stroke && g->last_stroke_doc == g->document) {
+            pc_ui_tool_point prev = {.x = (float)g->last_stroke_end[0],
+                                     .y = (float)g->last_stroke_end[1],
+                                     .pressure = g->last_stroke_pressure};
+            if (valid(prev)) {
+                status = append(g, prev, err);
+                if (status != PC_OK) {
+                    finish(g);
+                    return status;
+                }
+            }
+        }
     } else if (!g->active) {
         return PC_OK;
     }
@@ -520,6 +711,20 @@ static pc_status gesture_event(pc_ui_tool_gesture *g, pc_engine_session *session
         g->move_has_last = true;
         p.x = (float)(g->points[0].x + constrained[0]);
         p.y = (float)(g->points[0].y + constrained[1]);
+    }
+    /* Shift straight-line (0/45/90 degrees) for painting tools; Shift 45 degree snap for the
+     * Gradient tool. Never constrains the press itself (a connecting Shift-click keeps its exact
+     * endpoint). */
+    if (kind != PC_UI_POINTER_DOWN && pc_ui_stroke_constraint_applies(g->tool) && g->count) {
+        double start[2] = {g->points[0].x, g->points[0].y};
+        double last[2] = {g->points[g->count - 1].x, g->points[g->count - 1].y};
+        double pin[2] = {p.x, p.y}, snapped[2];
+        pc_ui_stroke_constrain(g->tool, &g->stroke_axis, start, last, pin,
+                               (modifiers & PC_UI_MOD_SHIFT) != 0, g->zoom, snapped);
+        if (isfinite(snapped[0]) && isfinite(snapped[1])) {
+            p.x = (float)snapped[0];
+            p.y = (float)snapped[1];
+        }
     }
     size_t old_count = g->count;
     pc_status status = append(g, p, err);
@@ -567,6 +772,26 @@ static pc_status gesture_event(pc_ui_tool_gesture *g, pc_engine_session *session
         pc_buf_fini(&current);
         if (status == PC_OK) {
             status = commit(g, session, false, out, err);
+        }
+        /* Remember where a painting stroke ended, so the next Shift-click connects a line to it. */
+        if (status == PC_OK && pc_ui_stroke_constraint_connects(g->tool) && g->count) {
+            g->has_last_stroke = true;
+            g->last_stroke_doc = g->document;
+            g->last_stroke_end[0] = g->points[g->count - 1].x;
+            g->last_stroke_end[1] = g->points[g->count - 1].y;
+            g->last_stroke_pressure = g->points[g->count - 1].pressure;
+        }
+        /* Pattern Stamp keeps the tile phase across aligned strokes (read back from the result). */
+        if (status == PC_OK && g->tool == PC_TOOL_PATTERN_STAMP) {
+            g->has_pattern_phase = false;
+            yyjson_mut_val *root = out ? pc_json_value_root(out) : NULL;
+            yyjson_mut_val *phase = root ? yyjson_mut_obj_get(root, "phase") : NULL;
+            if (g->options.pattern_stamp_aligned && phase && yyjson_mut_arr_size(phase) == 2) {
+                g->pattern_phase[0] = yyjson_mut_get_num(yyjson_mut_arr_get(phase, 0));
+                g->pattern_phase[1] = yyjson_mut_get_num(yyjson_mut_arr_get(phase, 1));
+                g->has_pattern_phase = true;
+                g->pattern_phase_doc = g->document;
+            }
         }
         finish(g);
     }

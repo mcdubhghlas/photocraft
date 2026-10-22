@@ -370,6 +370,58 @@ static void test_droplet(void)
     pc_engine_session_free(s);
 }
 
+/* Create Droplet from the selected Action: "action" as an index or a name resolves to the recorded
+ * action's steps (the engine accessor the UI drives), and the droplet is named after the action. */
+static void test_droplet_from_selected_action(void)
+{
+    char dir[256];
+    base_dir(dir, sizeof dir, "droplet-action");
+    char png[400];
+    make_png(dir, "a.png", 30, 10, "#303030", png, sizeof png);
+
+    pc_engine_session *s = NULL;
+    CHECK(pc_engine_session_new(&s, NULL) == PC_OK);
+    CHECK(exec(s, "file.new", "{\"width\":8,\"height\":8}") == PC_OK);
+    /* Record a one-step action "Rotate". */
+    CHECK(exec(s, "actions.record", "{\"name\":\"Rotate\"}") == PC_OK);
+    CHECK(exec(s, "image.imageRotation.90cw", "{}") == PC_OK);
+    CHECK(exec(s, "actions.stop", "{}") == PC_OK);
+
+    char dp[300], outdir[300], p[700];
+    (void)snprintf(dp, sizeof dp, "%s/FromAction", dir);
+    (void)snprintf(outdir, sizeof outdir, "%s/out", dir);
+
+    /* By index: no "steps" array, just the selected action's index. */
+    (void)snprintf(p, sizeof p, "{\"path\":\"%s\",\"action\":0,\"format\":\"png\",\"output\":\"%s\"}",
+                   dp, outdir);
+    pc_json_value o = PC_JSON_VALUE_INIT;
+    CHECK(pc_engine_session_execute_json(s, "file.automate.createDroplet", p, &o, NULL) == PC_OK);
+    CHECK_EQ_UINT(ruint(&o, "steps"), 1);
+    const char *written = rstr(&o, "path");
+    CHECK(written != NULL && is_file(written));
+    /* The droplet is named after the action. */
+    pc_buf dtext = PC_BUF_INIT;
+    CHECK(pc_engine_read_file(written, &dtext, NULL) == PC_OK);
+    CHECK(dtext.data != NULL && strstr((const char *)dtext.data, "\"Rotate\"") != NULL);
+    pc_buf_fini(&dtext);
+    pc_json_value_fini(&o);
+
+    /* By name resolves the same action. */
+    (void)snprintf(dp, sizeof dp, "%s/ByName", dir);
+    (void)snprintf(p, sizeof p, "{\"path\":\"%s\",\"action\":\"Rotate\"}", dp);
+    pc_json_value o2 = PC_JSON_VALUE_INIT;
+    CHECK(pc_engine_session_execute_json(s, "file.automate.createDroplet", p, &o2, NULL) == PC_OK);
+    CHECK_EQ_UINT(ruint(&o2, "steps"), 1);
+    pc_json_value_fini(&o2);
+
+    /* An unknown action index/name is refused, not a crash. */
+    (void)snprintf(p, sizeof p, "{\"path\":\"%s\",\"action\":99}", dp);
+    CHECK(exec(s, "file.automate.createDroplet", p) != PC_OK);
+    (void)snprintf(p, sizeof p, "{\"path\":\"%s\",\"action\":\"Nope\"}", dp);
+    CHECK(exec(s, "file.automate.createDroplet", p) != PC_OK);
+    pc_engine_session_free(s);
+}
+
 /* ---- Lens Correction batch ----------------------------------------------------------------- */
 
 static void test_lens_batch(void)
@@ -444,6 +496,7 @@ int main(int argc, char **argv)
     RUN(test_statistics);
     RUN(test_contact_sheet);
     RUN(test_droplet);
+    RUN(test_droplet_from_selected_action);
     RUN(test_lens_batch);
     RUN(test_adversarial);
     return pc_t_finish();

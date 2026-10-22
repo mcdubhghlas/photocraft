@@ -698,6 +698,14 @@ pc_status pc_engine_convert_document(pc_document *doc, const pc_profile *dst, pc
 /* The document's profile (embedded if it parses and matches the mode, else the working profile).
  * *out is an owned clone (pc_profile_fini). */
 pc_status pc_engine_document_profile(const pc_document *doc, pc_profile *out, pc_error *err);
+/* Apply the Color Settings open policy to a freshly imported document and build the "Embedded
+ * Profile Mismatch" report (port of ColorState::open_policy). Mutates `doc` per the policy (keeps,
+ * converts, discards or assigns the embedded profile, and may tag an EXIF-sRGB file). On success
+ * *report is an owned result value (pc_json_value_fini) whose root is the report object
+ * ({action, embedded?, working, mismatch?, policy, ask?, missing?, inputOnly?, exif?}); the UI
+ * prompts on it when `ask` is set and drives color.profileMismatch. Never crashes. */
+pc_status pc_engine_color_open_policy(pc_engine_session *s, pc_document *doc, bool ignore_exif,
+                                      pc_json_value *report, pc_error *err);
 /* The compositor's RGB output profile for `doc` (RGB: document profile; Gray: its gray-as-RGB
  * view; CMYK/Lab: sRGB). *out owned. */
 pc_status pc_engine_composite_profile(const pc_document *doc, pc_profile *out, pc_error *err);

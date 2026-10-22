@@ -366,12 +366,23 @@ pc_status pc_ui_type_preedit(pc_engine_session *session, pc_ui_state *ui, const 
         return checked;
     }
     pc_ui_text_edit *edit = &ui->text_edit;
+    /* #1381: an empty preedit while nothing is being composed changes nothing. Wayland input
+     * methods send one on every state change (e.g. the caret rectangle moving as a selection
+     * grows); it must never replace — and so delete — the selected text. */
+    if (length == 0 && !edit->has_preedit) {
+        return PC_OK;
+    }
     size_t start = edit->has_preedit            ? edit->preedit_start
                    : edit->caret < edit->anchor ? edit->caret
                                                 : edit->anchor;
     size_t end = edit->has_preedit            ? start + edit->preedit_length
                  : edit->caret > edit->anchor ? edit->caret
                                               : edit->anchor;
+    /* An empty preedit over a collapsed range only ends the composition. */
+    if (start == end && length == 0) {
+        edit->has_preedit = false;
+        return PC_OK;
+    }
     pc_status status = replace(session, ui, start, end, text, length, out, err);
     if (status == PC_OK) {
         edit->has_preedit = length != 0;

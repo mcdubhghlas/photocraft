@@ -8,8 +8,10 @@
 #include "layer_thumbs_ui.h"
 #include "type_controls.h"
 #include "pen_ui.h"
+#include "gradient_ui.h"
 #include "shell_internal.h"
 #include "ui/layer_tree.h"
+#include "ui/preset_swatch.h"
 #include "ui/props_layout.h"
 #include "ui/widgets.h"
 #include "engine/channel_display.h"
@@ -395,6 +397,9 @@ static void properties(pc_ui_shell_app *app, pc_ui_panel_runtime *runtime)
         return;
     }
     nk_label(ctx, pc_ui_layer_filter_kind(layer->content.kind), NK_TEXT_LEFT);
+    if (layer->content.kind == PC_LAYER_FILL && layer->content.u.fill.kind == PC_FILL_GRADIENT) {
+        pc_ui_shell_gradient_properties(app, layer);
+    }
     size_t count;
     const pc_ui_quick_action *actions = pc_ui_props_quick_actions(layer->content.kind, &count);
     for (size_t i = 0; i < count; i++) {
@@ -698,6 +703,185 @@ static void history(pc_ui_shell_app *app, pc_ui_panel_runtime *runtime)
     }
     pc_json_value_fini(&data);
 }
+static void enqueue_str(pc_ui_shell_app *app, pc_ui_panel_runtime *runtime, const char *id,
+                        const char *field, const char *value)
+{
+    yyjson_mut_val *root;
+    yyjson_mut_doc *d = params(app, &root);
+    if (!d) {
+        return;
+    }
+    yyjson_mut_obj_add_strcpy(d, root, field, value);
+    enqueue(app, runtime, id, root);
+    yyjson_mut_doc_free(d);
+}
+static void enqueue_delete(pc_ui_shell_app *app, pc_ui_panel_runtime *runtime, const char *id,
+                           const char *preset)
+{
+    yyjson_mut_val *root;
+    yyjson_mut_doc *d = params(app, &root);
+    if (!d) {
+        return;
+    }
+    yyjson_mut_obj_add_str(d, root, "action", "delete");
+    yyjson_mut_obj_add_strcpy(d, root, "preset", preset);
+    enqueue(app, runtime, id, root);
+    yyjson_mut_doc_free(d);
+}
+static void draw_gradient_bar(struct nk_context *ctx, struct nk_rect bar, yyjson_mut_val *stops,
+                              const float *fg, const float *bg)
+{
+    struct nk_command_buffer *canvas = nk_window_get_canvas(ctx);
+    if (!canvas || bar.w <= 0 || bar.h <= 0) {
+        return;
+    }
+    float locs[64], rgb[64][3];
+    size_t n = 0, count = yyjson_mut_arr_size(stops);
+    for (size_t i = 0; i < count && n < 64; i++) {
+        yyjson_mut_val *pair = yyjson_mut_arr_get(stops, i);
+        if (!yyjson_mut_is_arr(pair) || yyjson_mut_arr_size(pair) < 2) {
+            continue;
+        }
+        const char *tok = yyjson_mut_get_str(yyjson_mut_arr_get(pair, 1));
+        float c[3];
+        if (!tok || !pc_ui_preset_stop_color(tok, fg, bg, c)) {
+            continue;
+        }
+        locs[n] = (float)yyjson_mut_get_num(yyjson_mut_arr_get(pair, 0));
+        rgb[n][0] = c[0];
+        rgb[n][1] = c[1];
+        rgb[n][2] = c[2];
+        n++;
+    }
+    if (n == 0) {
+        nk_fill_rect(canvas, bar, 0, nk_rgb(128, 128, 128));
+        return;
+    }
+    const float slices = 96.0f;
+    for (int i = 0; i < 96; i++) {
+        float t = (float)i / (slices - 1.0f), c[3];
+        pc_ui_preset_gradient_sample(locs, (const float(*)[3])rgb, n, t, c);
+        nk_fill_rect(canvas,
+                     nk_rect(bar.x + (float)i / slices * bar.w, bar.y, fmaxf(1.0f, bar.w / slices), bar.h), 0,
+                     nk_rgb_f(c[0], c[1], c[2]));
+    }
+}
+static void gradients(pc_ui_shell_app *app, pc_ui_panel_runtime *runtime)
+{
+    struct nk_context *ctx = pc_ui_shell_app_nk(app);
+    const pc_engine_tool_state *tools = pc_engine_session_tools(pc_ui_shell_app_session(app));
+    const float *fg = tools->foreground, *bg = tools->background;
+    pc_json_value data = PC_JSON_VALUE_INIT;
+    yyjson_mut_val *root = query(app, "gradient.presets.list", &data);
+    if (!root) {
+        return;
+    }
+    yyjson_mut_val *cur = yyjson_mut_obj_get(root, "current");
+    if (cur) {
+        nk_layout_row_dynamic(ctx, 20, 1);
+        struct nk_rect bar;
+        (void)nk_widget(&bar, ctx);
+        draw_gradient_bar(ctx, bar, yyjson_mut_obj_get(cur, "stops"), fg, bg);
+    }
+    yyjson_mut_val *groups = yyjson_mut_obj_get(root, "groups");
+    for (size_t g = 0; g < yyjson_mut_arr_size(groups); g++) {
+        yyjson_mut_val *group = yyjson_mut_arr_get(groups, g);
+        nk_layout_row_dynamic(ctx, 18, 1);
+        nk_label(ctx, string_field(group, "name"), NK_TEXT_LEFT);
+        yyjson_mut_val *presets = yyjson_mut_obj_get(group, "presets");
+        for (size_t i = 0; i < yyjson_mut_arr_size(presets); i++) {
+            yyjson_mut_val *preset = yyjson_mut_arr_get(presets, i);
+            const char *name = string_field(preset, "name");
+            nk_layout_row_begin(ctx, NK_STATIC, 22, 2);
+            nk_layout_row_push(ctx, 48);
+            struct nk_rect bar;
+            (void)nk_widget(&bar, ctx);
+            draw_gradient_bar(ctx, bar, yyjson_mut_obj_get(preset, "stops"), fg, bg);
+            nk_layout_row_push(ctx, fmaxf(40, nk_window_get_content_region(ctx).w - 56));
+            nk_bool chosen = strcmp(runtime->preset.gradient, name) == 0;
+            if (nk_selectable_label(ctx, name, NK_TEXT_LEFT, &chosen)) {
+                (void)snprintf(runtime->preset.gradient, sizeof runtime->preset.gradient, "%s", name);
+                enqueue_str(app, runtime, "gradient.presets.select", "preset", name);
+            }
+            nk_layout_row_end(ctx);
+        }
+    }
+    bool have = runtime->preset.gradient[0] != '\0';
+    nk_layout_row_dynamic(ctx, 24, 3);
+    command_button(app, runtime, "New", "gradient.presets.new");
+    if (!have) {
+        nk_widget_disable_begin(ctx);
+    }
+    if (nk_button_label(ctx, pc_i18n_t("Delete")) && have) {
+        enqueue_delete(app, runtime, "gradient.presets.edit", runtime->preset.gradient);
+        runtime->preset.gradient[0] = '\0';
+    }
+    if (!have) {
+        nk_widget_disable_end(ctx);
+    }
+    command_button(app, runtime, "Reset", "gradient.presets.reset");
+    pc_json_value_fini(&data);
+}
+static void patterns(pc_ui_shell_app *app, pc_ui_panel_runtime *runtime)
+{
+    struct nk_context *ctx = pc_ui_shell_app_nk(app);
+    const pc_engine_doc_state *state;
+    const pc_document *doc = document(app, &state);
+    pc_json_value data = PC_JSON_VALUE_INIT;
+    yyjson_mut_val *root = query(app, "pattern.presets.list", &data);
+    if (!root) {
+        return;
+    }
+    yyjson_mut_val *groups = yyjson_mut_obj_get(root, "groups");
+    for (size_t g = 0; g < yyjson_mut_arr_size(groups); g++) {
+        yyjson_mut_val *group = yyjson_mut_arr_get(groups, g);
+        nk_layout_row_dynamic(ctx, 18, 1);
+        nk_label(ctx, string_field(group, "name"), NK_TEXT_LEFT);
+        yyjson_mut_val *pats = yyjson_mut_obj_get(group, "patterns");
+        for (size_t i = 0; i < yyjson_mut_arr_size(pats); i++) {
+            yyjson_mut_val *pat = yyjson_mut_arr_get(pats, i);
+            const char *id = string_field(pat, "id");
+            char label[192];
+            (void)snprintf(label, sizeof label, "%s  %llux%llu", string_field(pat, "name"),
+                           (unsigned long long)yyjson_mut_get_uint(yyjson_mut_obj_get(pat, "width")),
+                           (unsigned long long)yyjson_mut_get_uint(yyjson_mut_obj_get(pat, "height")));
+            nk_layout_row_begin(ctx, NK_STATIC, 24, 2);
+            nk_layout_row_push(ctx, 24);
+            (void)nk_button_color(ctx, nk_rgb(96, 96, 96));
+            nk_layout_row_push(ctx, fmaxf(40, nk_window_get_content_region(ctx).w - 32));
+            nk_bool chosen = strcmp(runtime->preset.pattern, id) == 0;
+            if (nk_selectable_label(ctx, label, NK_TEXT_LEFT, &chosen)) {
+                (void)snprintf(runtime->preset.pattern, sizeof runtime->preset.pattern, "%s", id);
+                enqueue_str(app, runtime, "pattern.presets.select", "pattern", id);
+            }
+            nk_layout_row_end(ctx);
+        }
+    }
+    bool have = runtime->preset.pattern[0] != '\0';
+    nk_layout_row_dynamic(ctx, 24, 3);
+    command_button(app, runtime, "New", "pattern.presets.new");
+    bool can_apply = have && doc;
+    if (!can_apply) {
+        nk_widget_disable_begin(ctx);
+    }
+    if (nk_button_label(ctx, pc_i18n_t("Apply")) && can_apply) {
+        enqueue_str(app, runtime, "pattern.presets.apply", "pattern", runtime->preset.pattern);
+    }
+    if (!can_apply) {
+        nk_widget_disable_end(ctx);
+    }
+    if (!have) {
+        nk_widget_disable_begin(ctx);
+    }
+    if (nk_button_label(ctx, pc_i18n_t("Delete")) && have) {
+        enqueue_delete(app, runtime, "pattern.presets.edit", runtime->preset.pattern);
+        runtime->preset.pattern[0] = '\0';
+    }
+    if (!have) {
+        nk_widget_disable_end(ctx);
+    }
+    pc_json_value_fini(&data);
+}
 static pc_status invoke(void *app, const char *id, yyjson_val *p, pc_json_value *out, pc_error *err)
 {
     return pc_ui_shell_app_invoke(app, id, p, out, err);
@@ -725,6 +909,10 @@ void pc_ui_shell_panel_draw(pc_ui_shell_app *app, pc_ui_panel_runtime *runtime, 
         actions(app, runtime);
     } else if (strcmp(panel, "Layer Comps") == 0) {
         comps(app, runtime);
+    } else if (strcmp(panel, "Gradients") == 0) {
+        gradients(app, runtime);
+    } else if (strcmp(panel, "Patterns") == 0) {
+        patterns(app, runtime);
     } else if (!strcmp(panel, "Paths")) {
         pc_ui_shell_paths_panel(app);
     } else if (!strcmp(panel, "Character") || !strcmp(panel, "Paragraph")) {

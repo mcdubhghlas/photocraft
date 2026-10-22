@@ -406,6 +406,99 @@ pc_status pc_engine_pattern_ensure_in_doc(pc_document *doc, const pc_pattern *pa
     return PC_OK;
 }
 
+pc_status pc_engine_pattern_thumbnail(const pc_engine_session *s, const char *key, size_t keylen,
+                                      uint32_t size, pc_rgba8_image *out, bool *found, pc_error *err)
+{
+    pc_pattern pat;
+    bool got = false;
+    pc_document doc;
+    pc_layer layer;
+    pc_surface *surf;
+    pc_surface shared;
+    pc_rgba8_image small;
+    pc_pixel_format fmt;
+    pc_status rc;
+
+    *found = false;
+    rc = pc_engine_pattern_resolve(s, key, keylen, &pat, &got, err);
+    if (rc != PC_OK) {
+        return rc;
+    }
+    if (!got) {
+        return PC_OK;
+    }
+    size = size < 8u ? 8u : (size > 256u ? 256u : size);
+
+    /* An empty pattern (no pixels) is a transparent swatch. */
+    if (pat.width == 0 || pat.height == 0 || pc_pattern_is_empty(&pat)) {
+        pc_pattern_fini(&pat);
+        rc = pc_rgba8_image_init(out, size, size, err);
+        if (rc != PC_OK) {
+            return rc;
+        }
+        *found = true;
+        return PC_OK;
+    }
+
+    fmt = pc_surface_format(&pat.surface);
+    rc = pc_document_init(&doc, "pattern", pc_size_make(pat.width, pat.height), fmt.mode, fmt.sample, err);
+    if (rc != PC_OK) {
+        pc_pattern_fini(&pat);
+        return rc;
+    }
+    rc = pc_layer_raster(&layer, "pattern", pc_document_pixel_format(&doc), err);
+    if (rc != PC_OK) {
+        pc_document_fini(&doc);
+        pc_pattern_fini(&pat);
+        return rc;
+    }
+    /* Share the tile data (copy-on-write): no large allocation for big patterns. */
+    surf = pc_layer_surface_mut(&layer);
+    if (surf != NULL) {
+        rc = pc_surface_clone(&pat.surface, &shared, err);
+        if (rc != PC_OK) {
+            pc_layer_fini(&layer);
+            pc_document_fini(&doc);
+            pc_pattern_fini(&pat);
+            return rc;
+        }
+        pc_surface_fini(surf);
+        *surf = shared;
+    }
+    pc_pattern_fini(&pat);
+    rc = pc_document_insert_above(&doc, NULL, &layer, NULL, err);
+    if (rc != PC_OK) {
+        pc_layer_fini(&layer);
+        pc_document_fini(&doc);
+        return rc;
+    }
+    /* Area-averaged thumbnail at most `size` on its longer side (aspect preserved). */
+    rc = pc_compose_thumbnail(&doc, size, &small, err);
+    pc_document_fini(&doc);
+    if (rc != PC_OK) {
+        return rc;
+    }
+    /* Centre it on a transparent size x size square. */
+    rc = pc_rgba8_image_init(out, size, size, err);
+    if (rc != PC_OK) {
+        pc_rgba8_image_fini(&small);
+        return rc;
+    }
+    {
+        uint32_t tw = small.width < size ? small.width : size;
+        uint32_t th = small.height < size ? small.height : size;
+        uint32_t ox = (size - tw) / 2u;
+        uint32_t oy = (size - th) / 2u;
+        for (uint32_t y = 0; y < th; y++) {
+            memcpy(out->pixels + (((size_t)(oy + y) * size + ox) * 4), small.pixels + ((size_t)y * small.width * 4),
+                   (size_t)tw * 4);
+        }
+    }
+    pc_rgba8_image_fini(&small);
+    *found = true;
+    return PC_OK;
+}
+
 /* ========================================================================================== */
 /* enabled predicates                                                                          */
 /* ========================================================================================== */

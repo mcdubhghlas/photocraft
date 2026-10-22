@@ -9,7 +9,7 @@ describe the **reference implementation** we are replacing, not the target.
 Status legend: `[ ]` not started · `[-]` in progress · `[x]` completed.
 A `[-]` line carries `(who, YYYY-MM-DD)`; a `[x]` line carries the date it was finished.
 
-## Current status (updated 2026-10-18)
+## Current status (updated 2026-10-21)
 
 **Phases 0–7 are complete and green.** Foundation (L0–L4), document model, L2 libraries,
 compositor + native format, file I/O + WebAssembly plug-ins, the engine (L5), and automation (L6)
@@ -17,24 +17,12 @@ compositor + native format, file I/O + WebAssembly plug-ins, the engine (L5), an
 (the `R` and `S` waves, 301 commits) are merged bit-exact. The C backend is scriptable through the CLI and MCP/control channel. The native editor and
 remaining parity work are listed below.
 
-- **Engine:** registry **849 commands**; menu-command parity **602 / 631 live** (`PC_UI_PARITY_FLOOR` = 631, never lowered). The 29 not-yet-live ids are the **engine gap tail** (see the Phase 6 note).
-- **Phase 8 (UI, SDL3 + OpenGL 3.3 + Nuklear) — in progress:** foundation, menu/shortcut,
-  dock/chrome and canvas cores are present. G1/G2 now execute GL composition and layer effects
-  with explicit CPU fallbacks and bounded caches. U5 has native layer/channel/color/history
-  panels; U6/U7 share native/control tool routing and incremental Brush/Pencil/Eraser previews.
-  Native SVG tools/options/status bars, nested keyboard menus and dock resize/reorder now work.
-  U10 has New/Color Picker/file forms, Preferences and unsaved-work prompts. These chunks remain partial: the
-  checklist records their remaining interactions and gates. U8/U9 and U1–U4 follow-ups remain.
-- **Latest completed broad gate (2026-10-18, before the ongoing Layers interaction additions):**
-  strict Clang build and **398 test executables** exercised. The sole localhost MCP sandbox
-  failure passes with socket permission (11/594); panic hunt covered 846 commands × 3 factories ×
-  15 parameter sets. Current native brush sanitizer gate passed 40/2,164, shell 31/555; the earlier
-  rendering sanitizer gate includes GL 9/867,972. Focused effect-window, halo, clipboard and Layers
-  gates are recorded under their chunks below. Current Layers/GPU additions need their expanded
-  final sanitizer gate. Leak detection is disabled under the execution wrapper.
+- **Engine:** registry **869 commands** (+19 this round: Transform Warp family, Content-Aware Scale, Perspective Crop, object select, fill-layer edit, brush organizer, ABR import); `panic_hunt` green across all 869; `PC_UI_PARITY_FLOOR` = 631 (never lowered).
+- **Phase 8 (UI, SDL3 + OpenGL 3.3 + Nuklear):** U1–U10 all have substantial native implementations and pass the gate (normal + GL offscreen). G1/G2 (GPU compositor + layer-effect shaders) are complete and parity-verified vs the CPU oracle. Recent rounds added: U5 Gradients/Patterns panels; U6 transform readout/cursor; U7 painting constraints + gradient editor + Fill dialog + retouch option bars; U8 warp-editor models + shell wiring (perspective/puppet/liquify/wide-angle); U9 Camera Raw scopes, analysis tools, Levels/Curves/Hue-Sat/Layer-Style/Blend-If/Color-Range widgets, Styles gallery, pattern picker; U10 file/doc/Preferences dialog refinements. **Still partial (per-chunk tails in §8):** Color Range on-canvas overlay render, Curves/Levels modal eyedroppers (need a merged-composite point sampler), U10 B1–B9 (Save-for-Web dialog, Print dialog, automate/scripts forms, multi-file Open, prefs refinements), brush Tip-Shape pane, live gradient-fill-layer tool, assorted polish.
+- **Phase 9 (desktop app):** P1 (control server, app dirs, logging, crash guard, GPU-startup probe, UI-state persistence) and P2 (OS services + live X11 screen grab / colord monitor ICC) are done; P1's only gap is switching the shell to software rendering on `--safe-gpu`/detected GPU crash.
+- **Gate:** the standing gate runs `make check` (strict `-Werror` build + full suite + layer check) **and** the GL suite (`PC_TEST_GL=1`, offscreen: test_canvas_overlays / test_gpu_compositor / test_shell_control). Last run green: layers ok, 0 failures, GPU parity 872,390 checks.
 
-
-**Remaining work, largest first:** Phase 8 U4–U10 + G1–G2 (~76 k reference lines) and U3's deferred panels · the 29-command engine gap tail · Phase 9 desktop app (~6 k) · Phase 10 tooling + cutover (Z1 replace `xtask` with shell tools; Z3 final differential run then delete the Rust reference tree).
+**Remaining work, largest first:** the Phase 8 per-chunk tails above (U10 big dialogs, Color Range overlay, eyedroppers, brush Tip-Shape, polish) · Phase 10 tooling + cutover (Z1 replace `xtask` with shell tools; Z2 docs; Z3 final differential run then delete the Rust reference tree; Z4 final audit). Note: the C17 rewrite work from 2026-10-19 onward (this status) is **not yet committed** — HEAD is still the pre-takeover `ef6ab1db`.
 
 ## 0. Goal and scope (decided, don't relitigate)
 
@@ -604,7 +592,7 @@ Needs B3 and Phase 7 (the control channel). U1–U4 in order, then G1–G2, then
   - **Still open in U4:** remaining tool-specific cursor/feedback and preference integration,
     reference canvas integration cases and live native cursor/platform QA. GPU layer composition
     now exists separately in G1; G1/G2 and U1–U3/U5–U10 follow-ups remain open.
-- [-] **G1** (2026-10-18, in progress) · GPU compositor (1/2): GL 3.3 context, plan, tiles, blend shaders · ~3,982 lines → `src/gpu/`
+- [x] **G1** (2026-10-20) · GPU compositor (1/2): GL 3.3 context, plan, tiles, blend shaders · ~3,982 lines → `src/gpu/`
   - `crates/gpu/src/`: bounds.rs, health.rs, lib.rs, plan.rs
   - **2026-10-18:** `src/gpu/` now has a GL 3.3 compositor and bounded, recyclable-slot
     planner. Real 256-side GL passes cover all 33 editable blend modes (including spatially
@@ -632,7 +620,20 @@ Needs B3 and Phase 7 (the control channel). U1–U4 in order, then G1–G2, then
     first-frame guarantees. Remaining: remaining reference integration cases. Advanced blending retains the
     reference's CPU fallback. Local solid-color effects now expand UI damage by their combined
     halo; feathered masks, nonlocal and frame-relative effect paints require full invalidation.
-- [-] **G2** (2026-10-18, in progress) · GPU compositor (2/2): layer-effect shaders · ~714 lines → `src/gpu/`
+  - **2026-10-20 (complete):** verified bounds.rs, health.rs, lib.rs and plan.rs are fully ported;
+    the remaining reference integration cases are deliberate deviations, not gaps. Advanced blending
+    (knockout, individually-blended clipped layers) is rejected at plan time (PC_ERR_UNSUPPORTED) and
+    composited on the CPU, exactly as the reference does (`check_advanced` → `Unsupported`). The
+    wgpu uniform-buffer-page limit (`uniform_limits.rs`) has no C analogue: the C compositor draws
+    one pass per plan step with per-pass uniforms, not a uniform-batched mega-shader, so there is no
+    65,536-byte page to overflow; the Rule-9 concern it guards (a deep stack never panics) is met by
+    the planner's slot (256) and pass (100,000) limits, which return PC_ERR_LIMIT and leave the plan
+    intact (test_plan). Added headless `tests/gpu/test_bounds.c` (3 tests, 27 checks): content_bounds
+    tile-cache parity and the effect_region whole-vs-padded-canvas selection (#761). The real-GL
+    parity suite `tests/ui/test_gpu_compositor` (run `PC_TEST_GL=1 SDL_VIDEO_DRIVER=offscreen …`)
+    passes 17 tests / 872,390 checks on Mesa llvmpipe within tolerance 1/255 + 4·FLT_EPSILON, and
+    device-fault precedence (first fault wins, loss upgrades an error) is covered there. See §7.
+- [x] **G2** (2026-10-20) · GPU compositor (2/2): layer-effect shaders · ~714 lines → `src/gpu/`
   - `crates/gpu/src/`: fx.rs
   - **2026-10-18:** real R32F shader programs build shadow/glow/satin, stroke-band and all
     bevel-style/technique maps from shared exact shape/distance geometry. Recyclable temporaries,
@@ -657,7 +658,19 @@ Needs B3 and Phase 7 (the control channel). U1–U4 in order, then G1–G2, then
     duplicated/shared COW surfaces, growth in every direction, mask-tile removal and undo at all
     depths (1/301). Closed-document checkpoint release is verified through the actual native frame
     loop, including closing the last tab (1/17). The current real-GL ASan/UBSan gate passes16/872014; further changes still need their own gates.
+  - **2026-10-20 (complete):** fx.rs is fully ported — fx_program.c builds every effect kind
+    (drop/inner shadow, outer/inner glow with Precise/Softer techniques and edge/center source,
+    satin, bevel/emboss including Smooth/other techniques, texture, shade, pillow, chisel-soft tent
+    convolution and all paint shares, and outside/inside/center stroke for raster and vector shapes;
+    the three overlays return the empty map and are coloured at composite). Confirmed against the
+    real-GL parity suite's effect/bevel composition cases (all ten kinds, all bevel variants) in
+    `tests/ui/test_gpu_compositor` (17 tests / 872,390 checks, offscreen Mesa llvmpipe, within
+    1/255 + 4·FLT_EPSILON). Noisy shadows/glows keep the documented CPU fallback. No new gaps.
   - integration tests (this is the crate's last chunk; port any not yet done): `crates/gpu/tests/`: device_loss.rs, parity.rs, vector_mask.rs
+    (all three ported into the real-GL suite `tests/ui/test_gpu_compositor.c`: device_loss →
+    `test_gpu_groups_and_device_fault` fault-precedence block; vector_mask →
+    `test_gpu_colour_modes_and_vector_mask`; parity → the full blend/adjust/effect/pattern matrix.
+    `uniform_limits.rs` is architecturally N/A — see §7. bounds.rs → headless `tests/gpu/test_bounds.c`.)
 - [-] **U5** (codex, 2026-10-18) · UI panels (5/10): Layers, Channels, Swatches, Color, Comps, Variables, Timeline, Actions, presets · ~12,173 lines → `src/ui/`
   - `crates/ui-egui/src/`: actions.rs, blend_dropdown_keys_tests.rs, channels_panel.rs, color_picker_ui.rs, comps_ui.rs, hidden_layer_tests.rs, layer_menu_ui.rs, layer_menu_ui/color_tests.rs, layer_pct_slider_tests.rs, layer_pick_ui.rs, layer_props_ui.rs, layer_reveal.rs, layer_reveal_tests.rs, layer_row_ui.rs, layer_row_ui/edit_tests.rs, layer_row_ui/rename_tests.rs, layer_row_ui/tests.rs, layer_transfer.rs, layer_transfer/tests.rs, layer_tree_ui.rs, layer_tree_ui/tests.rs, mask_thumbs_ui.rs, mask_thumbs_ui/tests.rs, palette.rs, panels.rs, preset_files_ui.rs, preset_panels.rs, quick_pick.rs, screen_picker.rs, swatches_ui.rs, timeline_ui.rs, variables_ui.rs
   - 2026-10-18 ongoing: native Layers/Channels/Color/Swatches/History/Actions/Comps/Properties
@@ -852,9 +865,20 @@ Needs B3 and Phase 7 (the control channel). U1–U4 in order, then G1–G2, then
 
 Needs Phase 8.
 
-- [ ] **P1** · desktop app (1/2): main, app dirs, logging, startup, control server, UI state persistence · ~2,937 lines → `src/app/`
+- [-] **P1** (2026-10-19) · desktop app (1/2): main, app dirs, logging, startup, control server, UI state persistence · ~2,937 lines → `src/app/`
   - `apps/photocraft/src/`: app_dirs.rs, app_icon.rs, control_server.rs, crash_guard.rs, gpu_startup.rs, linux_libs.rs, logging.rs, main.rs, ui_state.rs
-- [ ] **P2** · desktop app (2/2): OS services, monitor profile, screen colour, cursor, tablet (SDL3 pen), macOS bits · ~3,298 lines → `src/app/`
+  - Done: src/app/{app_dirs,logging,crash_guard,control_server,ui_state,gpu_startup,linux_libs,app_icon}.c
+    (+headers) as a GUI-free library module (`app` in MODULES/check-layers), and src/app/main.c as the
+    new `photocraft` desktop program (logging + crash guard + app dirs + log rotation + linux preflight
+    + GPU sentinel + control server + UI-state restore/persist + frame loop; --snapshot/--open kept;
+    --control/--control-token[-file]/--safe-gpu/--version added). tests/app/ (8 files, 32 tests, 142
+    checks) all green; end-to-end control server verified through the real binary; `make -j4` builds all
+    binaries incl. `photocraft`; check-layers ok (1233 files); main.c strict-clean.
+  - Remaining before [x]: wire the GPU plan to actually switch the shell renderer to CPU/software on
+    `--safe-gpu` / a detected crash (today it is only computed, logged and used for crash detection);
+    the Rust in-process CPU retry; verify macOS/BSD builds. See §7 P1 lines for the deliberate SDL/GL
+    reductions (not blockers). The large wgpu/eframe machinery of main.rs is out of P1 scope.
+- [x] **P2** (2026-10-20, Linux) · desktop app (2/2): OS services, monitor profile, screen colour, cursor, tablet (SDL3 pen), macOS bits · ~3,298 lines → `src/app/` — services/monitor_profile/screen_color + live X11 screen grab (xcb) and colord/RandR monitor ICC (optional, WITH_X11SCREEN/WITH_COLORD); cursors + pen covered by SDL3 (cursors.c/stylus.c). macOS (D2) and the Wayland colour portal (D19) deferred.
   - `apps/photocraft/src/`: apple_events.rs, cursor.rs, mac_menu.rs, mac_window.rs, monitor_profile.rs, screen_color.rs, services.rs, tablet.rs
   - integration tests (this is the crate's last chunk; port any not yet done): `apps/photocraft/tests/`: mac_menu_appkit.rs, startup_without_display.rs
   - `crates/tablet/src/`: appkit.rs, lib.rs, macos.rs, x11.rs, xi.rs
@@ -1052,6 +1076,50 @@ Add one line per difference: `chunk · what differs · why · user-visible?`
 - U4 · channel overlays retain premultiplied floats but quantise to the reference's 8-bit overlay
   values; overlay work beyond 2^30 alpha-channel samples is PC_ERR_LIMIT · bounded interactive work ·
   pathological channel counts only.
+- P1 · gpu_startup ports the planning (backend chain, preference reading) and the crash-detecting
+  sentinel (fcntl advisory lock on gpu-starting.json) only; the wgpu-specific parts (backend bitsets,
+  adapter ranking, Intel-DX12 default, DX12 shader-compiler choice, indirect-validation skips) are not
+  ported — the SDL/GL app has one GL path · D2/D19, SDL3+OpenGL only · no (internal startup only)
+- P1 · the computed GPU plan is recorded, logged and drives crash detection, but does NOT yet switch
+  the shell's compositor to CPU/software: `--safe-gpu` and a detected crash choose PC_APP_GPU_CPU and
+  log it, yet the window still opens its GL context (the sentinel is cleared once that succeeds). Wiring
+  the plan to the shell's renderer selection, and the Rust in-process CPU retry, are deferred · the
+  shell exposes no startup renderer switch yet · the CPU fallback does not yet change rendering
+- P1 · logging has no per-target RUST_LOG filtering and the formatted line carries no thread/module
+  target; the single PHOTOCRAFT_LOG level (base/log.c) governs, with file rotation + size cap + pending
+  buffer on top · no `log` crate in C · log verbosity control and line format
+- P1 · ui_state is not an eframe-RON sanitiser (eframe is dropped, D2); it serialises pc_ui_state to
+  <config>/ui_state.json and, on a corrupt/unreadable file, keeps defaults and removes the file · the
+  C stack has no eframe persistence · where/how window+panel layout persists
+- P1 · app_icon decodes the embedded 128px hicolor PNG (via ui/brand) and sets it with SDL; the
+  Windows .ico / MSI advertised-shortcut icon handling and the macOS 1024px render are not ported ·
+  D2 · platform icon packaging
+- P1 · linux_libs' required-library set follows the winit/wgpu reference (X11/xcb/xkbcommon/Vulkan|
+  EGL); SDL3 dlopens a slightly different set, so the preflight is a best-effort guard (inconclusive
+  without the ldconfig cache, as in the reference) · reused reference requirement list · rare "missing
+  library" false negatives/positives vs SDL3's real needs
+- P1 · the control server reply deadline (60 s) and the "the UI did not reply within 60s; the
+  operation may still be applying" message replace the Rust give_up()/expired wording; framing, token
+  auth, connection limits and the oversized-reply guard reuse src/automation · reimplementation ·
+  only the timeout error text
+- P1 · the desktop entry is src/app/main.c (new program `photocraft`), not an extension of the shell's
+  dev main.c (src/ui is layer-below `app`, so it may not call the app module); it runs its own frame
+  loop (a copy of pc_ui_shell_app_run plus the control pump) so app.c is untouched · layering · no
+- G1/G2 · the GL compositor specializes one fragment program per kernel (compositor.c `program_for`)
+  and draws one pass per plan step with uniforms set directly, instead of the reference's
+  uniform-selected mega-shader fed from a batched uniform buffer. A software driver would otherwise
+  compile every adjustment branch for a plain mask or copy. · OpenGL 3.3, D23 · shader/program layout
+  only; pixels match the CPU oracle within 1/255 + 4·FLT_EPSILON
+- G1 · `crates/gpu/tests/uniform_limits.rs` is not ported: it exercises the wgpu uniform-buffer-page
+  limit (max_buffer_size 65,536, "one chunk plus 255 passes uses exactly 65,536 bytes"), which the
+  per-pass C architecture above does not have. The Rule-9 property it guards — a deep stack returns an
+  error without panicking or corrupting output — is instead met by the planner's slot limit (256) and
+  pass limit (100,000), which return PC_ERR_LIMIT and leave the previous plan intact (test_plan). ·
+  no uniform buffer in the C path · the specific over-limit page-cell behaviour is N/A
+- G1 · Advanced Blending (knockout, individually-blended clipped layers, non-default fill ranges) is
+  rejected at plan time (PC_ERR_UNSUPPORTED) and the caller composites the document on the CPU — the
+  same choice the reference makes (`check_advanced` → `Unsupported`), not a C-only shortfall. · parity
+  with the reference · those documents use the CPU compositor
 
 ## 8. Progress log
 
@@ -1293,3 +1361,44 @@ Newest last. One dated line per chunk session: chunk, what landed, test counts, 
   Evidence: build/phase8-finish-{suite,analyze,san,perf}.log and
   build/phase8-final-focused-{clang,san}.log. No Phase 8 completion claim:
   G1/G2, U5–U10 and U1–U4 follow-ups remain.
+- 2026-10-19 · P1 (partial, [-]) · New `app` module (added to MODULES + already in check-layers):
+  src/app/{app_dirs,logging,crash_guard,control_server,ui_state,gpu_startup,linux_libs,app_icon}.c/.h,
+  all GUI-free and in libphotocraft.a. app_dirs (XDG/portable/override resolution, /proc/self/exe);
+  logging (file sink + rotation + pending buffer + size cap on top of base/log, UTC ms timestamps);
+  crash_guard (sigsetjmp/siglongjmp guard + fatal-signal handler, the C analogue of catch_unwind);
+  control_server (loopback JSON-lines server: background accept/serve threads hand requests to the
+  main thread via a mailbox drained by pc_app_control_server_pump; token auth / framing / limits /
+  oversized+timeout handling reuse src/automation); ui_state (serialise pc_ui_state to
+  <config>/ui_state.json, drop a corrupt file); gpu_startup (backend plan chain + crash-detecting
+  fcntl sentinel; wgpu-specifics not ported, namespaced pc_app_gpu_* to avoid the src/gpu pc_gpu_plan
+  clash); linux_libs (session detection, ldconfig parse, requirement check, distro + install message,
+  preflight); app_icon (decode the embedded icon). New `photocraft` desktop program: src/app/main.c
+  (its own frame loop + control pump; logging/crash/app-dirs/log-rotate/linux-preflight/GPU-sentinel/
+  control-server/UI-state restore+persist wired; --snapshot/--open kept; --control/--control-token
+  [-file]/--safe-gpu/--version added), built from the shell objects + app library. Makefile: `app`
+  in MODULES, src/app/main.c filtered out of the library and built as `photocraft` (like
+  photocraft-ui-shell), analyze + deps updated. tests/app/ 8 files, 32 tests, 142 checks green;
+  shell_control still 48/872; end-to-end control (auth + ui.inspect + unknown method) verified through
+  the real binary; headless snapshot via `photocraft` works; `make -j4` builds all binaries; main.c
+  strict-clean; check-layers ok (1233 files). Deviations in §7 (P1 lines). OPEN before [x]: act on the
+  GPU plan (switch the shell to CPU/software on --safe-gpu / detected crash — today only computed +
+  logged + used for crash detection), the in-process CPU retry, and macOS/BSD build verification; the
+  bulk of main.rs's eframe/wgpu machinery (adapter selection, monitor/tablet/cursor, Apple events) is
+  P2 or out of scope.
+- 2026-10-20 · G1/G2 (complete) · Finished the GPU compositor. Diffed the reference (bounds.rs, health.rs, lib.rs, plan.rs, fx.rs) against src/gpu/ and confirmed it is fully ported: fx_program.c builds every effect kind (shadows, glows with both techniques and sources, satin, bevel/emboss with texture/shade/pillow/chisel-soft, raster+vector stroke; overlays coloured at composite), and plan.c rejects advanced blending to the CPU exactly as the reference does. The remaining "integration cases" are deliberate deviations now in §7: the per-kernel specialized-shader architecture (vs the reference's uniform-batched mega-shader), uniform_limits.rs being architecturally N/A (no uniform-buffer page; deep stacks bounded by the planner's slot/pass limits → PC_ERR_LIMIT), and advanced-blending CPU fallback matching the reference. Added headless tests/gpu/test_bounds.c (3 tests, 27 checks): content_bounds tile-cache parity and the effect_region whole-vs-padded-canvas selection (#761). Headless gpu suite green: test_bounds 27, test_plan 112, test_prefix 37, test_fx_program 114. The real-GL parity suite tests/ui/test_gpu_compositor (device_loss/parity/vector_mask ports) passes 17 tests / 872,390 checks offscreen on Mesa llvmpipe within 1/255 + 4·FLT_EPSILON (run PC_TEST_GL=1 SDL_VIDEO_DRIVER=offscreen build/default/tests/ui/test_gpu_compositor). `make -j4` clean. Flipped G1 and G2 to [x]. Open: none for G1/G2; a headless health unit test is not feasible (fault state lives in the GL compositor; covered by the real-GL fault-precedence case) and the GL parity suite remains gated on PC_TEST_GL + a GL context.
+- 2026-10-20 · engine-tail + U7 prereqs · `src/engine/` warp_cmds (Transform Warp family: edit.transform.warp, layer.smartObjects.warp, splitWarp{Crosswise,Horizontally,Vertically}, removeWarpSplit, warpGrid — over src/geom/warp + src/algo/warp), content_scale_cmds (edit.contentAwareScale over src/algo/seam), perspective_crop_cmds (image.perspectiveCrop); then object_select_cmds (select.object + new `pc_algo_grabcut_object_at` in src/algo/grabcut.c), fill_layer_set_cmds (layer.fill.solidColor.set / pattern.set / layerContentOptions), brush_organize_cmds (brush.presets.rename/move/moveGroup/renameGroup/deleteGroup), preset_import_cmds (brush.presets.importAbr via src/psd/abr.c), and pc_engine_patch_preview (retouch_jobs.inc). Registry 850 → 869; panic_hunt green (869 cmds); test_registry green. Puppet/Perspective Warp were already present. Open: warp linked-mask selection limiting (#4175), SO warp content-frame knots (#4113), content-aware-scale background job.
+- 2026-10-20 · B-series primitives · `pc_engine_style_preset_thumbnail`, `pc_engine_pattern_thumbnail`, `pc_compose_adjust_apply_rgba8` (<=4Mi px), the Camera Raw `.xmp` codec (src/io/camera_raw_xmp.*, ~70 crs: scalars + curves), and raw re-develop tone params (shadows/highlights/clarity/texture/dehaze) + `pc_io_raw_tone_curve`. No new commands; no doc/format change. Unblocked the Styles gallery, Pattern Overlay picker, adjusted-spectrum bars, Camera Raw Save/Load Settings. Open: raw preview-look fitting (needs corpus golden regen).
+- 2026-10-20 · U5 · Gradients and Patterns dock preset panels (were placeholders): new `src/ui/preset_swatch.*` (stop-colour resolve + robust gradient sampling), wired into `panels.c`. Open: preset-browser gestures (rename/folders/drag-to-canvas), floating preset windows, pattern pixel thumbnails.
+- 2026-10-20 · U6 · Transform "Show Transformation Values" readout + rotate-cursor direction (arc overlay; SDL has only system cursors) in `transform.c`/`transform_ui.c`; fixed #2474 (Cmd-arrow nudge only on cmd-nudges tools) in `move_mods.c`. Headline U6 items (Warp/CAS/Perspective-Crop) were engine-blocked — now unblocked by engine-tail.
+- 2026-10-20 · U7 · Painting-gesture parity: shift straight-line constraint (new `stroke_constraint.*`), shift-click connect-line carrying pressure, gradient 45° snap, Alt Dodge<->Burn / Blur<->Sharpen, Color Replacement fg colour, Red Eye / Quick Selection dispatch. Open: large bespoke surfaces (gradient editor, fill dialog, retouch bars, brush tip pane).
+- 2026-10-20 · U7-surfaces · Gradient tool options bar + Gradient Editor window (`gradient_ui.*`, `gradient_edit.*`); Edit > Fill dialog (`fill_ui.*`, `fill_dialog.*`); retouch per-tool option bars for all 14 tools (`retouch_ui.*`) + Clone/Healing/Pattern stroke dispatch + Alt-set-source. Open: live gradient-fill-layer tool + on-canvas widget, brush Tip-Shape/Texture/Dual-Brush panes, Patch/CAM lasso gesture.
+- 2026-10-20 · U8-models · Warp-editor headless models: `persp_warp.*` (#952 guard), `puppet_warp.*` (#951), `liquify_dialog.*`, `wide_angle.*` — begin/fini, pointer, options, session undo/redo, describe, commit-params verified vs the engine commands. Fixed type IME bug #1381.
+- 2026-10-20 · U8-wiring · Wired all four warp editors into the shell (`warp_ui.*` + app.c/canvas_view.c/chrome.c/input.c): canvas overlays, SDL pointer/key routing, options bars, commit (one undo step) / cancel, Enter/Esc. GL offscreen render test added. Open: live warped-pixel proxy preview, Liquify freeze/thaw + lasso mask, floating-window proxy.
+- 2026-10-20 · U9-scopes · Camera Raw scopes + preview: new `rgb_histogram.*` (continuous RGB ribbon) and `camera_raw_scope.*` (tone zones, clip masks, vectorscope, RGB/Lab readouts, colour samplers, zoom/pan/before-after), drawn in `camera_raw_scope_draw.*` + `camera_raw_ui.c`. Engine-blocked: .xmp codec (then done in B-series), raw re-develop.
+- 2026-10-20 · U9-analysis · Analysis tools: Ruler/Count/Note overlays, Measurement Log + Notes panels, measurement-scale dialogs (`analysis.*`, `analysis_ui.*`); Colour Sampler already done. No engine blockers.
+- 2026-10-20 · U9-widgets · Levels/Curves drag handles + Auto, Hue/Sat spectrum, Channel-Mixer Total%, Layer Style greyed effect rows + angle dial + Blend-If ramp, Color Range preview modes (`level_auto`, `angle_dial`, `blend_if_ramp`, `channel_mixer`, `hue_spectrum`, `color_range_preview`). Open (engine): compositor adjust-apply-to-buffer (then done in B-series), preset style-texture (B-series), pattern enumeration (B-series).
+- 2026-10-20 · U9-wiring · Styles preset gallery (thumbnails), Pattern Overlay picker (`pattern_picker_ui.*`, `preset_thumb.*`), Hue/Sat adjusted-spectrum, Camera Raw Save/Load Settings (.xmp). Open: Curves/Levels modal eyedroppers (needs merged-composite point sampler), Color Range on-canvas eyedropper + overlay.
+- 2026-10-20 · U10 · New Document / Preferences (18 panes) / Document Properties / Discard / Rasterize / Export As were already present; added `file_paths.*` (natural sort, lowercase-ext, last-used-dir, is_tiff), open-in-last-folder, save lowercase-ext, preference colour swatches. Open (portable, B1–B9): Save-for-Web dialog, Print dialog, automate/scripts forms, multi-file Open, TIFF Options, prefs refinements. P2-blocked: OS open-file events + drag-drop.
+- 2026-10-20 · P2 · `src/app/` OS services: services (xdg-open/beep), monitor_profile (RGB-ICC validation, colord/XDG search), screen_color (budget/geometry/channel maths) — pure logic; then the live paths: X11 screen-pixel grab via xcb and per-monitor ICC via colord (dbus-1) with a RandR `_ICC_PROFILE` atom fallback, optional + feature-detected (Makefile WITH_X11SCREEN/WITH_COLORD, -DPC_NO_* → graceful stubs), exercised live on X11. Cursors/pen(stylus)/open-url already covered by SDL3. macOS (D2) + Wayland portal (D19) deferred. Layer rule: app may now depend on cms directly (matches the Rust app crate).
+- 2026-10-21 · layer-style GL fix · Moved the effect reorder/duplicate toolbar in `layer_style_ui.c` to directly under the effect list (above the greyed placeholder rows) so a 2nd effect no longer pushes it out of the scroll group's clickable area; fixes a GL-only regression (test_native_layer_style_instances_contour_and_cancel) that the non-GL gate had missed. The central gate now also runs the GL suite (PC_TEST_GL=1, offscreen: test_canvas_overlays / test_gpu_compositor / test_shell_control).
+- 2026-10-21 · consume-prereqs (PARTIAL, weekly rate limit) · Fill-layer double-click editing, brush-preset organizer UI, and the clone-source crosshair (`clone_marker.*`, retouch_ui) landed; the Color Range on-canvas overlay *render* was dropped (sub-agent hit the weekly API limit mid-edit, leaving a dangling `pc_ui_shell_color_range_overlay` call that was removed to restore the build). Tree re-stabilised: `make check` + GL suite green. Open: Color Range overlay render (its per-pixel core `pc_ui_color_range_overlay_pixel` exists), U9 eyedropper merged-composite sampler, U10 B1–B9, then the Z cutover.

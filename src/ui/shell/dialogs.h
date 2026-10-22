@@ -26,6 +26,16 @@ typedef struct pc_ui_dialog_runtime {
     bool curve_valid, curve_focus, map_dragging, graph_blocked;
     float curve_map[256], map_base[256];
     double map_start[2], map_last[2];
+    /* Levels graphical handles: levels_drag is 0 none / 1 input (black,gamma,white) / 2 output
+     * (outBlack,outWhite); levels_handle is the grabbed handle within that track. */
+    size_t levels_handle;
+    unsigned levels_drag;
+    /* Hue/Saturation range band drag over the spectrum bars. */
+    size_t hue_handle;
+    bool hue_dragging;
+    /* Blend If graphical ramp drag (0..3 handles). */
+    size_t blend_if_handle;
+    bool blend_if_dragging;
     pc_ui_filter_preview preview;
     pc_ui_parameter_schema schema;
     uint64_t schema_dialog;
@@ -48,6 +58,9 @@ pc_status pc_ui_shell_dialog_control(pc_ui_shell_app *app, const char *method, y
                                      pc_json_value *out, pc_error *err);
 pc_status pc_ui_shell_dialog_file(pc_ui_shell_app *app, const char *command, pc_json_value *out,
                                   pc_error *err);
+/* Open a native .xmp file chooser for the topmost (camera-raw) dialog's Save/Load Settings. The
+ * async result is applied in pc_ui_shell_dialogs_draw. No-op while a chooser is already open. */
+void pc_ui_shell_dialog_camera_raw_settings(pc_ui_shell_app *app, bool saving);
 pc_status pc_ui_shell_dialog_new(pc_ui_shell_app *app, pc_json_value *out, pc_error *err);
 pc_status pc_ui_shell_dialog_color_field(pc_ui_shell_app *app, yyjson_val *params, pc_json_value *out,
                                          pc_error *err);

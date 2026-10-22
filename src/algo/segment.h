@@ -257,6 +257,17 @@ pc_status pc_algo_grabcut(const pc_algo_rgb_image *img, uint8_t *trimap, size_t 
 pc_status pc_algo_grabcut_object_select(const pc_algo_sampler *s, pc_rect canvas, pc_rect rect,
                                         size_t work_px, pc_algo_region *out, pc_error *err);
 
+/* Working-resolution budget (pixels) for the Object Finder; small enough to run while the pointer
+ * hovers (grabcut.rs OBJECT_AT_WORK_PX). */
+#define PC_ALGO_OBJECT_AT_WORK_PX 60000u
+
+/* Object Selection's Object Finder (hover / click): the object under document point (x, y), a
+ * colour-growth heuristic refined by GrabCut (grabcut.rs object_at). *out is None (empty region)
+ * when the point is on the background, a flat image, or off the canvas. Pure, so the UI can run it
+ * on a worker thread while the pointer hovers. */
+pc_status pc_algo_grabcut_object_at(const pc_algo_sampler *s, pc_rect canvas, float x, float y,
+                                    size_t work_px, pc_algo_region *out, pc_error *err);
+
 /* Working-resolution labelling over `window` (sampled with step) to a full-resolution region,
  * the boundary re-cut with the models (fg and bg both NULL: no re-cut), anti-aliased. */
 pc_status pc_algo_segment_finish_region(const pc_algo_sampler *s, pc_rect window, size_t step,

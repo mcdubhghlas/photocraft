@@ -2,6 +2,7 @@
 #ifndef PC_UI_TOOL_GESTURE_H
 #define PC_UI_TOOL_GESTURE_H
 #include "ui/state.h"
+#include "ui/stroke_constraint.h"
 #include "engine/engine.h"
 #include "engine/live_stroke.h"
 typedef enum pc_ui_pointer_kind {
@@ -39,10 +40,33 @@ typedef struct pc_ui_tool_gesture {
     pc_buf brush;
     float colors[2][4];
     unsigned selection_mode;
+    bool alt_start; /* Alt held at the press: flips Dodge/Burn, Blur/Sharpen; subtracts for Quick Selection. */
+    /* Patch / Content-Aware Move: pressing inside the current selection with no modifiers drags the
+     * selection (patch/move); otherwise the gesture draws a freehand lasso. Decided at the press. */
+    bool patch_dragging;
     float zoom;
     pc_ui_tool_options options;
     pc_ui_tool_point *points;
     size_t count, capacity;
+    /* Shift straight-line / 45 degree constraint for painting and the Gradient tool. Reset each
+     * gesture. */
+    pc_ui_stroke_axis stroke_axis;
+    /* The previous painting stroke's end on this view, for Shift-click line connection. Persists
+     * across gestures (never wiped by finish()); staleness is caught by the document id. */
+    bool has_last_stroke;
+    pc_doc_id last_stroke_doc;
+    double last_stroke_end[2];
+    float last_stroke_pressure;
+    /* Clone/Healing source set by Alt-click (doc coords) for the on-canvas crosshair. The engine
+     * owns the authoritative source (cloneSource.set) and the aligned pairing; this is UI feedback
+     * only. Persists across gestures (never wiped by finish()); staleness caught by the document id. */
+    bool has_clone_source;
+    pc_doc_id clone_source_doc;
+    double clone_source[2];
+    /* Pattern Stamp phase kept across aligned strokes (read back from paint.patternStamp). */
+    bool has_pattern_phase;
+    pc_doc_id pattern_phase_doc;
+    double pattern_phase[2];
 } pc_ui_tool_gesture;
 pc_status pc_ui_tool_gesture_selection_event(pc_ui_tool_gesture *gesture, pc_engine_session *session,
                                              const pc_ui_state *ui, unsigned handoff, pc_ui_pointer_kind kind,

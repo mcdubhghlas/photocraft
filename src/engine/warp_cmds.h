@@ -18,4 +18,8 @@
 pc_status pc_engine_warp_from_params(const char *cmd, yyjson_val *p, const double rect[4], pc_warp *out,
                                      pc_error *err);
 
+/* The command specs for register_modules() (command.c): Edit/Layer > Transform > Warp, the split
+ * warps and the warp grid (warp_cmds::specs). */
+const pc_engine_command *pc_engine_warp_specs(size_t *n);
+
 #endif /* PC_ENGINE_WARP_CMDS_H */

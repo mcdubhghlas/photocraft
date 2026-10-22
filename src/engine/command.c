@@ -25,6 +25,7 @@
 #include "artboard_cmds.h"  /* E6: view.clearSelectedArtboardGuides */
 #include "fill_cmds.h"      /* E4: edit.fill + select.rect/float/stamp/fill-key module registries */
 #include "edit_cmds.h"      /* E4: clipboard (cut/copy/paste), clear, layer via copy/cut, merge visible */
+#include "preset_manager_cmds.h" /* U-tail: Edit > Presets > Preset Manager / Export-Import Presets */
 #include "transform_cmds.h" /* E4/ET1: edit.transform Free Transform + frame-based presets */
 #include "extra_cmds.h" /* E12: Stroke, Reselect, Equalize, rasterize, ungroup, layer-mask toggles, clouds */
 #include "align_distribute_cmds.h" /* GAP: layer align + distribute */
@@ -34,6 +35,13 @@
 #include "fill_layer_gap_cmds.h"   /* GAP: new fill layer (solid color + gradient) */
 #include "flatten_gap_cmds.h"      /* GAP: flatten all layer effects / all masks */
 #include "distort_cmds.h"          /* GAP: Filter>Liquify, Edit>Puppet/Perspective Warp (+smart) */
+#include "warp_cmds.h"             /* GAP: Edit/Layer>Transform>Warp, split warps, warp grid */
+#include "content_scale_cmds.h"    /* GAP: Edit>Content-Aware Scale */
+#include "perspective_crop_cmds.h" /* GAP: image.perspectiveCrop (Perspective Crop tool) */
+#include "object_select_cmds.h"    /* U7: select.object (GrabCut object finder) */
+#include "fill_layer_set_cmds.h"   /* U7: edit Solid/Pattern fill layers + layerContentOptions */
+#include "brush_organize_cmds.h"   /* U7: brush preset rename/move/group ops */
+#include "preset_import_cmds.h"    /* U7: brush.presets.importAbr */
 
 /* ---- owned JSON results ------------------------------------------------------------------- */
 
@@ -814,6 +822,9 @@ static void register_modules(pc_engine_command **arr, size_t *n, size_t *cap)
     (void)append_specs(arr, n, cap, layer_menu, m);
     const pc_engine_command *edit_menu = pc_engine_edit_menu_specs(&m); /* ET2: Edit > Purge */
     (void)append_specs(arr, n, cap, edit_menu, m);
+    const pc_engine_command *preset_manager =
+        pc_engine_preset_manager_specs(&m); /* U-tail: Edit > Presets Manager / Export-Import */
+    (void)append_specs(arr, n, cap, preset_manager, m);
     const pc_engine_command *color_to_alpha = pc_engine_color_to_alpha_specs(&m); /* ET2: Color to Alpha */
     (void)append_specs(arr, n, cap, color_to_alpha, m);
     const pc_engine_command *photo_automate = pc_engine_photo_automate_specs(&m); /* ET3: File > Automate */
@@ -853,6 +864,21 @@ static void register_modules(pc_engine_command **arr, size_t *n, size_t *cap)
     (void)append_specs(arr, n, cap, flatten_gap, m);
     const pc_engine_command *distort = pc_engine_distort_specs(&m); /* GAP: Liquify/Puppet/Perspective */
     (void)append_specs(arr, n, cap, distort, m);
+    const pc_engine_command *warp = pc_engine_warp_specs(&m); /* GAP: Transform>Warp, split, grid */
+    (void)append_specs(arr, n, cap, warp, m);
+    const pc_engine_command *content_scale = pc_engine_content_scale_specs(&m); /* GAP: Content-Aware Scale */
+    (void)append_specs(arr, n, cap, content_scale, m);
+    const pc_engine_command *pcrop = pc_engine_perspective_crop_specs(&m); /* GAP: Perspective Crop */
+    (void)append_specs(arr, n, cap, pcrop, m);
+    const pc_engine_command *object_select = pc_engine_object_select_specs(&m); /* U7: select.object */
+    (void)append_specs(arr, n, cap, object_select, m);
+    const pc_engine_command *fill_layer_set =
+        pc_engine_fill_layer_set_specs(&m); /* U7: edit fill layers + layerContentOptions */
+    (void)append_specs(arr, n, cap, fill_layer_set, m);
+    const pc_engine_command *brush_organize = pc_engine_brush_organize_specs(&m); /* U7: brush organiser */
+    (void)append_specs(arr, n, cap, brush_organize, m);
+    const pc_engine_command *preset_import = pc_engine_preset_import_specs(&m); /* U7: import .abr */
+    (void)append_specs(arr, n, cap, preset_import, m);
     /* E3..E12: append your module's specs() here. */
 }
 

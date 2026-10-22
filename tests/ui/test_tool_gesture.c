@@ -31,6 +31,200 @@ static pc_status event(pc_ui_tool_gesture *g, pc_engine_session *s, pc_ui_state 
     pc_json_value_fini(&result);
     return rc;
 }
+static pc_status event_p(pc_ui_tool_gesture *g, pc_engine_session *s, pc_ui_state *ui,
+                         pc_ui_pointer_kind kind, float x, float y, float pressure, unsigned mods)
+{
+    pc_json_value result = PC_JSON_VALUE_INIT;
+    pc_error err;
+    pc_status rc = pc_ui_tool_gesture_event(
+        g, s, ui, kind, (pc_ui_tool_point){.x = x, .y = y, .pressure = pressure}, mods, 1, &result, &err);
+    if (rc != PC_OK) {
+        (void)fprintf(stderr, "gesture: %s\n", err.msg);
+    }
+    pc_json_value_fini(&result);
+    return rc;
+}
+static const yyjson_mut_val *last_journal(pc_engine_session *s, const char *id)
+{
+    size_t n = pc_engine_session_journal_len(s);
+    for (size_t i = n; i-- > 0;) {
+        const char *jid = NULL;
+        const yyjson_mut_val *params = NULL;
+        if (pc_engine_session_journal_at(s, i, &jid, &params) && jid && !strcmp(jid, id)) {
+            return params;
+        }
+    }
+    return NULL;
+}
+static void test_shift_constrains_painting_stroke(void)
+{
+    pc_engine_session *s = session(8);
+    pc_ui_state ui;
+    pc_ui_state_init(&ui);
+    ui.tool = PC_TOOL_BRUSH;
+    pc_ui_tool_gesture g = {0};
+    CHECK(event(&g, s, &ui, PC_UI_POINTER_DOWN, 10, 10, PC_UI_MOD_SHIFT) == PC_OK);
+    CHECK(event(&g, s, &ui, PC_UI_POINTER_MOVE, 40, 12, PC_UI_MOD_SHIFT) == PC_OK);
+    CHECK(event(&g, s, &ui, PC_UI_POINTER_MOVE, 70, 25, PC_UI_MOD_SHIFT) == PC_OK);
+    CHECK(event(&g, s, &ui, PC_UI_POINTER_UP, 80, 30, PC_UI_MOD_SHIFT) == PC_OK);
+    const yyjson_mut_val *p = last_journal(s, "paint.stroke");
+    CHECK(p != NULL);
+    const yyjson_mut_val *pts = yyjson_mut_obj_get(p, "points");
+    size_t n = yyjson_mut_arr_size(pts);
+    CHECK(n >= 2);
+    for (size_t i = 0; i < n; i++) {
+        const yyjson_mut_val *pt = yyjson_mut_arr_get(pts, i);
+        CHECK_NEAR(yyjson_mut_get_num(yyjson_mut_arr_get(pt, 1)), 10, 1e-6);
+    }
+    const yyjson_mut_val *last = yyjson_mut_arr_get(pts, n - 1);
+    CHECK_NEAR(yyjson_mut_get_num(yyjson_mut_arr_get(last, 0)), 80, 1e-6);
+    pc_ui_tool_gesture_fini(&g);
+    pc_ui_state_fini(&ui);
+    pc_engine_session_free(s);
+}
+static void test_shift_click_connects_line_with_pressure(void)
+{
+    pc_engine_session *s = session(8);
+    pc_ui_state ui;
+    pc_ui_state_init(&ui);
+    ui.tool = PC_TOOL_BRUSH;
+    pc_ui_tool_gesture g = {0};
+    const pc_engine_doc_state *st = pc_engine_session_active(s);
+    /* A free stroke ending at (20,20) at pen pressure 0.35. */
+    CHECK(event_p(&g, s, &ui, PC_UI_POINTER_DOWN, 10, 10, 0.2f, 0) == PC_OK);
+    CHECK(event_p(&g, s, &ui, PC_UI_POINTER_MOVE, 20, 20, 0.35f, 0) == PC_OK);
+    CHECK(event_p(&g, s, &ui, PC_UI_POINTER_UP, 20, 20, 0.35f, 0) == PC_OK);
+    size_t before = pc_history_past_len(st->history);
+    /* Shift-click at (100,100): a straight line from (20,20), one undo step. */
+    CHECK(event_p(&g, s, &ui, PC_UI_POINTER_DOWN, 100, 100, 0.85f, PC_UI_MOD_SHIFT) == PC_OK);
+    CHECK(event_p(&g, s, &ui, PC_UI_POINTER_UP, 100, 100, 0.85f, PC_UI_MOD_SHIFT) == PC_OK);
+    CHECK(pc_history_past_len(st->history) == before + 1);
+    const yyjson_mut_val *p = last_journal(s, "paint.stroke");
+    const yyjson_mut_val *pts = p ? yyjson_mut_obj_get(p, "points") : NULL;
+    CHECK(yyjson_mut_arr_size(pts) == 2);
+    const yyjson_mut_val *a = yyjson_mut_arr_get(pts, 0);
+    const yyjson_mut_val *b = yyjson_mut_arr_get(pts, 1);
+    CHECK_NEAR(yyjson_mut_get_num(yyjson_mut_arr_get(a, 0)), 20, 1e-6);
+    CHECK_NEAR(yyjson_mut_get_num(yyjson_mut_arr_get(a, 1)), 20, 1e-6);
+    CHECK_NEAR(yyjson_mut_get_num(yyjson_mut_arr_get(a, 2)), 0.35, 1e-6);
+    CHECK_NEAR(yyjson_mut_get_num(yyjson_mut_arr_get(b, 0)), 100, 1e-6);
+    CHECK_NEAR(yyjson_mut_get_num(yyjson_mut_arr_get(b, 2)), 0.85, 1e-6);
+    /* A dab with no previous stroke does not connect. */
+    pc_engine_session *s2 = session(8);
+    pc_ui_tool_gesture g2 = {0};
+    CHECK(event(&g2, s2, &ui, PC_UI_POINTER_DOWN, 30, 30, PC_UI_MOD_SHIFT) == PC_OK);
+    CHECK(event(&g2, s2, &ui, PC_UI_POINTER_UP, 30, 30, PC_UI_MOD_SHIFT) == PC_OK);
+    const yyjson_mut_val *p2 = last_journal(s2, "paint.stroke");
+    const yyjson_mut_val *pts2 = p2 ? yyjson_mut_obj_get(p2, "points") : NULL;
+    CHECK(yyjson_mut_arr_size(pts2) == 1);
+    pc_ui_tool_gesture_fini(&g2);
+    pc_ui_tool_gesture_fini(&g);
+    pc_ui_state_fini(&ui);
+    pc_engine_session_free(s);
+    pc_engine_session_free(s2);
+}
+static void test_gradient_shift_snaps_to_45(void)
+{
+    pc_engine_session *s = session(8);
+    pc_ui_state ui;
+    pc_ui_state_init(&ui);
+    ui.tool = PC_TOOL_GRADIENT;
+    pc_ui_tool_gesture g = {0};
+    CHECK(event(&g, s, &ui, PC_UI_POINTER_DOWN, 10, 10, PC_UI_MOD_SHIFT) == PC_OK);
+    CHECK(event(&g, s, &ui, PC_UI_POINTER_UP, 90, 22, PC_UI_MOD_SHIFT) == PC_OK);
+    const yyjson_mut_val *p = last_journal(s, "paint.gradient");
+    const yyjson_mut_val *to = p ? yyjson_mut_obj_get(p, "to") : NULL;
+    CHECK(to != NULL);
+    CHECK_NEAR(yyjson_mut_get_num(yyjson_mut_arr_get(to, 0)), 90, 1e-6);
+    CHECK_NEAR(yyjson_mut_get_num(yyjson_mut_arr_get(to, 1)), 10, 1e-6); /* horizontal */
+    /* Diagonal: equal components. */
+    CHECK(event(&g, s, &ui, PC_UI_POINTER_DOWN, 10, 10, PC_UI_MOD_SHIFT) == PC_OK);
+    CHECK(event(&g, s, &ui, PC_UI_POINTER_UP, 90, 85, PC_UI_MOD_SHIFT) == PC_OK);
+    p = last_journal(s, "paint.gradient");
+    to = p ? yyjson_mut_obj_get(p, "to") : NULL;
+    double tx = yyjson_mut_get_num(yyjson_mut_arr_get(to, 0));
+    double ty = yyjson_mut_get_num(yyjson_mut_arr_get(to, 1));
+    CHECK(fabs(tx - ty) < 1e-6 && tx > 80);
+    pc_ui_tool_gesture_fini(&g);
+    pc_ui_state_fini(&ui);
+    pc_engine_session_free(s);
+}
+static void test_alt_flips_dodge_and_burn(void)
+{
+    pc_engine_session *s = session(8);
+    pc_json_value out = PC_JSON_VALUE_INIT;
+    CHECK(pc_engine_session_execute_json(s, "edit.fill", "{\"color\":\"#808080\"}", &out, NULL) == PC_OK);
+    pc_json_value_fini(&out);
+    pc_ui_state ui;
+    pc_ui_state_init(&ui);
+    ui.tool = PC_TOOL_DODGE;
+    pc_ui_tool_gesture g = {0};
+    CHECK(event(&g, s, &ui, PC_UI_POINTER_DOWN, 10, 10, 0) == PC_OK);
+    CHECK(event(&g, s, &ui, PC_UI_POINTER_UP, 20, 20, 0) == PC_OK);
+    CHECK(last_journal(s, "paint.dodge") != NULL);
+    CHECK(last_journal(s, "paint.burn") == NULL);
+    CHECK(event(&g, s, &ui, PC_UI_POINTER_DOWN, 10, 30, PC_UI_MOD_ALT) == PC_OK);
+    CHECK(event(&g, s, &ui, PC_UI_POINTER_UP, 20, 30, PC_UI_MOD_ALT) == PC_OK);
+    CHECK(last_journal(s, "paint.burn") != NULL); /* Alt flipped Dodge -> Burn */
+    pc_ui_tool_gesture_fini(&g);
+    pc_ui_state_fini(&ui);
+    pc_engine_session_free(s);
+}
+static void test_red_eye_and_quick_selection_dispatch(void)
+{
+    CHECK(pc_ui_tool_gesture_supported(PC_TOOL_RED_EYE));
+    CHECK(pc_ui_tool_gesture_supported(PC_TOOL_QUICK_SELECTION));
+    pc_engine_session *s = session(8);
+    pc_json_value out = PC_JSON_VALUE_INIT;
+    CHECK(pc_engine_session_execute_json(s, "edit.fill", "{\"color\":\"#ff0000\"}", &out, NULL) == PC_OK);
+    pc_json_value_fini(&out);
+    pc_ui_state ui;
+    pc_ui_state_init(&ui);
+    pc_ui_tool_gesture g = {0};
+    /* Red Eye click (over red pixels so the kernel has something to darken). */
+    ui.tool = PC_TOOL_RED_EYE;
+    CHECK(event(&g, s, &ui, PC_UI_POINTER_DOWN, 20, 20, 0) == PC_OK);
+    CHECK(event(&g, s, &ui, PC_UI_POINTER_UP, 20, 20, 0) == PC_OK);
+    const yyjson_mut_val *p = last_journal(s, "paint.redEye");
+    CHECK(p != NULL);
+    CHECK_NEAR(yyjson_mut_get_num(yyjson_mut_obj_get(p, "pupilSize")), 50, 1e-6);
+    /* Quick Selection drag, Alt subtracts. */
+    ui.tool = PC_TOOL_QUICK_SELECTION;
+    CHECK(event(&g, s, &ui, PC_UI_POINTER_DOWN, 5, 5, 0) == PC_OK);
+    CHECK(event(&g, s, &ui, PC_UI_POINTER_MOVE, 15, 15, 0) == PC_OK);
+    CHECK(event(&g, s, &ui, PC_UI_POINTER_UP, 25, 25, 0) == PC_OK);
+    p = last_journal(s, "select.quick");
+    CHECK(p != NULL);
+    CHECK_EQ_STR(yyjson_mut_get_str(yyjson_mut_obj_get(p, "mode")), "add");
+    CHECK(event(&g, s, &ui, PC_UI_POINTER_DOWN, 5, 5, PC_UI_MOD_ALT) == PC_OK);
+    CHECK(event(&g, s, &ui, PC_UI_POINTER_UP, 25, 25, PC_UI_MOD_ALT) == PC_OK);
+    p = last_journal(s, "select.quick");
+    CHECK_EQ_STR(yyjson_mut_get_str(yyjson_mut_obj_get(p, "mode")), "subtract");
+    pc_ui_tool_gesture_fini(&g);
+    pc_ui_state_fini(&ui);
+    pc_engine_session_free(s);
+}
+static void test_color_replacement_records_foreground(void)
+{
+    pc_engine_session *s = session(8);
+    pc_json_value out = PC_JSON_VALUE_INIT;
+    CHECK(pc_engine_session_execute_json(s, "edit.fill", "{\"color\":\"#808080\"}", &out, NULL) == PC_OK);
+    CHECK(pc_engine_session_execute_json(s, "tools.setColors", "{\"foreground\":[0.0705882,0.2039216,0.3372549,1]}",
+                                         &out, NULL) == PC_OK);
+    pc_json_value_fini(&out);
+    pc_ui_state ui;
+    pc_ui_state_init(&ui);
+    ui.tool = PC_TOOL_COLOR_REPLACEMENT;
+    pc_ui_tool_gesture g = {0};
+    CHECK(event(&g, s, &ui, PC_UI_POINTER_DOWN, 10, 10, 0) == PC_OK);
+    CHECK(event(&g, s, &ui, PC_UI_POINTER_UP, 20, 20, 0) == PC_OK);
+    const yyjson_mut_val *p = last_journal(s, "paint.colorReplacement");
+    CHECK(p != NULL);
+    CHECK_EQ_STR(yyjson_mut_get_str(yyjson_mut_obj_get(p, "color")), "#123456");
+    pc_ui_tool_gesture_fini(&g);
+    pc_ui_state_fini(&ui);
+    pc_engine_session_free(s);
+}
 static void test_stroke_oracle_at_all_depths(void)
 {
     unsigned depths[] = {8, 16, 32};
@@ -228,5 +422,11 @@ int main(int argc, char **argv)
     RUN(test_move_selected_pixels_preview_float_copy_drop_and_cancel);
     RUN(test_stroke_oracle_at_all_depths);
     RUN(test_selection_options_and_cancel);
+    RUN(test_shift_constrains_painting_stroke);
+    RUN(test_shift_click_connects_line_with_pressure);
+    RUN(test_gradient_shift_snaps_to_45);
+    RUN(test_alt_flips_dodge_and_burn);
+    RUN(test_red_eye_and_quick_selection_dispatch);
+    RUN(test_color_replacement_records_foreground);
     return pc_t_finish();
 }

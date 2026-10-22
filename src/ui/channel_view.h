@@ -11,6 +11,8 @@ typedef struct pc_ui_channel_cache {
     pc_compose_buffer image; /* premultiplied overlay, normalised to the canvas texture region */
     pc_doc_id document;
     uint64_t key, source_generation, generation;
+    uint64_t view_tag; /* mask/quick-mask view state; invalidates independently of the display key,
+                        * which XOR-folds single-bit mode flags against the revision and can collide */
     bool valid, active, in_color;
     bool extra_active;
     uint64_t extra_key;
