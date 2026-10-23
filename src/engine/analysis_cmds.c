@@ -1959,7 +1959,13 @@ static yyjson_mut_doc *filtered_row(yyjson_mut_doc *src, const struct str_list *
     for (size_t i = 0; i < keep->n; i++) {
         yyjson_val *v = yyjson_obj_get(simm, keep->items[i]);
         if (v != NULL) {
-            yyjson_mut_obj_add_val(d, root, keep->items[i], yyjson_val_mut_copy(d, v));
+            /* Copy the KEY into d: add_val borrows the key pointer, but keep->items[i] is owned by
+             * a->dp[...] and freed by str_list_fini — a later read of the stored log row would UAF. */
+            yyjson_mut_val *kv = yyjson_mut_strcpy(d, keep->items[i]);
+            yyjson_mut_val *vv = yyjson_val_mut_copy(d, v);
+            if (kv != NULL && vv != NULL) {
+                yyjson_mut_obj_add(root, kv, vv);
+            }
         }
     }
     yyjson_doc_free(imm);

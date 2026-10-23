@@ -367,6 +367,13 @@ int main(int argc, char **argv)
         (void)fail("startup", err.msg);
         goto done;
     }
+    /* If the startup GPU plan chose the software backend (--safe-gpu, a "cpu" rendering
+     * preference, or a crash detected on the previous run), force the shell to composite on the
+     * CPU: the canvas view will not create or use the GL compositor. */
+    if (plan.backend == PC_APP_GPU_CPU) { /* zeroed plan is AUTO, so this is only the real plan */
+        pc_ui_shell_app_set_force_cpu(a, true);
+        pc_log(PC_LOG_INFO, "canvas: software compositing forced");
+    }
     /* Restore the saved UI layout before the window opens. */
     pc_app_ui_state_load(pc_ui_shell_app_state(a), config_dir);
     if (open_path && open_document(a, open_path) != 0) {

@@ -33,6 +33,7 @@
 #include "ui/type_panels.h"
 #include "ui/pen_state.h"
 #include "ui/direct_state.h"
+#include "ui/preset_ui.h"
 
 /* ---- Tool (state.rs Tool) ---- */
 typedef enum pc_ui_tool {
@@ -267,6 +268,7 @@ typedef struct pc_ui_state {
 
     float dock_width;       /* native dock, logical points; [250,520] */
     pc_ui_dock_layout dock; /* U3: right-dock group layout (serde "dock") */
+    pc_ui_preset_ui presets_ui; /* U5: preset-panel state (serde "presets_ui") */
 
     /* EXTENSION REGION (later chunks): tool_options (U6/U7), dock/docking layout (U3),
      * per-panel state (U5), in-progress gestures (transform/text_edit/pen/magnetic/polygon),

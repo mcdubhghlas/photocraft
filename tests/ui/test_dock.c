@@ -362,8 +362,262 @@ static void test_ui_state_without_dock_defaults(void)
     pc_ui_state_fini(&s2);
 }
 
+/* Serialise a layout and parse it back, asserting equality (byte-level round-trip of our serde). */
+static void dock_roundtrip_eq(const pc_ui_dock_layout *l)
+{
+    yyjson_mut_doc *doc = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *root = NULL;
+    CHECK(pc_ui_dock_layout_to_json(l, doc, &root, NULL) == PC_OK);
+    yyjson_mut_doc_set_root(doc, root);
+    pc_buf buf = PC_BUF_INIT;
+    CHECK(pc_json_write(root, 0, &buf, NULL) == PC_OK);
+    yyjson_doc *parsed = NULL;
+    CHECK(pc_json_parse(pc_buf_cstr(&buf), strlen(pc_buf_cstr(&buf)), &parsed, NULL) == PC_OK);
+    pc_ui_dock_layout back;
+    pc_ui_dock_layout_init(&back);
+    CHECK(pc_ui_dock_layout_parse(&back, yyjson_doc_get_root(parsed), NULL) == PC_OK);
+    CHECK(pc_ui_dock_layout_eq(l, &back));
+    pc_ui_dock_layout_fini(&back);
+    yyjson_doc_free(parsed);
+    pc_buf_fini(&buf);
+    yyjson_mut_doc_free(doc);
+}
+
+static void test_float_toggle_and_rect(void)
+{
+    pc_ui_dock_layout l;
+    pc_ui_dock_layout_init(&l);
+    CHECK(!pc_ui_dock_is_floating(&l, PC_UI_GROUP_PROPERTIES));
+    /* Float with no rect: floating, but no user rect yet. */
+    pc_ui_dock_float(&l, PC_UI_GROUP_PROPERTIES, NULL);
+    CHECK(pc_ui_dock_is_floating(&l, PC_UI_GROUP_PROPERTIES));
+    float r[4];
+    CHECK(!pc_ui_dock_float_rect(&l, PC_UI_GROUP_PROPERTIES, r));
+    /* Float a second group with a rect; the two are independent. */
+    float want[4] = {64.0f, 48.0f, 320.0f, 240.0f};
+    pc_ui_dock_float(&l, PC_UI_GROUP_NAVIGATOR, want);
+    CHECK_EQ_UINT(l.n_floating, 2);
+    CHECK(pc_ui_dock_float_rect(&l, PC_UI_GROUP_NAVIGATOR, r));
+    CHECK(r[0] == 64.0f && r[1] == 48.0f && r[2] == 320.0f && r[3] == 240.0f);
+    /* Floating is orthogonal to collapse and order. */
+    pc_ui_dock_set_collapsed(&l, PC_UI_GROUP_NAVIGATOR, true);
+    CHECK(pc_ui_dock_is_collapsed(&l, PC_UI_GROUP_NAVIGATOR));
+    CHECK(pc_ui_dock_is_floating(&l, PC_UI_GROUP_NAVIGATOR));
+    pc_ui_group order[PC_UI_GROUP_N];
+    pc_ui_dock_order(&l, order); /* still every group once, default order */
+    CHECK_EQ_UINT(order[0], PC_UI_GROUP_COLOR);
+    /* Re-dock: not floating, user rect forgotten. */
+    pc_ui_dock_unfloat(&l, PC_UI_GROUP_NAVIGATOR);
+    CHECK(!pc_ui_dock_is_floating(&l, PC_UI_GROUP_NAVIGATOR));
+    CHECK(!pc_ui_dock_float_rect(&l, PC_UI_GROUP_NAVIGATOR, r));
+    CHECK_EQ_UINT(l.n_floating, 1);
+    pc_ui_dock_layout_fini(&l);
+}
+
+static void test_float_rect_sanitised(void)
+{
+    pc_ui_dock_layout l;
+    pc_ui_dock_layout_init(&l);
+    /* NaN/inf, below-minimum and absurd sizes are all clamped to sane finite bounds. */
+    float bad[4] = {NAN, INFINITY, 1.0f, -5.0f};
+    pc_ui_dock_float(&l, PC_UI_GROUP_LAYERS, bad);
+    float r[4];
+    CHECK(pc_ui_dock_float_rect(&l, PC_UI_GROUP_LAYERS, r));
+    for (int i = 0; i < 4; i++) {
+        CHECK(isfinite(r[i]));
+    }
+    CHECK(r[2] >= PC_UI_DOCK_FLOAT_MIN_W);
+    CHECK(r[3] >= PC_UI_DOCK_FLOAT_MIN_H);
+    float huge[4] = {0, 0, 1e9f, 1e9f};
+    pc_ui_dock_set_float_rect(&l, PC_UI_GROUP_LAYERS, huge);
+    CHECK(pc_ui_dock_float_rect(&l, PC_UI_GROUP_LAYERS, r));
+    CHECK(r[2] <= PC_UI_DOCK_MAX_HEIGHT && r[3] <= PC_UI_DOCK_MAX_HEIGHT);
+    pc_ui_dock_layout_fini(&l);
+}
+
+static void test_float_serde_roundtrip(void)
+{
+    pc_ui_dock_layout l;
+    pc_ui_dock_layout_init(&l);
+    dock_roundtrip_eq(&l); /* empty default */
+    pc_ui_dock_float(&l, PC_UI_GROUP_PROPERTIES, NULL); /* floating, no rect */
+    float rect[4] = {100.0f, 90.0f, 280.0f, 360.0f};
+    pc_ui_dock_float(&l, PC_UI_GROUP_HISTORY, rect); /* floating with rect */
+    pc_ui_dock_set_collapsed(&l, PC_UI_GROUP_PROPERTIES, true);
+    pc_ui_dock_move_group(&l, PC_UI_GROUP_LAYERS, &(pc_ui_group){PC_UI_GROUP_COLOR});
+    dock_roundtrip_eq(&l);
+    /* Floating survives alongside order/collapse/heights. */
+    pc_ui_dock_layout l2;
+    pc_ui_dock_layout_init(&l2);
+    pc_ui_dock_layout_copy(&l2, &l);
+    CHECK(pc_ui_dock_layout_eq(&l, &l2));
+    CHECK(pc_ui_dock_is_floating(&l2, PC_UI_GROUP_PROPERTIES));
+    CHECK(pc_ui_dock_is_floating(&l2, PC_UI_GROUP_HISTORY));
+    pc_ui_dock_layout_fini(&l2);
+    pc_ui_dock_layout_fini(&l);
+}
+
+static void test_float_bad_input_never_crashes(void)
+{
+    pc_ui_dock_layout l;
+    pc_ui_dock_layout_init(&l);
+    /* Unfloat a group that never floated; float the same group repeatedly; NULL rect queries. */
+    pc_ui_dock_unfloat(&l, PC_UI_GROUP_COLOR);
+    for (int i = 0; i < 20; i++) {
+        pc_ui_dock_float(&l, PC_UI_GROUP_COLOR, NULL);
+    }
+    CHECK_EQ_UINT(l.n_floating, 1); /* deduped */
+    pc_ui_dock_set_float_rect(&l, PC_UI_GROUP_COLOR, NULL);
+    /* Parse a malformed floating payload: unknown group, wrong-arity rect, non-numbers. */
+    const char *json =
+        "{\"floating\":[\"color\",\"nope\",\"layers\"],"
+        "\"floatRects\":{\"color\":[1,2,3],\"layers\":[\"a\",2,3,4],\"history\":[10,20,300,400]}}";
+    yyjson_doc *parsed = NULL;
+    CHECK(pc_json_parse(json, strlen(json), &parsed, NULL) == PC_OK);
+    pc_ui_dock_layout out;
+    pc_ui_dock_layout_init(&out);
+    CHECK(pc_ui_dock_layout_parse(&out, yyjson_doc_get_root(parsed), NULL) == PC_OK);
+    CHECK(pc_ui_dock_is_floating(&out, PC_UI_GROUP_COLOR));
+    CHECK(pc_ui_dock_is_floating(&out, PC_UI_GROUP_LAYERS));
+    CHECK_EQ_UINT(out.n_floating, 2); /* "nope" dropped */
+    float r[4];
+    CHECK(!pc_ui_dock_float_rect(&out, PC_UI_GROUP_COLOR, r));  /* 3-element rect rejected */
+    CHECK(!pc_ui_dock_float_rect(&out, PC_UI_GROUP_LAYERS, r)); /* non-numeric rejected */
+    pc_ui_dock_layout_fini(&out);
+    yyjson_doc_free(parsed);
+    pc_ui_dock_layout_fini(&l);
+}
+
+/* ---- mutable panel -> group membership (cross-group re-parent) ---- */
+
+static bool group_has(const pc_ui_dock_layout *l, pc_ui_group g, bool pro, const char *label)
+{
+    const char *labels[PC_UI_DOCK_MAX_MEMBERS];
+    size_t n = pc_ui_dock_group_labels(l, g, pro, labels);
+    for (size_t i = 0; i < n; i++) {
+        if (strcmp(labels[i], label) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/* Every one of the 17 panels is present in exactly one group. */
+static void check_partition(const pc_ui_dock_layout *l, bool pro)
+{
+    static const char *const all[] = {"Color",      "Swatches",  "Gradients", "Patterns",
+                                       "Properties", "Adjustments", "Character", "Paragraph",
+                                       "Navigator",  "Histogram", "Info",      "History",
+                                       "Actions",    "Layer Comps", "Layers",  "Channels", "Paths"};
+    CHECK_EQ_UINT(sizeof all / sizeof all[0], (size_t)PC_UI_DOCK_PANEL_COUNT);
+    for (size_t i = 0; i < sizeof all / sizeof all[0]; i++) {
+        size_t count = 0;
+        for (size_t gi = 0; gi < PC_UI_GROUP_N; gi++) {
+            if (group_has(l, PC_UI_GROUP_ALL[gi], pro, all[i])) {
+                count++;
+            }
+        }
+        CHECK_EQ_UINT(count, 1);
+    }
+}
+
+static void test_move_panel_between_groups(void)
+{
+    pc_ui_dock_layout l;
+    pc_ui_dock_layout_init(&l);
+    CHECK(!l.customized);
+    check_partition(&l, false); /* the native default layout partitions all 17 panels */
+    /* Move Swatches out of the Color group, tabbed just before Channels in the Layers group. */
+    pc_ui_dock_move_panel(&l, "Swatches", PC_UI_GROUP_LAYERS, "Channels", false);
+    CHECK(l.customized);
+    pc_ui_group g;
+    CHECK(pc_ui_dock_label_group(&l, "Swatches", false, &g) && g == PC_UI_GROUP_LAYERS);
+    CHECK(!group_has(&l, PC_UI_GROUP_COLOR, false, "Swatches"));
+    const char *labels[PC_UI_DOCK_MAX_MEMBERS];
+    size_t n = pc_ui_dock_group_labels(&l, PC_UI_GROUP_LAYERS, false, labels);
+    CHECK_EQ_UINT(n, 4);
+    CHECK(strcmp(labels[0], "Layers") == 0 && strcmp(labels[1], "Swatches") == 0 &&
+          strcmp(labels[2], "Channels") == 0 && strcmp(labels[3], "Paths") == 0);
+    check_partition(&l, false); /* still a valid partition after the move */
+    /* Append to a group (NULL before). */
+    pc_ui_dock_move_panel(&l, "Color", PC_UI_GROUP_HISTORY, NULL, false);
+    n = pc_ui_dock_group_labels(&l, PC_UI_GROUP_HISTORY, false, labels);
+    CHECK(strcmp(labels[n - 1], "Color") == 0);
+    check_partition(&l, false);
+    pc_ui_dock_layout_fini(&l);
+}
+
+static void test_move_panel_serde_and_copy(void)
+{
+    pc_ui_dock_layout l;
+    pc_ui_dock_layout_init(&l);
+    pc_ui_dock_move_panel(&l, "Properties", PC_UI_GROUP_LAYERS, "Channels", false);
+    pc_ui_dock_move_panel(&l, "Histogram", PC_UI_GROUP_COLOR, NULL, false);
+    pc_ui_dock_set_collapsed(&l, PC_UI_GROUP_COLOR, true);
+    dock_roundtrip_eq(&l);
+    pc_ui_dock_layout l2;
+    pc_ui_dock_layout_init(&l2);
+    pc_ui_dock_layout_copy(&l2, &l);
+    CHECK(pc_ui_dock_layout_eq(&l, &l2));
+    CHECK(l2.customized);
+    pc_ui_group g;
+    CHECK(pc_ui_dock_label_group(&l2, "Properties", false, &g) && g == PC_UI_GROUP_LAYERS);
+    pc_ui_dock_layout_fini(&l2);
+    pc_ui_dock_layout_fini(&l);
+}
+
+static void test_membership_backcompat_and_bad_input(void)
+{
+    /* A legacy dock object with no "groups" key loads as native (not customized). */
+    const char *legacy = "{\"order\":[\"layers\",\"color\"],\"collapsed\":[\"color\"]}";
+    yyjson_doc *p1 = NULL;
+    CHECK(pc_json_parse(legacy, strlen(legacy), &p1, NULL) == PC_OK);
+    pc_ui_dock_layout a;
+    pc_ui_dock_layout_init(&a);
+    CHECK(pc_ui_dock_layout_parse(&a, yyjson_doc_get_root(p1), NULL) == PC_OK);
+    CHECK(!a.customized);
+    CHECK(group_has(&a, PC_UI_GROUP_COLOR, false, "Swatches")); /* native tabs intact */
+    pc_ui_dock_layout_fini(&a);
+    yyjson_doc_free(p1);
+    /* A groups payload: unknown group + unknown label + a duplicate (first placement wins). */
+    const char *custom =
+        "{\"customized\":true,\"groups\":{\"color\":[\"Color\",\"bogus\",\"Layers\"],"
+        "\"nope\":[\"Swatches\"],\"layers\":[\"Layers\",\"Channels\",\"Paths\"]}}";
+    yyjson_doc *p2 = NULL;
+    CHECK(pc_json_parse(custom, strlen(custom), &p2, NULL) == PC_OK);
+    pc_ui_dock_layout b;
+    pc_ui_dock_layout_init(&b);
+    CHECK(pc_ui_dock_layout_parse(&b, yyjson_doc_get_root(p2), NULL) == PC_OK);
+    CHECK(b.customized);
+    CHECK(group_has(&b, PC_UI_GROUP_COLOR, false, "Color"));
+    CHECK(group_has(&b, PC_UI_GROUP_COLOR, false, "Layers")); /* re-parented into Color */
+    CHECK(!group_has(&b, PC_UI_GROUP_LAYERS, false, "Layers")); /* dup dropped from Layers */
+    pc_ui_group g;
+    CHECK(!pc_ui_dock_label_group(&b, "bogus", false, &g)); /* unknown label never placed */
+    pc_ui_dock_layout_fini(&b);
+    yyjson_doc_free(p2);
+    /* move_panel never crashes on hostile input. */
+    pc_ui_dock_layout c;
+    pc_ui_dock_layout_init(&c);
+    pc_ui_dock_move_panel(&c, NULL, PC_UI_GROUP_LAYERS, NULL, false);     /* NULL panel */
+    pc_ui_dock_move_panel(&c, "nope", PC_UI_GROUP_LAYERS, NULL, false);   /* unknown panel */
+    pc_ui_dock_move_panel(&c, "Layers", PC_UI_GROUP_N, NULL, false);      /* bad group */
+    CHECK(!c.customized);                                                 /* all were no-ops */
+    pc_ui_dock_move_panel(&c, "Layers", PC_UI_GROUP_LAYERS, "Layers", false); /* before==self */
+    CHECK(c.customized);
+    check_partition(&c, false);
+    pc_ui_dock_layout_fini(&c);
+}
+
 int main(int argc, char **argv)
 {
+    RUN(test_move_panel_between_groups);
+    RUN(test_move_panel_serde_and_copy);
+    RUN(test_membership_backcompat_and_bad_input);
+    RUN(test_float_toggle_and_rect);
+    RUN(test_float_rect_sanitised);
+    RUN(test_float_serde_roundtrip);
+    RUN(test_float_bad_input_never_crashes);
     RUN(test_last_expanded_group_fills_the_column);
     RUN(test_short_columns_squeeze_and_never_negative);
     RUN(test_bad_stored_values_are_sanitised);

@@ -75,6 +75,7 @@ static void test_sample(void)
     pc_ui_gradient_sample(&g, 0.5f, rgba);
     CHECK_NEAR(rgba[0], 0.5f, 5e-2);
     CHECK_NEAR(rgba[3], 0.5f, 5e-2);
+    yyjson_mut_doc_free(d);
 }
 static void test_nearest(void)
 {

@@ -16,7 +16,8 @@
 
 /* Resolve a pattern's thumbnail into a GL image (cached by id + size), rendering it through the
  * engine on a cache miss. false (no image) for an unknown/empty pattern or on any failure. */
-static bool pattern_image(pc_ui_shell_app *app, const char *id, uint32_t px, struct nk_image *out)
+bool pc_ui_shell_pattern_thumbnail_image(pc_ui_shell_app *app, const char *id, uint32_t px,
+                                         struct nk_image *out)
 {
     if (!id || !*id || px == 0)
         return false;
@@ -63,7 +64,7 @@ void pc_ui_shell_pattern_picker(pc_ui_shell_app *app, pc_ui_dialog *dialog, yyjs
         float side = fminf(tb.w, tb.h);
         struct nk_rect box = nk_rect(tb.x, tb.y, side, side);
         struct nk_image cur;
-        if (shown && pattern_image(app, shown, px, &cur))
+        if (shown && pc_ui_shell_pattern_thumbnail_image(app, shown, px, &cur))
             nk_draw_image(canvas, box, &cur, nk_rgba(255, 255, 255, 255));
         else {
             nk_fill_rect(canvas, box, 2, pc_ui_nk_color(tokens->field));
@@ -91,7 +92,7 @@ void pc_ui_shell_pattern_picker(pc_ui_shell_app *app, pc_ui_dialog *dialog, yyjs
                 if (!id)
                     continue;
                 struct nk_image thumb;
-                bool has = pattern_image(app, id, px, &thumb);
+                bool has = pc_ui_shell_pattern_thumbnail_image(app, id, px, &thumb);
                 nk_layout_row_dynamic(ctx, 40, 1);
                 char item[192];
                 (void)snprintf(item, sizeof item, "%s.item.%zu", prefix, i);

@@ -477,6 +477,9 @@ static pc_status run_rename(pc_engine_session *s, yyjson_val *p, pc_json_value *
     if ((rc = bo_text(p, "newName", cmd, &newname, err)) != PC_OK) {
         return rc;
     }
+    if (newname == NULL) { /* bo_text sets newname on PC_OK; makes the invariant explicit */
+        return pc_engine_err_bad_params(err, cmd, "missing `newName`");
+    }
     size_t j = index_of(v, n, newname);
     if (j != SIZE_MAX && j != i) {
         rc = pc_engine_err_bad_params(err, cmd, "a brush preset named `%s` already exists", newname);
@@ -1154,6 +1157,11 @@ static pc_status run_rename_group(pc_engine_session *s, yyjson_val *p, pc_json_v
         free(g);
         strvec_fini(&f);
         return rc;
+    }
+    if (newname == NULL) { /* bo_text sets newname on PC_OK; makes the invariant explicit */
+        free(g);
+        strvec_fini(&f);
+        return pc_engine_err_bad_params(err, cmd, "missing `newName`");
     }
     yyjson_mut_doc *rd = NULL;
     if (f.n > 0) {

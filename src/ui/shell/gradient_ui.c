@@ -891,7 +891,7 @@ void pc_ui_shell_gradient_widget_draw(pc_ui_shell_app *app, pc_ui_canvas_view *c
             float poly[10];
             bool okp = true;
             for (size_t i = 0; i < 4 && okp; i++) {
-                float sc[2];
+                float sc[2] = {0};
                 okp = grad_screen(xf, corners[i], sc);
                 poly[i * 2] = sc[0];
                 poly[i * 2 + 1] = sc[1];

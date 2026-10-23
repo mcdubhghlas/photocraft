@@ -11,6 +11,8 @@
 #include "canvas_ink.h"
 #include "base/buf.h"
 #include "base/json.h"
+#include "base/mem.h"
+#include "base/num.h"
 #include "doc/doc.h"
 #include "raster/surface.h"
 #include "ui/i18n.h"
@@ -90,6 +92,18 @@ static double view_zoom(pc_ui_shell_app *app)
 
 /* ------------------------------------------------------------------ lifecycle */
 
+/* Longest side of the Liquify preview proxy, in proxy pixels (matches the reference's PROXY_SIDE). */
+#define PC_UI_LIQUIFY_PROXY_SIDE 1600
+
+static void liq_preview_free(pc_ui_liquify_preview *p)
+{
+    if (!p)
+        return;
+    pc_algo_liquify_proxy_fini(&p->proxy);
+    free(p->out);
+    memset(p, 0, sizeof *p);
+}
+
 void pc_ui_shell_warp_fini(pc_ui_warp_runtime *r)
 {
     if (!r)
@@ -98,6 +112,7 @@ void pc_ui_shell_warp_fini(pc_ui_warp_runtime *r)
     pc_ui_puppet_fini(&r->puppet);
     pc_ui_liquify_fini(&r->liquify);
     pc_ui_wide_fini(&r->wide);
+    liq_preview_free(&r->liq_preview);
     memset(r, 0, sizeof *r);
 }
 
@@ -562,17 +577,31 @@ static void liquify_options(pc_ui_shell_app *app, struct nk_context *ctx)
     int sel = nk_combo(ctx, tools, 11, cur, 22, nk_vec2(220, 300));
     if (sel >= 0 && sel < 11)
         o->tool = pc_algo_liquify_tools_all[sel];
-    nk_layout_row_push(ctx, 150);
+    nk_layout_row_push(ctx, 125);
     nk_property_double(ctx, pc_i18n_t("Size"), 1, &o->size, 15000, 1, 1.0f);
-    nk_layout_row_push(ctx, 160);
+    nk_layout_row_push(ctx, 125);
     nk_property_double(ctx, pc_i18n_t("Density"), 0, &o->density, 100, 1, 0.5f);
-    nk_layout_row_push(ctx, 160);
+    nk_layout_row_push(ctx, 125);
     nk_property_double(ctx, pc_i18n_t("Pressure"), 0, &o->pressure, 100, 1, 0.5f);
-    nk_layout_row_push(ctx, 110);
+    nk_layout_row_push(ctx, 95);
     nk_bool mesh = o->show_mesh;
     if (nk_checkbox_label(ctx, pc_i18n_t("Show Mesh"), &mesh))
         o->show_mesh = mesh != 0;
-    nk_layout_row_push(ctx, 120);
+    nk_layout_row_push(ctx, 95);
+    nk_bool mask = o->show_mask;
+    if (nk_checkbox_label(ctx, pc_i18n_t("Show Mask"), &mask))
+        o->show_mask = mask != 0;
+    /* Mask Options: Mask All / None / Invert All (whole-field freeze operations). */
+    nk_layout_row_push(ctx, 78);
+    if (nk_button_label(ctx, pc_i18n_t("Mask All")))
+        (void)pc_ui_liquify_global(&r->liquify, PC_ALGO_LIQUIFY_FREEZE_ALL, false, 0.0, NULL);
+    nk_layout_row_push(ctx, 58);
+    if (nk_button_label(ctx, pc_i18n_t("None")))
+        (void)pc_ui_liquify_global(&r->liquify, PC_ALGO_LIQUIFY_THAW_ALL, false, 0.0, NULL);
+    nk_layout_row_push(ctx, 78);
+    if (nk_button_label(ctx, pc_i18n_t("Invert All")))
+        (void)pc_ui_liquify_global(&r->liquify, PC_ALGO_LIQUIFY_INVERT_FREEZE, false, 0.0, NULL);
+    nk_layout_row_push(ctx, 95);
     if (nk_button_label(ctx, pc_i18n_t("Restore All")))
         (void)pc_ui_liquify_restore_all(&r->liquify, NULL);
     commit_cancel_buttons(app, ctx);
@@ -710,6 +739,45 @@ static void draw_liquify(pc_ui_shell_app *app, const pc_ui_canvas_xform *xf, str
 {
     pc_ui_warp_runtime *r = pc_ui_shell_warp_runtime(app);
     pc_ui_liquify_dialog *s = &r->liquify;
+    /* Frozen regions (red overlay), drawn under the mesh so it reads through. The freeze mask is in
+     * source pixel space, so the quads use the undisplaced node positions; subsampled like the mesh
+     * to keep the quad count bounded (Rule 9). */
+    if (s->opts.show_mask && s->field.w > 1 && s->field.h > 1 && s->field.freeze) {
+        size_t step = s->field.w / 48 + 1;
+        size_t vstep = s->field.h / 48 + 1;
+        for (size_t j = 0; j + vstep < s->field.h; j += vstep) {
+            for (size_t i = 0; i + step < s->field.w; i += step) {
+                const float *fz = s->field.freeze;
+                float f00 = fz[j * s->field.w + i], f10 = fz[j * s->field.w + (i + step)],
+                      f01 = fz[(j + vstep) * s->field.w + i],
+                      f11 = fz[(j + vstep) * s->field.w + (i + step)];
+                float avg = (f00 + f10 + f01 + f11) * 0.25f;
+                if (!(avg > 0.5f))
+                    continue;
+                double c00[2], c10[2], c01[2], c11[2];
+                pc_algo_liquify_node_pos(&s->field, i, j, c00);
+                pc_algo_liquify_node_pos(&s->field, i + step, j, c10);
+                pc_algo_liquify_node_pos(&s->field, i + step, j + vstep, c11);
+                pc_algo_liquify_node_pos(&s->field, i, j + vstep, c01);
+                float p[8];
+                float sc[2];
+                bool ok = pc_ui_canvas_to_screen(xf, (float)c00[0], (float)c00[1], sc) == PC_OK;
+                p[0] = clip16(sc[0]);
+                p[1] = clip16(sc[1]);
+                ok = ok && pc_ui_canvas_to_screen(xf, (float)c10[0], (float)c10[1], sc) == PC_OK;
+                p[2] = clip16(sc[0]);
+                p[3] = clip16(sc[1]);
+                ok = ok && pc_ui_canvas_to_screen(xf, (float)c11[0], (float)c11[1], sc) == PC_OK;
+                p[4] = clip16(sc[0]);
+                p[5] = clip16(sc[1]);
+                ok = ok && pc_ui_canvas_to_screen(xf, (float)c01[0], (float)c01[1], sc) == PC_OK;
+                p[6] = clip16(sc[0]);
+                p[7] = clip16(sc[1]);
+                if (ok)
+                    nk_fill_polygon(cv, p, 4, nk_rgba(170, 30, 30, 110));
+            }
+        }
+    }
     /* Field mesh preview (displaced lattice). */
     if (s->opts.show_mesh && s->field.w > 1 && s->field.h > 1 && s->field.d) {
         size_t step = s->field.w / 48 + 1; /* keep the line count bounded */
@@ -773,6 +841,179 @@ static void draw_wide(pc_ui_shell_app *app, const pc_ui_canvas_xform *xf, struct
     }
     if (s->has_drag)
         doc_line(cv, xf, s->drag_a[0], s->drag_a[1], s->drag_b[0], s->drag_b[1]);
+}
+
+/* ------------------------------------------------------------------ live proxy preview */
+
+static bool rect_eq(pc_rect a, pc_rect b)
+{
+    return a.x0 == b.x0 && a.y0 == b.y0 && a.x1 == b.x1 && a.y1 == b.y1;
+}
+
+/* Document-space bounding box of the current stroke's points in [from, npoints), plus the previous
+ * end, inflated by the brush radius and a field cell so a dab's whole reach is covered. Returns
+ * false when there is nothing to bound. */
+static bool cur_stroke_dirty_rect(const pc_ui_liquify_dialog *s, size_t from, const double prev[2],
+                                  pc_rect *out)
+{
+    const pc_algo_liquify_stroke *st = &s->cur;
+    if (!st->off || st->npoints == 0)
+        return false;
+    double lo[2] = {prev[0], prev[1]}, hi[2] = {prev[0], prev[1]};
+    bool any = isfinite(prev[0]) && isfinite(prev[1]);
+    if (from >= st->npoints)
+        from = st->npoints - 1;
+    for (size_t i = from; i < st->npoints; i++) {
+        size_t base = st->off[i];
+        double x = st->coords[base], y = st->coords[base + 1];
+        if (!isfinite(x) || !isfinite(y))
+            continue;
+        if (!any) {
+            lo[0] = hi[0] = x;
+            lo[1] = hi[1] = y;
+            any = true;
+        } else {
+            lo[0] = fmin(lo[0], x);
+            lo[1] = fmin(lo[1], y);
+            hi[0] = fmax(hi[0], x);
+            hi[1] = fmax(hi[1], y);
+        }
+    }
+    if (!any)
+        return false;
+    double margin = fabs(st->size) * 0.5 + fmax(1.0, s->field.cell) * 2.0 + 1.0;
+    if (!isfinite(margin) || margin > 1e7)
+        margin = 1e7;
+    double x0 = floor(lo[0] - margin), y0 = floor(lo[1] - margin);
+    double x1 = ceil(hi[0] + margin), y1 = ceil(hi[1] + margin);
+    x0 = pc_clampd(x0, -2e9, 2e9);
+    y0 = pc_clampd(y0, -2e9, 2e9);
+    x1 = pc_clampd(x1, -2e9, 2e9);
+    y1 = pc_clampd(y1, -2e9, 2e9);
+    *out = pc_rect_make((int32_t)x0, (int32_t)y0, (int32_t)x1, (int32_t)y1);
+    return true;
+}
+
+bool pc_ui_shell_warp_live_overlay(pc_ui_shell_app *app, pc_ui_warp_overlay_frame *frame)
+{
+    if (!frame)
+        return false;
+    memset(frame, 0, sizeof *frame);
+    warp_sync(app);
+    pc_ui_warp_runtime *r = pc_ui_shell_warp_runtime(app);
+    pc_ui_liquify_preview *p = &r->liq_preview;
+    if (r->kind != PC_UI_WARP_LIQUIFY) {
+        liq_preview_free(p);
+        return false;
+    }
+    pc_ui_liquify_dialog *dlg = &r->liquify;
+    const pc_algo_liquify_field *field = &dlg->field;
+    if (field->w < 2 || field->h < 2 || !field->d) {
+        return false;
+    }
+    /* No warp yet (identity field): draw nothing, so the crisp canvas composite shows, not a
+     * downsampled copy of it. The mesh/mask overlays still convey a pending freeze. */
+    if (dlg->nstrokes == 0 && !dlg->has_cur) {
+        return false;
+    }
+    pc_layer_id id = 0;
+    const pc_layer *layer = active_layer(app, &id);
+    const pc_surface *surf = layer ? pc_layer_surface(layer) : NULL;
+    if (!surf) {
+        /* No pixel layer under the field: the mesh/mask overlays still show the edit. */
+        return false;
+    }
+    pc_rect bounds = field->bounds;
+    pc_error err = {0};
+
+    /* (Re)build the proxy when the target layer or the field geometry changes. */
+    bool rebuilt = false;
+    if (!p->ready || !p->proxy.px || p->layer != (uint64_t)id || !rect_eq(p->bounds, bounds) ||
+        p->fw != field->w || p->fh != field->h) {
+        pc_algo_liquify_proxy_fini(&p->proxy);
+        if (pc_algo_liquify_proxy_init(&p->proxy, surf, bounds, PC_UI_LIQUIFY_PROXY_SIDE, &err) != PC_OK) {
+            p->ready = false;
+            return false; /* over budget / OOM: fall back to the mesh overlay */
+        }
+        size_t need = p->proxy.w * p->proxy.h; /* bounded by proxy_init's PC_MAX_ALLOC check */
+        if (need > p->out_cap) {
+            uint8_t(*nb)[4] = pc_malloc_array(need, sizeof *nb);
+            if (!nb) {
+                pc_algo_liquify_proxy_fini(&p->proxy);
+                p->ready = false;
+                return false;
+            }
+            free(p->out);
+            p->out = nb;
+            p->out_cap = need;
+        }
+        p->ready = true;
+        p->layer = (uint64_t)id;
+        p->bounds = bounds;
+        p->fw = field->w;
+        p->fh = field->h;
+        p->valid_sig = false;
+        rebuilt = true;
+    }
+
+    size_t w = p->proxy.w, h = p->proxy.h;
+    size_t cur_np = dlg->has_cur ? dlg->cur.npoints : 0;
+
+    /* Decide what changed since the previous frame. */
+    bool changed = true, full = true;
+    if (!rebuilt && p->valid_sig) {
+        bool same = dlg->nstrokes == p->nstrokes && dlg->has_cur == p->has_cur && cur_np == p->cur_np &&
+                    dlg->last_point[0] == p->last_point[0] && dlg->last_point[1] == p->last_point[1];
+        bool cont = dlg->has_cur && p->has_cur && dlg->nstrokes == p->nstrokes && cur_np >= p->cur_np &&
+                    !same;
+        if (same) {
+            changed = false;
+            full = false;
+        } else if (cont) {
+            full = false; /* a continuing brush stroke: re-render only the touched region */
+        }
+    }
+
+    size_t dirty[4] = {0, 0, w, h};
+    if (changed && !full) {
+        pc_rect box;
+        double prev[2] = {p->last_point[0], p->last_point[1]};
+        size_t from = p->cur_np > 0 ? p->cur_np - 1 : 0;
+        if (cur_stroke_dirty_rect(dlg, from, prev, &box)) {
+            pc_algo_liquify_proxy_rect(&p->proxy, box, dirty);
+        }
+        /* else: keep the full-proxy dirty rect the initialiser set, re-rendering everything. */
+    }
+
+    if (changed && p->out) {
+        if (pc_algo_liquify_proxy_render(&p->proxy, field, dirty, p->out, p->out_cap, &err) != PC_OK) {
+            /* A degenerate render: keep the last good pixels, draw nothing new this frame. */
+            changed = false;
+            dirty[0] = dirty[2] = 0;
+            dirty[1] = dirty[3] = 0;
+        }
+    }
+
+    /* Record the signature for the next frame. */
+    p->nstrokes = dlg->nstrokes;
+    p->has_cur = dlg->has_cur;
+    p->cur_np = cur_np;
+    p->last_point[0] = dlg->last_point[0];
+    p->last_point[1] = dlg->last_point[1];
+    p->valid_sig = true;
+
+    frame->px = (const uint8_t(*)[4])p->out;
+    frame->w = w;
+    frame->h = h;
+    frame->doc_bounds = bounds;
+    if (changed) {
+        frame->dirty[0] = dirty[0];
+        frame->dirty[1] = dirty[1];
+        frame->dirty[2] = dirty[2];
+        frame->dirty[3] = dirty[3];
+    } /* else all-zero: nothing to upload, reuse the texture */
+    frame->opacity = 1.0f;
+    return p->out != NULL;
 }
 
 void pc_ui_shell_warp_draw(pc_ui_shell_app *app, const pc_ui_canvas_xform *xf)

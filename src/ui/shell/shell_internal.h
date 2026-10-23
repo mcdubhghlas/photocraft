@@ -22,6 +22,18 @@ void pc_ui_shell_cancel_canvas_gesture(pc_ui_shell_app *app);
 void pc_ui_shell_queue(pc_ui_shell_app *app, const char *command, const yyjson_mut_val *params);
 void pc_ui_shell_widget_mapping(pc_ui_shell_app *app, const char *command, struct nk_rect rect);
 void pc_ui_shell_request_exit(pc_ui_shell_app *app);
+/* U10: mirror the session clipboard onto the OS clipboard as PNG (after Copy/Copy Merged/Cut).
+ * Best-effort: no-op without the SDL video subsystem or when Export Clipboard is off. */
+void pc_ui_shell_os_clipboard_export(pc_ui_shell_app *app);
+/* U10: if the OS clipboard holds an image another app put there (not our own last export), decode it
+ * (codecs) and set it as the session clipboard, so Edit > Paste / File > New from Clipboard place an
+ * external image. Returns true when it imported new pixels (the caller then runs the paste command).
+ * Best-effort: no-op (false) without the SDL video subsystem, with no image on the OS clipboard, or
+ * when the image is the data we exported ourselves. Never crashes on hostile clipboard bytes. */
+bool pc_ui_shell_os_clipboard_import(pc_ui_shell_app *app);
+/* Fingerprint bookkeeping shared with os_clipboard.c (PNG length + FNV-1a of its bytes). */
+void pc_ui_shell_os_clip_mark_exported(pc_ui_shell_app *app, uint64_t fnv, size_t len);
+bool pc_ui_shell_os_clip_is_exported(const pc_ui_shell_app *app, uint64_t fnv, size_t len);
 bool pc_ui_shell_exit_requested(const pc_ui_shell_app *app);
 void pc_ui_shell_app_changed(pc_ui_shell_app *app);
 void pc_ui_shell_apply_preferences(pc_ui_shell_app *app);

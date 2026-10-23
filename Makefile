@@ -9,6 +9,10 @@
 #   make analyze    clang static analyzer, or cppcheck, if installed
 #   make valgrind   run the tests under valgrind, if installed
 #   make install    install programs into $(DESTDIR)$(PREFIX)/bin
+#   make dist       stage a Linux tar.gz of the built binaries (packaging/linux/dist.sh)
+#   make dist-deb   build a Debian .deb from the staged FHS tree (packaging/linux/deb.sh)
+#   make dist-appimage  stage an AppImage AppDir / build a .AppImage (packaging/linux/appimage.sh)
+#   make perf-bench build and run the headless C perf-bench driver (tools/perfbench)
 #   make clean      remove build/
 #
 # Standard variables are respected: CC CPPFLAGS CFLAGS LDFLAGS LDLIBS PREFIX DESTDIR PKG_CONFIG.
@@ -193,6 +197,13 @@ UISHELL := $(BUILD)/bin/photocraft-ui-shell
 # shell objects (minus the shell's own dev main) and the app library; the rest of src/app/ is in LIB.
 PHOTOCRAFT_MAIN_OBJ := $(BUILD)/obj/src/app/main.o
 PHOTOCRAFT := $(BUILD)/bin/photocraft
+# photocraft-perfbench (tools/perfbench): a headless, GUI-free performance driver for the
+# perf/budgets.toml scenarios (REWRITE_PLAN.md Z1 / §6 T1). Links the library only (CPU oracle; no
+# GL), so it builds on any host. Built on demand by `make perf-bench` / tools/perf.sh, NOT part of
+# `all` or `check` (it must not perturb the standing gate).
+PERFBENCH_SRCS := $(wildcard tools/perfbench/*.c)
+PERFBENCH_OBJS := $(PERFBENCH_SRCS:%.c=$(BUILD)/obj/%.o)
+PERFBENCH := $(BUILD)/bin/photocraft-perfbench
 TEST_SRCS := $(wildcard tests/*/test_*.c)
 # The shell control test needs the GUI packages (it links SDL, never inits video); drop it when they
 # are absent so a headless build host still runs the rest of the suite.
@@ -204,7 +215,7 @@ CLI_OBJS := $(CLI_SRCS:%.c=$(BUILD)/obj/%.o)
 APP_SRCS := $(CLI_SRCS)
 APP_OBJS := $(CLI_OBJS)
 
-.PHONY: all spike corpus test check sanitize tsan analyze valgrind install clean parity scorecard stats perf
+.PHONY: all spike corpus test check sanitize tsan analyze valgrind install dist dist-appimage dist-deb clean parity scorecard stats perf perf-bench
 .DEFAULT_GOAL := all
 
 all: $(LIB) $(PROGRAMS:%=$(BUILD)/bin/%) $(if $(HAVE_GUI),$(SPIKE) $(SNAP) $(UISHELL) $(PHOTOCRAFT))
@@ -347,6 +358,11 @@ $(BUILD)/bin/photocraft-cli: $(CLI_OBJS) $(LIB)
 	@mkdir -p $(@D)
 	$(CC) $(CLI_OBJS) $(LIB) $(ALL_LDFLAGS) $(ALL_LDLIBS) -o $@
 
+# photocraft-perfbench (tools/perfbench): headless perf driver, library only (no GUI).
+$(PERFBENCH): $(PERFBENCH_OBJS) $(LIB)
+	@mkdir -p $(@D)
+	$(CC) $(PERFBENCH_OBJS) $(LIB) $(ALL_LDFLAGS) $(ALL_LDLIBS) -o $@
+
 # photocraft-parity (src/ui/paritygen): headless menu-parity report writer (no GUI), linked against
 # the library. Used by tools/parity.sh to regenerate docs/parity-checklist.md.
 $(BUILD)/bin/photocraft-parity: $(BUILD)/obj/src/ui/paritygen/main.o $(LIB)
@@ -407,6 +423,11 @@ stats:
 perf:
 	@sh tools/perf.sh $(PERF_ARGS)
 
+# Build (library only) and run the headless C perf-bench driver (REWRITE_PLAN.md Z1 / §6 T1).
+perf-bench: $(PERFBENCH)
+	@echo "built $(PERFBENCH)"
+	@$(PERFBENCH) $(PERFBENCH_ARGS)
+
 SAN := $(if $(call cc_accepts,-fsanitize=address$(,)undefined),-fsanitize=address$(,)undefined -fno-sanitize-recover=all -fno-omit-frame-pointer)
 sanitize:
 ifeq ($(SAN),)
@@ -419,27 +440,27 @@ endif
 analyze:
 	@if command -v clang >/dev/null 2>&1; then \
 		for f in $(SRCS); do \
-			clang --analyze -Xclang -analyzer-werror -std=c17 -D_POSIX_C_SOURCE=200809L -Isrc $(THIRD_PARTY:%=-Ithird_party/%) $(PKG_CFLAGS) \
-				$(CODEC_CFLAGS) $(JXL_CFLAGS) $(PLUGINS_CFLAGS) -o /dev/null $$f || exit 1; \
+			clang --analyze -Xclang -analyzer-werror -std=c17 -D_POSIX_C_SOURCE=200809L -Isrc $(THIRD_PARTY:%=-isystem third_party/%) $(PKG_CFLAGS) \
+				$(CODEC_CFLAGS) $(JXL_CFLAGS) $(PLUGINS_CFLAGS) $(APP_OSINT_CFLAGS) -o /dev/null $$f || exit 1; \
 		done; \
 		for f in $(APP_SRCS); do \
-			clang --analyze -Xclang -analyzer-werror -std=c17 -D_POSIX_C_SOURCE=200809L -Isrc $(THIRD_PARTY:%=-Ithird_party/%) $(PKG_CFLAGS) \
+			clang --analyze -Xclang -analyzer-werror -std=c17 -D_POSIX_C_SOURCE=200809L -Isrc $(THIRD_PARTY:%=-isystem third_party/%) $(PKG_CFLAGS) \
 				-o /dev/null $$f || exit 1; \
 		done; \
 		for f in $(if $(HAVE_GUI),$(SPIKE_SRCS)); do \
-			clang --analyze -Xclang -analyzer-werror -std=c17 -D_POSIX_C_SOURCE=200809L -Isrc $(THIRD_PARTY:%=-Ithird_party/%) $(PKG_CFLAGS) \
+			clang --analyze -Xclang -analyzer-werror -std=c17 -D_POSIX_C_SOURCE=200809L -Isrc $(THIRD_PARTY:%=-isystem third_party/%) $(PKG_CFLAGS) \
 				$(GUI_CFLAGS) -o /dev/null $$f || exit 1; \
 		done; \
 		for f in $(if $(HAVE_GUI),$(SNAP_SRCS)); do \
-			clang --analyze -Xclang -analyzer-werror -std=c17 -D_POSIX_C_SOURCE=200809L -Isrc -Isrc/ui/spike $(THIRD_PARTY:%=-Ithird_party/%) $(PKG_CFLAGS) \
+			clang --analyze -Xclang -analyzer-werror -std=c17 -D_POSIX_C_SOURCE=200809L -Isrc -Isrc/ui/spike $(THIRD_PARTY:%=-isystem third_party/%) $(PKG_CFLAGS) \
 				$(GUI_CFLAGS) -o /dev/null $$f || exit 1; \
 		done; \
 		for f in $(if $(HAVE_GUI),$(UISHELL_SRCS)); do \
-			clang --analyze -Xclang -analyzer-werror -std=c17 -D_POSIX_C_SOURCE=200809L -Isrc -Isrc/ui/spike $(THIRD_PARTY:%=-Ithird_party/%) $(PKG_CFLAGS) \
+			clang --analyze -Xclang -analyzer-werror -std=c17 -D_POSIX_C_SOURCE=200809L -Isrc -Isrc/ui/spike $(THIRD_PARTY:%=-isystem third_party/%) $(PKG_CFLAGS) \
 				$(GUI_CFLAGS) -o /dev/null $$f || exit 1; \
 		done; \
 		for f in $(if $(HAVE_GUI),src/app/main.c); do \
-			clang --analyze -Xclang -analyzer-werror -std=c17 -D_POSIX_C_SOURCE=200809L -Isrc -Isrc/ui/spike -Isrc/ui/shell $(THIRD_PARTY:%=-Ithird_party/%) $(PKG_CFLAGS) \
+			clang --analyze -Xclang -analyzer-werror -std=c17 -D_POSIX_C_SOURCE=200809L -Isrc -Isrc/ui/spike -Isrc/ui/shell $(THIRD_PARTY:%=-isystem third_party/%) $(PKG_CFLAGS) \
 				$(GUI_CFLAGS) -o /dev/null $$f || exit 1; \
 		done; echo "analyze: clang static analyzer clean ($(words $(SRCS) $(APP_SRCS) $(if $(HAVE_GUI),$(SPIKE_SRCS) $(SNAP_SRCS) $(UISHELL_SRCS) src/app/main.c)) files)"; \
 	elif command -v cppcheck >/dev/null 2>&1; then \
@@ -468,6 +489,20 @@ install: all
 	@mkdir -p $(DESTDIR)$(BINDIR)
 	@for p in $(PROGRAMS); do cp $(BUILD)/bin/$$p $(DESTDIR)$(BINDIR)/$$p && chmod 755 $(DESTDIR)$(BINDIR)/$$p; done
 	@echo "installed: $(if $(PROGRAMS),$(PROGRAMS),nothing yet (no programs ported))"
+
+# Linux tarball of the built binaries + desktop integration (REWRITE_PLAN.md Z1 seam).
+# The signed AppImage/.deb/.rpm/.app formats remain a release-engineering item (docs/releasing.md).
+dist: all
+	@sh packaging/linux/dist.sh --bin $(BUILD)/bin
+
+# AppImage (staged AppDir; a real .AppImage when appimagetool + mksquashfs are installed, otherwise
+# the AppDir is left for a host that has them). Skips cleanly when the GUI binary is absent.
+dist-appimage: all
+	@sh packaging/linux/appimage.sh --bin $(BUILD)/bin
+
+# A Debian .deb, assembled from the staged FHS tree with ar + tar (no dpkg-deb required).
+dist-deb: all
+	@sh packaging/linux/deb.sh --bin $(BUILD)/bin
 
 clean:
 	rm -rf build

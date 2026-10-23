@@ -7,6 +7,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "base/buf.h"
+#include "base/json.h"
 #include "base/num.h"
 #include "base/str.h"
 #include "doc/comps.h"
@@ -1134,7 +1136,180 @@ static pc_status run_list(pc_engine_session *s, yyjson_val *p, pc_json_value *ou
     return PC_OK;
 }
 
+/* ---- File > Export > Layer Comps to Files (comps_cmds::comps_to_files) -------------------- */
+
+static const char *const MENU_FILE_EXPORT[] = {"File", "Export"};
+
+/* A sanitized copy of `name` into buf (bounded); falls back to `fallback` if empty. */
+static void sanitized(const char *name, const char *fallback, char *buf, size_t cap)
+{
+    pc_buf b = PC_BUF_INIT;
+    if (pc_engine_file_sanitize(&b, name != NULL ? name : "", NULL) == PC_OK && b.len > 0) {
+        size_t n = b.len < cap - 1 ? b.len : cap - 1;
+        memcpy(buf, b.data, n);
+        buf[n] = '\0';
+    } else {
+        (void)snprintf(buf, cap, "%s", fallback);
+    }
+    pc_buf_fini(&b);
+}
+
+static pc_status run_comps_to_files(pc_engine_session *s, yyjson_val *p, pc_json_value *out, pc_error *err)
+{
+    const char *cmd = "file.export.layerCompsToFiles";
+    size_t dl = 0;
+    const char *dir = p != NULL ? pc_json_as_str(pc_json_get(p, "dir"), &dl) : NULL;
+    if (dir == NULL) {
+        dir = p != NULL ? pc_json_as_str(pc_json_get(p, "output"), &dl) : NULL;
+    }
+    if (dir == NULL || dl == 0) {
+        return pc_engine_err_bad_params(err, cmd, "need `dir` (a folder to write into)");
+    }
+    char format[32];
+    size_t fl = 0;
+    const char *fmt = p != NULL ? pc_json_as_str(pc_json_get(p, "format"), &fl) : NULL;
+    if (fmt == NULL) {
+        (void)snprintf(format, sizeof format, "png");
+    } else {
+        while (fl > 0 && *fmt == '.') {
+            fmt++;
+            fl--;
+        }
+        size_t n = fl < sizeof format - 1 ? fl : sizeof format - 1;
+        for (size_t i = 0; i < n; i++) {
+            char c = fmt[i];
+            format[i] = (c >= 'A' && c <= 'Z') ? (char)(c - 'A' + 'a') : c;
+        }
+        format[n] = '\0';
+        if (n == 0) {
+            (void)snprintf(format, sizeof format, "png");
+        }
+    }
+    pc_engine_save_opts save = pc_engine_save_opts_default();
+    pc_status rc = pc_engine_save_opts_from_params(s, p, cmd, &save, err);
+    if (rc != PC_OK) {
+        return rc;
+    }
+    const pc_engine_doc_state *d = pc_engine_session_active(s);
+    if (d == NULL) {
+        return pc_engine_err_no_document(err);
+    }
+    const pc_document *doc = pc_doc_arc_get(d->doc);
+
+    char prefix[256];
+    size_t pl = 0;
+    const char *pref = p != NULL ? pc_json_as_str(pc_json_get(p, "prefix"), &pl) : NULL;
+    if (pref != NULL && pl > 0) {
+        size_t n = pl < sizeof prefix - 1 ? pl : sizeof prefix - 1;
+        memcpy(prefix, pref, n);
+        prefix[n] = '\0';
+    } else {
+        pc_engine_file_stem(pc_str_c(&doc->name), prefix, sizeof prefix);
+        if (prefix[0] == '\0') {
+            (void)snprintf(prefix, sizeof prefix, "Untitled");
+        }
+    }
+
+    /* Which comps: `comps` id list, else the last-applied one with `selectedOnly`, else all. */
+    bool selected_only = flag(p, "selectedOnly", false);
+    uint32_t *chosen = NULL;
+    size_t nchosen = 0;
+    yyjson_val *jc = p != NULL ? pc_json_get(p, "comps") : NULL;
+    if (jc != NULL && yyjson_is_arr(jc)) {
+        nchosen = yyjson_arr_size(jc);
+        chosen = nchosen > 0 ? malloc(nchosen * sizeof *chosen) : NULL;
+        if (nchosen > 0 && chosen == NULL) {
+            return pc_fail(err, PC_ERR_NOMEM, "layer comps");
+        }
+        for (size_t i = 0; i < nchosen; i++) {
+            uint32_t id = 0;
+            if (pc_engine_param_u32_id(cmd, "comps", yyjson_arr_get(jc, i), &id, err) != PC_OK) {
+                free(chosen);
+                return err != NULL ? err->code : PC_ERR_INVALID;
+            }
+            chosen[i] = id;
+        }
+    } else if (selected_only) {
+        uint32_t id = 0;
+        rc = comp_param(doc, NULL, cmd, &id, err);
+        if (rc != PC_OK) {
+            return rc;
+        }
+        chosen = malloc(sizeof *chosen);
+        if (chosen == NULL) {
+            return pc_fail(err, PC_ERR_NOMEM, "layer comps");
+        }
+        chosen[0] = id;
+        nchosen = 1;
+    }
+
+    char sprefix[256];
+    sanitized(prefix, "Untitled", sprefix, sizeof sprefix);
+
+    yyjson_mut_doc *rd = NULL;
+    if (pc_engine_result_doc(out, &rd, err) != PC_OK) {
+        free(chosen);
+        return PC_ERR_NOMEM;
+    }
+    yyjson_mut_val *root = yyjson_mut_obj(rd);
+    yyjson_mut_val *files = yyjson_mut_arr(rd);
+    size_t written = 0;
+    for (size_t i = 0; i < doc->nlayer_comps; i++) {
+        const pc_layer_comp *c = &doc->layer_comps[i];
+        bool want = chosen == NULL;
+        for (size_t k = 0; !want && k < nchosen; k++) {
+            want = chosen[k] == c->id;
+        }
+        if (!want) {
+            continue;
+        }
+        pc_document one;
+        if (pc_document_clone(doc, &one, err) != PC_OK) {
+            rc = err != NULL ? err->code : PC_ERR_NOMEM;
+            goto done;
+        }
+        apply_comp_impl(&one, c, false);
+        one.has_last_applied_comp = true;
+        one.last_applied_comp = c->id;
+        char sname[256];
+        sanitized(pc_str_c(&c->name), "Comp", sname, sizeof sname);
+        char base[600];
+        (void)snprintf(base, sizeof base, "%s_%04zu_%s.%s", sprefix, i, sname, format);
+        char *path = pc_engine_file_join(dir, base);
+        if (path == NULL) {
+            pc_document_fini(&one);
+            rc = pc_fail(err, PC_ERR_NOMEM, "layer comps path");
+            goto done;
+        }
+        rc = pc_engine_save_doc(&one, path, &save, NULL, err);
+        pc_document_fini(&one);
+        if (rc != PC_OK) {
+            free(path);
+            goto done;
+        }
+        (void)yyjson_mut_arr_add_strcpy(rd, files, path);
+        free(path);
+        written++;
+    }
+    if (written == 0) {
+        rc = pc_engine_err_bad_params(err, cmd, "no matching layer comps");
+        goto done;
+    }
+    yyjson_mut_obj_add_val(rd, root, "files", files);
+    yyjson_mut_doc_set_root(rd, root);
+    free(chosen);
+    return PC_OK;
+done:
+    free(chosen);
+    return rc;
+}
+
 static const pc_engine_command SPECS[] = {
+    {"file.export.layerCompsToFiles", "Layer Comps to Files\xE2\x80\xA6", MENU_FILE_EXPORT, 2, NULL,
+     "{\"dir\":folder,\"format\":\"png|jpg|tif|...\"=\"png\",\"prefix\":str? (default: the document "
+     "name),\"comps\":[id]? (default: all; or \"selectedOnly\":bool for the last applied),\"quality\":"
+     "0..12?} \xE2\x86\x92 {files:[path]}",
+     comps_has_comps, run_comps_to_files, false},
     {"layerComp.new", "New Layer Comp\xE2\x80\xA6", NULL, 0, NULL,
      "{\"name\":str=\"Layer Comp N\",\"comment\":str=\"\",\"visibility\":bool=true,\"position\":bool="
      "true,\"appearance\":bool=true} \xE2\x86\x92 {comp}",

@@ -64,6 +64,12 @@ pc_status pc_ui_shell_app_capture(pc_ui_shell_app *a, uint8_t **out_rgba, int *o
 
 pc_engine_session *pc_ui_shell_app_session(pc_ui_shell_app *a);
 pc_ui_state *pc_ui_shell_app_state(pc_ui_shell_app *a);
+
+/* P1: force software (CPU) compositing for the whole app, overriding the useGpu/gpuBackend
+ * preferences. main.c sets this when the startup GPU plan is CPU (--safe-gpu or a detected GPU
+ * crash on the previous run). The canvas view then never creates or uses a GL compositor. */
+void pc_ui_shell_app_set_force_cpu(pc_ui_shell_app *a, bool force);
+bool pc_ui_shell_app_force_cpu(const pc_ui_shell_app *a);
 const pc_ui_tokens *pc_ui_shell_app_tokens(const pc_ui_shell_app *a);
 uint64_t pc_ui_shell_app_frame(const pc_ui_shell_app *a);
 void pc_ui_shell_app_window_size(const pc_ui_shell_app *a, float *w, float *h, float *pixels_per_point);

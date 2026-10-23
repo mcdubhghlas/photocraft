@@ -59,6 +59,10 @@ bool pc_ui_group_scrolls_itself(pc_ui_group g, size_t tab);
 #define PC_UI_DOCK_MAX_ORDER 16
 /* Tab names kept per group in tab_order (take 16 in the reference; groups have <= 4 tabs). */
 #define PC_UI_DOCK_MAX_ORDER_NAMES 16
+/* Every panel could end up re-parented into a single group (cross-group moves): the whole panel
+ * universe is 17 (see dock.c). Member lists and label output arrays are sized to hold them all. */
+#define PC_UI_DOCK_PANEL_COUNT 17
+#define PC_UI_DOCK_MAX_MEMBERS 17
 
 /* An owned list of tab names (hidden or ordered), by the English tab name. */
 typedef struct pc_ui_name_list {
@@ -66,7 +70,13 @@ typedef struct pc_ui_name_list {
     size_t n;
 } pc_ui_name_list;
 
-/* Order, heights, collapsed state and tab visibility/order of the dock groups. */
+/* Smallest a floating dock window may be (logical points). */
+#define PC_UI_DOCK_FLOAT_MIN_W 180.0f
+#define PC_UI_DOCK_FLOAT_MIN_H 70.0f
+/* Default floating window size. */
+#define PC_UI_DOCK_FLOAT_DEFAULT_W 300.0f
+
+/* Order, heights, collapsed state, float state and tab visibility/order of the dock groups. */
 typedef struct pc_ui_dock_layout {
     pc_ui_group order[PC_UI_DOCK_MAX_ORDER]; /* top-to-bottom order as stored (may be partial/dup) */
     size_t n_order;
@@ -74,8 +84,22 @@ typedef struct pc_ui_dock_layout {
     float heights[PC_UI_GROUP_N];
     pc_ui_group collapsed[PC_UI_GROUP_N]; /* groups collapsed to their tab strip, insertion order */
     size_t n_collapsed;
+    /* Groups detached from the right column into their own floating window, insertion order. The
+     * reference floats individual panels through the external craft_ui tree (not vendored, §7); with
+     * fixed group membership a group floats as a unit. Orthogonal to order/collapse/heights. */
+    pc_ui_group floating[PC_UI_GROUP_N];
+    size_t n_floating;
+    bool has_float_rect[PC_UI_GROUP_N]; /* a user-placed window rect (else a cascade default) */
+    float float_rects[PC_UI_GROUP_N][4]; /* [x, y, w, h] in logical points */
     pc_ui_name_list hidden_tabs[PC_UI_GROUP_N]; /* tabs hidden by Close, by name */
     pc_ui_name_list tab_order[PC_UI_GROUP_N];   /* left-to-right tab order, by name */
+    /* Mutable panel -> group assignment (cross-group re-parent). While `customized` is false the
+     * groups use the fixed native tab arrays (byte-exact legacy behaviour); the first cross-group
+     * move materialises explicit per-group label lists in `members` and sets `customized`. A panel
+     * is identified by its English label (same key space as tab_order / hidden_tabs). This mirrors
+     * the reference's flexible craft_ui docking tree, mapped onto the six fixed C group slots. */
+    pc_ui_name_list members[PC_UI_GROUP_N];
+    bool customized;
 } pc_ui_dock_layout;
 
 void pc_ui_dock_layout_init(pc_ui_dock_layout *l); /* default (empty) */
@@ -89,6 +113,16 @@ void pc_ui_dock_order(const pc_ui_dock_layout *l, pc_ui_group out[PC_UI_GROUP_N]
 
 bool pc_ui_dock_is_collapsed(const pc_ui_dock_layout *l, pc_ui_group g);
 void pc_ui_dock_set_collapsed(pc_ui_dock_layout *l, pc_ui_group g, bool on);
+
+/* Floating dock windows. `float` detaches `g` into a window (`rect` NULL keeps/defaults its place),
+ * `unfloat` re-docks it, `is_floating` queries. `float_rect` writes the sanitised [x,y,w,h] into
+ * `out` and returns true when `g` floats with a user-placed rect (false → the renderer cascades a
+ * default). `set_float_rect` records a (sanitised) window placement. All NULL/odd-value safe. */
+bool pc_ui_dock_is_floating(const pc_ui_dock_layout *l, pc_ui_group g);
+void pc_ui_dock_float(pc_ui_dock_layout *l, pc_ui_group g, const float rect[4]);
+void pc_ui_dock_unfloat(pc_ui_dock_layout *l, pc_ui_group g);
+bool pc_ui_dock_float_rect(const pc_ui_dock_layout *l, pc_ui_group g, float out[4]);
+void pc_ui_dock_set_float_rect(pc_ui_dock_layout *l, pc_ui_group g, const float rect[4]);
 
 /* The stored (or default) height, sanitised to [min_height, MAX_HEIGHT]. */
 float pc_ui_dock_height(const pc_ui_dock_layout *l, pc_ui_group g);
@@ -106,6 +140,28 @@ size_t pc_ui_dock_visible_tabs(const pc_ui_dock_layout *l, pc_ui_group g, bool p
 void pc_ui_dock_move_tab(pc_ui_dock_layout *l, pc_ui_group g, size_t tab, const size_t *before, bool pro);
 void pc_ui_dock_hide_tab(pc_ui_dock_layout *l, pc_ui_group g, size_t tab, bool pro);
 void pc_ui_dock_show_tab(pc_ui_dock_layout *l, pc_ui_group g, size_t tab, bool pro);
+
+/* ---- mutable panel -> group membership (cross-group re-parent) ---- */
+
+/* The native (default) group a panel label belongs to. False for an unknown label. */
+bool pc_ui_dock_label_native_group(const char *label, pc_ui_group *out);
+/* Panels that lay out their own scrolling body (Layers, History, Actions, Navigator), by label. */
+bool pc_ui_dock_label_scrolls_itself(const char *label);
+/* Effective ordered labels of group `g`: `members[g]` when customized, else the native theme order.
+ * Writes label pointers (static or owned-by-the-layout strings, valid until the layout changes) into
+ * `out` and returns the count (<= PC_UI_DOCK_MAX_MEMBERS). */
+size_t pc_ui_dock_group_labels(const pc_ui_dock_layout *l, pc_ui_group g, bool pro,
+                               const char *out[PC_UI_DOCK_MAX_MEMBERS]);
+/* As above, with hidden tabs removed. */
+size_t pc_ui_dock_visible_labels(const pc_ui_dock_layout *l, pc_ui_group g, bool pro,
+                                 const char *out[PC_UI_DOCK_MAX_MEMBERS]);
+/* The group currently holding `label`, or false if it is in no group. */
+bool pc_ui_dock_label_group(const pc_ui_dock_layout *l, const char *label, bool pro, pc_ui_group *out);
+/* Re-parent panel `panel` (a label) into group `target`, drawn just before `before` (NULL = end;
+ * a label not in `target` also means end). Materialises the membership on first use and sets
+ * `customized`. No-op for an unknown panel/target. NULL/odd-value safe, never crashes. */
+void pc_ui_dock_move_panel(pc_ui_dock_layout *l, const char *panel, pc_ui_group target,
+                           const char *before, bool pro);
 
 /* Lay out `shown` (display order, `n` groups) in a column `avail` tall with `strip`-high tab
  * strips. Fills `out[i]` with each group's height; the last expanded group fills the rest. */

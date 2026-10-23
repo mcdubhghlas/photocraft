@@ -162,6 +162,57 @@ static void test_paste_no_document(void)
     pc_engine_session_free(s);
 }
 
+/* pc_engine_set_clipboard (OS clipboard image-in): external RGBA8 pixels become the session
+ * clipboard, so Paste / New from Clipboard place them even with no prior internal Copy. */
+static void test_set_clipboard_external_image(void)
+{
+    pc_engine_session *s = NULL;
+    CHECK(pc_engine_session_new(&s, NULL) == PC_OK);
+    /* A 4x3 opaque green image, straight-alpha RGBA8. */
+    const uint32_t w = 4, h = 3;
+    uint8_t px[4 * 3 * 4];
+    for (size_t i = 0; i < (size_t)w * h; i++) {
+        px[i * 4 + 0] = 0;
+        px[i * 4 + 1] = 255;
+        px[i * 4 + 2] = 0;
+        px[i * 4 + 3] = 255;
+    }
+    CHECK(pc_engine_set_clipboard(s, px, w, h, NULL) == PC_OK);
+    pc_size size = {0};
+    CHECK(pc_engine_session_clipboard_size(s, &size));
+    CHECK_EQ_UINT(size.width, w);
+    CHECK_EQ_UINT(size.height, h);
+    /* New from Clipboard makes a 4x3 document holding the green pixels. */
+    CHECK(exec(s, "file.newFromClipboard", "{}") == PC_OK);
+    const pc_engine_doc_state *st = pc_engine_session_active(s);
+    CHECK(st != NULL);
+    const pc_document *doc = pc_doc_arc_get(st->doc);
+    CHECK_EQ_UINT(doc->size.width, w);
+    CHECK_EQ_UINT(doc->size.height, h);
+    float p[4];
+    active_px(s, 1, 1, p);
+    CHECK_NEAR(p[1], 1.0f, 0.004f); /* green */
+    CHECK_NEAR(p[0], 0.0f, 0.004f);
+    CHECK_NEAR(p[3], 1.0f, 0.004f);
+    pc_engine_session_free(s);
+}
+
+/* Hostile / degenerate arguments to pc_engine_set_clipboard must error, never crash. */
+static void test_set_clipboard_adversarial(void)
+{
+    pc_engine_session *s = NULL;
+    CHECK(pc_engine_session_new(&s, NULL) == PC_OK);
+    uint8_t one[4] = {1, 2, 3, 4};
+    CHECK(pc_engine_set_clipboard(NULL, one, 1, 1, NULL) == PC_ERR_INVALID);
+    CHECK(pc_engine_set_clipboard(s, NULL, 1, 1, NULL) == PC_ERR_INVALID);
+    CHECK(pc_engine_set_clipboard(s, one, 0, 1, NULL) == PC_ERR_INVALID);
+    CHECK(pc_engine_set_clipboard(s, one, 1, 0, NULL) == PC_ERR_INVALID);
+    /* Oversized dimensions overflow the pixel count: PC_ERR_LIMIT, clipboard unchanged. */
+    CHECK(pc_engine_set_clipboard(s, one, 0xffffffffu, 0xffffffffu, NULL) == PC_ERR_LIMIT);
+    CHECK(!pc_engine_session_clipboard_size(s, NULL));
+    pc_engine_session_free(s);
+}
+
 /* Every registered command with adversarial params must error (not crash). */
 static void test_adversarial(void)
 {
@@ -210,6 +261,8 @@ int main(int argc, char **argv)
     RUN(test_toggle_last_state);
     RUN(test_new_from_clipboard);
     RUN(test_paste_no_document);
+    RUN(test_set_clipboard_external_image);
+    RUN(test_set_clipboard_adversarial);
     RUN(test_adversarial);
     return pc_t_finish();
 }

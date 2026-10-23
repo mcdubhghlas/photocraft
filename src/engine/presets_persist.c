@@ -299,14 +299,14 @@ static yyjson_mut_val *groups_to(yyjson_mut_doc *d, const pc_preset_groups *g, s
 
 /* Replace *dst with the groups parsed from `v` (an array of {name, items}); on any failure leaves
  * *dst untouched and returns false. */
-static bool groups_from(yyjson_val *v, pc_preset_groups *dst, const pc_preset_item_ops *ops,
-                        item_from_fn from)
+/* Parse `v` (a JSON array of {name, items:[...]}) into a freshly-initialised *out. */
+static bool parse_groups(yyjson_val *v, pc_preset_groups *out, const pc_preset_item_ops *ops,
+                         item_from_fn from)
 {
+    pc_preset_groups_init(out);
     if (v == NULL || !yyjson_is_arr(v)) {
         return false;
     }
-    pc_preset_groups g;
-    pc_preset_groups_init(&g);
     size_t idx, max;
     yyjson_val *el;
     yyjson_arr_foreach(v, idx, max, el) {
@@ -318,11 +318,12 @@ static bool groups_from(yyjson_val *v, pc_preset_groups *dst, const pc_preset_it
             memcpy(nbuf, nm, cn);
         }
         nbuf[nm != NULL ? cn : 0] = '\0';
-        if (pc_preset_groups_push(&g, nbuf, NULL) == NULL) {
-            pc_preset_groups_fini(&g, ops);
+        if (pc_preset_groups_push(out, nbuf, NULL) == NULL) {
+            pc_preset_groups_fini(out, ops);
+            pc_preset_groups_init(out);
             return false;
         }
-        size_t gidx = g.n - 1;
+        size_t gidx = out->n - 1;
         yyjson_val *items = pc_json_get(el, "items");
         if (items == NULL || !yyjson_is_arr(items)) {
             continue;
@@ -332,26 +333,77 @@ static bool groups_from(yyjson_val *v, pc_preset_groups *dst, const pc_preset_it
         yyjson_arr_foreach(items, i2, m2, it) {
             void *slot = malloc(ops->size);
             if (slot == NULL) {
-                pc_preset_groups_fini(&g, ops);
+                pc_preset_groups_fini(out, ops);
+                pc_preset_groups_init(out);
                 return false;
             }
             if (!from(it, slot)) {
                 free(slot);
-                pc_preset_groups_fini(&g, ops);
+                pc_preset_groups_fini(out, ops);
+                pc_preset_groups_init(out);
                 return false;
             }
-            if (pc_preset_group_push(&g, gidx, slot, ops, NULL) != PC_OK) {
+            if (pc_preset_group_push(out, gidx, slot, ops, NULL) != PC_OK) {
                 ops->fini(slot);
                 free(slot);
-                pc_preset_groups_fini(&g, ops);
+                pc_preset_groups_fini(out, ops);
+                pc_preset_groups_init(out);
                 return false;
             }
             free(slot);
         }
     }
+    return true;
+}
+
+static bool groups_from(yyjson_val *v, pc_preset_groups *dst, const pc_preset_item_ops *ops,
+                        item_from_fn from)
+{
+    pc_preset_groups g;
+    if (!parse_groups(v, &g, ops, from)) {
+        return false;
+    }
     pc_preset_groups_fini(dst, ops);
     *dst = g;
     return true;
+}
+
+/* Append groups of `src` whose name `dst` doesn't already have (by exact name), moving ownership;
+ * returns how many were added. Remaining (duplicate) groups of src are released by the caller's
+ * pc_preset_groups_fini(src, ops). */
+static size_t merge_new_groups(pc_preset_groups *dst, pc_preset_groups *src,
+                               const pc_preset_item_ops *ops)
+{
+    (void)ops;
+    size_t added = 0;
+    for (size_t i = 0; i < src->n; i++) {
+        pc_preset_group *g = &src->v[i];
+        const char *nm = g->name != NULL ? g->name : "";
+        bool exists = false;
+        for (size_t j = 0; j < dst->n; j++) {
+            const char *dn = dst->v[j].name != NULL ? dst->v[j].name : "";
+            if (strcmp(dn, nm) == 0) {
+                exists = true;
+                break;
+            }
+        }
+        if (exists) {
+            continue;
+        }
+        if (dst->n == dst->cap) {
+            size_t nc = dst->cap == 0 ? 8 : dst->cap * 2;
+            pc_preset_group *nv = realloc(dst->v, nc * sizeof *nv);
+            if (nv == NULL) {
+                break;
+            }
+            dst->v = nv;
+            dst->cap = nc;
+        }
+        dst->v[dst->n++] = *g;         /* move the whole group (name + items) */
+        memset(g, 0, sizeof *g);       /* src no longer owns it */
+        added++;
+    }
+    return added;
 }
 
 static yyjson_mut_val *grad_item_to(yyjson_mut_doc *d, const void *it)
@@ -539,4 +591,93 @@ void pc_engine_load_presets_json(pc_engine_session *s, yyjson_val *v)
     }
     pc_engine_document_presets_load(st, v); /* E3: documents + recent_documents */
     st->rev++;
+}
+
+/* Edit > Presets > Migrate Presets (migrate_cmds.c): merge the preset library in `v` (a presets
+ * object or a preferences file's `presets` section) into *st, appending groups the library doesn't
+ * already have by name. `counts` (optional) receives {gradients, styles, shapes, patternGroups,
+ * toolPresets} added. Returns the total added. Styles and shapes merge is limited by their deferred
+ * serde (see the DEFERRED note above): their counts stay 0.
+ *
+ * Never crashes (REWRITE_PLAN.md rule 9): a malformed or missing section is simply skipped. */
+size_t pc_engine_presets_migrate(pc_preset_state *st, yyjson_val *v, uint64_t counts[5])
+{
+    uint64_t c[5] = {0, 0, 0, 0, 0};
+    if (st != NULL && v != NULL && yyjson_is_obj(v)) {
+        /* Gradients. */
+        pc_preset_groups g;
+        if (parse_groups(pc_json_get(v, "gradients"), &g, pc_gradient_preset_ops(), grad_item_from)) {
+            c[0] = merge_new_groups(&st->gradients, &g, pc_gradient_preset_ops());
+        }
+        pc_preset_groups_fini(&g, pc_gradient_preset_ops());
+        /* Pattern groups (string ids). */
+        pc_preset_groups pg;
+        if (parse_groups(pc_json_get(v, "pattern_groups"), &pg, pc_preset_string_ops(), str_item_from)) {
+            c[3] = merge_new_groups(&st->pattern_groups, &pg, pc_preset_string_ops());
+        }
+        pc_preset_groups_fini(&pg, pc_preset_string_ops());
+        /* Tool presets: a flat list, matched by name. */
+        yyjson_val *tp = pc_json_get(v, "tool_presets");
+        if (tp != NULL && yyjson_is_arr(tp)) {
+            size_t idx, max;
+            yyjson_val *el;
+            yyjson_arr_foreach(tp, idx, max, el) {
+                if (st->ntool_presets >= PC_TOOL_PRESETS_MAX) {
+                    break;
+                }
+                size_t nl = 0, tl = 0;
+                const char *nm = pc_json_as_str(pc_json_get(el, "name"), &nl);
+                const char *tool = pc_json_as_str(pc_json_get(el, "tool"), &tl);
+                if (nm == NULL || tool == NULL || nl == 0 || tl == 0) {
+                    continue;
+                }
+                bool dup = false;
+                for (size_t i = 0; i < st->ntool_presets; i++) {
+                    if (strlen(st->tool_presets[i].name) == nl &&
+                        memcmp(st->tool_presets[i].name, nm, nl) == 0) {
+                        dup = true;
+                        break;
+                    }
+                }
+                if (dup) {
+                    continue;
+                }
+                pc_tool_preset tpr;
+                memset(&tpr, 0, sizeof tpr);
+                tpr.name = malloc(nl + 1);
+                tpr.tool = malloc(tl + 1);
+                if (tpr.name == NULL || tpr.tool == NULL) {
+                    free(tpr.name);
+                    free(tpr.tool);
+                    break;
+                }
+                memcpy(tpr.name, nm, nl);
+                tpr.name[nl] = '\0';
+                memcpy(tpr.tool, tool, tl);
+                tpr.tool[tl] = '\0';
+                yyjson_val *opt = pc_json_get(el, "options");
+                if (opt != NULL && yyjson_is_obj(opt)) {
+                    (void)pc_json_value_from_val(opt, &tpr.options, NULL);
+                }
+                if (st->ntool_presets == st->cap_tool_presets) {
+                    size_t nc = st->cap_tool_presets == 0 ? 8 : st->cap_tool_presets * 2;
+                    pc_tool_preset *nv = realloc(st->tool_presets, nc * sizeof *nv);
+                    if (nv == NULL) {
+                        pc_tool_preset_fini(&tpr);
+                        break;
+                    }
+                    st->tool_presets = nv;
+                    st->cap_tool_presets = nc;
+                }
+                st->tool_presets[st->ntool_presets++] = tpr;
+                c[4]++;
+            }
+        }
+    }
+    if (counts != NULL) {
+        for (size_t i = 0; i < 5; i++) {
+            counts[i] = c[i];
+        }
+    }
+    return c[0] + c[1] + c[2] + c[3] + c[4];
 }

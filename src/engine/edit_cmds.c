@@ -19,7 +19,11 @@
 #include <string.h>
 
 #include "algo/resample.h"
+#include "algo/transform.h"
+#include "base/buf.h"
 #include "base/json.h"
+#include "base/mem.h"
+#include "base/num.h"
 #include "color/color.h"
 #include "color/convert.h"
 #include "compose/compose.h"
@@ -66,6 +70,11 @@ void pc_engine_clipboard_free(struct pc_engine_clip *c)
 
 /* Bytes held by the clipboard's pixels (sum of its tiles); 0 for an empty/NULL clipboard. Used by
  * Edit > Purge > Clipboard (edit_menu_cmds.c; edit_menu_cmds::clip_bytes). */
+const pc_surface *pc_engine_clipboard_surface(const pc_engine_session *s)
+{
+    return (s != NULL && s->clipboard != NULL) ? &s->clipboard->surface : NULL;
+}
+
 size_t pc_engine_clipboard_bytes(const struct pc_engine_clip *c)
 {
     if (c == NULL) {
@@ -95,6 +104,29 @@ static pc_status set_clipboard(pc_engine_session *s, struct pc_engine_clip *clip
     pc_engine_clipboard_free(s->clipboard);
     s->clipboard = c;
     return PC_OK;
+}
+
+pc_status pc_engine_set_clipboard(pc_engine_session *s, const uint8_t *rgba, uint32_t width,
+                                  uint32_t height, pc_error *err)
+{
+    if (s == NULL || rgba == NULL) {
+        return pc_fail(err, PC_ERR_INVALID, "set_clipboard: null argument");
+    }
+    if (width == 0 || height == 0) {
+        return pc_fail(err, PC_ERR_INVALID, "the clipboard image has no size");
+    }
+    size_t len = 0;
+    if (!pc_size_mul3((size_t)width, (size_t)height, 4u, &len) || len > PC_MAX_ALLOC) {
+        return pc_fail(err, PC_ERR_LIMIT, "clipboard image is too large");
+    }
+    pc_rect bounds = pc_rect_from_xywh(0, 0, width, height);
+    pc_surface surface;
+    pc_status rc = pc_surface_from_interleaved(PC_PIXEL_FORMAT_RGBA8, bounds, rgba, len, &surface, err);
+    if (rc != PC_OK) {
+        return rc;
+    }
+    struct pc_engine_clip clip = {surface, bounds, false, 0.0f};
+    return set_clipboard(s, &clip, err); /* consumes `surface` (or frees it on OOM) */
 }
 
 /* ---- small helpers ------------------------------------------------------------------------ */
@@ -888,6 +920,7 @@ struct target_ctx {
     bool has_layer;
     pc_layer_id layer;
     yyjson_val *p;
+    const pc_surface *limit; /* Paste Into / Outside: where the paste shows (NULL = everywhere) */
 };
 
 static pc_status paste_target_edit(pc_document *doc, bool *has_active, pc_layer_id *active, void *vctx,
@@ -902,7 +935,7 @@ static pc_status paste_target_edit(pc_document *doc, bool *has_active, pc_layer_
     if (rc != PC_OK) {
         return rc;
     }
-    rc = pc_engine_composite_over(surf, &c->src, c->area, NULL, err);
+    rc = pc_engine_composite_over(surf, &c->src, c->area, c->limit, err);
     if (rc != PC_OK) {
         return rc;
     }
@@ -914,9 +947,11 @@ static pc_status paste_target_edit(pc_document *doc, bool *has_active, pc_layer_
     return PC_OK;
 }
 
-/* Paste into the targeted mask / alpha channel / Quick Mask (edit_cmds::paste_to_target). */
-static pc_status paste_to_target(pc_engine_session *s, yyjson_val *p, bool in_place, pc_json_value *out,
-                                 pc_error *err)
+/* Paste into the targeted mask / alpha channel / Quick Mask (edit_cmds::paste_to_target). `limit`
+ * (NULL = none) restricts where the paste shows: Paste Into / Outside pass the selection coverage
+ * (or its inverse). */
+static pc_status paste_to_target(pc_engine_session *s, yyjson_val *p, bool in_place,
+                                 const pc_surface *limit, pc_json_value *out, pc_error *err)
 {
     pc_status rc = pc_engine_alloc_checkpoint("pasting pixels", err);
     if (rc != PC_OK) {
@@ -944,6 +979,7 @@ static pc_status paste_to_target(pc_engine_session *s, yyjson_val *p, bool in_pl
     c.has_layer = st->has_active_layer;
     c.layer = st->active_layer;
     c.p = p;
+    c.limit = limit;
     rc = pc_engine_session_edit(s, "Paste", paste_target_edit, &c, err);
     pc_surface_fini(&c.src);
     if (rc != PC_OK) {
@@ -1097,7 +1133,7 @@ static pc_status paste(pc_engine_session *s, yyjson_val *p, bool in_place, pc_js
     }
     size_t alpha_idx = 0;
     if (pc_engine_target_of(p, &alpha_idx) != PC_ENGINE_PIXTGT_PIXELS) {
-        return paste_to_target(s, p, in_place, out, err);
+        return paste_to_target(s, p, in_place, NULL, out, err);
     }
     int k = paste_color_target(s, p);
     if (k >= 0) {
@@ -1646,10 +1682,334 @@ static pc_status run_toggle_last_state(pc_engine_session *s, yyjson_val *p, pc_j
 
 /* ---- specs -------------------------------------------------------------------------------- */
 
+/* ---- Paste Into / Paste Outside (extra_cmds::paste_into) ---------------------------------- */
+
+static pc_status has_clip_and_selection(const pc_engine_session *s, pc_error *reason)
+{
+    pc_status rc = pc_engine_has_doc(s, reason);
+    if (rc != PC_OK) {
+        return rc;
+    }
+    if (s->clipboard == NULL) {
+        return pc_fail(reason, PC_ERR_INVALID, "the clipboard is empty");
+    }
+    const pc_engine_doc_state *st = pc_engine_session_active(s);
+    const pc_document *doc = pc_doc_arc_get(st->doc);
+    if (!doc->has_selection) {
+        return pc_fail(reason, PC_ERR_INVALID, "Paste Into needs a selection");
+    }
+    return PC_OK;
+}
+
+/* Build an immutable params doc = a copy of p with "center":[cx,cy] added when absent. Returns an
+ * owned yyjson_doc (free with yyjson_doc_free) and its root; NULL on OOM. */
+static yyjson_doc *paste_params(yyjson_val *p, double cx, double cy, pc_error *err)
+{
+    yyjson_mut_doc *md = yyjson_mut_doc_new(NULL);
+    if (md == NULL) {
+        (void)pc_fail(err, PC_ERR_NOMEM, "paste params");
+        return NULL;
+    }
+    yyjson_mut_val *root = p != NULL ? yyjson_val_mut_copy(md, p) : NULL;
+    if (root == NULL || !yyjson_mut_is_obj(root)) {
+        root = yyjson_mut_obj(md);
+    }
+    yyjson_mut_doc_set_root(md, root);
+    if (yyjson_mut_obj_get(root, "center") == NULL) {
+        yyjson_mut_val *c = yyjson_mut_arr(md);
+        yyjson_mut_arr_add_real(md, c, cx);
+        yyjson_mut_arr_add_real(md, c, cy);
+        yyjson_mut_obj_add_val(md, root, "center", c);
+    }
+    pc_buf buf = PC_BUF_INIT;
+    pc_status rc = pc_json_write(root, 0, &buf, err);
+    yyjson_mut_doc_free(md);
+    if (rc != PC_OK) {
+        pc_buf_fini(&buf);
+        return NULL;
+    }
+    yyjson_doc *idoc = NULL;
+    rc = pc_json_parse((const char *)buf.data, buf.len, &idoc, err);
+    pc_buf_fini(&buf);
+    return rc == PC_OK ? idoc : NULL;
+}
+
+/* The inverted selection coverage over `area`, as a GRAY8 surface (1 where the selection is 0). */
+static pc_status invert_selection(const pc_surface *sel, pc_rect area, pc_surface *out, pc_error *err)
+{
+    float def = 1.0f;
+    pc_surface_init_default(out, PC_PIXEL_FORMAT_GRAY8, &def, 1);
+    if (pc_rect_is_empty(area)) {
+        return PC_OK;
+    }
+    size_t w = (size_t)pc_rect_width(area), h = (size_t)pc_rect_height(area);
+    float *inv = malloc((w * h == 0 ? 1 : w * h) * sizeof *inv);
+    if (inv == NULL) {
+        return pc_fail(err, PC_ERR_NOMEM, "paste outside");
+    }
+    for (size_t i = 0; i < w * h; i++) {
+        int32_t x = area.x0 + (int32_t)(i % w), y = area.y0 + (int32_t)(i / w);
+        inv[i] = 1.0f - pc_surface_sample_channel(sel, x, y, 0);
+    }
+    pc_status rc = pc_surface_write_region(out, area, inv, w * h, err);
+    free(inv);
+    return rc;
+}
+
+struct paste_mask_ctx {
+    pc_layer_id id;
+    pc_surface limit; /* owned; moved into the layer mask */
+};
+
+static pc_status paste_mask_edit(pc_document *doc, bool *ha, pc_layer_id *active, void *vctx, pc_error *err)
+{
+    (void)ha;
+    (void)active;
+    struct paste_mask_ctx *c = vctx;
+    pc_layer *l = pc_document_layer_mut(doc, c->id);
+    if (l == NULL) {
+        return pc_engine_err_no_layer(err, c->id);
+    }
+    if (l->has_mask) {
+        pc_layer_mask_fini(&l->mask);
+    }
+    pc_layer_mask_reveal_all(&l->mask);
+    pc_surface_fini(&l->mask.surface);
+    l->mask.surface = c->limit; /* moved */
+    l->mask.linked = false;
+    l->has_mask = true;
+    return PC_OK;
+}
+
+struct paste_into_ctx {
+    yyjson_val *params;
+    pc_surface *limit;
+    pc_json_value *out;
+};
+
+static pc_status paste_into_compound(pc_engine_session *s, void *vctx, pc_error *err)
+{
+    struct paste_into_ctx *c = vctx;
+    pc_status rc = paste(s, c->params, false, c->out, err);
+    if (rc != PC_OK) {
+        return rc;
+    }
+    pc_layer_id id = 0;
+    rc = pc_engine_layer_param(s, NULL, &id, err);
+    if (rc != PC_OK) {
+        return rc;
+    }
+    struct paste_mask_ctx mc;
+    mc.id = id;
+    mc.limit = *c->limit;
+    pc_surface_init(c->limit, PC_PIXEL_FORMAT_GRAY8); /* ownership moved into mc */
+    rc = pc_engine_session_edit(s, "Paste Into", paste_mask_edit, &mc, err);
+    if (rc != PC_OK) {
+        pc_surface_fini(&mc.limit);
+    }
+    return rc;
+}
+
+static pc_status paste_into(pc_engine_session *s, yyjson_val *p, bool outside, pc_json_value *out,
+                            pc_error *err)
+{
+    const pc_engine_doc_state *st = pc_engine_session_active(s);
+    if (st == NULL) {
+        return pc_engine_err_no_document(err);
+    }
+    const pc_document *doc = pc_doc_arc_get(st->doc);
+    if (!doc->has_selection) {
+        return pc_engine_err_other(err, "Paste Into needs a selection");
+    }
+    pc_rect canvas = pc_document_bounds(doc);
+    pc_rect b = pc_surface_content_bounds(&doc->selection);
+    double cx = ((double)b.x0 + (double)b.x1) / 2.0;
+    double cy = ((double)b.y0 + (double)b.y1) / 2.0;
+
+    pc_surface limit;
+    pc_status rc;
+    if (outside) {
+        rc = invert_selection(&doc->selection, pc_rect_intersect(b, canvas), &limit, err);
+    } else {
+        rc = pc_surface_clone(&doc->selection, &limit, err);
+    }
+    if (rc != PC_OK) {
+        return rc;
+    }
+
+    yyjson_doc *idoc = paste_params(p, cx, cy, err);
+    if (idoc == NULL) {
+        pc_surface_fini(&limit);
+        return err != NULL ? err->code : PC_ERR_NOMEM;
+    }
+    yyjson_val *params = yyjson_doc_get_root(idoc);
+
+    size_t alpha_idx = 0;
+    const char *label = outside ? "Paste Outside" : "Paste Into";
+    if (pc_engine_target_of(params, &alpha_idx) != PC_ENGINE_PIXTGT_PIXELS) {
+        rc = paste_to_target(s, params, false, &limit, out, err);
+        pc_surface_fini(&limit);
+        yyjson_doc_free(idoc);
+        return rc;
+    }
+    int k = paste_color_target(s, params);
+    if (k >= 0) {
+        /* A targeted colour channel: paste its luminosity (without the selection limit; a niche
+         * path, see REWRITE_PLAN.md §7). */
+        rc = cc_paste(s, params, (size_t)k, false, out, err);
+        pc_surface_fini(&limit);
+        yyjson_doc_free(idoc);
+        return rc;
+    }
+    /* Pixels: paste a new layer, then mask it to `limit`, as one history step. */
+    struct paste_into_ctx c = {params, &limit, out};
+    rc = pc_engine_compound(s, label, paste_into_compound, &c, err);
+    pc_surface_fini(&limit);
+    yyjson_doc_free(idoc);
+    return rc;
+}
+
+static pc_status run_paste_into(pc_engine_session *s, yyjson_val *p, pc_json_value *out, pc_error *err)
+{
+    return paste_into(s, p, false, out, err);
+}
+static pc_status run_paste_outside(pc_engine_session *s, yyjson_val *p, pc_json_value *out, pc_error *err)
+{
+    return paste_into(s, p, true, out, err);
+}
+
+/* ---- Transform Again (edit_cmds::transform_again) ----------------------------------------- */
+
+/* Read a mutable JSON array of up to `cap` doubles; returns the count. */
+static size_t read_mut_doubles(yyjson_mut_val *a, double *out, size_t cap)
+{
+    if (a == NULL || !yyjson_mut_is_arr(a)) {
+        return 0;
+    }
+    size_t n = 0;
+    size_t idx, max;
+    yyjson_mut_val *el;
+    yyjson_mut_arr_foreach(a, idx, max, el) {
+        if (n >= cap) {
+            break;
+        }
+        out[n++] = yyjson_mut_get_num(el); /* int or real */
+    }
+    return n;
+}
+
+static pc_status transform_again(pc_engine_session *s, pc_json_value *out, pc_error *err)
+{
+    /* The last edit.transform journalled. */
+    yyjson_mut_val *last = NULL;
+    for (size_t i = s->njournal; i > 0; i--) {
+        if (strcmp(s->journal[i - 1].id, "edit.transform") == 0) {
+            last = pc_json_value_root(&s->journal[i - 1].params);
+            break;
+        }
+    }
+    if (last == NULL || !yyjson_mut_is_obj(last)) {
+        return pc_engine_err_other(err, "there is no transform to repeat");
+    }
+    const char *interp = "bicubic";
+    yyjson_mut_val *ji = yyjson_mut_obj_get(last, "interpolation");
+    if (ji != NULL && yyjson_mut_is_str(ji)) {
+        interp = yyjson_mut_get_str(ji);
+    }
+    yyjson_mut_val *jrect = yyjson_mut_obj_get(last, "rect");
+    yyjson_mut_val *jquad = yyjson_mut_obj_get(last, "quad");
+    yyjson_mut_val *jmatrix = yyjson_mut_obj_get(last, "matrix");
+
+    pc_buf params = PC_BUF_INIT;
+    pc_status rc;
+    if (jrect != NULL && jquad != NULL) {
+        double r[4];
+        double q[4][2];
+        if (read_mut_doubles(jrect, r, 4) != 4 || !yyjson_mut_is_arr(jquad) ||
+            yyjson_mut_arr_size(jquad) != 4) {
+            return pc_engine_err_other(err, "the last transform can't be repeated");
+        }
+        for (size_t i = 0; i < 4; i++) {
+            yyjson_mut_val *row = yyjson_mut_arr_get(jquad, i);
+            if (read_mut_doubles(row, q[i], 2) < 2) {
+                return pc_engine_err_other(err, "the last transform can't be repeated");
+            }
+        }
+        pc_algo_homography h;
+        if (!pc_algo_homography_rect_to_quad(r, (const double(*)[2])q, &h)) {
+            return pc_engine_err_other(err, "the last transform can't be repeated");
+        }
+        const pc_engine_doc_state *st = pc_engine_session_active(s);
+        if (st == NULL || !st->has_active_layer) {
+            return pc_engine_err_other(err, "no active layer");
+        }
+        const pc_document *doc = pc_doc_arc_get(st->doc);
+        const pc_layer *l = pc_document_layer(doc, st->active_layer);
+        if (l == NULL) {
+            return pc_engine_err_other(err, "no active layer");
+        }
+        pc_rect bb = pc_engine_hook_transform_bounds(doc, l);
+        if (pc_rect_is_empty(bb)) {
+            return pc_engine_err_other(err, "nothing to transform");
+        }
+        double nr[4] = {(double)bb.x0, (double)bb.y0, (double)bb.x1, (double)bb.y1};
+        double corners[4][2];
+        double cx[4] = {nr[0], nr[2], nr[2], nr[0]};
+        double cy[4] = {nr[1], nr[1], nr[3], nr[3]};
+        for (size_t i = 0; i < 4; i++) {
+            pc_algo_homography_apply(&h, cx[i], cy[i], &corners[i][0], &corners[i][1]);
+        }
+        char js[512];
+        (void)snprintf(js, sizeof js,
+                       "{\"interpolation\":\"%s\",\"rect\":[%g,%g,%g,%g],"
+                       "\"quad\":[[%g,%g],[%g,%g],[%g,%g],[%g,%g]]}",
+                       interp, nr[0], nr[1], nr[2], nr[3], corners[0][0], corners[0][1], corners[1][0],
+                       corners[1][1], corners[2][0], corners[2][1], corners[3][0], corners[3][1]);
+        return pc_engine_session_execute_json(s, "edit.transform", js, out, err);
+    }
+    if (jmatrix != NULL && yyjson_mut_is_arr(jmatrix)) {
+        double m[9];
+        size_t mn = read_mut_doubles(jmatrix, m, 9);
+        if (mn == 0) {
+            return pc_engine_err_other(err, "the last transform can't be repeated");
+        }
+        rc = pc_buf_append(&params, "{\"interpolation\":\"", 18, err);
+        if (rc == PC_OK) {
+            rc = pc_buf_append(&params, interp, strlen(interp), err);
+        }
+        if (rc == PC_OK) {
+            rc = pc_buf_append(&params, "\",\"matrix\":[", 12, err);
+        }
+        for (size_t i = 0; i < mn && rc == PC_OK; i++) {
+            char num[48];
+            (void)snprintf(num, sizeof num, "%s%g", i ? "," : "", m[i]);
+            rc = pc_buf_append(&params, num, strlen(num), err);
+        }
+        if (rc == PC_OK) {
+            rc = pc_buf_append(&params, "]}", 2, err);
+        }
+        if (rc != PC_OK) {
+            pc_buf_fini(&params);
+            return rc;
+        }
+        rc = pc_engine_session_execute_json(s, "edit.transform", (const char *)params.data, out, err);
+        pc_buf_fini(&params);
+        return rc;
+    }
+    return pc_engine_err_other(err, "the last transform can't be repeated");
+}
+
+static pc_status run_transform_again(pc_engine_session *s, yyjson_val *p, pc_json_value *out, pc_error *err)
+{
+    (void)p;
+    return transform_again(s, out, err);
+}
+
 static const char *const MENU_EDIT[] = {"Edit"};
 static const char *const MENU_FILE[] = {"File"};
 static const char *const MENU_LAYER_NEW[] = {"Layer", "New"};
 static const char *const MENU_LAYER[] = {"Layer"};
+static const char *const MENU_EDIT_TRANSFORM[] = {"Edit", "Transform"};
 static const char *const MENU_EDIT_PASTE[] = {"Edit", "Paste Special"};
 
 static const pc_engine_command SPECS[] = {
@@ -1674,6 +2034,16 @@ static const pc_engine_command SPECS[] = {
      "{\"target\":\"pixels\"|\"mask\"|\"quickMask\"|{\"channel\":i}=Channels panel target (not pixels: "
      "the luminosity pasted into that mask or channel)}",
      has_clip, run_paste_in_place, true},
+    {"edit.pasteSpecial.pasteInto", "Paste Into", MENU_EDIT_PASTE, 2, "Cmd+Alt+Shift+V",
+     "{\"center\":[x,y]?,\"target\":\"pixels\"|\"mask\"|\"quickMask\"|{\"channel\":i}} (the paste shows "
+     "only inside the selection)",
+     has_clip_and_selection, run_paste_into, true},
+    {"edit.pasteSpecial.pasteOutside", "Paste Outside", MENU_EDIT_PASTE, 2, NULL,
+     "{\"center\":[x,y]?,\"target\":\"pixels\"|\"mask\"|\"quickMask\"|{\"channel\":i}} (the paste shows "
+     "only outside the selection)",
+     has_clip_and_selection, run_paste_outside, true},
+    {"edit.transform.again", "Again", MENU_EDIT_TRANSFORM, 2, "Cmd+Shift+T", "{}", pc_engine_has_doc,
+     run_transform_again, true},
     {"edit.clear", "Clear", MENU_EDIT, 1, "Delete", "{} (a targeted channel or Quick Mask is cleared alone)",
      pc_engine_has_pixel_or_channel, run_clear, true},
     {"layer.new.layerViaCopy", "Layer via Copy", MENU_LAYER_NEW, 2, "Cmd+J", "{}", pc_engine_has_doc,

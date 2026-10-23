@@ -596,6 +596,7 @@ static pc_status gesture_event(pc_ui_tool_gesture *g, pc_engine_session *session
         if (ui->tool == PC_TOOL_MOVE && handoff != 1 && handoff != 3 && (modifiers & PC_UI_MOD_ALT) &&
             pc_engine_floating_can_move(session) && pc_engine_floating_offset(session, NULL)) {
             pc_status dropped = pc_engine_session_execute_json(session, "select.drop", "{}", out, err);
+            pc_json_value_fini(out);
             if (dropped != PC_OK)
                 return dropped;
             state = pc_engine_session_active(session);
@@ -618,6 +619,7 @@ static pc_status gesture_event(pc_ui_tool_gesture *g, pc_engine_session *session
             }
             yyjson_mut_doc_free(d);
             pc_buf_fini(&text);
+            pc_json_value_fini(out);
             if (pick != PC_OK) {
                 return pick;
             }
@@ -771,6 +773,9 @@ static pc_status gesture_event(pc_ui_tool_gesture *g, pc_engine_session *session
         }
         pc_buf_fini(&current);
         if (status == PC_OK) {
+            /* A preview commit above (shape/move/brush) already wrote `out`; drop it before the
+             * final commit overwrites it, so the preview result does not leak. */
+            pc_json_value_fini(out);
             status = commit(g, session, false, out, err);
         }
         /* Remember where a painting stroke ended, so the next Shift-click connects a line to it. */

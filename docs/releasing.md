@@ -1,5 +1,68 @@
 # Releasing PhotoCraft
 
+> **C17 hard fork — release engineering partly ported.** The `make` build now produces the
+> unsigned Linux formats itself: a `tar.gz` (`make dist`), a Debian `.deb` (`make dist-deb`), and a
+> staged AppImage `AppDir` that becomes a single-file `.AppImage` on a host with `appimagetool`
+> (`make dist-appimage`). What remains a release-engineering item is the **signed, update-enabled,
+> dependency-resolved** pipeline described below (`.github/workflows/release.yml` and the
+> `packaging/<platform>/` scripts), which still belongs to the **Rust reference** build: every
+> script there drives `cargo` and reads the version from `Cargo.toml`. Still to port: signing +
+> `.zsync` update info for the AppImage; distro-accurate `.deb`/`.rpm` dependency resolution and
+> `.rpm`/Flatpak generation (needs `dpkg-deb`/`rpmbuild`/`flatpak-builder`); the macOS `.app` +
+> notarization; the FreeBSD tarball; and a decision on Windows (dropped for the first pass,
+> REWRITE_PLAN D2). Follow the shared [release playbook](../../craftrules/release/playbook.md) for
+> that work. The Rust scripts below are kept as the reference recipe. **What the C build ships
+> today** is under *Building from the C tree*; the rest of this document is the target to port to.
+
+## Building from the C tree
+
+The `make` build produces the binaries directly:
+
+```sh
+make                       # build/default/bin/photocraft and photocraft-cli (+ dev tools)
+make install               # install the programs into $(DESTDIR)$(PREFIX)/bin (default /usr/local/bin)
+make dist                  # stage a Linux tar.gz of the binaries + desktop integration
+make dist-deb              # build a Debian .deb from the same FHS tree
+make dist-appimage         # stage an AppImage AppDir (and a .AppImage when appimagetool is present)
+```
+
+All three stage the same FHS tree — `usr/bin/{photocraft,photocraft-cli}`, the `.desktop` entry,
+hicolor icons, AppStream metainfo, the `.pcraft`/`.psb`/`.qoi` MIME file, and the licences — from a
+single place, [`packaging/linux/dist.sh`](../packaging/linux/dist.sh) (`--stage DIR` emits just the
+tree). None of them need cargo, a network or signing. The version is read from
+`src/engine/build_info.c` (`PC_ENGINE_VERSION`; override with `PHOTOCRAFT_VERSION`). Build the
+binaries first (each `dist*` target runs `make all` for you). Every artifact appends its SHA-256 to
+`dist/release/SHA256SUMS.txt`.
+
+- **`make dist`** → `dist/release/photocraft-<version>-linux-<arch>.tar.gz`, the download-and-extract
+  fallback.
+- **`make dist-deb`** → [`packaging/linux/deb.sh`](../packaging/linux/deb.sh) assembles
+  `dist/release/photocraft_<version>-1_<arch>.deb` by hand with `ar` + `tar` (the `.deb` container
+  is an `ar` archive of `debian-binary` + `control.tar.gz` + `data.tar.gz`), so it needs **no
+  `dpkg-deb`/`fakeroot`**. `Depends:` is deliberately minimal and honest (`libc6`); the
+  distro-accurate windowing/GPU dependency names remain in
+  [`packaging/linux/nfpm.yaml`](../packaging/linux/nfpm.yaml), the reference for a dependency-resolved
+  build. Install `dpkg` to run `dpkg-deb --info`/`--contents` for extra verification.
+- **`make dist-appimage`** → [`packaging/linux/appimage.sh`](../packaging/linux/appimage.sh) stages
+  a complete, runnable `AppDir` (`AppRun` + top-level `.desktop` + `.DirIcon` + the FHS tree) and
+  archives it as `.AppDir.tar.gz`. When `appimagetool` (and the `mksquashfs` it uses) are installed
+  it produces the single-file `PhotoCraft-<version>-<arch>.AppImage`; otherwise it skips that final
+  step cleanly, printing the one `appimagetool` command to finish on a host that has the tooling.
+
+Not wired to the C build yet (release-engineering, see the banner above and the Rust reference
+pipeline below): signing and `.zsync` update info for the AppImage; the `.rpm` (`rpmbuild`) and
+Flatpak formats; distro-accurate `.deb`/`.rpm` dependency resolution; and the macOS/FreeBSD/Windows
+formats. Those follow the shared [release playbook](../../craftrules/release/playbook.md).
+
+Every binary reports its version, commit and build date (`photocraft --version`,
+`photocraft-cli --version`, *Help › About PhotoCraft*). A plain `make` reports `0.8.2 (dev build)`;
+packaging/CI sets `-DPHOTOCRAFT_BUILD_SHA=...` and `-DPHOTOCRAFT_BUILD_DATE=...`, which
+`src/engine/build_info.c` reads at compile time.
+
+---
+
+## Reference pipeline (Rust; to port)
+
 Every push to the `release` branch runs `.github/workflows/release.yml`. The workflow builds
 signed installers for macOS, Windows, Linux and the web, plus a FreeBSD tarball, then creates
 or updates a **draft** GitHub Release named `PhotoCraft v<version>`. Nobody sees a draft until a

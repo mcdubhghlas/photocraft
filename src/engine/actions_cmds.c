@@ -276,6 +276,9 @@ pc_status pc_engine_action_steps_doc(pc_engine_session *s, yyjson_val *ref, cons
             return rr;
         }
     }
+    if (a->list == NULL || idx >= a->nlist) {
+        return pc_engine_err_bad_params(err, cmd, "no recorded actions");
+    }
     const pc_action *action = &a->list[idx];
     yyjson_mut_doc *md = yyjson_mut_doc_new(NULL);
     if (md == NULL) {

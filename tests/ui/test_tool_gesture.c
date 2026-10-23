@@ -209,6 +209,7 @@ static void test_color_replacement_records_foreground(void)
     pc_engine_session *s = session(8);
     pc_json_value out = PC_JSON_VALUE_INIT;
     CHECK(pc_engine_session_execute_json(s, "edit.fill", "{\"color\":\"#808080\"}", &out, NULL) == PC_OK);
+    pc_json_value_fini(&out);
     CHECK(pc_engine_session_execute_json(s, "tools.setColors", "{\"foreground\":[0.0705882,0.2039216,0.3372549,1]}",
                                          &out, NULL) == PC_OK);
     pc_json_value_fini(&out);
@@ -304,8 +305,10 @@ static void test_move_selected_pixels_preview_float_copy_drop_and_cancel(void)
             pc_json_value out = PC_JSON_VALUE_INIT;
             CHECK(pc_engine_session_execute_json(s, "edit.fill", "{\"color\":\"#ff0000\"}", &out, NULL) ==
                   PC_OK);
+            pc_json_value_fini(&out);
             CHECK(pc_engine_session_execute_json(
                       s, "select.rect", "{\"x\":0,\"y\":0,\"width\":10,\"height\":10}", &out, NULL) == PC_OK);
+            pc_json_value_fini(&out);
             pc_ui_state ui;
             pc_ui_state_init(&ui);
             ui.tool = PC_TOOL_MOVE;
@@ -337,6 +340,7 @@ static void test_move_selected_pixels_preview_float_copy_drop_and_cancel(void)
             CHECK(pc_engine_floating_document(s, &cached, NULL) == PC_OK && cached == display);
             display = pc_doc_arc_retain(display);
             CHECK(pc_engine_session_execute_json(s, "select.drop", "{}", &out, NULL) == PC_OK);
+            pc_json_value_fini(&out);
             CHECK(pc_history_past_len(state->history) == history + 1);
             const pc_document *dropped = pc_doc_arc_get(state->doc);
             pc_compose_buffer a = {0}, b = {0};
@@ -348,6 +352,7 @@ static void test_move_selected_pixels_preview_float_copy_drop_and_cancel(void)
             pc_compose_buffer_fini(&b);
             pc_doc_arc_release(display);
             CHECK(pc_engine_session_execute_json(s, "edit.undo", "{}", &out, NULL) == PC_OK);
+            pc_json_value_fini(&out);
             CHECK(event(&g, s, &ui, PC_UI_POINTER_DOWN, 2, 2, 0) == PC_OK);
             CHECK(event(&g, s, &ui, PC_UI_POINTER_UP, 9, 4, 0) == PC_OK);
             CHECK(pc_engine_floating_offset(s, offset));
@@ -387,6 +392,7 @@ static void test_move_alt_duplicate_shift_and_single_history(void)
     CHECK(pc_engine_session_execute_json(s, "paint.pencil",
                                          "{\"points\":[[10,10],[15,10]],\"size\":4,\"color\":\"#c32044\"}",
                                          &result, NULL) == PC_OK);
+    pc_json_value_fini(&result);
     pc_ui_state ui;
     pc_ui_state_init(&ui);
     ui.tool = PC_TOOL_MOVE;
@@ -407,6 +413,7 @@ static void test_move_alt_duplicate_shift_and_single_history(void)
     pc_rect moved = pc_surface_content_bounds(pc_layer_surface(pc_document_layer(doc, state->active_layer)));
     CHECK(moved.x0 == original_bounds.x0 + 10 && moved.y0 == original_bounds.y0);
     CHECK(pc_engine_session_execute_json(s, "edit.undo", "{}", &result, NULL) == PC_OK);
+    pc_json_value_fini(&result);
     CHECK(pc_doc_arc_get(state->doc)->nlayers == n && state->active_layer == original);
     CHECK(pc_engine_session_execute_json(s, "edit.redo", "{}", &result, NULL) == PC_OK);
     CHECK(pc_doc_arc_get(state->doc)->nlayers == n + 1 && state->active_layer != original);

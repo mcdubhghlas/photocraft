@@ -27,17 +27,56 @@ typedef enum pc_ui_warp_kind {
     PC_UI_WARP_WIDE
 } pc_ui_warp_kind;
 
+/* Live Liquify warped-pixel proxy preview state (CPU side only; the GL texture lives in the canvas
+ * view's reusable overlay). A downsampled premultiplied copy of the edited layer is rendered through
+ * the current displacement field and drawn as a doc-space overlay, so the warp shows live before
+ * commit. Rebuilt when the target or field geometry changes; otherwise re-rendered only over the
+ * region a continuing brush stroke touched (bounded, so a drag never blocks the frame). */
+typedef struct pc_ui_liquify_preview {
+    pc_algo_liquify_proxy proxy; /* proxy.px NULL until built */
+    bool ready;
+    uint8_t (*out)[4]; /* persistent premultiplied RGBA8 render buffer, proxy.w * proxy.h */
+    size_t out_cap;    /* capacity of out, in pixels */
+    /* Change detection against the dialog model (see pc_ui_shell_warp_live_overlay). */
+    bool valid_sig;
+    uint64_t layer;
+    pc_rect bounds;
+    size_t fw, fh;
+    size_t nstrokes, cur_np;
+    bool has_cur;
+    double last_point[2];
+} pc_ui_liquify_preview;
+
 typedef struct pc_ui_warp_runtime {
     pc_ui_warp_kind kind;
     pc_ui_persp_session persp;
     pc_ui_puppet_session puppet;
     pc_ui_liquify_dialog liquify;
     pc_ui_wide_dialog wide;
+    pc_ui_liquify_preview liq_preview;
     bool dragging;         /* a pointer drag is in progress */
     bool has_cursor;       /* cursor[] holds a document-space pointer (brush preview) */
     double cursor[2];
     uint64_t document;     /* active document id when the editor began (cancel on change) */
 } pc_ui_warp_runtime;
+
+/* One frame's worth of live doc-space overlay to draw over the canvas, filled by
+ * pc_ui_shell_warp_live_overlay. `px` is a borrowed premultiplied RGBA8 image (w * h, valid until
+ * the next call); `doc_bounds` is where it maps in document space; `dirty` is the proxy-pixel
+ * rectangle [x0,y0,x1,y1) that changed since the previous frame (empty when nothing changed). */
+typedef struct pc_ui_warp_overlay_frame {
+    const uint8_t (*px)[4];
+    size_t w, h;
+    pc_rect doc_bounds;
+    size_t dirty[4];
+    float opacity;
+} pc_ui_warp_overlay_frame;
+
+/* Advances the active editor's live preview (currently Liquify's warped-pixel proxy) and fills
+ * *frame. Returns true when there is an overlay to draw this frame, false otherwise (no editor, no
+ * pixel layer, or the preview could not be built). Never crashes; bounded work per call. The
+ * primitive and the frame are deliberately generic so later tools can grow their own previews. */
+bool pc_ui_shell_warp_live_overlay(pc_ui_shell_app *app, pc_ui_warp_overlay_frame *frame);
 
 /* The warp runtime lives in the shell app (defined in app.c). */
 pc_ui_warp_runtime *pc_ui_shell_warp_runtime(pc_ui_shell_app *app);

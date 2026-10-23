@@ -14,6 +14,7 @@
 
 #include "base/buf.h"
 #include "base/file.h"
+#include "base/json.h"
 #include "base/mem.h"
 #include "base/num.h"
 #include "io/io.h"
@@ -63,6 +64,9 @@ int main(int argc, char **argv)
 {
     const char *snapshot = NULL, *font_path = "assets/fonts/Inter-Regular.ttf";
     const char *open_path = NULL;
+    const char *float_panel = NULL; /* dev/snapshot: float a panel's dock group before rendering */
+    const char *move_panel = NULL;  /* dev/snapshot: re-parent a panel before rendering */
+    const char *move_anchor = NULL; /* ...into the anchor panel's group */
     float scale = 0.0f;
     pc_ui_theme_kind theme = PC_UI_THEME_DEFAULT;
     bool set_theme = false;
@@ -71,6 +75,11 @@ int main(int argc, char **argv)
             snapshot = argv[++i];
         } else if (strcmp(argv[i], "--open") == 0 && i + 1 < argc) {
             open_path = argv[++i];
+        } else if (strcmp(argv[i], "--float") == 0 && i + 1 < argc) {
+            float_panel = argv[++i];
+        } else if (strcmp(argv[i], "--move") == 0 && i + 2 < argc) {
+            move_panel = argv[++i];
+            move_anchor = argv[++i];
         } else if (strcmp(argv[i], "--scale") == 0 && i + 1 < argc) {
             scale = pc_f64_to_f32(SDL_strtod(argv[++i], NULL));
             if (!(scale >= 0.5f && scale <= 4.0f)) {
@@ -86,7 +95,8 @@ int main(int argc, char **argv)
         } else {
             (void)fprintf(
                 stderr,
-                "usage: %s [--snapshot OUT.png] [--scale S] [--theme ID] [--font PATH] [--open FILE]\n",
+                "usage: %s [--snapshot OUT.png] [--scale S] [--theme ID] [--font PATH] [--open FILE] "
+                "[--float PANEL] [--move PANEL ANCHOR]\n",
                 argv[0]);
             return 2;
         }
@@ -131,6 +141,43 @@ int main(int argc, char **argv)
         pc_status status=pc_ui_shell_app_invoke(a,command,NULL,&result,&err);
         pc_json_value_fini(&result);
         if(status!=PC_OK) { (void)fail("theme",err.msg);goto done; }
+    }
+    if (float_panel) {
+        char params[128];
+        (void)snprintf(params, sizeof params, "{\"panel\":\"%.64s\"}", float_panel);
+        yyjson_doc *pdoc = NULL;
+        if (pc_json_parse(params, strlen(params), &pdoc, &err) != PC_OK) {
+            (void)fail("--float", err.msg);
+            goto done;
+        }
+        pc_json_value result = PC_JSON_VALUE_INIT;
+        pc_status status =
+            pc_ui_shell_app_invoke(a, "window.panel.float", yyjson_doc_get_root(pdoc), &result, &err);
+        pc_json_value_fini(&result);
+        yyjson_doc_free(pdoc);
+        if (status != PC_OK) {
+            (void)fail("--float", err.msg);
+            goto done;
+        }
+    }
+    if (move_panel && move_anchor) {
+        char params[160];
+        (void)snprintf(params, sizeof params, "{\"panel\":\"%.48s\",\"anchor\":\"%.48s\"}", move_panel,
+                       move_anchor);
+        yyjson_doc *pdoc = NULL;
+        if (pc_json_parse(params, strlen(params), &pdoc, &err) != PC_OK) {
+            (void)fail("--move", err.msg);
+            goto done;
+        }
+        pc_json_value result = PC_JSON_VALUE_INIT;
+        pc_status status =
+            pc_ui_shell_app_invoke(a, "window.panel.move", yyjson_doc_get_root(pdoc), &result, &err);
+        pc_json_value_fini(&result);
+        yyjson_doc_free(pdoc);
+        if (status != PC_OK) {
+            (void)fail("--move", err.msg);
+            goto done;
+        }
     }
     if (pc_ui_shell_app_open_window(a, font_path, scale, snapshot != NULL, &err) != PC_OK) {
         (void)fail("window", err.msg);

@@ -64,7 +64,7 @@ static const char *dp_name(yyjson_mut_val *columns, const char *key)
 {
     if (!columns || !yyjson_mut_is_arr(columns))
         return key;
-    size_t i, n = yyjson_mut_arr_size(columns);
+    size_t i, n;
     yyjson_mut_val *c;
     yyjson_mut_arr_foreach (columns, i, n, c) {
         const char *k = yyjson_mut_get_str(yyjson_mut_obj_get(c, "key"));
@@ -80,7 +80,7 @@ static bool dp_selected(yyjson_mut_val *current, const char *key)
 {
     if (!current || !yyjson_mut_is_arr(current))
         return false;
-    size_t i, n = yyjson_mut_arr_size(current);
+    size_t i, n;
     yyjson_mut_val *v;
     yyjson_mut_arr_foreach (current, i, n, v) {
         const char *k = yyjson_mut_get_str(v);
@@ -111,7 +111,7 @@ static void open_data_points_dialog(pc_ui_shell_app *app, pc_ui_analysis *a)
         yyjson_mut_val *cur = data ? yyjson_mut_obj_get(data, sources[si]) : NULL;
         if (!av || !yyjson_mut_is_arr(av))
             continue;
-        size_t i, n = yyjson_mut_arr_size(av);
+        size_t i, n;
         yyjson_mut_val *kv;
         yyjson_mut_arr_foreach (av, i, n, kv) {
             const char *key = yyjson_mut_get_str(kv);
@@ -558,7 +558,7 @@ static void measurement_log_window(pc_ui_shell_app *app, struct nk_context *ctx)
             pc_ui_shell_queue(app, "image.analysis.recordMeasurements", NULL);
         nk_layout_row_push(ctx, 90);
         if (nk_button_label(ctx, pc_i18n_t("Select All")) && rows && yyjson_mut_is_arr(rows)) {
-            size_t i, n = yyjson_mut_arr_size(rows), k = 0;
+            size_t i, n, k = 0;
             uint64_t ids[256];
             yyjson_mut_val *ro;
             yyjson_mut_arr_foreach (rows, i, n, ro) {
@@ -591,7 +591,7 @@ static void measurement_log_window(pc_ui_shell_app *app, struct nk_context *ctx)
         size_t ncol = 0;
         const char *colkeys[32];
         if (columns && yyjson_mut_is_arr(columns)) {
-            size_t i, n = yyjson_mut_arr_size(columns);
+            size_t i, n;
             yyjson_mut_val *cv;
             yyjson_mut_arr_foreach (columns, i, n, cv) {
                 const char *k = yyjson_mut_get_str(cv);
@@ -608,7 +608,7 @@ static void measurement_log_window(pc_ui_shell_app *app, struct nk_context *ctx)
             for (size_t i = 0; i < ncol; i++)
                 nk_label_colored(ctx, colkeys[i], NK_TEXT_LEFT, pc_ui_nk_color(t->text_dim));
             if (rows && yyjson_mut_is_arr(rows)) {
-                size_t ri, rn = yyjson_mut_arr_size(rows);
+                size_t ri, rn;
                 yyjson_mut_val *ro;
                 yyjson_mut_arr_foreach (rows, ri, rn, ro) {
                     uint64_t rid = yyjson_mut_get_uint(yyjson_mut_obj_get(ro, "id"));

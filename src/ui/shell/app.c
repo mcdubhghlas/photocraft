@@ -34,6 +34,7 @@
 #include "engine/channel_display.h"
 #include "canvas_view.h"
 #include "panels.h"
+#include "preset_browser.h"
 #include "chrome.h"
 #include "icon_cache.h"
 #include "native_menus.h"
@@ -135,6 +136,13 @@ struct pc_ui_shell_app {
     float ui_scale; /* framebuffer pixels per UI unit */
     char *font_path;
     float forced_scale;
+    bool force_cpu; /* P1: software compositing forced (--safe-gpu or a detected GPU crash). */
+
+    /* U10 OS clipboard: fingerprint (FNV-1a + length) of the PNG we last exported, so a Paste can
+     * tell our own data on the OS clipboard from an image another app put there (which it imports). */
+    bool os_clip_exported;
+    uint64_t os_clip_hash;
+    size_t os_clip_len;
 };
 
 bool pc_ui_shell_opacity_event(pc_ui_shell_app *app, const SDL_Event *event)
@@ -287,9 +295,35 @@ pc_engine_session *pc_ui_shell_app_session(pc_ui_shell_app *a)
 {
     return a->session;
 }
+
+/* U10 OS clipboard image direction: remember the PNG we just put on the OS clipboard so a later
+ * Paste can recognise our own data (and not re-import it), and test whether an OS-clipboard PNG is
+ * that same data. The fingerprint is the PNG length plus an FNV-1a hash of its bytes. */
+void pc_ui_shell_os_clip_mark_exported(pc_ui_shell_app *a, uint64_t fnv, size_t len)
+{
+    if (a == NULL) {
+        return;
+    }
+    a->os_clip_exported = true;
+    a->os_clip_hash = fnv;
+    a->os_clip_len = len;
+}
+bool pc_ui_shell_os_clip_is_exported(const pc_ui_shell_app *a, uint64_t fnv, size_t len)
+{
+    return a != NULL && a->os_clip_exported && a->os_clip_len == len && a->os_clip_hash == fnv;
+}
 pc_ui_state *pc_ui_shell_app_state(pc_ui_shell_app *a)
 {
     return &a->ui;
+}
+void pc_ui_shell_app_set_force_cpu(pc_ui_shell_app *a, bool force)
+{
+    if (a)
+        a->force_cpu = force;
+}
+bool pc_ui_shell_app_force_cpu(const pc_ui_shell_app *a)
+{
+    return a && a->force_cpu;
 }
 const pc_ui_tokens *pc_ui_shell_app_tokens(const pc_ui_shell_app *a)
 {
@@ -509,6 +543,159 @@ static pc_status show_panel(pc_ui_shell_app *a, const char *id)
     }
     return PC_ERR_NOT_FOUND;
 }
+/* Map a panel id (lowercase key) to its dock group. */
+static bool panel_to_group(const char *panel, pc_ui_group *g)
+{
+    static const struct {
+        const char *id;
+        pc_ui_group group;
+    } map[] = {{"color", PC_UI_GROUP_COLOR},        {"swatches", PC_UI_GROUP_COLOR},
+               {"gradients", PC_UI_GROUP_COLOR},    {"patterns", PC_UI_GROUP_COLOR},
+               {"properties", PC_UI_GROUP_PROPERTIES}, {"adjustments", PC_UI_GROUP_PROPERTIES},
+               {"character", PC_UI_GROUP_CHARACTER},   {"paragraph", PC_UI_GROUP_CHARACTER},
+               {"navigator", PC_UI_GROUP_NAVIGATOR},   {"histogram", PC_UI_GROUP_NAVIGATOR},
+               {"info", PC_UI_GROUP_NAVIGATOR},        {"history", PC_UI_GROUP_HISTORY},
+               {"actions", PC_UI_GROUP_HISTORY},       {"layerComps", PC_UI_GROUP_HISTORY},
+               {"layers", PC_UI_GROUP_LAYERS},         {"channels", PC_UI_GROUP_LAYERS},
+               {"paths", PC_UI_GROUP_LAYERS}};
+    if (panel == NULL) {
+        return false;
+    }
+    for (size_t i = 0; i < sizeof map / sizeof map[0]; i++) {
+        if (!strcmp(panel, map[i].id)) {
+            *g = map[i].group;
+            return true;
+        }
+    }
+    return false;
+}
+/* Map a panel id (lowercase key) to its English label (the dock membership key space). */
+static const char *panel_id_label(const char *id)
+{
+    static const struct {
+        const char *id;
+        const char *label;
+    } map[] = {{"color", "Color"},           {"swatches", "Swatches"},
+               {"gradients", "Gradients"},   {"patterns", "Patterns"},
+               {"properties", "Properties"}, {"adjustments", "Adjustments"},
+               {"character", "Character"},   {"paragraph", "Paragraph"},
+               {"navigator", "Navigator"},   {"histogram", "Histogram"},
+               {"info", "Info"},             {"history", "History"},
+               {"actions", "Actions"},       {"layerComps", "Layer Comps"},
+               {"layers", "Layers"},         {"channels", "Channels"},
+               {"paths", "Paths"}};
+    if (id == NULL) {
+        return NULL;
+    }
+    for (size_t i = 0; i < sizeof map / sizeof map[0]; i++) {
+        if (!strcmp(id, map[i].id)) {
+            return map[i].label;
+        }
+    }
+    return NULL;
+}
+
+static bool shell_workspace_locked(pc_ui_shell_app *a)
+{
+    bool locked = false;
+    pc_json_value v = PC_JSON_VALUE_INIT;
+    if (pc_engine_prefs_get(a->session, "workspaceLocked", &v, NULL) == PC_OK) {
+        locked = yyjson_mut_get_bool(pc_json_value_root(&v));
+    }
+    pc_json_value_fini(&v);
+    return locked;
+}
+/* window.panel.float / window.panel.dock: detach a panel's group into a floating window, or re-dock
+ * it. Pure view state (the reference's panel_docking lives in the UI layer, not the engine; the
+ * flexible per-panel craft_ui tree it uses is unported, so a group floats as a unit — §7). */
+/* window.panel.move: re-parent a panel into the group of another panel (`anchor`/`onto`), optionally
+ * just before a third panel (`before`). Pure view state (the reference's panel_docking lives in the
+ * UI layer). Validates fully before mutating so an invalid request is atomic and never half-applies. */
+static pc_status pc_ui_shell_panel_move_command(pc_ui_shell_app *a, const char *id, yyjson_val *params,
+                                                pc_json_value *out, pc_error *err)
+{
+    (void)out;
+    if (strcmp(id, "window.panel.move") != 0) {
+        return PC_ERR_NOT_FOUND;
+    }
+    const char *panel = panel_id_label(pc_json_as_str(pc_json_get(params, "panel"), NULL));
+    if (panel == NULL) {
+        return pc_fail(err, PC_ERR_INVALID, "panel must name a registered panel");
+    }
+    const char *anchor_id = pc_json_as_str(pc_json_get(params, "anchor"), NULL);
+    if (anchor_id == NULL) {
+        anchor_id = pc_json_as_str(pc_json_get(params, "onto"), NULL);
+    }
+    const char *anchor = panel_id_label(anchor_id);
+    if (anchor == NULL) {
+        return pc_fail(err, PC_ERR_INVALID, "move requires a destination panel (anchor)");
+    }
+    if (!strcmp(anchor, panel)) {
+        return pc_fail(err, PC_ERR_INVALID, "cannot move a panel onto itself");
+    }
+    const char *before = NULL;
+    yyjson_val *bv = pc_json_get(params, "before");
+    if (bv != NULL) {
+        before = panel_id_label(pc_json_as_str(bv, NULL));
+        if (before == NULL) {
+            return pc_fail(err, PC_ERR_INVALID, "before must name a registered panel");
+        }
+    }
+    if (shell_workspace_locked(a)) {
+        return pc_fail(err, PC_ERR_INVALID, "workspace is locked");
+    }
+    bool pro = pc_ui_theme_kind_is_pro(a->ui.theme);
+    pc_ui_group target;
+    if (!pc_ui_dock_label_group(&a->ui.dock, anchor, pro, &target) &&
+        !pc_ui_dock_label_native_group(anchor, &target)) {
+        return pc_fail(err, PC_ERR_INVALID, "anchor panel has no dock group");
+    }
+    pc_ui_dock_move_panel(&a->ui.dock, panel, target, before, pro);
+    *group_flag(&a->ui.panels, target) = true; /* reveal the destination group if it was hidden */
+    a->ui.panels.dock = true;
+    return PC_OK;
+}
+
+static pc_status pc_ui_shell_panel_float_command(pc_ui_shell_app *a, const char *id, yyjson_val *params,
+                                                 pc_json_value *out, pc_error *err)
+{
+    (void)out;
+    pc_status move = pc_ui_shell_panel_move_command(a, id, params, out, err);
+    if (move != PC_ERR_NOT_FOUND) {
+        return move;
+    }
+    bool floating = !strcmp(id, "window.panel.float");
+    if (!floating && strcmp(id, "window.panel.dock") != 0) {
+        return PC_ERR_NOT_FOUND;
+    }
+    const char *panel = pc_json_as_str(pc_json_get(params, "panel"), NULL);
+    pc_ui_group g;
+    if (!panel_to_group(panel, &g)) {
+        return pc_fail(err, PC_ERR_INVALID, "panel must name a registered panel");
+    }
+    if (shell_workspace_locked(a)) {
+        return pc_fail(err, PC_ERR_INVALID, "workspace is locked");
+    }
+    if (!floating) {
+        pc_ui_dock_unfloat(&a->ui.dock, g);
+        return PC_OK;
+    }
+    if (show_panel(a, panel) != PC_OK) {
+        return pc_fail(err, PC_ERR_INVALID, "panel cannot be shown");
+    }
+    double x, y, w, hh;
+    bool hx = pc_json_as_f64(pc_json_get(params, "x"), &x);
+    bool hy = pc_json_as_f64(pc_json_get(params, "y"), &y);
+    bool hw = pc_json_as_f64(pc_json_get(params, "width"), &w);
+    bool hht = pc_json_as_f64(pc_json_get(params, "height"), &hh);
+    size_t idx = a->ui.dock.n_floating;
+    float rect[4] = {hx ? (float)x : 120.0f + 24.0f * (float)idx,
+                     hy ? (float)y : 110.0f + 24.0f * (float)idx, hw ? (float)w : PC_UI_DOCK_FLOAT_DEFAULT_W,
+                     hht ? (float)hh : pc_ui_group_default_height(g) + 56.0f};
+    pc_ui_dock_float(&a->ui.dock, g, rect);
+    a->docking.float_shown[g] = false; /* place at `rect` next frame, then follow the user's drag */
+    return PC_OK;
+}
 static pc_status invoke_ui_command(pc_ui_shell_app *a, const char *id, pc_json_value *out, pc_error *err)
 {
     if (!strcmp(id, "type.panels.character")) {
@@ -578,6 +765,13 @@ static pc_status invoke_ui_command(pc_ui_shell_app *a, const char *id, pc_json_v
         const char *alias = pc_ui_panel_alias(id);
         if (alias) {
             return invoke_ui_command(a, alias, out, err);
+        }
+        /* U5: the floating preset panels (Styles, Shapes, Tool Presets, Clone Source) toggle their
+         * own window flag (preset_panels::menu's float_flag half). */
+        bool *flag = pc_ui_preset_ui_float_flag(&a->ui.presets_ui, id);
+        if (flag != NULL) {
+            *flag = !*flag;
+            return PC_OK;
         }
     }
     if (!strcmp(id, "type.panels.character")) {
@@ -671,6 +865,13 @@ pc_status pc_ui_shell_app_invoke(pc_ui_shell_app *a, const char *id, yyjson_val 
     pc_status analysis = pc_ui_shell_analysis_command(a, id, params, out, err);
     if (analysis != PC_ERR_NOT_FOUND)
         return analysis;
+    pc_status panel_float = pc_ui_shell_panel_float_command(a, id, params, out, err);
+    if (panel_float != PC_ERR_NOT_FOUND) {
+        if (panel_float == PC_OK) {
+            out->doc = NULL; /* pure view-state command, no JSON result */
+        }
+        return panel_float;
+    }
     if (!strcmp(id, "ui.notice.dismiss")) {
         uint64_t notice = 0;
         if (!pc_json_as_u64(pc_json_get(params, "notice"), &notice))
@@ -1013,6 +1214,14 @@ pc_status pc_ui_shell_app_invoke(pc_ui_shell_app *a, const char *id, yyjson_val 
     if (pc_engine_command_find(id) != NULL) {
         float foreground[4];
         memcpy(foreground, pc_engine_session_tools(a->session)->foreground, sizeof foreground);
+        /* U10: before a paste that consumes the session clipboard, pull in an image another app put
+         * on the OS clipboard so external images paste in (best-effort; our own export is ignored). */
+        if (!strcmp(id, "edit.paste") || !strcmp(id, "file.newFromClipboard") ||
+            !strcmp(id, "edit.pasteSpecial.pasteInPlace") ||
+            !strcmp(id, "edit.pasteSpecial.pasteInto") ||
+            !strcmp(id, "edit.pasteSpecial.pasteOutside")) {
+            (void)pc_ui_shell_os_clipboard_import(a);
+        }
         pc_status status = pc_ui_shell_jobs_execute(a, id, params, out, err);
         if (status == PC_OK) {
             if (!strncmp(id, "channel.target", 14)) {
@@ -1020,6 +1229,11 @@ pc_status pc_ui_shell_app_invoke(pc_ui_shell_app *a, const char *id, yyjson_val 
                 a->ui.vector_mask_target = pc_engine_targeted_vector_mask(a->session);
             }
             pc_ui_shell_sync_targets(a);
+            /* U10: a successful Copy / Copy Merged / Cut refills the session clipboard; mirror it
+             * onto the OS clipboard so other apps can paste it (best-effort). */
+            if (!strcmp(id, "edit.copy") || !strcmp(id, "edit.copyMerged") || !strcmp(id, "edit.cut")) {
+                pc_ui_shell_os_clipboard_export(a);
+            }
         }
         if (status == PC_OK && !strncmp(id, "tools.", 6)) {
             status = pc_ui_type_foreground_changed(a->session, &a->ui, foreground, err);
@@ -1135,6 +1349,10 @@ void pc_ui_shell_app_gpu_check(pc_ui_shell_app *a)
     (void)snprintf(message, sizeof message, "%s%s%s", lost ? "GPU device lost" : "GPU error",
                    detail[0] ? ": " : "", detail);
     a->ui.gpu_fallback_notice = pc_strndup(message, strlen(message));
+    /* Latch software compositing for the rest of the session: after a device loss or GL error,
+     * keep the canvas on the CPU oracle instead of re-attempting the faulted GL compositor every
+     * frame (P1: switch the shell to software rendering on a detected GPU crash). */
+    a->force_cpu = true;
     const char *title =
         lost ? "GPU device was lost; using the CPU renderer." : "GPU error; using the CPU renderer.";
     free(a->ui.status);
@@ -1160,8 +1378,9 @@ pc_status pc_ui_shell_app_gpu_info(pc_ui_shell_app *a, pc_json_value *out, pc_er
     if (!wanted) {
         wanted = "auto";
     }
-    bool allowed = strcmp(wanted, "cpu") != 0 && (!yyjson_mut_is_bool(pc_json_value_root(&enabled)) ||
-                                                  yyjson_mut_get_bool(pc_json_value_root(&enabled)));
+    bool allowed = !a->force_cpu && strcmp(wanted, "cpu") != 0 &&
+                   (!yyjson_mut_is_bool(pc_json_value_root(&enabled)) ||
+                    yyjson_mut_get_bool(pc_json_value_root(&enabled)));
     bool healthy = allowed && pc_gpu_compositor_healthy(a->canvas.gpu);
     yyjson_mut_obj_add_str(doc, root, "canvas", healthy ? "gpu" : "cpu");
     yyjson_mut_obj_add_str(doc, root, "backend", a->have_window ? "gl" : "none");
@@ -1292,7 +1511,38 @@ bool pc_ui_shell_dock_capture(pc_ui_shell_app *a, const SDL_Event *event)
 }
 
 /* Is group `g`'s panel currently shown? (panels.<key>) */
+static bool group_flag_value(const pc_ui_shell_app *a, pc_ui_group g);
+
 static bool group_shown(const pc_ui_shell_app *a, pc_ui_group g)
+{
+    /* A customized group keeps its per-group visibility flag, but a group whose panels have all been
+     * re-parented away (zero visible members) is hidden, and one that gained panels is shown once its
+     * flag is set by the move. This preserves the native default (only Color + Layers shown). */
+    if (a->ui.dock.customized) {
+        const char *visl[PC_UI_DOCK_MAX_MEMBERS];
+        bool has = pc_ui_dock_visible_labels(&a->ui.dock, g, pc_ui_theme_kind_is_pro(a->ui.theme), visl) > 0;
+        return group_flag_value(a, g) && has;
+    }
+    const pc_ui_panels *p = &a->ui.panels;
+    switch (g) {
+    case PC_UI_GROUP_COLOR:
+        return p->color;
+    case PC_UI_GROUP_PROPERTIES:
+        return p->properties;
+    case PC_UI_GROUP_CHARACTER:
+        return p->character;
+    case PC_UI_GROUP_NAVIGATOR:
+        return p->navigator;
+    case PC_UI_GROUP_HISTORY:
+        return p->history;
+    case PC_UI_GROUP_LAYERS:
+        return p->layers;
+    default:
+        return false;
+    }
+}
+
+static bool group_flag_value(const pc_ui_shell_app *a, pc_ui_group g)
 {
     const pc_ui_panels *p = &a->ui.panels;
     switch (g) {
@@ -1384,16 +1634,45 @@ static void draw_dock_group(pc_ui_shell_app *a, pc_ui_group g, float w)
     struct nk_context *c = &a->ctx;
     bool pro = pc_ui_theme_kind_is_pro(a->ui.theme);
     bool collapsed = pc_ui_dock_is_collapsed(&a->ui.dock, g);
-    size_t vis[PC_UI_DOCK_MAX_TABS];
-    size_t nvis = pc_ui_dock_visible_tabs(&a->ui.dock, g, pro, vis);
+    /* The group's effective tabs. Native mode keeps the fixed arrays + tab_order (byte-exact legacy
+     * behaviour); a customized layout draws its mutable `members` list (cross-group re-parent). In
+     * both cases `labels[]` is the panel order and `vis[]` indexes the visible ones. */
+    const char *labels[PC_UI_DOCK_MAX_MEMBERS];
+    size_t vis[PC_UI_DOCK_MAX_MEMBERS];
     size_t ntabs = 0;
-    const char *const *tabs = pc_ui_group_tabs(g, pro, &ntabs);
+    size_t nvis = 0;
+    if (a->ui.dock.customized) {
+        ntabs = pc_ui_dock_group_labels(&a->ui.dock, g, pro, labels);
+        const char *visl[PC_UI_DOCK_MAX_MEMBERS];
+        size_t nv = pc_ui_dock_visible_labels(&a->ui.dock, g, pro, visl);
+        for (size_t v = 0; v < nv; v++) {
+            for (size_t i = 0; i < ntabs; i++) {
+                if (strcmp(labels[i], visl[v]) == 0) {
+                    vis[nvis++] = i; /* indices of the visible labels, in member order */
+                    break;
+                }
+            }
+        }
+    } else {
+        const char *const *tabs = pc_ui_group_tabs(g, pro, &ntabs);
+        for (size_t t = 0; t < ntabs; t++) {
+            labels[t] = tabs[t];
+        }
+        size_t vt[PC_UI_DOCK_MAX_TABS];
+        nvis = pc_ui_dock_visible_tabs(&a->ui.dock, g, pro, vt);
+        for (size_t i = 0; i < nvis; i++) {
+            vis[i] = vt[i];
+        }
+    }
+    if (nvis > PC_UI_TAB_MAX) {
+        nvis = PC_UI_TAB_MAX; /* overflow is pushed into the chevron by tab_fit */
+    }
     size_t *selected = group_tab_slot(a, g);
 
     /* Tab strip row: fit tab widths into the width less a 22 px panel-menu button. */
-    float natural[PC_UI_DOCK_MAX_TABS];
+    float natural[PC_UI_DOCK_MAX_MEMBERS];
     for (size_t i = 0; i < nvis && i < PC_UI_TAB_MAX; i++) {
-        natural[i] = (float)strlen(tabs[vis[i]]) * 7.0f + 20.0f;
+        natural[i] = (float)strlen(labels[vis[i]]) * 7.0f + 20.0f;
     }
     size_t sel_vis = 0;
     for (size_t i = 0; i < nvis; i++) {
@@ -1414,13 +1693,19 @@ static void draw_dock_group(pc_ui_shell_app *a, pc_ui_group g, float w)
             c->style.button.text_normal = pc_ui_nk_color(a->tokens.text);
         }
         struct nk_rect tab_rect = nk_widget_bounds(c);
-        pc_ui_docking_tab(&a->docking, g, tab, tab_rect);
+        pc_ui_docking_tab(&a->docking, g, tab, labels[tab], tab_rect);
         char mapping[96];
-        (void)snprintf(mapping, sizeof mapping, "dock.tab.%s", tabs[tab]);
+        (void)snprintf(mapping, sizeof mapping, "dock.tab.%s", labels[tab]);
         pc_ui_shell_widget_mapping(a, mapping, tab_rect);
-        if (nk_button_label(c, tabs[tab])) {
+        if (nk_button_label(c, labels[tab])) {
             *selected = tab;
             a->menu_dirty = true;
+            /* A click on a collapsed strip's tab expands the group as a transient peek. */
+            if (collapsed) {
+                pc_ui_dock_set_collapsed(&a->ui.dock, g, false);
+                pc_ui_docking_peek(&a->docking, g);
+                collapsed = false;
+            }
         }
         c->style.button = sb;
     }
@@ -1432,15 +1717,20 @@ static void draw_dock_group(pc_ui_shell_app *a, pc_ui_group g, float w)
     nk_layout_row_end(c);
 
     if (!collapsed) {
-        size_t cur = *selected < ntabs ? *selected : 0;
+        size_t cur = (*selected < ntabs) ? *selected : (nvis > 0 ? vis[0] : 0);
+        if (cur >= ntabs) {
+            cur = 0;
+        }
         struct nk_rect region = nk_window_get_content_region(c);
         struct nk_rect next = nk_widget_bounds(c);
         float height = region.y + region.h - next.y - 4;
         nk_layout_row_dynamic(c, height > 20 ? height : 20, 1);
         char body_id[64];
-        (void)snprintf(body_id, sizeof body_id, "panel-%s", tabs[cur]);
+        (void)snprintf(body_id, sizeof body_id, "panel-%s", ntabs ? labels[cur] : "");
         if (nk_group_begin(c, body_id, 0)) {
-            pc_ui_shell_panel_draw(a, &a->panel_runtime, tabs[cur]);
+            if (ntabs) {
+                pc_ui_shell_panel_draw(a, &a->panel_runtime, labels[cur]);
+            }
             nk_group_end(c);
         }
     }
@@ -1457,7 +1747,18 @@ static void draw_content(pc_ui_shell_app *a)
     }
     pc_ui_docking_begin(&a->docking);
     bool dock = a->ui.panels.dock && !pc_ui_view_hides_chrome(&a->ui.view);
-    float dock_w = dock ? a->ui.dock_width : 0.f;
+    /* Which groups are shown in the right column (floating groups render as separate windows). */
+    pc_ui_group order[PC_UI_GROUP_N];
+    pc_ui_dock_order(&a->ui.dock, order);
+    pc_ui_group shown[PC_UI_GROUP_N];
+    size_t nshown = 0;
+    for (size_t i = 0; i < PC_UI_GROUP_N; i++) {
+        if (dock && group_shown(a, order[i]) && !pc_ui_dock_is_floating(&a->ui.dock, order[i])) {
+            shown[nshown++] = order[i];
+        }
+    }
+    /* The column takes no width when every shown group has floated away. */
+    float dock_w = (dock && nshown > 0) ? a->ui.dock_width : 0.f;
     if (dock_w > aw * 0.5f) {
         dock_w = aw * 0.5f;
     }
@@ -1479,16 +1780,7 @@ static void draw_content(pc_ui_shell_app *a)
         canvas_w = 1;
     }
 
-    /* Which groups are shown, in display order; their heights fill the column. */
-    pc_ui_group order[PC_UI_GROUP_N];
-    pc_ui_dock_order(&a->ui.dock, order);
-    pc_ui_group shown[PC_UI_GROUP_N];
-    size_t nshown = 0;
-    for (size_t i = 0; i < PC_UI_GROUP_N; i++) {
-        if (dock && group_shown(a, order[i])) {
-            shown[nshown++] = order[i];
-        }
-    }
+    /* Group heights fill the column (floating groups already excluded from `shown`). */
     float heights[PC_UI_GROUP_N];
     pc_ui_dock_heights_for(&a->ui.dock, shown, nshown, body_h, (float)STRIP_H, heights);
 
@@ -1541,8 +1833,89 @@ static void draw_content(pc_ui_shell_app *a)
     }
     nk_layout_space_end(c);
     pc_ui_docking_draw(a, &a->docking,
-                       dock ? nk_rect(reg.x + tool_w + canvas_w - 3, reg.y + options_h, 6, body_h)
-                            : nk_rect(0, 0, 0, 0));
+                       dock && nshown > 0
+                           ? nk_rect(reg.x + tool_w + canvas_w - 3, reg.y + options_h, 6, body_h)
+                           : nk_rect(0, 0, 0, 0));
+}
+
+/* Floating dock windows: groups detached from the right column, each a movable/scalable Nuklear
+ * window with the same tab strip + body plus a re-dock button. Drawn after the main window so they
+ * float over the canvas. */
+static void draw_floating_dock(pc_ui_shell_app *a, float w, float h)
+{
+    struct nk_context *c = &a->ctx;
+    if (!a->ui.panels.dock || pc_ui_view_hides_chrome(&a->ui.view) || w < 40.0f || h < 40.0f) {
+        for (size_t i = 0; i < PC_UI_GROUP_N; i++) {
+            a->docking.float_shown[i] = false;
+        }
+        return;
+    }
+    bool pro = pc_ui_theme_kind_is_pro(a->ui.theme);
+    pc_ui_group order[PC_UI_GROUP_N];
+    pc_ui_dock_order(&a->ui.dock, order);
+    for (size_t i = 0; i < PC_UI_GROUP_N; i++) {
+        pc_ui_group g = order[i];
+        if (!group_shown(a, g) || !pc_ui_dock_is_floating(&a->ui.dock, g)) {
+            a->docking.float_shown[g] = false;
+            continue;
+        }
+        float rect[4];
+        if (!pc_ui_dock_float_rect(&a->ui.dock, g, rect)) {
+            rect[0] = 120.0f + 24.0f * (float)i;
+            rect[1] = 110.0f + 24.0f * (float)i;
+            rect[2] = PC_UI_DOCK_FLOAT_DEFAULT_W;
+            rect[3] = pc_ui_group_default_height(g) + 56.0f;
+        }
+        if (rect[2] > w - 16.0f) {
+            rect[2] = w - 16.0f;
+        }
+        if (rect[3] > h - 16.0f) {
+            rect[3] = h - 16.0f;
+        }
+        if (rect[2] < PC_UI_DOCK_FLOAT_MIN_W) {
+            rect[2] = PC_UI_DOCK_FLOAT_MIN_W;
+        }
+        if (rect[3] < PC_UI_DOCK_FLOAT_MIN_H) {
+            rect[3] = PC_UI_DOCK_FLOAT_MIN_H;
+        }
+        if (rect[0] > w - rect[2] - 8.0f) {
+            rect[0] = w - rect[2] - 8.0f;
+        }
+        if (rect[1] > h - rect[3] - 8.0f) {
+            rect[1] = h - rect[3] - 8.0f;
+        }
+        if (rect[0] < 8.0f) {
+            rect[0] = 8.0f;
+        }
+        if (rect[1] < 8.0f) {
+            rect[1] = 8.0f;
+        }
+        char name[48];
+        (void)snprintf(name, sizeof name, "float-%s", pc_ui_group_key(g));
+        const char *labels[PC_UI_DOCK_MAX_MEMBERS];
+        size_t ntabs = pc_ui_dock_group_labels(&a->ui.dock, g, pro, labels);
+        size_t sel = *group_tab_slot(a, g);
+        const char *title = ntabs ? labels[sel < ntabs ? sel : 0] : pc_ui_group_key(g);
+        struct nk_rect bounds = nk_rect(rect[0], rect[1], rect[2], rect[3]);
+        bool first = !a->docking.float_shown[g];
+        a->docking.float_shown[g] = true;
+        if (first) {
+            nk_window_set_bounds(c, name, bounds);
+        }
+        if (nk_begin_titled(c, name, title, bounds,
+                            NK_WINDOW_BORDER | NK_WINDOW_TITLE | NK_WINDOW_MOVABLE | NK_WINDOW_SCALABLE |
+                                NK_WINDOW_NO_SCROLLBAR)) {
+            struct nk_rect b = nk_window_get_bounds(c);
+            float store[4] = {b.x, b.y, b.w, b.h};
+            pc_ui_dock_set_float_rect(&a->ui.dock, g, store);
+            nk_layout_row_dynamic(c, 20.0f, 1);
+            if (nk_button_label(c, "Dock to panel column")) {
+                pc_ui_dock_unfloat(&a->ui.dock, g);
+            }
+            draw_dock_group(a, g, b.w - 8.0f);
+        }
+        nk_end(c);
+    }
 }
 
 /* The lower-right notice stack (toasts/banners). */
@@ -1637,6 +2010,8 @@ static void build_ui(pc_ui_shell_app *a, float w, float h)
     }
     nk_end(c);
     if (!a->ui.n_dialogs && !a->jobs.modal) {
+        draw_floating_dock(a, w, h);
+        pc_ui_shell_preset_windows_draw(a, &a->panel_runtime, w, h);
         pc_ui_shell_type_panels_draw(a);
         pc_ui_brush_panel_draw(a, &a->brush_panel);
         pc_ui_shell_gradient_editor_draw(a, w, h);

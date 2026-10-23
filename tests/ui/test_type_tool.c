@@ -183,15 +183,18 @@ static void test_pointer_hit_selection_drag_and_guards(void)
     pc_ui_tool_point point = {.x = 30, .y = 60};
     CHECK(pc_ui_type_pointer_event(&pointer, session, &ui, PC_UI_POINTER_DOWN, point, 0, 1, &out, NULL) ==
           PC_OK);
+    pc_json_value_fini(&out);
     CHECK(pointer.pressed && !ui.has_text_edit);
     point.x = 200;
     point.y = 150;
     CHECK(pc_ui_type_pointer_event(&pointer, session, &ui, PC_UI_POINTER_UP, point, 0, 1, &out, NULL) ==
           PC_OK);
+    pc_json_value_fini(&out);
     CHECK(ui.has_text_edit && text(session, ui.text_edit.layer)->shape.kind == PC_TEXT_SHAPE_BOX);
     insert(session, &ui, "Selectable");
     pc_layer_id id = ui.text_edit.layer;
     CHECK(pc_ui_type_commit(session, &ui, 0, &out, NULL) == PC_OK);
+    pc_json_value_fini(&out);
     const pc_engine_doc_state *state = pc_engine_session_active(session);
     CHECK(pc_ui_type_layout_get(&pointer.layout, state, id, NULL) == PC_OK);
     const pc_text_layer *t = text(session, id);
@@ -202,6 +205,7 @@ static void test_pointer_hit_selection_drag_and_guards(void)
     point.y = (float)doc.y;
     CHECK(pc_ui_type_pointer_event(&pointer, session, &ui, PC_UI_POINTER_DOWN, point, 0, 1, &out, NULL) ==
           PC_OK);
+    pc_json_value_fini(&out);
     CHECK(ui.has_text_edit && pointer.selecting && ui.text_edit.layer == id && ui.text_edit.caret == 0);
     pc_text_layout_caret_segment(&pointer.layout.layout, t->text.len, seg);
     doc = pc_affine_apply(t->transform, (pc_point){seg[0], (seg[1] + seg[3]) * .5});
@@ -209,15 +213,19 @@ static void test_pointer_hit_selection_drag_and_guards(void)
     point.y = (float)doc.y;
     CHECK(pc_ui_type_pointer_event(&pointer, session, &ui, PC_UI_POINTER_UP, point, 0, 1, &out, NULL) ==
           PC_OK);
+    pc_json_value_fini(&out);
     CHECK(ui.text_edit.anchor == 0 && ui.text_edit.caret == 10 && !pointer.pressed);
     point.x = 350;
     point.y = 250;
     CHECK(pc_ui_type_pointer_event(&pointer, session, &ui, PC_UI_POINTER_DOWN, point, 0, 1, &out, NULL) ==
           PC_OK);
+    pc_json_value_fini(&out);
     CHECK(!ui.has_text_edit && !pointer.pressed);
     CHECK(pc_ui_type_pointer_event(&pointer, session, &ui, PC_UI_POINTER_DOWN, point, 0, 1, &out, NULL) ==
           PC_OK);
+    pc_json_value_fini(&out);
     CHECK(pc_engine_session_execute_json(session, "layer.new.layer", "{}", &out, NULL) == PC_OK);
+    pc_json_value_fini(&out);
     CHECK(pc_ui_type_pointer_event(&pointer, session, &ui, PC_UI_POINTER_UP, point, 0, 1, &out, NULL) ==
           PC_ERR_INVALID);
     CHECK(!pointer.pressed);
@@ -287,13 +295,16 @@ static void test_paragraph_handles_coalesce_and_format_target(void)
     pc_json_value out = PC_JSON_VALUE_INIT;
     CHECK(pc_ui_type_pointer_event(&pointer, session, &ui, PC_UI_POINTER_DOWN, point, 0, 1, &out, NULL) ==
           PC_OK);
+    pc_json_value_fini(&out);
     CHECK(ui.text_edit.has_resize && ui.text_edit.resize == 5);
     point.x += 40;
     CHECK(pc_ui_type_pointer_event(&pointer, session, &ui, PC_UI_POINTER_MOVE, point, 0, 1, &out, NULL) ==
           PC_OK);
+    pc_json_value_fini(&out);
     point.x += 20;
     CHECK(pc_ui_type_pointer_event(&pointer, session, &ui, PC_UI_POINTER_UP, point, 0, 1, &out, NULL) ==
           PC_OK);
+    pc_json_value_fini(&out);
     t = text(session, ui.text_edit.layer);
     CHECK_NEAR(t->shape.width, width + 60, .01);
     CHECK_NEAR(t->shape.height, height, .01);
@@ -369,11 +380,13 @@ static void test_typed_smart_quotes_do_not_rewrite_paste(void)
     pc_json_value out = PC_JSON_VALUE_INIT;
     const char *typed = "\"Hello\" don't";
     CHECK(pc_ui_type_text_event(session, &ui, typed, strlen(typed), &out, NULL) == PC_OK);
+    pc_json_value_fini(&out);
     CHECK_EQ_STR(pc_str_c(&text(session, ui.text_edit.layer)->text), "“Hello” don’t");
     insert(session, &ui, " \"literal\"");
     CHECK_CONTAINS(pc_str_c(&text(session, ui.text_edit.layer)->text), "\"literal\"");
     CHECK(pc_engine_session_execute_json(
               session, "prefs.set", "{\"path\":\"type.smartQuotes\",\"value\":false}", &out, NULL) == PC_OK);
+    pc_json_value_fini(&out);
     CHECK(pc_ui_type_text_event(session, &ui, " \"plain\"", 8, &out, NULL) == PC_OK);
     CHECK_CONTAINS(pc_str_c(&text(session, ui.text_edit.layer)->text), "\"plain\"");
     pc_json_value_fini(&out);

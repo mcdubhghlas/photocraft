@@ -74,6 +74,7 @@ static void test_patch_drag_dispatches_offset(void)
         CHECK_EQ_STR(yyjson_mut_get_str(yyjson_mut_obj_get(p, "mode")), "source");
         CHECK(yyjson_mut_obj_get(p, "contentAware") == NULL); /* normal mode omits it */
     }
+    pc_ui_tool_gesture_fini(&g);
     pc_ui_state_fini(&ui);
     pc_engine_session_free(s);
 }
@@ -100,6 +101,7 @@ static void test_patch_content_aware_fields(void)
         CHECK_EQ_INT(yyjson_mut_get_int(yyjson_mut_obj_get(p, "color")), 3);
         CHECK(yyjson_mut_get_bool(yyjson_mut_obj_get(p, "sampleAllLayers")) == true);
     }
+    pc_ui_tool_gesture_fini(&g);
     pc_ui_state_fini(&ui);
     pc_engine_session_free(s);
 }
@@ -125,6 +127,7 @@ static void test_content_aware_move_drag(void)
         CHECK_NEAR(yyjson_mut_get_num(yyjson_mut_arr_get(off, 1)), 2, 1e-6);
         CHECK(yyjson_mut_obj_get(p, "structure") != NULL);
     }
+    pc_ui_tool_gesture_fini(&g);
     pc_ui_state_fini(&ui);
     pc_engine_session_free(s);
 }
@@ -149,6 +152,7 @@ static void test_lasso_mode_when_no_selection(void)
         CHECK(yyjson_mut_arr_size(yyjson_mut_obj_get(p, "points")) >= 3);
     }
     CHECK(!journal_has(s, "paint.patch"));
+    pc_ui_tool_gesture_fini(&g);
     pc_ui_state_fini(&ui);
     pc_engine_session_free(s);
 }
@@ -164,6 +168,7 @@ static void test_lasso_mode_with_shift_even_inside(void)
     /* Shift held forces a new lasso (add) even when pressing inside the selection. */
     CHECK(event(&g, s, &ui, PC_UI_POINTER_DOWN, 15, 15, PC_UI_MOD_SHIFT) == PC_OK);
     CHECK(!g.patch_dragging);
+    pc_ui_tool_gesture_fini(&g);
     pc_ui_state_fini(&ui);
     pc_engine_session_free(s);
 }
@@ -179,6 +184,7 @@ static void test_click_inside_selection_is_noop(void)
     CHECK(event(&g, s, &ui, PC_UI_POINTER_DOWN, 15, 15, 0) == PC_OK);
     CHECK(event(&g, s, &ui, PC_UI_POINTER_UP, 15, 15, 0) == PC_OK); /* no movement */
     CHECK(!journal_has(s, "paint.patch"));
+    pc_ui_tool_gesture_fini(&g);
     pc_ui_state_fini(&ui);
     pc_engine_session_free(s);
 }
@@ -195,6 +201,7 @@ static void test_hostile_offsets_do_not_crash(void)
     CHECK(event(&g, s, &ui, PC_UI_POINTER_DOWN, 15, 15, 0) == PC_OK);
     pc_status rc = event(&g, s, &ui, PC_UI_POINTER_UP, 15, 15, 0); /* zero offset: no-op */
     CHECK(rc == PC_OK);
+    pc_ui_tool_gesture_fini(&g);
     pc_ui_state_fini(&ui);
     pc_engine_session_free(s);
 }

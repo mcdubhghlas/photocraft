@@ -283,6 +283,7 @@ void pc_app_gpu_read_rendering_prefs(const char *prefs_path, pc_app_gpu_backend 
         }
         yyjson_doc_free(doc);
     }
+    pc_buf_fini(&buf);
     if (backend) {
         *backend = have_backend ? b : PC_APP_GPU_AUTO;
     }

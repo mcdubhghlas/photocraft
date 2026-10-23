@@ -1,5 +1,12 @@
 # Roadmap
 
+> **C17 hard fork:** this is a product/parity roadmap and still holds. The milestone tables below
+> describe the app's history (the Rust reference up to 0.6.0); the current rewrite status, chunk
+> order and remaining work are in [`REWRITE_PLAN.md`](../REWRITE_PLAN.md). Where a row names a tool,
+> the C equivalents are: `cargo test --workspace` → `make check`; `cargo xtask layers` →
+> `tools/check-layers.sh` (run by `make check`); `cargo xtask parity` → `make parity`;
+> `cargo xtask scorecard` → `make scorecard`; the `wasm` build is dropped (REWRITE_PLAN D2).
+
 > **Last reviewed:** 2026-10-10 · **Last updated:** 2026-10-10 · **Change:** minor (Photomerge implementation status corrected; real-world quality validation remains open) · **Target:** Adobe Photoshop 2026
 
 - UI.5: Panels can detach, join other tab groups, split, resize and redock through shared docking transactions. Custom layouts persist with workspaces, respect workspace locking, and retain collapse flags for intact native groups.
@@ -13,9 +20,9 @@ Forward-looking plan: milestones, the **Current focus** list, and what's next wi
 Where we stand today is in [`target-app-parity.md`](target-app-parity.md) (two numbers, by
 dimension and area) and the ranked work list in [`gaps.md`](gaps.md); the one-page summary is
 [`ROADMAP.md`](../ROADMAP.md). Measured numbers: [`scorecard.md`](scorecard.md)
-(`cargo xtask scorecard`: performance budgets, corpus floors, per-area checklists, dead
-preferences) and [`parity-checklist.md`](parity-checklist.md) (`cargo xtask parity`: menu wiring,
-628/628, which says nothing about behaviour).
+(`make scorecard`: performance budgets, corpus floors, per-area checklists, dead
+preferences) and [`parity-checklist.md`](parity-checklist.md) (`make parity`: menu wiring,
+631/631, which says nothing about behaviour).
 
 Status legend: ✅ done · 🟡 in progress · ⬜ not started. Hours are Opus 5.5 agent wall-clock hours
 for one agent working sequentially (calibration in
@@ -107,7 +114,7 @@ Each milestone has a **definition of done (DoD)** and must leave `main` green on
 | **M9** | Text, vector, styles | parley text layers, shapes/pen/paths, all 10 layer effects on GPU | Visual goldens; PSD text round-trip |
 | **M10** | Smart features | `ml` (ort native / ort-web on the web), Select Subject/Object/Sky, Remove BG, Remove tool, content-aware fill, healing, AI denoise, RAW develop | Quality benchmarks on a public dataset; timing budgets |
 | **M11** | Automation + formats | MCP server, batch, scripting, remaining formats (JP2, DICOM, DPX…), C2PA | An agent completes 10 scripted edit tasks via MCP |
-| **M12** | Pro parity | CMYK/Lab UI, print, HDR display/merge, Photomerge quality validation, timeline, layer comps, artboards, symmetry, neural filters | `xtask parity` ≥ 90% of Photoshop menu checklist |
+| **M12** | Pro parity | CMYK/Lab UI, print, HDR display/merge, Photomerge quality validation, timeline, layer comps, artboards, symmetry, neural filters | `make parity` ≥ 90% of Photoshop menu checklist |
 
 ## Revision history
 

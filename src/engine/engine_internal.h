@@ -305,6 +305,8 @@ void pc_engine_floating_free(struct pc_engine_floating *f);
 void pc_engine_clipboard_free(struct pc_engine_clip *c);
 /* Bytes the session clipboard holds (edit_cmds.c), for Edit > Purge > Clipboard. 0 if NULL. */
 size_t pc_engine_clipboard_bytes(const struct pc_engine_clip *c);
+/* The session clipboard's pixels, or NULL when the clipboard is empty (edit_cmds.c). Borrowed. */
+const pc_surface *pc_engine_clipboard_surface(const pc_engine_session *s);
 /* E10: release the painting-tool fields of a ToolState (brush, presets, gesture, current preset);
  * leaves the scalars. NULL-safe (session.c tool_state_fini). */
 void pc_engine_tool_state_fini(pc_engine_tool_state *t);

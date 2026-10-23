@@ -341,4 +341,10 @@ void pc_preset_state_fini(pc_preset_state *st);
 /* The "String" item ops (pattern-group ids). */
 const pc_preset_item_ops *pc_preset_string_ops(void);
 
+/* Edit > Presets > Migrate Presets: merge the preset library in `v` (a presets object, or a
+ * preferences file's `presets` section) into *st, appending groups it doesn't already have by name.
+ * `counts` (optional, 5 elements) receives {gradients, styles, shapes, patternGroups, toolPresets}
+ * added; returns the total. Styles/shapes are limited by their deferred serde (counts stay 0). */
+size_t pc_engine_presets_migrate(pc_preset_state *st, struct yyjson_val *v, uint64_t counts[5]);
+
 #endif /* PC_ENGINE_PRESETS_H */

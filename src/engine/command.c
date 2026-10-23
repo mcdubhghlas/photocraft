@@ -42,6 +42,14 @@
 #include "fill_layer_set_cmds.h"   /* U7: edit Solid/Pattern fill layers + layerContentOptions */
 #include "brush_organize_cmds.h"   /* U7: brush preset rename/move/group ops */
 #include "preset_import_cmds.h"    /* U7: brush.presets.importAbr */
+#include "background_cmds.h"       /* GAP3: layer.new.backgroundFromLayer */
+#include "rasterize_style_cmds.h"  /* GAP3: layer.rasterize.layerStyle */
+#include "migrate_cmds.h"          /* GAP3: edit.presets.migratePresets */
+#include "layer_export_cmds.h"     /* GAP3: layer.quickExportAsPng/exportAs/layerStyle.createLayer */
+#include "define_brush_cmds.h"     /* GAP3: edit.defineBrushPreset */
+#include "content_fill_cmds.h"     /* GAP3: edit.contentAwareFill */
+#include "vp_cmds.h"               /* GAP3: filter.vanishingPoint */
+#include "exr_parts_cmds.h"        /* GAP3: file.openExrParts + file.exrParts */
 
 /* ---- owned JSON results ------------------------------------------------------------------- */
 
@@ -879,6 +887,29 @@ static void register_modules(pc_engine_command **arr, size_t *n, size_t *cap)
     (void)append_specs(arr, n, cap, brush_organize, m);
     const pc_engine_command *preset_import = pc_engine_preset_import_specs(&m); /* U7: import .abr */
     (void)append_specs(arr, n, cap, preset_import, m);
+    const pc_engine_command *background =
+        pc_engine_background_specs(&m); /* GAP3: layer.new.backgroundFromLayer */
+    (void)append_specs(arr, n, cap, background, m);
+    const pc_engine_command *rasterize_style =
+        pc_engine_rasterize_style_specs(&m); /* GAP3: layer.rasterize.layerStyle */
+    (void)append_specs(arr, n, cap, rasterize_style, m);
+    const pc_engine_command *migrate =
+        pc_engine_migrate_specs(&m); /* GAP3: edit.presets.migratePresets */
+    (void)append_specs(arr, n, cap, migrate, m);
+    const pc_engine_command *layer_export =
+        pc_engine_layer_export_specs(&m); /* GAP3: layer quick/export-as + Create Layer */
+    (void)append_specs(arr, n, cap, layer_export, m);
+    const pc_engine_command *define_brush =
+        pc_engine_define_brush_specs(&m); /* GAP3: edit.defineBrushPreset */
+    (void)append_specs(arr, n, cap, define_brush, m);
+    const pc_engine_command *content_fill =
+        pc_engine_content_fill_specs(&m); /* GAP3: edit.contentAwareFill */
+    (void)append_specs(arr, n, cap, content_fill, m);
+    const pc_engine_command *vp = pc_engine_vp_specs(&m); /* GAP3: filter.vanishingPoint */
+    (void)append_specs(arr, n, cap, vp, m);
+    const pc_engine_command *exr_parts =
+        pc_engine_exr_parts_specs(&m); /* GAP3: file.openExrParts + file.exrParts */
+    (void)append_specs(arr, n, cap, exr_parts, m);
     /* E3..E12: append your module's specs() here. */
 }
 

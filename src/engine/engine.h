@@ -267,6 +267,17 @@ bool pc_engine_session_move_document(pc_engine_session *s, size_t from, size_t t
  * This is a query and does not paste, copy pixels or record a journal entry. */
 bool pc_engine_session_clipboard_size(const pc_engine_session *session, pc_size *out);
 
+/* Set the session clipboard from external straight-alpha RGBA8 pixels (the OS clipboard image-in
+ * half of the desktop clipboard services: an image copied in another app, pasted with Edit > Paste
+ * or File > New from Clipboard). `rgba` is width*height*4 bytes, row-major, straight alpha, in
+ * sRGB-style 8-bit RGB. The pixels are stored at document origin (bounds (0,0,width,height)) with no
+ * source resolution (as the reference's Clip.resolution is None for another app). Replaces any
+ * current clipboard; on failure the clipboard is left unchanged. PC_ERR_INVALID for a null/zero-size
+ * image, PC_ERR_LIMIT when width*height*4 would exceed the allocation cap. Does not record a journal
+ * entry (the clipboard is session state, like Copy). */
+pc_status pc_engine_set_clipboard(pc_engine_session *s, const uint8_t *rgba, uint32_t width,
+                                  uint32_t height, pc_error *err);
+
 /* The session journal (executed commands) length (Session::journal.len()). */
 size_t pc_engine_session_journal_len(const pc_engine_session *s);
 /* Journal entry i: *id (borrowed) and *params (borrowed yyjson_mut_val of the stored value). */

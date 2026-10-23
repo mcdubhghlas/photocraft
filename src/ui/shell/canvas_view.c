@@ -95,6 +95,7 @@ pc_status pc_ui_canvas_sync(pc_ui_shell_app *app, pc_ui_canvas_view *cv, pc_erro
 
 void pc_ui_canvas_view_fini(pc_ui_canvas_view *v, const gl33 *gl)
 {
+    pc_ui_canvas_overlay_fini(&v->live_overlay, gl);
     pc_gpu_compositor_free(v->gpu);
     pc_ui_native_cursor_fini(&v->cursor);
     pc_ui_vector_preview_fini(&v->vector_preview);
@@ -498,6 +499,43 @@ static pc_status render_camera(pc_ui_shell_app *app, pc_ui_canvas_view *v, const
     return gl->glGetError() == GL_NO_ERROR ? PC_OK : pc_fail(err, PC_ERR_IO, "canvas drawing failed");
 }
 
+/* Draws any live doc-space tool preview (currently the Liquify warped-pixel proxy) into the canvas
+ * target texture, on top of the camera composite, through the shared doc-space overlay primitive so
+ * it lines up pixel-correct under every view transform. Best-effort: a failure leaves the camera
+ * image intact. Call after the camera (and tile) passes, which set v->target/width/height. */
+static void render_live_overlay(pc_ui_shell_app *app, pc_ui_canvas_view *v, const gl33 *gl)
+{
+    if (!v->target || v->width < 1 || v->height < 1) {
+        return;
+    }
+    pc_ui_warp_overlay_frame frame;
+    if (!pc_ui_shell_warp_live_overlay(app, &frame) || !frame.px || frame.w < 1 || frame.h < 1) {
+        return;
+    }
+    pc_error err = {0};
+    bool needs_full = false;
+    if (pc_ui_canvas_overlay_prepare(&v->live_overlay, gl, frame.w, frame.h, &needs_full, &err) != PC_OK) {
+        return;
+    }
+    if (needs_full) {
+        pc_ui_canvas_overlay_upload(&v->live_overlay, gl, frame.px, frame.w, 0, 0, frame.w, frame.h);
+    } else if (frame.dirty[0] < frame.dirty[2] && frame.dirty[1] < frame.dirty[3]) {
+        pc_ui_canvas_overlay_upload(&v->live_overlay, gl, frame.px, frame.w, frame.dirty[0], frame.dirty[1],
+                                    frame.dirty[2], frame.dirty[3]);
+    }
+    GLint bound = 0;
+    gl->glGetIntegerv(GL_FRAMEBUFFER_BINDING, &bound);
+    gl->glBindFramebuffer(GL_FRAMEBUFFER, v->framebuffer);
+    gl->glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, v->target, 0);
+    if (gl->glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE) {
+        gl->glViewport(0, 0, v->width, v->height);
+        gl->glDisable(GL_SCISSOR_TEST);
+        (void)pc_ui_canvas_overlay_draw(&v->live_overlay, gl, &v->xf, frame.doc_bounds, frame.opacity,
+                                        &err);
+    }
+    gl->glBindFramebuffer(GL_FRAMEBUFFER, (GLuint)bound);
+}
+
 static double point_size(pc_ui_shell_app *app)
 {
     pc_json_value pref = PC_JSON_VALUE_INIT;
@@ -726,7 +764,8 @@ pc_status pc_ui_canvas_view_draw(pc_ui_shell_app *app, pc_ui_canvas_view *v, con
         prefer_cpu = name && strcmp(name, "cpu") == 0;
     }
     pc_json_value_fini(&backend);
-    bool use_gpu = preference_bool(app, "performance.useGpu", true) && !prefer_cpu;
+    bool use_gpu = preference_bool(app, "performance.useGpu", true) && !prefer_cpu &&
+                   !pc_ui_shell_app_force_cpu(app);
     if (use_gpu && !v->gpu_tried) {
         v->gpu_tried = true;
         (void)pc_gpu_compositor_new(gl, &v->gpu, NULL);
@@ -751,6 +790,11 @@ pc_status pc_ui_canvas_view_draw(pc_ui_shell_app *app, pc_ui_canvas_view *v, con
                 rc = render_camera(app, v, gl, &v->tiles.items[i].cache, &v->tile_uploads[i], active, err);
             }
         }
+    }
+    if (rc == PC_OK) {
+        /* Composite any live doc-space tool preview (Liquify warped-pixel proxy) into the target
+         * texture before it becomes a Nuklear image, so it tracks zoom/pan/rotate/flip exactly. */
+        render_live_overlay(app, v, gl);
     }
     if (rc == PC_OK) {
         struct nk_image image = nk_image_id((int)v->target);

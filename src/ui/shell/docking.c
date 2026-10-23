@@ -8,15 +8,47 @@ static bool inside(struct nk_rect r, float x, float y)
 {
     return r.w > 0 && r.h > 0 && x >= r.x && y >= r.y && x < r.x + r.w && y < r.y + r.h;
 }
+/* Reveal a dock group (its per-group visibility flag) after a panel is re-parented into it. */
+static void show_group(pc_ui_state *ui, pc_ui_group g)
+{
+    switch (g) {
+    case PC_UI_GROUP_COLOR:
+        ui->panels.color = true;
+        break;
+    case PC_UI_GROUP_PROPERTIES:
+        ui->panels.properties = true;
+        break;
+    case PC_UI_GROUP_CHARACTER:
+        ui->panels.character = true;
+        break;
+    case PC_UI_GROUP_NAVIGATOR:
+        ui->panels.navigator = true;
+        break;
+    case PC_UI_GROUP_HISTORY:
+        ui->panels.history = true;
+        break;
+    case PC_UI_GROUP_LAYERS:
+        ui->panels.layers = true;
+        break;
+    default:
+        break;
+    }
+}
 void pc_ui_docking_begin(pc_ui_docking *r)
 {
     r->ntabs = 0;
     r->count = 0;
 }
-void pc_ui_docking_tab(pc_ui_docking *r, pc_ui_group group, size_t tab, struct nk_rect rect)
+void pc_ui_docking_peek(pc_ui_docking *r, pc_ui_group group)
+{
+    r->has_peek = true;
+    r->peek_group = group;
+}
+void pc_ui_docking_tab(pc_ui_docking *r, pc_ui_group group, size_t tab, const char *label,
+                       struct nk_rect rect)
 {
     if (r->ntabs < 24) {
-        r->tabs[r->ntabs++] = (pc_ui_dock_tab_hit){group, tab, rect};
+        r->tabs[r->ntabs++] = (pc_ui_dock_tab_hit){group, tab, label, rect};
     }
 }
 void pc_ui_docking_group(pc_ui_docking *r, pc_ui_group group, struct nk_rect rect, float height)
@@ -90,6 +122,33 @@ void pc_ui_docking_draw(pc_ui_shell_app *app, pc_ui_docking *r, struct nk_rect w
     }
     float x = ctx->input.mouse.pos.x, y = ctx->input.mouse.pos.y;
     bool press = nk_input_is_mouse_pressed(&ctx->input, NK_BUTTON_LEFT) != 0;
+    /* Auto-Collapse Iconic Panels: a peeked group re-collapses on the first press outside it. The
+     * tab click that opened the peek is inside the group, so the peek survives its own press. */
+    bool auto_collapse = false;
+    pc_json_value ac = PC_JSON_VALUE_INIT;
+    if (pc_engine_prefs_get(pc_ui_shell_app_session(app), "autoCollapseIconPanels", &ac, NULL) == PC_OK) {
+        auto_collapse = yyjson_mut_get_bool(pc_json_value_root(&ac));
+    }
+    pc_json_value_fini(&ac);
+    if (!auto_collapse) {
+        r->has_peek = false;
+    } else if (r->has_peek) {
+        if (pc_ui_dock_is_collapsed(&ui->dock, r->peek_group)) {
+            r->has_peek = false; /* collapsed by other means */
+        } else if (press) {
+            bool outside = true;
+            for (size_t i = 0; i < r->count; i++) {
+                if (r->groups[i] == r->peek_group && inside(r->rects[i], x, y)) {
+                    outside = false;
+                    break;
+                }
+            }
+            if (outside) {
+                pc_ui_dock_set_collapsed(&ui->dock, r->peek_group, true);
+                r->has_peek = false;
+            }
+        }
+    }
     if (!r->drag && press) {
         if (inside(width_grip, x, y)) {
             r->drag = 1;
@@ -108,6 +167,7 @@ void pc_ui_docking_draw(pc_ui_shell_app *app, pc_ui_docking *r, struct nk_rect w
                 r->drag = 3;
                 r->group = r->tabs[i].group;
                 r->tab = r->tabs[i].tab;
+                r->drag_label = r->tabs[i].label;
             }
         }
         if (r->drag) {
@@ -137,14 +197,71 @@ void pc_ui_docking_draw(pc_ui_shell_app *app, pc_ui_docking *r, struct nk_rect w
     } else if (r->drag == 3 && !nk_input_is_mouse_down(&ctx->input, NK_BUTTON_LEFT)) {
         float dx = x - r->origin[0], dy = y - r->origin[1];
         if (dx * dx + dy * dy >= 64) {
+            bool pro = pc_ui_theme_kind_is_pro(ui->theme);
             bool tab_moved = false;
+            /* Dropped on a tab: a same-group drop reorders; a drop onto another group's tab
+             * re-parents the dragged panel just before that tab (cross-group move). */
             for (size_t i = 0; i < r->ntabs; i++) {
-                if (r->tabs[i].group == r->group && inside(r->tabs[i].rect, x, y)) {
-                    size_t before = r->tabs[i].tab;
-                    pc_ui_dock_move_tab(&ui->dock, r->group, r->tab, &before,
-                                        pc_ui_theme_kind_is_pro(ui->theme));
+                if (!inside(r->tabs[i].rect, x, y)) {
+                    continue;
+                }
+                if (r->tabs[i].group == r->group) {
+                    if (ui->dock.customized) {
+                        pc_ui_dock_move_panel(&ui->dock, r->drag_label, r->group, r->tabs[i].label, pro);
+                    } else {
+                        size_t before = r->tabs[i].tab;
+                        pc_ui_dock_move_tab(&ui->dock, r->group, r->tab, &before, pro);
+                    }
+                } else {
+                    pc_ui_dock_unfloat(&ui->dock, r->group);
+                    pc_ui_dock_move_panel(&ui->dock, r->drag_label, r->tabs[i].group, r->tabs[i].label,
+                                          pro);
+                    show_group(ui, r->tabs[i].group);
+                }
+                tab_moved = true;
+                break;
+            }
+            /* Dropped onto another group's strip/body (not a specific tab): append to that group. */
+            if (!tab_moved) {
+                for (size_t i = 0; i < r->count; i++) {
+                    if (r->groups[i] != r->group && inside(r->rects[i], x, y)) {
+                        pc_ui_dock_unfloat(&ui->dock, r->group);
+                        pc_ui_dock_move_panel(&ui->dock, r->drag_label, r->groups[i], NULL, pro);
+                        show_group(ui, r->groups[i]);
+                        tab_moved = true;
+                        break;
+                    }
+                }
+            }
+            /* Dragging a tab out of the dock column (left past a margin) detaches its whole group
+             * into a floating window at the drop point. (The reference detaches a single panel via
+             * the external craft_ui tree; with fixed group membership the group floats as a unit.) */
+            if (!tab_moved && r->count > 0) {
+                float dock_left = r->rects[0].x;
+                for (size_t i = 1; i < r->count; i++) {
+                    if (r->rects[i].x < dock_left) {
+                        dock_left = r->rects[i].x;
+                    }
+                }
+                if (x < dock_left - 24.0f) {
+                    float gh = pc_ui_group_default_height(r->group) + 56.0f;
+                    for (size_t i = 0; i < r->count; i++) {
+                        if (r->groups[i] == r->group) {
+                            gh = r->rects[i].h;
+                            break;
+                        }
+                    }
+                    float fw = PC_UI_DOCK_FLOAT_DEFAULT_W;
+                    float rect[4] = {x - fw * 0.5f, y - 14.0f, fw, gh};
+                    if (rect[0] < 8.0f) {
+                        rect[0] = 8.0f;
+                    }
+                    if (rect[1] < 8.0f) {
+                        rect[1] = 8.0f;
+                    }
+                    pc_ui_dock_float(&ui->dock, r->group, rect);
+                    r->float_shown[r->group] = false; /* place it at `rect` next frame */
                     tab_moved = true;
-                    break;
                 }
             }
             if (!tab_moved && fabsf(dy) >= 8) {
@@ -182,6 +299,42 @@ void pc_ui_docking_draw(pc_ui_shell_app *app, pc_ui_docking *r, struct nk_rect w
         pc_ui_shell_widget_mapping(app, id, grip);
         if ((r->drag == 2 && r->index == i) || inside(grip, x, y)) {
             nk_fill_rect(canvas, grip, 0, pc_ui_nk_color(tokens->accent_border));
+        }
+    }
+    /* Re-parent drop indicator: while a tab is held and dragged, show where it would land — an
+     * insertion bar before the hovered tab, or a frame around a target group's strip. */
+    if (r->drag == 3 && nk_input_is_mouse_down(&ctx->input, NK_BUTTON_LEFT)) {
+        float ddx = x - r->origin[0], ddy = y - r->origin[1];
+        if (ddx * ddx + ddy * ddy >= 64) {
+            bool shown = false;
+            for (size_t i = 0; i < r->ntabs; i++) {
+                if (inside(r->tabs[i].rect, x, y)) {
+                    struct nk_rect t = r->tabs[i].rect;
+                    bool cross = r->tabs[i].group != r->group;
+                    struct nk_rect bar = nk_rect(t.x - 1.0f, t.y, 2.5f, t.h);
+                    nk_fill_rect(canvas, bar, 0, pc_ui_nk_color(tokens->accent_border));
+                    if (cross) {
+                        for (size_t k = 0; k < r->count; k++) {
+                            if (r->groups[k] == r->tabs[i].group) {
+                                nk_stroke_rect(canvas, r->rects[k], 0, 2.0f,
+                                               pc_ui_nk_color(tokens->accent_border));
+                                break;
+                            }
+                        }
+                    }
+                    shown = true;
+                    break;
+                }
+            }
+            if (!shown) {
+                for (size_t i = 0; i < r->count; i++) {
+                    if (r->groups[i] != r->group && inside(r->rects[i], x, y)) {
+                        nk_stroke_rect(canvas, r->rects[i], 0, 2.0f,
+                                       pc_ui_nk_color(tokens->accent_border));
+                        break;
+                    }
+                }
+            }
         }
     }
 }

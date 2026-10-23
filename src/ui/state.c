@@ -722,6 +722,7 @@ void pc_ui_state_init(pc_ui_state *s)
     s->workspace = strdup("Essentials");
     s->next_id = 1;
     s->dock_width = 300;
+    pc_ui_preset_ui_init(&s->presets_ui);
     s->status = strdup("");
 }
 
@@ -763,6 +764,7 @@ void pc_ui_state_fini(pc_ui_state *s)
     free(s->status);
     free(s->gpu_fallback_notice);
     pc_ui_dock_layout_fini(&s->dock);
+    pc_ui_preset_ui_fini(&s->presets_ui);
     memset(s, 0, sizeof *s);
 }
 
@@ -1142,6 +1144,11 @@ pc_status pc_ui_state_to_json(const pc_ui_state *s, yyjson_mut_doc *doc, yyjson_
     yyjson_mut_obj_add_val(doc, o, "pen", pen);
     yyjson_mut_obj_add_val(doc, o, "dock", dock);
     yyjson_mut_obj_add_real(doc, o, "dock_width", s->dock_width);
+    yyjson_mut_val *presets_ui = NULL;
+    if (pc_ui_preset_ui_to_json(&s->presets_ui, doc, &presets_ui, err) != PC_OK) {
+        return err ? err->code : PC_ERR_NOMEM;
+    }
+    yyjson_mut_obj_add_val(doc, o, "presets_ui", presets_ui);
     *out = o;
     return PC_OK;
 }
@@ -1400,6 +1407,7 @@ pc_status pc_ui_state_from_json(pc_ui_state *s, yyjson_val *o, pc_error *err)
         s->color_panel.background = b;
     }
     pc_ui_dock_layout_from_json(&s->dock, pc_json_get(o, "dock"));
+    pc_ui_preset_ui_from_json(&s->presets_ui, pc_json_get(o, "presets_ui"));
     double dock_width = 300;
     if (pc_json_as_f64(pc_json_get(o, "dock_width"), &dock_width) && isfinite(dock_width)) {
         s->dock_width = (float)fmax(250, fmin(520, dock_width));

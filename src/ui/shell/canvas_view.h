@@ -3,6 +3,7 @@
 #define PC_UI_SHELL_CANVAS_VIEW_H
 #include "shell_internal.h"
 #include "gl33.h"
+#include "canvas_overlay.h"
 #include "ui/canvas.h"
 #include "overlays.h"
 #include "cursors.h"
@@ -96,6 +97,9 @@ typedef struct pc_ui_canvas_view {
     uint64_t uploaded;
     bool source_linear;
     int width, height;
+    /* Reusable doc-space textured overlay (Liquify live warped-pixel proxy, and future tool
+     * previews). Freed with the GL context in pc_ui_canvas_view_fini. */
+    pc_ui_canvas_overlay live_overlay;
 } pc_ui_canvas_view;
 
 pc_status pc_ui_canvas_sync(pc_ui_shell_app *app, pc_ui_canvas_view *view, pc_error *err);

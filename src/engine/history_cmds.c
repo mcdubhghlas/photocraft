@@ -196,8 +196,11 @@ static pc_status new_document(pc_engine_session *s, yyjson_val *p, pc_json_value
         return rc;
     }
     const pc_engine_doc_state *st = pc_engine_session_active(s);
-    pc_doc_arc *held = index == pc_history_past_len(st->history) ? pc_doc_arc_retain(st->doc)
-                                                                 : pc_history_state(st->history, index);
+    /* pc_history_state() returns a BORROWED reference the history still owns; retain it so the
+     * unconditional release below balances our own +1 rather than freeing the history's copy. */
+    pc_doc_arc *held = index == pc_history_past_len(st->history)
+                           ? pc_doc_arc_retain(st->doc)
+                           : pc_doc_arc_retain(pc_history_state(st->history, index));
     if (!held) {
         return pc_engine_err_bad_params(err, "history.newDocument", "state is not held");
     }

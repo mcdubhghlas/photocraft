@@ -158,6 +158,26 @@ static bool name_list_has(const pc_ui_name_list *nl, const char *name)
     return false;
 }
 
+/* Append a copy of `name`, capped at `cap`; ignored (no crash) above the cap. False only on OOM. */
+static bool name_list_push_cap(pc_ui_name_list *nl, const char *name, size_t cap)
+{
+    if (nl->n >= cap) {
+        return true;
+    }
+    char *copy = strdup(name);
+    if (!copy) {
+        return false;
+    }
+    char **grown = realloc(nl->names, (nl->n + 1) * sizeof *grown);
+    if (!grown) {
+        free(copy);
+        return false;
+    }
+    nl->names = grown;
+    nl->names[nl->n++] = copy;
+    return true;
+}
+
 /* Append a copy of `name`; ignored (no crash) on allocation failure or above the cap. */
 static bool name_list_push(pc_ui_name_list *nl, const char *name)
 {
@@ -219,6 +239,7 @@ void pc_ui_dock_layout_fini(pc_ui_dock_layout *l)
     for (size_t i = 0; i < PC_UI_GROUP_N; i++) {
         name_list_fini(&l->hidden_tabs[i]);
         name_list_fini(&l->tab_order[i]);
+        name_list_fini(&l->members[i]);
     }
     pc_ui_dock_layout_init(l);
 }
@@ -232,6 +253,11 @@ void pc_ui_dock_layout_copy(pc_ui_dock_layout *dst, const pc_ui_dock_layout *src
     memcpy(dst->heights, src->heights, sizeof dst->heights);
     dst->n_collapsed = src->n_collapsed;
     memcpy(dst->collapsed, src->collapsed, sizeof dst->collapsed);
+    dst->n_floating = src->n_floating;
+    memcpy(dst->floating, src->floating, sizeof dst->floating);
+    memcpy(dst->has_float_rect, src->has_float_rect, sizeof dst->has_float_rect);
+    memcpy(dst->float_rects, src->float_rects, sizeof dst->float_rects);
+    dst->customized = src->customized;
     for (size_t i = 0; i < PC_UI_GROUP_N; i++) {
         for (size_t j = 0; j < src->hidden_tabs[i].n; j++) {
             name_list_push(&dst->hidden_tabs[i], src->hidden_tabs[i].names[j]);
@@ -239,12 +265,16 @@ void pc_ui_dock_layout_copy(pc_ui_dock_layout *dst, const pc_ui_dock_layout *src
         for (size_t j = 0; j < src->tab_order[i].n; j++) {
             name_list_push(&dst->tab_order[i], src->tab_order[i].names[j]);
         }
+        for (size_t j = 0; j < src->members[i].n; j++) {
+            name_list_push_cap(&dst->members[i], src->members[i].names[j], PC_UI_DOCK_MAX_MEMBERS);
+        }
     }
 }
 
 bool pc_ui_dock_layout_eq(const pc_ui_dock_layout *a, const pc_ui_dock_layout *b)
 {
-    if (a->n_order != b->n_order || a->n_collapsed != b->n_collapsed) {
+    if (a->n_order != b->n_order || a->n_collapsed != b->n_collapsed ||
+        a->n_floating != b->n_floating) {
         return false;
     }
     for (size_t i = 0; i < a->n_order; i++) {
@@ -257,6 +287,11 @@ bool pc_ui_dock_layout_eq(const pc_ui_dock_layout *a, const pc_ui_dock_layout *b
             return false;
         }
     }
+    for (size_t i = 0; i < a->n_floating; i++) {
+        if (a->floating[i] != b->floating[i]) {
+            return false;
+        }
+    }
     for (size_t g = 0; g < PC_UI_GROUP_N; g++) {
         if (a->has_height[g] != b->has_height[g]) {
             return false;
@@ -264,12 +299,20 @@ bool pc_ui_dock_layout_eq(const pc_ui_dock_layout *a, const pc_ui_dock_layout *b
         if (a->has_height[g] && a->heights[g] != b->heights[g]) {
             return false;
         }
+        if (a->has_float_rect[g] != b->has_float_rect[g]) {
+            return false;
+        }
+        if (a->has_float_rect[g] &&
+            memcmp(a->float_rects[g], b->float_rects[g], sizeof a->float_rects[g]) != 0) {
+            return false;
+        }
         if (!name_list_eq(&a->hidden_tabs[g], &b->hidden_tabs[g]) ||
-            !name_list_eq(&a->tab_order[g], &b->tab_order[g])) {
+            !name_list_eq(&a->tab_order[g], &b->tab_order[g]) ||
+            !name_list_eq(&a->members[g], &b->members[g])) {
             return false;
         }
     }
-    return true;
+    return a->customized == b->customized;
 }
 
 /* ---- order ---- */
@@ -392,6 +435,92 @@ void pc_ui_dock_move_group(pc_ui_dock_layout *l, pc_ui_group g, const pc_ui_grou
     n++;
     memcpy(l->order, order, n * sizeof(pc_ui_group));
     l->n_order = n;
+}
+
+/* ---- floating ---- */
+
+bool pc_ui_dock_is_floating(const pc_ui_dock_layout *l, pc_ui_group g)
+{
+    return contains_group(l->floating, l->n_floating, g);
+}
+
+static void sanitize_float_rect(float r[4])
+{
+    for (int i = 0; i < 4; i++) {
+        if (!isfinite(r[i])) {
+            r[i] = 0.0f;
+        }
+    }
+    float lo = -PC_UI_DOCK_MAX_HEIGHT, hi = PC_UI_DOCK_MAX_HEIGHT;
+    for (int i = 0; i < 2; i++) {
+        if (r[i] < lo) {
+            r[i] = lo;
+        }
+        if (r[i] > hi) {
+            r[i] = hi;
+        }
+    }
+    if (r[2] < PC_UI_DOCK_FLOAT_MIN_W) {
+        r[2] = PC_UI_DOCK_FLOAT_MIN_W;
+    }
+    if (r[3] < PC_UI_DOCK_FLOAT_MIN_H) {
+        r[3] = PC_UI_DOCK_FLOAT_MIN_H;
+    }
+    if (r[2] > hi) {
+        r[2] = hi;
+    }
+    if (r[3] > hi) {
+        r[3] = hi;
+    }
+}
+
+void pc_ui_dock_set_float_rect(pc_ui_dock_layout *l, pc_ui_group g, const float rect[4])
+{
+    if ((unsigned)g >= PC_UI_GROUP_N || rect == NULL) {
+        return;
+    }
+    float r[4] = {rect[0], rect[1], rect[2], rect[3]};
+    sanitize_float_rect(r);
+    l->has_float_rect[g] = true;
+    memcpy(l->float_rects[g], r, sizeof r);
+}
+
+void pc_ui_dock_float(pc_ui_dock_layout *l, pc_ui_group g, const float rect[4])
+{
+    if ((unsigned)g >= PC_UI_GROUP_N) {
+        return;
+    }
+    if (!contains_group(l->floating, l->n_floating, g) && l->n_floating < PC_UI_GROUP_N) {
+        l->floating[l->n_floating++] = g;
+    }
+    if (rect != NULL) {
+        pc_ui_dock_set_float_rect(l, g, rect);
+    }
+}
+
+void pc_ui_dock_unfloat(pc_ui_dock_layout *l, pc_ui_group g)
+{
+    size_t w = 0;
+    for (size_t i = 0; i < l->n_floating; i++) {
+        if (l->floating[i] != g) {
+            l->floating[w++] = l->floating[i];
+        }
+    }
+    l->n_floating = w;
+    if ((unsigned)g < PC_UI_GROUP_N) {
+        l->has_float_rect[g] = false;
+    }
+}
+
+bool pc_ui_dock_float_rect(const pc_ui_dock_layout *l, pc_ui_group g, float out[4])
+{
+    if ((unsigned)g >= PC_UI_GROUP_N || out == NULL || !l->has_float_rect[g] ||
+        !contains_group(l->floating, l->n_floating, g)) {
+        return false;
+    }
+    memcpy(out, l->float_rects[g], sizeof l->float_rects[g]);
+    sanitize_float_rect(out);
+    return true;
 }
 
 /* ---- tabs ---- */
@@ -524,6 +653,154 @@ void pc_ui_dock_show_tab(pc_ui_dock_layout *l, pc_ui_group g, size_t tab, bool p
         return;
     }
     name_list_remove(&l->hidden_tabs[g], tabs[tab]);
+}
+
+/* ---- mutable panel -> group membership ---- */
+
+bool pc_ui_dock_label_native_group(const char *label, pc_ui_group *out)
+{
+    if (label == NULL) {
+        return false;
+    }
+    for (size_t i = 0; i < PC_UI_GROUP_N; i++) {
+        pc_ui_group g = PC_UI_GROUP_ALL[i];
+        size_t n = 0;
+        /* Labels are identical across pro/std (only the Color group's order swaps), so `false` lists
+         * every panel of the group exactly once. */
+        const char *const *tabs = pc_ui_group_tabs(g, false, &n);
+        for (size_t t = 0; t < n; t++) {
+            if (strcmp(tabs[t], label) == 0) {
+                if (out != NULL) {
+                    *out = g;
+                }
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool pc_ui_dock_label_scrolls_itself(const char *label)
+{
+    if (label == NULL) {
+        return false;
+    }
+    return strcmp(label, "Layers") == 0 || strcmp(label, "History") == 0 ||
+           strcmp(label, "Actions") == 0 || strcmp(label, "Navigator") == 0;
+}
+
+size_t pc_ui_dock_group_labels(const pc_ui_dock_layout *l, pc_ui_group g, bool pro,
+                               const char *out[PC_UI_DOCK_MAX_MEMBERS])
+{
+    if ((unsigned)g >= PC_UI_GROUP_N) {
+        return 0;
+    }
+    if (l->customized) {
+        const pc_ui_name_list *m = &l->members[g];
+        size_t n = 0;
+        for (size_t i = 0; i < m->n && n < PC_UI_DOCK_MAX_MEMBERS; i++) {
+            out[n++] = m->names[i];
+        }
+        return n;
+    }
+    size_t ntabs = 0;
+    const char *const *tabs = pc_ui_group_tabs(g, pro, &ntabs);
+    size_t n = 0;
+    for (size_t t = 0; t < ntabs && n < PC_UI_DOCK_MAX_MEMBERS; t++) {
+        out[n++] = tabs[t];
+    }
+    return n;
+}
+
+size_t pc_ui_dock_visible_labels(const pc_ui_dock_layout *l, pc_ui_group g, bool pro,
+                                 const char *out[PC_UI_DOCK_MAX_MEMBERS])
+{
+    const char *all[PC_UI_DOCK_MAX_MEMBERS];
+    size_t na = pc_ui_dock_group_labels(l, g, pro, all);
+    size_t n = 0;
+    for (size_t i = 0; i < na; i++) {
+        if (!name_list_has(&l->hidden_tabs[g], all[i])) {
+            out[n++] = all[i];
+        }
+    }
+    return n;
+}
+
+bool pc_ui_dock_label_group(const pc_ui_dock_layout *l, const char *label, bool pro, pc_ui_group *out)
+{
+    if (label == NULL) {
+        return false;
+    }
+    for (size_t i = 0; i < PC_UI_GROUP_N; i++) {
+        pc_ui_group g = PC_UI_GROUP_ALL[i];
+        const char *labels[PC_UI_DOCK_MAX_MEMBERS];
+        size_t n = pc_ui_dock_group_labels(l, g, pro, labels);
+        for (size_t t = 0; t < n; t++) {
+            if (strcmp(labels[t], label) == 0) {
+                if (out != NULL) {
+                    *out = g;
+                }
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+/* Freeze the current native (uncustomized) layout into explicit per-group member lists. */
+static void ensure_customized(pc_ui_dock_layout *l, bool pro)
+{
+    if (l->customized) {
+        return;
+    }
+    for (size_t i = 0; i < PC_UI_GROUP_N; i++) {
+        pc_ui_group g = PC_UI_GROUP_ALL[i];
+        name_list_fini(&l->members[g]);
+        size_t ntabs = 0;
+        const char *const *tabs = pc_ui_group_tabs(g, pro, &ntabs);
+        for (size_t t = 0; t < ntabs; t++) {
+            name_list_push_cap(&l->members[g], tabs[t], PC_UI_DOCK_MAX_MEMBERS);
+        }
+    }
+    l->customized = true;
+}
+
+void pc_ui_dock_move_panel(pc_ui_dock_layout *l, const char *panel, pc_ui_group target,
+                           const char *before, bool pro)
+{
+    if (l == NULL || panel == NULL || (unsigned)target >= PC_UI_GROUP_N) {
+        return;
+    }
+    if (!pc_ui_dock_label_native_group(panel, NULL)) {
+        return; /* not a registered panel */
+    }
+    /* `before` must be a real label in the target group to anchor the insert; otherwise append. */
+    const char *anchor = NULL;
+    if (before != NULL && strcmp(before, panel) != 0 &&
+        pc_ui_dock_label_native_group(before, NULL)) {
+        anchor = before;
+    }
+    ensure_customized(l, pro);
+    /* Remove the panel from every group. */
+    for (size_t i = 0; i < PC_UI_GROUP_N; i++) {
+        name_list_remove(&l->members[i], panel);
+    }
+    /* Rebuild the target group, inserting `panel` just before `anchor` (or at the end). */
+    pc_ui_name_list *m = &l->members[target];
+    pc_ui_name_list rebuilt = {0};
+    bool placed = false;
+    for (size_t i = 0; i < m->n; i++) {
+        if (!placed && anchor != NULL && strcmp(m->names[i], anchor) == 0) {
+            name_list_push_cap(&rebuilt, panel, PC_UI_DOCK_MAX_MEMBERS);
+            placed = true;
+        }
+        name_list_push_cap(&rebuilt, m->names[i], PC_UI_DOCK_MAX_MEMBERS);
+    }
+    if (!placed) {
+        name_list_push_cap(&rebuilt, panel, PC_UI_DOCK_MAX_MEMBERS);
+    }
+    name_list_fini(m);
+    *m = rebuilt;
 }
 
 /* ---- heights ---- */
@@ -748,6 +1025,37 @@ pc_status pc_ui_dock_layout_to_json(const pc_ui_dock_layout *l, yyjson_mut_doc *
         yyjson_mut_arr_add_str(doc, collapsed, pc_ui_group_key(l->collapsed[i]));
     }
     yyjson_mut_obj_add_val(doc, o, "collapsed", collapsed);
+    /* floating: C-native extension (the reference's `docking` Layout tree is unported, §7); skipped
+     * when empty. `floatRects` carries user-placed window rects for floating groups. */
+    if (l->n_floating > 0) {
+        yyjson_mut_val *floating = yyjson_mut_arr(doc);
+        for (size_t i = 0; i < l->n_floating; i++) {
+            yyjson_mut_arr_add_str(doc, floating, pc_ui_group_key(l->floating[i]));
+        }
+        yyjson_mut_obj_add_val(doc, o, "floating", floating);
+        bool any_rect = false;
+        for (size_t i = 0; i < l->n_floating; i++) {
+            if (l->has_float_rect[l->floating[i]]) {
+                any_rect = true;
+                break;
+            }
+        }
+        if (any_rect) {
+            yyjson_mut_val *rects = yyjson_mut_obj(doc);
+            for (size_t i = 0; i < PC_UI_GROUP_N; i++) {
+                pc_ui_group g = PC_UI_GROUP_ALL[i];
+                if (!l->has_float_rect[g] || !contains_group(l->floating, l->n_floating, g)) {
+                    continue;
+                }
+                yyjson_mut_val *arr = yyjson_mut_arr(doc);
+                for (int k = 0; k < 4; k++) {
+                    yyjson_mut_arr_add_real(doc, arr, (double)l->float_rects[g][k]);
+                }
+                yyjson_mut_obj_add_val(doc, rects, pc_ui_group_key(g), arr);
+            }
+            yyjson_mut_obj_add_val(doc, o, "floatRects", rects);
+        }
+    }
     /* hidden_tabs: skipped when empty. */
     bool any_hidden = false;
     for (size_t i = 0; i < PC_UI_GROUP_N; i++) {
@@ -785,6 +1093,22 @@ pc_status pc_ui_dock_layout_to_json(const pc_ui_dock_layout *l, yyjson_mut_doc *
         yyjson_mut_obj_add_val(doc, to, pc_ui_group_key(g), names);
     }
     yyjson_mut_obj_add_val(doc, o, "tabOrder", to);
+    /* groups: the mutable panel -> group membership, present only once the layout is customized by a
+     * cross-group move (C-native extension; the reference drives this through its craft_ui tree, §7).
+     * Absent means "native" so uncustomized layouts round-trip byte-exact with the legacy format. */
+    if (l->customized) {
+        yyjson_mut_obj_add_bool(doc, o, "customized", true);
+        yyjson_mut_val *groups = yyjson_mut_obj(doc);
+        for (size_t i = 0; i < PC_UI_GROUP_N; i++) {
+            pc_ui_group g = PC_UI_GROUP_ALL[i];
+            yyjson_mut_val *names = yyjson_mut_arr(doc);
+            for (size_t j = 0; j < l->members[g].n; j++) {
+                yyjson_mut_arr_add_strcpy(doc, names, l->members[g].names[j]);
+            }
+            yyjson_mut_obj_add_val(doc, groups, pc_ui_group_key(g), names);
+        }
+        yyjson_mut_obj_add_val(doc, o, "groups", groups);
+    }
     *out = o;
     return PC_OK;
 }
@@ -849,6 +1173,45 @@ pc_status pc_ui_dock_layout_parse(pc_ui_dock_layout *out, yyjson_val *obj, pc_er
     }
     read_group_arr(pc_json_get(obj, "order"), l->order, PC_UI_DOCK_MAX_ORDER, &l->n_order);
     read_group_arr(pc_json_get(obj, "collapsed"), l->collapsed, PC_UI_GROUP_N, &l->n_collapsed);
+    /* floating + floatRects (C-native, §7); lenient: drop unknown groups / malformed rects. */
+    {
+        pc_ui_group raw[PC_UI_GROUP_N];
+        size_t nraw = 0;
+        read_group_arr(pc_json_get(obj, "floating"), raw, PC_UI_GROUP_N, &nraw);
+        for (size_t i = 0; i < nraw; i++) {
+            if (!contains_group(l->floating, l->n_floating, raw[i])) {
+                l->floating[l->n_floating++] = raw[i];
+            }
+        }
+    }
+    yyjson_val *rects = pc_json_get(obj, "floatRects");
+    if (rects != NULL && yyjson_is_obj(rects)) {
+        size_t idx, max;
+        yyjson_val *key, *val;
+        yyjson_obj_foreach(rects, idx, max, key, val)
+        {
+            pc_ui_group g;
+            if (!pc_ui_group_from_key(yyjson_get_str(key), &g) || !yyjson_is_arr(val) ||
+                yyjson_arr_size(val) != 4) {
+                continue;
+            }
+            float r[4];
+            bool ok = true;
+            for (int k = 0; k < 4; k++) {
+                double d;
+                if (!pc_json_as_f64(yyjson_arr_get(val, (size_t)k), &d)) {
+                    ok = false;
+                    break;
+                }
+                r[k] = (float)d;
+            }
+            if (ok) {
+                sanitize_float_rect(r);
+                l->has_float_rect[g] = true;
+                memcpy(l->float_rects[g], r, sizeof r);
+            }
+        }
+    }
     yyjson_val *heights = pc_json_get(obj, "heights");
     if (heights != NULL && yyjson_is_obj(heights)) {
         size_t idx, max;
@@ -877,6 +1240,41 @@ pc_status pc_ui_dock_layout_parse(pc_ui_dock_layout *out, yyjson_val *obj, pc_er
     if (status != PC_OK) {
         pc_ui_dock_layout_fini(&next);
         return status;
+    }
+    /* groups + customized (C-native): a flexible per-group panel membership. Lenient: drop unknown
+     * groups and panel labels, keep each panel in at most one group (first wins). Absent/garbage
+     * leaves the layout native. */
+    yyjson_val *cust = pc_json_get(obj, "customized");
+    yyjson_val *groups = pc_json_get(obj, "groups");
+    if ((cust != NULL && yyjson_is_true(cust)) || (groups != NULL && yyjson_is_obj(groups))) {
+        l->customized = true;
+        if (groups != NULL && yyjson_is_obj(groups)) {
+            size_t idx, max;
+            yyjson_val *key, *val;
+            yyjson_obj_foreach(groups, idx, max, key, val)
+            {
+                pc_ui_group g;
+                if (!pc_ui_group_from_key(yyjson_get_str(key), &g) || !yyjson_is_arr(val)) {
+                    continue;
+                }
+                size_t j, jmax;
+                yyjson_val *name;
+                yyjson_arr_foreach(val, j, jmax, name)
+                {
+                    const char *s = pc_json_as_str(name, NULL);
+                    if (s == NULL || !pc_ui_dock_label_native_group(s, NULL)) {
+                        continue;
+                    }
+                    if (pc_ui_dock_label_group(l, s, false, NULL)) {
+                        continue; /* already placed in some group: a panel lives in exactly one */
+                    }
+                    if (!name_list_push_cap(&l->members[g], s, PC_UI_DOCK_MAX_MEMBERS)) {
+                        pc_ui_dock_layout_fini(&next);
+                        return pc_fail(err, PC_ERR_NOMEM, "dock group members");
+                    }
+                }
+            }
+        }
     }
     pc_ui_dock_layout_fini(out);
     *out = next;

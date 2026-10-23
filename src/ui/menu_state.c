@@ -65,6 +65,24 @@ static int checked(const pc_engine_session *session, const pc_ui_state *state, c
     if (strcmp(id, "window.workspace.resetWorkspace") && pc_ui_workspace_name(id, &workspace))
         return state->workspace &&
                !strcmp(state->workspace, workspace && *workspace ? workspace : "Essentials");
+    /* U5 preset panels: Gradients/Patterns are the Color card's tabs 2/3; Styles/Shapes/Tool
+     * Presets/Clone Source are floating windows (preset_panels::checked). */
+    size_t ptab;
+    if (pc_ui_preset_ui_color_tab(id, &ptab)) {
+        return state->panels.color && state->dock_tabs.color == ptab;
+    }
+    if (!strcmp(id, "window.panel.styles")) {
+        return state->presets_ui.styles;
+    }
+    if (!strcmp(id, "window.panel.shapes")) {
+        return state->presets_ui.shapes;
+    }
+    if (!strcmp(id, "window.panel.toolPresets")) {
+        return state->presets_ui.tool_presets;
+    }
+    if (!strcmp(id, "window.panel.cloneSource")) {
+        return state->presets_ui.clone_source;
+    }
     int panel = panel_check(state, id);
     if (panel >= 0) {
         return panel;

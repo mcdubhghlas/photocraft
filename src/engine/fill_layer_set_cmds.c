@@ -229,7 +229,7 @@ static pc_status run_solid_set(pc_engine_session *s, yyjson_val *p, pc_json_valu
         return pc_engine_err_bad_params(err, cmd, "the target must be a Solid Color Fill layer");
     }
     pc_color original = l->content.u.fill.u.solid;
-    pc_color color;
+    pc_color color = original; /* default unspecified fields to the current colour */
     if ((rc = solid_color_param(pc_json_get(p, "color"), original, doc->mode, &color, err)) != PC_OK) {
         return rc;
     }

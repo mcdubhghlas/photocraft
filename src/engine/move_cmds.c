@@ -370,10 +370,12 @@ static pc_status stage_copy_move(const pc_engine_session *session, yyjson_val *p
         (void)snprintf(select, sizeof select, "{\"layer\":%llu}", (unsigned long long)id);
         if (status == PC_OK)
             status = pc_engine_session_execute_json(prepared, "layer.select", select, &reply, err);
+        pc_json_value_fini(&reply);
     }
     if (status == PC_OK)
         status =
             pc_engine_session_execute_json(prepared, "layer.duplicate", "{\"inPlace\":true}", &reply, err);
+    pc_json_value_fini(&reply);
     yyjson_mut_doc *d = yyjson_mut_doc_new(NULL);
     yyjson_mut_val *p = d ? yyjson_val_mut_copy(d, params) : NULL;
     pc_buf text = PC_BUF_INIT;

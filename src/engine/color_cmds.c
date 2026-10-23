@@ -1481,7 +1481,7 @@ pc_status pc_engine_color_open_policy(pc_engine_session *s, pc_document *doc, bo
         } else {
             /* An input-only profile can't be the document's space; Preserve converts it instead. */
             bool input_only = !pc_profile_can_be_destination(&emb);
-            const char *action = "kept";
+            const char *action; /* set by every branch below before it is read */
             if (policy == PC_COLOR_POLICY_OFF) {
                 if (set_doc_profile(doc, NULL, err) != PC_OK) {
                     pc_profile_fini(&emb);

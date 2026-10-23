@@ -13,6 +13,7 @@
 #include "base/json.h"
 #include "harness.h"
 #include "engine/prefs.h"
+#include "ui/dock.h"
 #include "ui/shell/app.h"
 #include "ui/artboard.h"
 #include "engine/floating.h"
@@ -23,7 +24,12 @@
 #include "ui/shell/shell_internal.h"
 #include "ui/shell/preset_manager_ui.h"
 #include "ui/shell/profile_mismatch_ui.h"
+#include "ui/shell/warp_ui.h"
+#include "ui/preset_ui.h"
 #include "base/file.h"
+#include "codecs/codecs.h"
+#include "codecs/format.h"
+#include "codecs/image.h"
 
 /* Call a control method with JSON params text (NULL = none). Fills *out_text with the serialised
  * result on success; returns the pc_status. */
@@ -66,6 +72,28 @@ static void test_inspect_shape(void)
     CHECK_CONTAINS(s, "\"session\"");
     CHECK_CONTAINS(s, "\"themeTokens\"");
     pc_buf_fini(&t);
+    pc_ui_shell_app_free(a);
+}
+
+/* P1: forcing software compositing (--safe-gpu / a detected GPU crash) is reflected by the app
+ * accessor and by ui.inspect.gpuInfo reporting the CPU canvas. */
+static void test_force_cpu_rendering(void)
+{
+    pc_ui_shell_app *a = NULL;
+    pc_error err;
+    CHECK(pc_ui_shell_app_new(&a, &err) == PC_OK);
+    CHECK(pc_ui_shell_app_force_cpu(a) == false);
+    pc_ui_shell_app_set_force_cpu(a, true);
+    CHECK(pc_ui_shell_app_force_cpu(a) == true);
+    pc_json_value info = PC_JSON_VALUE_INIT;
+    CHECK(pc_ui_shell_app_gpu_info(a, &info, NULL) == PC_OK);
+    yyjson_mut_val *root = pc_json_value_root(&info);
+    CHECK_EQ_STR(yyjson_mut_get_str(yyjson_mut_obj_get(root, "canvas")), "cpu");
+    pc_json_value_fini(&info);
+    pc_ui_shell_app_set_force_cpu(a, false);
+    CHECK(pc_ui_shell_app_force_cpu(a) == false);
+    pc_ui_shell_app_set_force_cpu(NULL, true); /* NULL-safe */
+    CHECK(pc_ui_shell_app_force_cpu(NULL) == false);
     pc_ui_shell_app_free(a);
 }
 
@@ -621,6 +649,333 @@ static void test_gl_canvas(void)
     SDL_Quit();
 }
 
+/* U10: Copy mirrors the session clipboard onto the OS clipboard as PNG (needs the video subsystem,
+ * so it is opt-in like the GL tests; no GL context is created). SDL serves our own just-set data
+ * back in-process on any driver, so the roundtrip verifies the export without a native clipboard. */
+static void test_gl_os_clipboard_image(void)
+{
+    if (!getenv("PC_TEST_GL")) {
+        return;
+    }
+    CHECK(SDL_Init(SDL_INIT_VIDEO));
+    pc_ui_shell_app *a = NULL;
+    pc_error err;
+    CHECK(pc_ui_shell_app_new(&a, &err) == PC_OK);
+    /* A fresh app with nothing copied: export is a quiet no-op (no crash, no image offered). */
+    SDL_ClearClipboardData();
+    pc_ui_shell_os_clipboard_export(a);
+    CHECK(!SDL_HasClipboardData("image/png"));
+    /* Copy a full selection of a 128x96 document and read the image back off the OS clipboard. */
+    pc_document doc;
+    CHECK(pc_document_with_background(&doc, "bg", pc_size_make(128, 96), PC_COLOR_MODE_RGB,
+                                      PC_SAMPLE_TYPE_F32, pc_color_rgb(0, 0.5f, 1), &err) == PC_OK);
+    size_t index;
+    CHECK(pc_engine_session_add_document(pc_ui_shell_app_session(a), &doc, NULL, &index, &err) == PC_OK);
+    CHECK(call(a, "engine.execute", "{\"command\":\"select.all\"}", NULL) == PC_OK);
+    pc_json_value out = PC_JSON_VALUE_INIT;
+    CHECK(pc_ui_shell_app_invoke(a, "edit.copy", NULL, &out, &err) == PC_OK);
+    pc_json_value_fini(&out);
+    pc_size clip;
+    CHECK(pc_engine_session_clipboard_size(pc_ui_shell_app_session(a), &clip));
+    CHECK(SDL_HasClipboardData("image/png"));
+    size_t png_len = 0;
+    void *png = SDL_GetClipboardData("image/png", &png_len);
+    CHECK(png != NULL && png_len > 8);
+    if (png != NULL && png_len > 8) {
+        pc_cimage decoded;
+        pc_cimage_init(&decoded);
+        CHECK(pc_cdecode_as(PC_CF_PNG, png, png_len, &decoded, &err) == PC_OK);
+        CHECK(decoded.width == 128 && decoded.height == 96);
+        pc_cimage_fini(&decoded);
+    }
+    SDL_free(png);
+    SDL_ClearClipboardData();
+    pc_ui_shell_app_free(a);
+    SDL_Quit();
+}
+
+/* U5: the floating preset-panel Window items toggle their state flag (previously unimplemented) and
+ * report their checked state, driving preset_panels::menu's float_flag half. */
+static void test_preset_float_panels_toggle(void)
+{
+    pc_ui_shell_app *a = NULL;
+    pc_error err;
+    CHECK(pc_ui_shell_app_new(&a, &err) == PC_OK);
+    pc_ui_state *st = pc_ui_shell_app_state(a);
+    const char *ids[4] = {"window.panel.styles", "window.panel.shapes", "window.panel.toolPresets",
+                          "window.panel.cloneSource"};
+    const bool *flags[4] = {&st->presets_ui.styles, &st->presets_ui.shapes,
+                            &st->presets_ui.tool_presets, &st->presets_ui.clone_source};
+    for (size_t i = 0; i < 4; i++) {
+        CHECK(!*flags[i]);
+        pc_json_value out = PC_JSON_VALUE_INIT;
+        CHECK(pc_ui_shell_app_invoke(a, ids[i], NULL, &out, &err) == PC_OK);
+        pc_json_value_fini(&out);
+        CHECK(*flags[i]); /* shown */
+        out = (pc_json_value)PC_JSON_VALUE_INIT;
+        CHECK(pc_ui_shell_app_invoke(a, ids[i], NULL, &out, &err) == PC_OK);
+        pc_json_value_fini(&out);
+        CHECK(!*flags[i]); /* a second click hides it again */
+    }
+    pc_ui_shell_app_free(a);
+}
+
+/* An external PNG handed to SDL as if another app owned the clipboard (no mark_exported, so the
+ * shell treats it as foreign and imports it). */
+static struct {
+    uint8_t *bytes;
+    size_t len;
+} g_ext_png;
+
+static const void *SDLCALL ext_png_provide(void *userdata, const char *mime, size_t *size)
+{
+    (void)userdata;
+    (void)mime;
+    if (size != NULL) {
+        *size = g_ext_png.len;
+    }
+    return g_ext_png.bytes;
+}
+
+/* U10: an image another app put on the OS clipboard is decoded and set as the session clipboard, so
+ * Paste / New from Clipboard place it (the import half; opt-in like the other clipboard test). */
+static void test_gl_os_clipboard_image_in(void)
+{
+    if (!getenv("PC_TEST_GL")) {
+        return;
+    }
+    CHECK(SDL_Init(SDL_INIT_VIDEO));
+    pc_error err;
+    /* A 50x40 solid-magenta external PNG. */
+    const uint32_t ew = 50, eh = 40;
+    uint8_t *px = malloc((size_t)ew * eh * 4);
+    CHECK(px != NULL);
+    for (size_t i = 0; i < (size_t)ew * eh; i++) {
+        px[i * 4 + 0] = 255;
+        px[i * 4 + 1] = 0;
+        px[i * 4 + 2] = 255;
+        px[i * 4 + 3] = 255;
+    }
+    pc_cimage src;
+    pc_cimage_init(&src);
+    CHECK(pc_cimage_from_copy(ew, eh, PC_CL_RGBA, PC_CS_U8, px, (size_t)ew * eh * 4, &src, &err) == PC_OK);
+    free(px);
+    pc_buf png = PC_BUF_INIT;
+    CHECK(pc_cencode(&src, PC_CF_PNG, NULL, &png, &err) == PC_OK && png.len > 8);
+    pc_cimage_fini(&src);
+    g_ext_png.bytes = pc_buf_take(&png, &g_ext_png.len);
+    CHECK(g_ext_png.bytes != NULL);
+    pc_buf_fini(&png);
+
+    pc_ui_shell_app *a = NULL;
+    CHECK(pc_ui_shell_app_new(&a, &err) == PC_OK);
+    SDL_ClearClipboardData();
+    static const char *const mimes[] = {"image/png"};
+    CHECK(SDL_SetClipboardData(ext_png_provide, NULL, NULL, mimes, 1));
+    /* Nothing copied in PhotoCraft yet: the session clipboard is empty. */
+    CHECK(!pc_engine_session_clipboard_size(pc_ui_shell_app_session(a), NULL));
+    /* New from Clipboard goes through the shell invoke path, which imports the external image first,
+     * then builds a 50x40 document from it. */
+    pc_json_value out = PC_JSON_VALUE_INIT;
+    CHECK(pc_ui_shell_app_invoke(a, "file.newFromClipboard", NULL, &out, &err) == PC_OK);
+    pc_buf text = PC_BUF_INIT;
+    CHECK(pc_json_write(pc_json_value_root(&out), 0, &text, &err) == PC_OK);
+    CHECK_CONTAINS((const char *)text.data, "\"width\":50");
+    CHECK_CONTAINS((const char *)text.data, "\"height\":40");
+    pc_buf_fini(&text);
+    pc_json_value_fini(&out);
+    pc_size clip;
+    CHECK(pc_engine_session_clipboard_size(pc_ui_shell_app_session(a), &clip));
+    CHECK(clip.width == 50 && clip.height == 40);
+    SDL_ClearClipboardData();
+    pc_ui_shell_app_free(a);
+    free(g_ext_png.bytes);
+    g_ext_png.bytes = NULL;
+    g_ext_png.len = 0;
+    SDL_Quit();
+}
+
+/* U8: the Liquify freeze-mask overlay and mesh render offscreen without crashing (Rule 6). Set
+ * PC_LIQUIFY_SNAPSHOT=out.png to eyeball the frozen region (red) and the displaced mesh. */
+static void test_gl_liquify_freeze_overlay(void)
+{
+    if (!getenv("PC_TEST_GL")) {
+        return;
+    }
+    CHECK(SDL_Init(SDL_INIT_VIDEO));
+    pc_ui_shell_app *a = NULL;
+    pc_error err;
+    CHECK(pc_ui_shell_app_new(&a, &err) == PC_OK);
+    pc_document doc;
+    CHECK(pc_document_with_background(&doc, "bg", pc_size_make(160, 120), PC_COLOR_MODE_RGB,
+                                      PC_SAMPLE_TYPE_F32, pc_color_rgb(0.9f, 0.85f, 0.2f), &err) == PC_OK);
+    size_t index;
+    CHECK(pc_engine_session_add_document(pc_ui_shell_app_session(a), &doc, NULL, &index, &err) == PC_OK);
+    CHECK(pc_ui_shell_app_open_window(a, "assets/fonts/Inter-Regular.ttf", 1, true, &err) == PC_OK);
+    pc_json_value out = PC_JSON_VALUE_INIT;
+    CHECK(pc_ui_shell_app_invoke(a, "filter.liquify", NULL, &out, &err) == PC_OK);
+    pc_json_value_fini(&out);
+    CHECK(pc_ui_shell_warp_active(a));
+    pc_ui_warp_runtime *r = pc_ui_shell_warp_runtime(a);
+    CHECK(r->kind == PC_UI_WARP_LIQUIFY);
+    /* Freeze the whole field and show both the mask and the mesh. */
+    CHECK(pc_ui_liquify_global(&r->liquify, PC_ALGO_LIQUIFY_FREEZE_ALL, false, 0.0, &err) == PC_OK);
+    r->liquify.opts.show_mask = true;
+    r->liquify.opts.show_mesh = true;
+    CHECK(call(a, "ui.set", "{\"zoom\":3,\"center\":[80,60]}", NULL) == PC_OK);
+    uint8_t *rgba = NULL;
+    int w = 0, h = 0;
+    CHECK(pc_ui_shell_app_capture(a, &rgba, &w, &h, &err) == PC_OK);
+    const char *snap = getenv("PC_LIQUIFY_SNAPSHOT");
+    if (snap != NULL && rgba != NULL && w > 0 && h > 0) {
+        pc_cimage img;
+        if (pc_cimage_from_copy((uint32_t)w, (uint32_t)h, PC_CL_RGBA, PC_CS_U8, rgba,
+                                (size_t)w * (size_t)h * 4, &img, &err) == PC_OK) {
+            pc_buf out_png = PC_BUF_INIT;
+            if (pc_cencode(&img, PC_CF_PNG, NULL, &out_png, &err) == PC_OK) {
+                (void)pc_file_write_atomic(snap, out_png.data, out_png.len, &err);
+            }
+            pc_buf_fini(&out_png);
+            pc_cimage_fini(&img);
+        }
+    }
+    free(rgba);
+    /* Thaw all / invert all also run cleanly. */
+    CHECK(pc_ui_liquify_global(&r->liquify, PC_ALGO_LIQUIFY_THAW_ALL, false, 0.0, &err) == PC_OK);
+    CHECK(pc_ui_liquify_global(&r->liquify, PC_ALGO_LIQUIFY_INVERT_FREEZE, false, 0.0, &err) == PC_OK);
+    CHECK(pc_ui_shell_app_invoke(a, "ui.warp.cancel", NULL, &out, &err) == PC_OK);
+    pc_json_value_fini(&out);
+    pc_ui_shell_app_free(a);
+    SDL_Quit();
+}
+
+/* U8: the Liquify live warped-pixel proxy preview seam (pure CPU; always runs). Entering Liquify
+ * with no edit yet draws nothing; a forward-warp drag builds the proxy and reports a bounded dirty
+ * rect per continuing move; cancel drops the preview. */
+static void test_liquify_live_proxy(void)
+{
+    pc_ui_shell_app *a = NULL;
+    pc_error err;
+    CHECK(pc_ui_shell_app_new(&a, &err) == PC_OK);
+    pc_document doc;
+    CHECK(pc_document_with_background(&doc, "bg", pc_size_make(160, 120), PC_COLOR_MODE_RGB,
+                                      PC_SAMPLE_TYPE_F32, pc_color_rgb(0.2f, 0.5f, 0.9f), &err) == PC_OK);
+    size_t index;
+    CHECK(pc_engine_session_add_document(pc_ui_shell_app_session(a), &doc, NULL, &index, &err) == PC_OK);
+    pc_json_value out = PC_JSON_VALUE_INIT;
+    CHECK(pc_ui_shell_app_invoke(a, "filter.liquify", NULL, &out, &err) == PC_OK);
+    pc_json_value_fini(&out);
+    CHECK(pc_ui_shell_warp_active(a));
+    pc_ui_warp_runtime *r = pc_ui_shell_warp_runtime(a);
+    CHECK(r->kind == PC_UI_WARP_LIQUIFY);
+    r->liquify.opts.size = 48;
+
+    /* No edit yet: the overlay draws nothing (crisp canvas shows). */
+    pc_ui_warp_overlay_frame f;
+    CHECK(!pc_ui_shell_warp_live_overlay(a, &f));
+
+    /* A forward-warp drag builds and renders the proxy. */
+    CHECK(pc_ui_liquify_pointer(&r->liquify, PC_UI_POINTER_DOWN, 40, 60, 1.0, false, &err) == PC_OK);
+    CHECK(pc_ui_shell_warp_live_overlay(a, &f));
+    CHECK(f.px != NULL && f.w > 0 && f.h > 0);
+    CHECK(pc_rect_width(f.doc_bounds) == 160 && pc_rect_height(f.doc_bounds) == 120);
+
+    CHECK(pc_ui_liquify_pointer(&r->liquify, PC_UI_POINTER_MOVE, 70, 60, 1.0, false, &err) == PC_OK);
+    CHECK(pc_ui_shell_warp_live_overlay(a, &f));
+    /* A continuing move re-renders only a bounded sub-region, not the whole proxy. */
+    CHECK(f.dirty[0] < f.dirty[2] && f.dirty[1] < f.dirty[3]);
+    CHECK(f.dirty[2] <= f.w && f.dirty[3] <= f.h);
+    CHECK(!(f.dirty[0] == 0 && f.dirty[1] == 0 && f.dirty[2] == f.w && f.dirty[3] == f.h));
+
+    CHECK(pc_ui_liquify_pointer(&r->liquify, PC_UI_POINTER_MOVE, 100, 60, 1.0, false, &err) == PC_OK);
+    CHECK(pc_ui_shell_warp_live_overlay(a, &f));
+    CHECK(pc_ui_liquify_pointer(&r->liquify, PC_UI_POINTER_UP, 100, 60, 1.0, false, &err) == PC_OK);
+    CHECK(pc_ui_shell_warp_live_overlay(a, &f));
+
+    /* Idle frame: nothing changed, so there is no dirty region to upload. */
+    pc_ui_warp_overlay_frame idle;
+    CHECK(pc_ui_shell_warp_live_overlay(a, &idle));
+    CHECK(idle.dirty[0] == 0 && idle.dirty[1] == 0 && idle.dirty[2] == 0 && idle.dirty[3] == 0);
+
+    /* Cancel drops the editor and the preview. */
+    CHECK(pc_ui_shell_app_invoke(a, "ui.warp.cancel", NULL, &out, &err) == PC_OK);
+    pc_json_value_fini(&out);
+    CHECK(!pc_ui_shell_warp_live_overlay(a, &f));
+    pc_ui_shell_app_free(a);
+}
+
+static pc_status stripe_patch(pc_document *doc, bool *has_active, pc_layer_id *active, void *ctx,
+                              pc_error *err)
+{
+    (void)has_active;
+    (void)active;
+    (void)ctx;
+    const float white[4] = {0.95f, 0.95f, 0.95f, 1.f};
+    pc_surface *bg = pc_layer_surface_mut(&doc->layers[0]);
+    pc_status rc = PC_OK;
+    for (int sx = 0; bg && rc == PC_OK && sx < 160; sx += 24) {
+        rc = pc_surface_fill_rect(bg, pc_rect_make(sx, 0, sx + 12, 120), white, 4, err);
+    }
+    return rc;
+}
+
+/* U8: the Liquify live warped-pixel proxy renders offscreen under a rotated/zoomed view without
+ * crashing (Rule 6). Set PC_LIQUIFY_PROXY_SNAPSHOT=out.png to eyeball a warped preview. */
+static void test_gl_liquify_live_proxy(void)
+{
+    if (!getenv("PC_TEST_GL")) {
+        return;
+    }
+    CHECK(SDL_Init(SDL_INIT_VIDEO));
+    pc_ui_shell_app *a = NULL;
+    pc_error err;
+    CHECK(pc_ui_shell_app_new(&a, &err) == PC_OK);
+    pc_document doc;
+    CHECK(pc_document_with_background(&doc, "bg", pc_size_make(160, 120), PC_COLOR_MODE_RGB,
+                                      PC_SAMPLE_TYPE_F32, pc_color_rgb(0.95f, 0.4f, 0.1f), &err) == PC_OK);
+    size_t index;
+    CHECK(pc_engine_session_add_document(pc_ui_shell_app_session(a), &doc, NULL, &index, &err) == PC_OK);
+    /* Paint vertical stripes so the warp of actual pixels (not just the mesh) is visible. */
+    CHECK(pc_engine_session_edit(pc_ui_shell_app_session(a), "stripes", stripe_patch, NULL, &err) == PC_OK);
+    CHECK(pc_ui_shell_app_open_window(a, "assets/fonts/Inter-Regular.ttf", 1, true, &err) == PC_OK);
+    pc_json_value out = PC_JSON_VALUE_INIT;
+    CHECK(pc_ui_shell_app_invoke(a, "filter.liquify", NULL, &out, &err) == PC_OK);
+    pc_json_value_fini(&out);
+    pc_ui_warp_runtime *r = pc_ui_shell_warp_runtime(a);
+    CHECK(r->kind == PC_UI_WARP_LIQUIFY);
+    r->liquify.opts.size = 70;
+    r->liquify.opts.pressure = 100;
+    /* A bloat-and-push warp across the middle of the image. */
+    CHECK(pc_ui_liquify_pointer(&r->liquify, PC_UI_POINTER_DOWN, 40, 60, 1.0, false, &err) == PC_OK);
+    CHECK(pc_ui_liquify_pointer(&r->liquify, PC_UI_POINTER_MOVE, 80, 40, 1.0, false, &err) == PC_OK);
+    CHECK(pc_ui_liquify_pointer(&r->liquify, PC_UI_POINTER_MOVE, 120, 60, 1.0, false, &err) == PC_OK);
+    CHECK(pc_ui_liquify_pointer(&r->liquify, PC_UI_POINTER_UP, 120, 60, 1.0, false, &err) == PC_OK);
+    r->liquify.opts.show_mesh = true;
+    /* Rotated and zoomed: the overlay must line up with the mesh. */
+    CHECK(call(a, "ui.set", "{\"zoom\":3,\"rotation\":30,\"center\":[80,60]}", NULL) == PC_OK);
+    uint8_t *rgba = NULL;
+    int w = 0, h = 0;
+    CHECK(pc_ui_shell_app_capture(a, &rgba, &w, &h, &err) == PC_OK);
+    const char *snap = getenv("PC_LIQUIFY_PROXY_SNAPSHOT");
+    if (snap != NULL && rgba != NULL && w > 0 && h > 0) {
+        pc_cimage img;
+        if (pc_cimage_from_copy((uint32_t)w, (uint32_t)h, PC_CL_RGBA, PC_CS_U8, rgba,
+                                (size_t)w * (size_t)h * 4, &img, &err) == PC_OK) {
+            pc_buf out_png = PC_BUF_INIT;
+            if (pc_cencode(&img, PC_CF_PNG, NULL, &out_png, &err) == PC_OK) {
+                (void)pc_file_write_atomic(snap, out_png.data, out_png.len, &err);
+            }
+            pc_buf_fini(&out_png);
+            pc_cimage_fini(&img);
+        }
+    }
+    free(rgba);
+    CHECK(pc_ui_shell_app_invoke(a, "ui.warp.commit", NULL, &out, &err) == PC_OK);
+    pc_json_value_fini(&out);
+    pc_ui_shell_app_free(a);
+    SDL_Quit();
+}
+
 /* U7 render smoke: the retouch/gradient options bars, the Gradient Editor window and the Fill dialog
  * all render offscreen without crashing (Rule 6). */
 static void test_gl_u7_surfaces(void)
@@ -667,6 +1022,86 @@ static void test_gl_u7_surfaces(void)
     rgba = NULL;
     CHECK(pc_ui_shell_app_capture(a, &rgba, &w, &h, &err) == PC_OK);
     free(rgba);
+    pc_ui_shell_app_free(a);
+    SDL_Quit();
+}
+
+/* U5 GL render smoke: the preset browser (Gradients/Patterns dock panels in grid and list mode,
+ * folders, an inline rename field) and the floating preset windows (Styles, Shapes, Tool Presets,
+ * Clone Source) all render offscreen without crashing (Rule 6). With PC_PRESET_SNAPSHOT=<dir> set,
+ * writes PNGs there to eyeball. */
+static void snapshot_to(pc_ui_shell_app *a, const char *name)
+{
+    const char *dir = getenv("PC_PRESET_SNAPSHOT");
+    if (!dir) {
+        return;
+    }
+    char req[1024];
+    (void)snprintf(req, sizeof req, "{\"path\":\"%s/%s.png\"}", dir, name);
+    CHECK(call(a, "ui.screenshot", req, NULL) == PC_OK);
+}
+static void test_gl_preset_browser(void)
+{
+    if (!getenv("PC_TEST_GL")) {
+        return;
+    }
+    CHECK(SDL_Init(SDL_INIT_VIDEO));
+    pc_ui_shell_app *a = NULL;
+    pc_error err;
+    CHECK(pc_ui_shell_app_new(&a, &err) == PC_OK);
+    pc_document doc;
+    CHECK(pc_document_with_background(&doc, "white", pc_size_make(160, 120), PC_COLOR_MODE_RGB,
+                                      PC_SAMPLE_TYPE_F32, pc_color_rgb(1, 1, 1), &err) == PC_OK);
+    size_t index;
+    CHECK(pc_engine_session_add_document(pc_ui_shell_app_session(a), &doc, NULL, &index, &err) == PC_OK);
+    CHECK(pc_ui_shell_app_open_window(a, "assets/fonts/Inter-Regular.ttf", 1, true, &err) == PC_OK);
+
+    uint8_t *rgba = NULL;
+    int w = 0, h = 0;
+
+    /* Gradients dock panel (grid mode). */
+    CHECK(call(a, "ui.menu.invoke", "{\"command\":\"window.panel.gradients\"}", NULL) == PC_OK);
+    CHECK(pc_ui_shell_app_capture(a, &rgba, &w, &h, &err) == PC_OK);
+    free(rgba);
+    snapshot_to(a, "preset_gradients_grid");
+
+    /* List mode (slider at the minimum). */
+    pc_ui_preset_ui_set_size(&pc_ui_shell_app_state(a)->presets_ui, "gradients", PC_UI_PRESET_MIN_THUMB);
+    rgba = NULL;
+    CHECK(pc_ui_shell_app_capture(a, &rgba, &w, &h, &err) == PC_OK);
+    free(rgba);
+    snapshot_to(a, "preset_gradients_list");
+
+    /* An inline rename field over the first preset. */
+    pc_ui_preset_ui_set_rename(&pc_ui_shell_app_state(a)->presets_ui, "gradients", "Custom", "Custom");
+    rgba = NULL;
+    CHECK(pc_ui_shell_app_capture(a, &rgba, &w, &h, &err) == PC_OK);
+    free(rgba);
+    snapshot_to(a, "preset_gradients_rename");
+    pc_ui_preset_ui_clear_rename(&pc_ui_shell_app_state(a)->presets_ui);
+
+    /* Patterns dock panel (pixel thumbnails). */
+    CHECK(call(a, "ui.menu.invoke", "{\"command\":\"window.panel.patterns\"}", NULL) == PC_OK);
+    rgba = NULL;
+    CHECK(pc_ui_shell_app_capture(a, &rgba, &w, &h, &err) == PC_OK);
+    free(rgba);
+    snapshot_to(a, "preset_patterns");
+
+    /* The four floating preset windows, all open at once (toggling via the Window menu is covered
+     * by test_preset_float_panels_toggle; here the flags are set directly to render the bodies). */
+    pc_ui_preset_ui *pu = &pc_ui_shell_app_state(a)->presets_ui;
+    pu->styles = pu->shapes = pu->tool_presets = pu->clone_source = true;
+    CHECK(pc_ui_shell_app_state(a)->presets_ui.styles);
+    rgba = NULL;
+    CHECK(pc_ui_shell_app_capture(a, &rgba, &w, &h, &err) == PC_OK);
+    free(rgba);
+    snapshot_to(a, "preset_float_windows");
+    /* A second frame so the windows settle at their requested bounds. */
+    rgba = NULL;
+    CHECK(pc_ui_shell_app_capture(a, &rgba, &w, &h, &err) == PC_OK);
+    free(rgba);
+    snapshot_to(a, "preset_float_windows_2");
+
     pc_ui_shell_app_free(a);
     SDL_Quit();
 }
@@ -2630,6 +3065,161 @@ static void test_gl_web_print_surfaces(void)
     SDL_Quit();
 }
 
+/* Invoke a shell command with JSON params text (NULL = none). */
+static pc_status invoke_json(pc_ui_shell_app *a, const char *id, const char *params_json, pc_error *err)
+{
+    yyjson_doc *pdoc = NULL;
+    yyjson_val *params = NULL;
+    if (params_json != NULL) {
+        if (pc_json_parse(params_json, strlen(params_json), &pdoc, err) != PC_OK) {
+            return PC_ERR_INVALID;
+        }
+        params = yyjson_doc_get_root(pdoc);
+    }
+    pc_json_value out = PC_JSON_VALUE_INIT;
+    pc_status rc = pc_ui_shell_app_invoke(a, id, params, &out, err);
+    pc_json_value_fini(&out);
+    yyjson_doc_free(pdoc);
+    return rc;
+}
+
+/* U3: window.panel.move re-parents a panel across dock groups (cross-group drag's command path);
+ * invalid requests are atomic errors, never crashes, and never silently customize the layout. */
+static void test_panel_move_command(void)
+{
+    pc_ui_shell_app *a = NULL;
+    pc_error err;
+    CHECK(pc_ui_shell_app_new(&a, &err) == PC_OK);
+    pc_ui_state *st = pc_ui_shell_app_state(a);
+    CHECK(invoke_json(a, "window.panel.move", NULL, &err) != PC_OK);
+    CHECK(invoke_json(a, "window.panel.move", "{\"panel\":\"layers\"}", &err) != PC_OK);
+    CHECK(invoke_json(a, "window.panel.move", "{\"panel\":\"bogus\",\"anchor\":\"layers\"}", &err) != PC_OK);
+    CHECK(invoke_json(a, "window.panel.move", "{\"panel\":\"layers\",\"anchor\":\"layers\"}", &err) != PC_OK);
+    CHECK(invoke_json(a, "window.panel.move",
+                      "{\"panel\":\"layers\",\"anchor\":\"properties\",\"before\":\"nope\"}", &err) != PC_OK);
+    CHECK(!st->dock.customized);
+    CHECK(invoke_json(a, "window.panel.move",
+                      "{\"panel\":\"swatches\",\"anchor\":\"layers\",\"before\":\"channels\"}", &err) == PC_OK);
+    CHECK(st->dock.customized);
+    pc_ui_group g;
+    CHECK(pc_ui_dock_label_group(&st->dock, "Swatches", false, &g) && g == PC_UI_GROUP_LAYERS);
+    const char *labels[PC_UI_DOCK_MAX_MEMBERS];
+    size_t n = pc_ui_dock_group_labels(&st->dock, PC_UI_GROUP_LAYERS, false, labels);
+    CHECK(n == 4 && strcmp(labels[1], "Swatches") == 0 && strcmp(labels[2], "Channels") == 0);
+    yyjson_mut_doc *doc = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *root = NULL;
+    CHECK(pc_ui_state_to_json(st, doc, &root, NULL) == PC_OK);
+    yyjson_mut_doc_set_root(doc, root);
+    pc_buf buf = PC_BUF_INIT;
+    CHECK(pc_json_write(root, 0, &buf, NULL) == PC_OK);
+    yyjson_doc *parsed = NULL;
+    CHECK(pc_json_parse(pc_buf_cstr(&buf), strlen(pc_buf_cstr(&buf)), &parsed, NULL) == PC_OK);
+    pc_ui_state s2;
+    pc_ui_state_init(&s2);
+    CHECK(pc_ui_state_from_json(&s2, yyjson_doc_get_root(parsed), NULL) == PC_OK);
+    CHECK(s2.dock.customized);
+    CHECK(pc_ui_dock_label_group(&s2.dock, "Swatches", false, &g) && g == PC_UI_GROUP_LAYERS);
+    pc_ui_state_fini(&s2);
+    yyjson_doc_free(parsed);
+    pc_buf_fini(&buf);
+    yyjson_mut_doc_free(doc);
+    pc_ui_shell_app_free(a);
+}
+
+/* U3: window.panel.float / window.panel.dock mutate the dock float model; bad input is a graceful
+ * error, never a crash. */
+static void test_panel_float_command(void)
+{
+    pc_ui_shell_app *a = NULL;
+    pc_error err;
+    CHECK(pc_ui_shell_app_new(&a, &err) == PC_OK);
+    pc_ui_state *st = pc_ui_shell_app_state(a);
+    /* Bad input: missing / unknown / wrong-typed panel are errors, not crashes. */
+    CHECK(invoke_json(a, "window.panel.float", NULL, &err) != PC_OK);
+    CHECK(invoke_json(a, "window.panel.float", "{\"panel\":\"bogus\"}", &err) != PC_OK);
+    CHECK(invoke_json(a, "window.panel.float", "{\"panel\":42}", &err) != PC_OK);
+    CHECK(invoke_json(a, "window.panel.dock", "{}", &err) != PC_OK);
+    /* Float the Properties group with an explicit rect. */
+    CHECK(invoke_json(a, "window.panel.float",
+                      "{\"panel\":\"properties\",\"x\":40,\"y\":30,\"width\":260,\"height\":300}",
+                      &err) == PC_OK);
+    CHECK(pc_ui_dock_is_floating(&st->dock, PC_UI_GROUP_PROPERTIES));
+    CHECK(st->panels.properties); /* the group is shown */
+    CHECK(st->panels.dock);
+    float r[4];
+    CHECK(pc_ui_dock_float_rect(&st->dock, PC_UI_GROUP_PROPERTIES, r));
+    CHECK(r[0] == 40 && r[1] == 30 && r[2] == 260 && r[3] == 300);
+    /* Floating a second panel floats its (different) group; same group floats once. */
+    CHECK(invoke_json(a, "window.panel.float", "{\"panel\":\"navigator\"}", &err) == PC_OK);
+    CHECK(invoke_json(a, "window.panel.float", "{\"panel\":\"info\"}", &err) == PC_OK); /* same group */
+    CHECK(st->dock.n_floating == 2);
+    /* Re-dock the Properties group via a sibling tab. */
+    CHECK(invoke_json(a, "window.panel.dock", "{\"panel\":\"adjustments\"}", &err) == PC_OK);
+    CHECK(!pc_ui_dock_is_floating(&st->dock, PC_UI_GROUP_PROPERTIES));
+    CHECK(st->dock.n_floating == 1);
+    /* The float state survives a UiState serde round-trip. */
+    yyjson_mut_doc *doc = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *root = NULL;
+    CHECK(pc_ui_state_to_json(st, doc, &root, NULL) == PC_OK);
+    yyjson_mut_doc_set_root(doc, root);
+    pc_buf buf = PC_BUF_INIT;
+    CHECK(pc_json_write(root, 0, &buf, NULL) == PC_OK);
+    yyjson_doc *parsed = NULL;
+    CHECK(pc_json_parse(pc_buf_cstr(&buf), strlen(pc_buf_cstr(&buf)), &parsed, NULL) == PC_OK);
+    pc_ui_state s2;
+    pc_ui_state_init(&s2);
+    CHECK(pc_ui_state_from_json(&s2, yyjson_doc_get_root(parsed), NULL) == PC_OK);
+    CHECK(pc_ui_dock_is_floating(&s2.dock, PC_UI_GROUP_NAVIGATOR));
+    CHECK(!pc_ui_dock_is_floating(&s2.dock, PC_UI_GROUP_PROPERTIES));
+    pc_ui_state_fini(&s2);
+    yyjson_doc_free(parsed);
+    pc_buf_fini(&buf);
+    yyjson_mut_doc_free(doc);
+    pc_ui_shell_app_free(a);
+}
+
+/* GL: rendering floating dock windows (incl. the all-floated empty-column edge) never crashes. */
+static void test_gl_floating_dock(void)
+{
+    if (!getenv("PC_TEST_GL")) {
+        return;
+    }
+    CHECK(SDL_Init(SDL_INIT_VIDEO));
+    pc_ui_shell_app *a = NULL;
+    pc_error err;
+    CHECK(pc_ui_shell_app_new(&a, &err) == PC_OK);
+    CHECK(pc_ui_shell_app_open_window(a, "assets/fonts/Inter-Regular.ttf", 1, true, &err) == PC_OK);
+    pc_ui_state *st = pc_ui_shell_app_state(a);
+    CHECK(invoke_json(a, "window.panel.float", "{\"panel\":\"properties\"}", &err) == PC_OK);
+    CHECK(invoke_json(a, "window.panel.float", "{\"panel\":\"navigator\"}", &err) == PC_OK);
+    uint8_t *rgba = NULL;
+    int w = 0, h = 0;
+    CHECK(pc_ui_shell_app_capture(a, &rgba, &w, &h, &err) == PC_OK);
+    CHECK(w > 0 && h > 0);
+    free(rgba);
+    /* Float every group: the dock column goes empty — must still render. */
+    const char *all[6] = {"color", "properties", "character", "navigator", "history", "layers"};
+    for (int i = 0; i < 6; i++) {
+        char p[64];
+        (void)snprintf(p, sizeof p, "{\"panel\":\"%s\"}", all[i]);
+        CHECK(invoke_json(a, "window.panel.float", p, &err) == PC_OK);
+    }
+    rgba = NULL;
+    CHECK(pc_ui_shell_app_capture(a, &rgba, &w, &h, &err) == PC_OK);
+    free(rgba);
+    /* Re-dock everything. */
+    for (int i = 0; i < 6; i++) {
+        char p[64];
+        (void)snprintf(p, sizeof p, "{\"panel\":\"%s\"}", all[i]);
+        CHECK(invoke_json(a, "window.panel.dock", p, &err) == PC_OK);
+    }
+    CHECK(st->dock.n_floating == 0);
+    rgba = NULL;
+    CHECK(pc_ui_shell_app_capture(a, &rgba, &w, &h, &err) == PC_OK);
+    free(rgba);
+    pc_ui_shell_app_free(a);
+}
+
 int main(int argc, char **argv)
 {
     RUN(test_layer_picker_control_overrides_hand_tool_and_prunes);
@@ -2679,7 +3269,17 @@ int main(int argc, char **argv)
     RUN(test_brush_opacity_and_resize_input);
     RUN(test_gl_canvas_damage);
     RUN(test_gl_canvas);
+    RUN(test_preset_float_panels_toggle);
+    RUN(test_panel_move_command);
+    RUN(test_panel_float_command);
+    RUN(test_gl_floating_dock);
+    RUN(test_gl_os_clipboard_image);
+    RUN(test_gl_os_clipboard_image_in);
+    RUN(test_liquify_live_proxy);
+    RUN(test_gl_liquify_freeze_overlay);
+    RUN(test_gl_liquify_live_proxy);
     RUN(test_gl_u7_surfaces);
+    RUN(test_gl_preset_browser);
     RUN(test_gl_brush_tip_panes);
     RUN(test_web_dialog_defaults_export_and_guard);
     RUN(test_print_dialog_defaults_and_pdf);
@@ -2693,5 +3293,6 @@ int main(int argc, char **argv)
     RUN(test_display_commands);
     RUN(test_document_cameras);
     RUN(test_camera_rejects_atomically);
+    RUN(test_force_cpu_rendering);
     return pc_t_finish();
 }

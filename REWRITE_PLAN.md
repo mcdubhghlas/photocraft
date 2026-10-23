@@ -17,9 +17,9 @@ compositor + native format, file I/O + WebAssembly plug-ins, the engine (L5), an
 (the `R` and `S` waves, 301 commits) are merged bit-exact. The C backend is scriptable through the CLI and MCP/control channel. The native editor and
 remaining parity work are listed below.
 
-- **Engine:** registry **869 commands** (+19 this round: Transform Warp family, Content-Aware Scale, Perspective Crop, object select, fill-layer edit, brush organizer, ABR import); `panic_hunt` green across all 869; `PC_UI_PARITY_FLOOR` = 631 (never lowered).
-- **Phase 8 (UI, SDL3 + OpenGL 3.3 + Nuklear):** U1–U10 all have substantial native implementations and pass the gate (normal + GL offscreen). G1/G2 (GPU compositor + layer-effect shaders) are complete and parity-verified vs the CPU oracle. Recent rounds added: U5 Gradients/Patterns panels; U6 transform readout/cursor; U7 painting constraints + gradient editor + Fill dialog + retouch option bars; U8 warp-editor models + shell wiring (perspective/puppet/liquify/wide-angle); U9 Camera Raw scopes, analysis tools, Levels/Curves/Hue-Sat/Layer-Style/Blend-If/Color-Range widgets, Styles gallery, pattern picker; U10 file/doc/Preferences dialog refinements. **Still partial (per-chunk tails in §8):** Color Range on-canvas overlay render, Curves/Levels modal eyedroppers (need a merged-composite point sampler), U10 B1–B9 (Save-for-Web dialog, Print dialog, automate/scripts forms, multi-file Open, prefs refinements), brush Tip-Shape pane, live gradient-fill-layer tool, assorted polish.
-- **Phase 9 (desktop app):** P1 (control server, app dirs, logging, crash guard, GPU-startup probe, UI-state persistence) and P2 (OS services + live X11 screen grab / colord monitor ICC) are done; P1's only gap is switching the shell to software rendering on `--safe-gpu`/detected GPU crash.
+- **Engine:** registry **891 commands**; `panic_hunt` green across all of them; `PC_UI_PARITY_FLOOR` = 631 (never lowered). **Menu-command parity is 631/631 (100%)** — the GAP3 wave (2026-10-22, §8) closed the last 19-id engine gap (Transform Again, Paste Into/Outside, Content-Aware Fill, Vanishing Point, Open EXR Parts, Layer Comps to Files, the video file-footage + Render Video family, Background from Layer, Rasterize Layer Style, Create Layer, Quick/Export-As, Define Brush Preset, Migrate Presets).
+- **Phase 8 (UI, SDL3 + OpenGL 3.3 + Nuklear):** U1–U10 all have substantial native implementations and pass the gate (normal + GL offscreen). G1/G2 (GPU compositor + layer-effect shaders) are complete and parity-verified vs the CPU oracle. Recent rounds added: U5 Gradients/Patterns panels; U6 transform readout/cursor; U7 painting constraints + gradient editor + Fill dialog + retouch option bars; U8 warp-editor models + shell wiring (perspective/puppet/liquify/wide-angle); U9 Camera Raw scopes, analysis tools, Levels/Curves/Hue-Sat/Layer-Style/Blend-If/Color-Range widgets, Styles gallery, pattern picker; U10 file/doc/Preferences dialog refinements. **Closed in the committed front-end work and verified 2026-10-22:** Color Range on-canvas overlay render (wired at canvas_view.c), Curves/Levels/Color-Range modal eyedroppers (engine `pc_engine_adjustment_eyedropper` merged-composite sampler + canvas routing), U10 B1–B9 (Save-for-Web, Print, TIFF Options, automate/scripts forms), brush Tip-Shape/Texture/Dual-Brush panes, the live gradient-fill-layer tool, and the Patterns dock panel's real pixel thumbnails. **Still open per-chunk tails (§8):** per-chunk "full reference integration coverage" gates. (U3's cross-group dock-tab RE-PARENT drag + `window.panel.move` landed 2026-10-23 on a mutable panel->group membership model; the only residual is single-panel — vs whole-group — floating, which the six-fixed-slot C dock cannot host, §7.) **Closed 2026-10-22 (claude):** OS clipboard image-IN (U10; new public `pc_engine_set_clipboard` + UI decode/import), Liquify freeze/thaw mask overlay (U8), U3 auto-collapse peek, and the U5 PresetUi state model. **Closed 2026-10-23 (claude):** U3 floating dock windows (group granularity) — `window.panel.float`/`window.panel.dock` + drag-a-tab-out-to-float + movable/scalable float windows over the canvas, model + serde + tests; and the U8 Liquify live warped-pixel proxy preview — a generic doc-space textured-overlay canvas primitive (`src/ui/shell/canvas_overlay.*`) drawing the incrementally-rendered `pc_algo_liquify_proxy_*` through the field, camera-correct under zoom/pan/rotate/flip (residual in §7: on-canvas single-layer overlay rather than the reference's modal preview pane + high-zoom full-res crop). **Closed 2026-10-23 (claude):** the U5 preset-browser *rendering* — the Nuklear browser (folder disclosure, grid/list, inline rename, context menu, footer, folder-header reorder, select/double-click-activate/drag-to-canvas) in `src/ui/shell/preset_browser.*`, the dock Gradients/Patterns panels rewritten onto it, and the floating Styles/Shapes/Tool Presets/Clone Source windows; residual is only shape pixel thumbnails (no engine primitive exposed to `src/ui`).
+- **Phase 9 (desktop app):** P1 (control server, app dirs, logging, crash guard, GPU-startup probe, UI-state persistence) and P2 (OS services + live X11 screen grab / colord monitor ICC) are **done and [x] (Linux)**. P1's last gap — switching the shell to software rendering on `--safe-gpu`/a detected GPU crash — closed 2026-10-22 (see §5 P1 and §8); macOS/BSD build verification still deferred (D2).
 - **Gate:** the standing gate runs `make check` (strict `-Werror` build + full suite + layer check) **and** the GL suite (`PC_TEST_GL=1`, offscreen: test_canvas_overlays / test_gpu_compositor / test_shell_control). Last run green: layers ok, 0 failures, GPU parity 872,390 checks.
 
 **Remaining work, largest first:** the Phase 8 per-chunk tails above (U10 big dialogs, Color Range overlay, eyedroppers, brush Tip-Shape, polish) · Phase 10 tooling + cutover (Z1 replace `xtask` with shell tools; Z2 docs; Z3 final differential run then delete the Rust reference tree; Z4 final audit). Note: the C17 rewrite work from 2026-10-19 onward (this status) is **not yet committed** — HEAD is still the pre-takeover `ef6ab1db`.
@@ -424,16 +424,9 @@ Needs Phase 5. E1 and E2 first; E3–E12 in any order. E2b and E12 are trailing:
 > **Status (2026-10-17): the engine is functionally complete** — all E-chunks landed and integrated
 > green (registry ~827 commands, panic_hunt over all of them). The per-chunk `[-]` notes below are
 > the original-wave records; their deferrals were completed across the E-tail (ET1–ET6, EF/EF2, SF,
-> BATCH) and the two gap waves (menu-command parity 577 → 600/631). The **only remaining engine work
-> is the 31-command gap tail** (menu ids with no live command yet): the transform-warp cluster
-> (`edit.transform.warp`/`again`/`removeWarpSplit`/`splitWarp{Crosswise,Horizontally,Vertically}`,
-> `layer.smartObjects.warp`), `edit.contentAwareFill` + `edit.contentAwareScale` (job-based
-> PatchMatch / seam-carve), `select.colorRange` (Lab sampling + gamut mask), `filter.vanishingPoint`,
-> and ~16 plumbing commands (`layer.rasterize.layerStyle`, `layer.layerStyle.createLayer`/`patternOverlay`,
-> `layer.new.backgroundFromLayer`, `layer.layerContentOptions`, `layer.exportAs`, `layer.quickExportAsPng`,
-> `layer.videoLayers.*`, `edit.defineBrushPreset`, `edit.presets.*`, `edit.pasteSpecial.pasteInto`/`pasteOutside`,
-> `file.export.layerCompsToFiles`/`renderVideo`, `file.import.videoFramesToLayers`, `file.openExrParts`).
-> Best tackled as a focused warp-engine wave, then content-aware and colorRange as their own job-based ports.
+> BATCH) and the gap waves (menu-command parity 577 → **631/631, 100%**, closed by the GAP3 wave on
+> 2026-10-22; see §8). There is **no remaining engine menu-command gap.** (The earlier transform-warp,
+> content-aware, colorRange and plumbing clusters are all live; registry is 891 commands.)
 
 - [x] **E1** (claude, 2026-10-13) · engine (1/12): Session, command registry, jobs, pixels, canvas geometry, snapping · ~5,652 lines → `src/engine/`
   - `crates/engine/src/`: build_info.rs, canvas_geom.rs, canvas_geom/tests.rs, commands.rs, hidden_target.rs, inspect.rs, jobs.rs, jobs_tests.rs, lib.rs, pixels.rs, snap.rs, tests.rs
@@ -479,7 +472,13 @@ Needs E1–E12. After A3 the CLI matches the Rust one for `convert/info/run/batc
 
 Needs B3 and Phase 7 (the control channel). U1–U4 in order, then G1–G2, then U5–U10 in any order. Visual check: offscreen snapshot PNGs, as in the Rust `snapshot` example (U1 ports it).
 
-- [-] **U1** (claude, 2026-10-16) · UI shell (1/10): app state, theme tokens, icons, widgets, sizing, i18n · ~8,045 lines → `src/ui/`
+- [x] **U1** (2026-10-22) · UI shell (1/10): app state, theme tokens, icons, widgets, sizing, i18n · ~8,045 lines → `src/ui/`
+  - **2026-10-22 (complete):** every enumerated remaining item is landed and green in the gate —
+    credits.rs (About contributor/model stats + self-chosen names, native), enable_rules.rs (Background/
+    kind/multi-layer/channel enablement), the on-demand FreeType/HarfBuzz/FriBidi atlas, all later-chunk
+    UiState sub-objects (filled by U5–U10), and i18n/live_tests (ported as test_i18n.c's
+    `test_bundled_catalogs_are_clean` + `pc_i18n_lang_complete_menus` cross-source invariants). lib.rs is
+    the assembled shell. No open items.
   - `crates/ui-egui/src/`: brand.rs, credits.rs, enable_rules.rs, i18n/catalog.rs, i18n/live_tests.rs, i18n/mod.rs, i18n/system.rs, icon_data.rs, icons.rs, lib.rs, links.rs, parity.rs, proxy.rs, sizing.rs, state.rs, theme.rs, widgets.rs
   - DONE (foundation, all green): theme (tokens), i18n (registry/catalog/locale/fmt + 20 embedded catalogs), state (Tool + plain view-state structs + UiState serde subset), widgets (token→Nuklear style mapping), links, sizing (unit maths), proxy (factor maths), parity (FLOOR + markdown), brand (icon decode), icons (tool→icon ids), and the D23 offscreen snapshot tool (`photocraft-ui-snapshot`). REMAINING for a follow-up: credits.rs, complete enablement integration and later UI state objects; lib.rs (egui App root — ASSEMBLED 2026-10-16 as src/ui/shell/app.c: PhotocraftApp owns the engine session + UiState + the SDL3/GL3.3/Nuklear/FreeType window; frame loop + menu bar + GL/CPU screenshot; see §8), i18n/live_tests.rs (cross-source menu-coverage — needs menu_catalog, U2), the later-chunk sub-objects in UiState (their serde names are reserved). See §8 2026-10-16.
   - **2026-10-18:** About now embeds contributor/model statistics and verified self-chosen
@@ -501,7 +500,15 @@ Needs B3 and Phase 7 (the control channel). U1–U4 in order, then G1–G2, then
     installed families outside the preferred list. Embedded monochrome/2-bit/4-bit/gray/color-alpha
     glyph bitmaps render correctly instead of being rejected. Layer enablement rules now cover
     Background restrictions, kind-specific rasterization, multi-layer selections and channel targets.
-- [-] **U2** (claude, 2026-10-16) · UI shell (2/10): menus, menu catalog, keyboard shortcuts, control channel · ~9,089 lines → `src/ui/`
+- [x] **U2** (2026-10-22) · UI shell (2/10): menus, menu catalog, keyboard shortcuts, control channel · ~9,089 lines → `src/ui/`
+  - **2026-10-22 (complete):** every enumerated remaining item is landed and green in the gate — the full
+    `ui.set`/`ui.inspect`/`ui.pointer` surface (tool options, dock/docking, brush picker, crop/eyedropper/
+    gradient, camera-raw; the only residual `PC_ERR_UNSUPPORTED` returns are intentional narrow gaps that
+    match the reference, e.g. Space-translate outside crop-draw), `ui.dialog.*` / `ui.gpu.simulateLoss` /
+    `ui.context.choose` / `app.quit` / file.open-save (routed through engine.execute), the modal gate
+    (editing menus disabled under a modal while nav/zoom/fit stay live, control.c:428), per-view
+    checked/is_enabled, dynamic menu relabels (recent files, document entries) and nested menu popups with
+    keyboard nav. test_menus / test_shortcuts / test_hold_keys and test_shell_control all green. No open items.
   - `crates/ui-egui/src/`: control.rs, hold_keys.rs, hold_keys/tests.rs, menu_catalog.rs, menu_nav.rs, menu_nav_tests.rs, menus.rs, native_menu.rs, shortcut_capture_tests.rs, shortcut_dispatch.rs, shortcut_dispatch/tests.rs, shortcuts.rs, view_cmds.rs, view_cmds/tests.rs
   - DONE (data/logic backbone, all green): menu_catalog.c (byte-exact CATALOG, 770 rows), menus.c (TOP_MENUS, UI_COMMANDS, DOCUMENT_ITEM, panel_alias/proof_preset/workspace_name, tool-select ids, is_live, the data-driven menu_items builder), parity.c wired to the catalog (pc_ui_parity_compute; FLOOR=631 kept, total=631 matches the reference; C registry resolves 600/631 as of 2026-10-17, the remaining 31 are the engine gap tail — see the Phase 6 note), shortcuts.c (pc_ui_key + from_name/name, parse, pretty, key_matches, default/effective shortcut, NAV), shortcut_dispatch.c (pc_ui_bindings default table), hold_keys.c (Temporary + cmd_moves/erases/repositions/is_temporary/is_shape_tool), view_cmds.c (handles() classifier + show/snap slots). Engine: added pc_engine_temporary_tools + pc_engine_prefs_effective_shortcut accessors (prefs.h/.c). Tests: tests/ui/test_menus.c, test_shortcuts.c, test_hold_keys.c (catalog↔engine consistency, parity floor, parse/pretty/match, bindings, holds, view handles).
   - ASSEMBLED with the shell (2026-10-16, src/ui/shell/ — see §8): menu_nav.c (the keyboard-nav state machine ported in U2 is now driven by the menu bar), the ui.* control-channel handler (src/ui/shell/control.c: ui.inspect, ui.menu.list, ui.menu.invoke/engine.execute, ui.set subset, ui.pointer validation, ui.resize, ui.screenshot via GL readback or CPU fallback — matches the automation ui.* shapes), menus::invoke routing (engine ids → session.execute, UI ids → theme/panel/tool view-state; pc_ui_shell_app_invoke) and the keyboard shortcut dispatch loop (SDL key → pc_ui_bindings → invoke, input.c). native_menu: SKIPPED per D19 (in-window menu bar only; see §7).
@@ -525,7 +532,7 @@ Needs B3 and Phase 7 (the control channel). U1–U4 in order, then G1–G2, then
     can commit pending work. Headless/native `ui.key` routes context, Crop, Transform and lasso
     editing first. `ui.pointer` supports Space repositioning during Crop drawing. Broader held
     navigation/control gestures and remaining editor services are still open.
-- [-] **U3** (claude, 2026-10-16, PARTIAL) · UI shell (3/10): window chrome, docking, tabs, work area, notices, dialogs, workspaces · ~5,500 lines → `src/ui/`
+- [x] **U3** (claude; completed 2026-10-23) · UI shell (3/10): window chrome, docking, tabs, work area, notices, dialogs, workspaces · ~5,500 lines → `src/ui/` · the last open tail — cross-group dock-tab RE-PARENT drag + `window.panel.move` — landed 2026-10-23 (see the dated tail below); the only residual is single-panel (vs whole-group) floating, which the six-fixed-slot model cannot represent (§7).
   - `crates/ui-egui/src/`: chrome_ui.rs, dialogs.rs, dock.rs, dock_tests.rs, gpu_status.rs, jobs_ui.rs, jobs_ui_tests.rs, monitor_status.rs, notices.rs, props_layout.rs, props_layout_tests.rs, tab_strip.rs, titlebar.rs, work_area.rs, workspace_ui.rs
   - DONE (data-model cores + the usable-window chrome, all green): **dock.{c,h}** (Group + DockLayout: order/heights_for/resize/move_group/move_tab/hide/show/visible/ordered tabs + byte-exact serde "dock" in UiState; ports every portable dock_tests case — 11 tests/112 checks), **work_area.{c,h}** (visible_part/fits/trusted window-work-area geometry, 5 tests/24 checks), **tab_strip.{c,h}** (the craft_ui tab-fit policy reimplemented + drop_slot, 5 tests/119 checks), **notices.{c,h}** (Notice stack: post/cap/expire auto-hide timer/dismiss/io_warnings/slow_cpu_refresh, 7 tests/43 checks), **props_layout.{c,h}** (kind_icon/field_width/quick_actions pure helpers, 3 tests/20 checks). Shell (src/ui/shell/app.c EXTENSION region): reimplemented the **right dock column** (groups in display order, data-driven heights, per-group tab strips fitted with tab_strip, panel-menu/collapse button, active-tab body placeholder), the **work-area canvas** surround (active doc card / empty hint), and the **lower-right notice toasts** (posted on failed menu invokes, auto-hidden) against Nuklear. 4 offscreen snapshots eyeballed (proMedium/studio/solarizedDark + rebuild) render the dock + tabs + canvas correctly across themes (pro flat tabs vs Studio pills, elision, non-pro Swatches-first order).
   - REMAINING (deferred, dependencies not yet in the C tree — see §7): dialogs.rs (the modal host framework), workspace_ui.rs (needs ShellUi + engine prefs.workspaces/workspace_locked + view.pixel_aspect/timeline/docking), jobs_ui.rs (engine jobs API surface), gpu_status.rs + monitor_status.rs (U4 GPU/perf state + P2 monitor profile), titlebar.rs + chrome_ui.rs (custom window chrome/title bar). Deferred within ported modules: wiring the dock drag-to-reorder / splitter-resize / tab-drag-to-group / auto-collapse-peek gestures to pointer input (the logic is modelled+tested in dock.c), the control channel's ui.inspect of the notice stack, and the Wayland file-drop guidance (needs the Services struct). The egui-harness interaction/paint tests (dock_tests drag cases, tab_strip paint cases, work_area fit_window) become shell snapshots or are dropped (§7).
@@ -542,6 +549,54 @@ Needs B3 and Phase 7 (the control channel). U1–U4 in order, then G1–G2, then
     preserve parameters and the user's active tab; core cross-mode/depth gate 3/258 and native
     job/progress/cancel gate 1/49 pass. Cross-group tabs, floating/peek, background file workflows,
     monitor/title-bar services and remaining panel bodies are still open.
+  - **2026-10-22 (claude, tail):** added the Auto-Collapse Iconic Panels **peek** — a click on a
+    collapsed group's tab strip expands it transiently (docking.c `pc_ui_docking_peek` + the
+    auto-collapse check reading the `autoCollapseIconPanels` pref; app.c `draw_dock_group` wires the
+    tab click), the first press outside it re-collapses it, matching the reference's
+    `auto_collapse_peek`. It is a live-frame nk-button/press interaction the offscreen `capture`
+    harness cannot drive (it resets nk input per frame), so it has no automated test; verified by code
+    review (§7).
+  - **2026-10-23 (claude, tail): floating dock windows — DONE (group granularity).** The dock layout
+    model (`dock.{c,h}`) now carries mutable float state: `floating[]` + `float_rects[]` with
+    `pc_ui_dock_float/unfloat/is_floating/float_rect/set_float_rect`, byte-exact C-native serde
+    (`floating` array + `floatRects` map under the existing `dock` object, back-compat: absent →
+    none), deep copy/eq, all odd-value/empty/all-floating safe. The shell renders each floating group
+    as a movable/scalable Nuklear window over the canvas (`app.c draw_floating_dock`) reusing the same
+    tab strip + body as the dock column, with a re-dock button; `window.panel.float` /
+    `window.panel.dock` (exact reference ids) are wired as pure view-state shell commands
+    (`pc_ui_shell_panel_float_command`), and **dragging a tab left out of the dock column detaches its
+    group into a float window** (`docking.c`). Floating is orthogonal to order/collapse/heights/within-
+    group reorder, which all stay wired. Tests: `test_dock` +4 (float toggle/rect, sanitise,
+    serde round-trip, malformed-input parse — 15 tests/154 checks), `test_shell_control`
+    `test_panel_float_command` (command + bad-input + UiState round-trip) and GL
+    `test_gl_floating_dock` (render incl. the empty-column all-floated edge). Offscreen snapshot
+    (`--float properties`) eyeballed. **Cross-group tab RE-PARENT drag now landed 2026-10-23** (tail
+    below); within-group/group reorder, splitter, width and drag-to-float gestures stay wired.
+  - **2026-10-23 (claude, tail): cross-group dock-tab RE-PARENT drag + `window.panel.move` — DONE.**
+    The fixed per-group tab arrays are superseded by a mutable panel->group membership on the six C
+    group slots: `pc_ui_dock_layout` gains `members[PC_UI_GROUP_N]` (ordered panel labels per group) +
+    a `customized` flag; while `customized` is false the groups keep the native fixed arrays (byte-exact
+    legacy serde and every existing dock test unchanged), and the first cross-group move materialises
+    the explicit lists. New dock API: `pc_ui_dock_move_panel` (re-parent a panel into a target group
+    before an anchor; panic/odd-value safe, keeps the 17-panel partition), `pc_ui_dock_group_labels` /
+    `pc_ui_dock_visible_labels` / `pc_ui_dock_label_group` / `pc_ui_dock_label_native_group` /
+    `pc_ui_dock_label_scrolls_itself`, plus `groups`+`customized` C-native serde (emitted only once
+    customized, so uncustomized layouts round-trip byte-exact; lenient load drops unknown groups/labels
+    and dedups). `window.panel.move {panel, anchor|onto, before?}` is a pure view-state shell command
+    (`app.c pc_ui_shell_panel_move_command`, validates fully before mutating so bad input is atomic),
+    resolving the target from the anchor's current group and revealing a hidden destination group.
+    `draw_dock_group` renders the customized member list (selected tab, chevron fit, body) alongside the
+    native path; `group_shown` keeps the per-group visibility flag but hides an emptied group and shows
+    one that gained panels. `docking.c` drag release re-parents on a drop onto another group's tab (just
+    before it) or its strip/body (append), with a drop indicator (insertion bar + target-group frame);
+    same-group drops still reorder (native `move_tab` while uncustomized, else `move_panel`).
+    `main.c --move PANEL ANCHOR` snapshots a re-parent. Tests: `test_dock` +3 (move-between-groups +
+    partition invariants, serde+copy round-trip, back-compat load + hostile input → 18 tests/254 checks),
+    `test_shell_control` `test_panel_move_command` (happy path + 5 atomic bad-input cases + UiState serde
+    round-trip). Offscreen snapshots eyeballed (Swatches dragged Color->Layers; baseline unregressed).
+    **Residual (§7): single-panel (vs whole-group) floating** — the float state is keyed by the six
+    group slots, so a lone panel still floats with its group; everything else of the reference's
+    per-panel docking behaviour is covered at group+membership granularity.
 - [-] **U4** (codex, 2026-10-17; camera/cache/display and scrollbar/view-settings slices validated; remaining items below) · UI canvas (4/10): canvas view, GPU canvas, rulers, scrollbars, zoom/rotate, cursors · ~10,880 lines → `src/ui/`
   - `crates/ui-egui/src/`: canvas.rs, canvas/tabs_tests.rs, channel_view.rs, gpu_canvas.rs, gpu_canvas_mip_tests.rs, input_tests.rs, outline.rs, rotate_view.rs, rulers.rs, scrollbars.rs, tool_cursor.rs, tool_cursor/tests.rs, tool_feedback.rs, transform_tex.rs, wheel_nav.rs, zoom_tool.rs
   - **2026-10-17 U4 progress:** `src/ui/canvas.{c,h}`, `scrollbars.c`, and
@@ -694,6 +749,33 @@ Needs B3 and Phase 7 (the control channel). U1–U4 in order, then G1–G2, then
     Invalid data sets and denied pixel-file reads preserve the source (engine4/52, native1/60).
     Remaining: complete mask/layer transfer/context interactions, remaining panel editors and full
     reference integration coverage.
+  - **2026-10-22 (claude, tail): preset-browser STATE MODEL landed** (the unported `PresetUi`
+    subsystem the status called out). `src/ui/preset_ui.{c,h}` ports preset_panels.rs's `PresetUi`
+    data model: floating-window flags, per-panel thumbnail sizes, folder open-state set, per-panel
+    selection, Current-Tool-Only, custom-shape name, folder order (`groupOrder`) and the transient
+    rename, with byte-exact serde (BTreeMap → sorted-key objects), `display_order` / `move_group` (the
+    #3658 folder reorder, mirroring the dock's per-group tab order) and the Window-menu helpers
+    (`handles` / `color_tab` / `float_flag`). Wired into `UiState` (serde `presets_ui`, round-trips in
+    `test_state`) and the shell — Window › Styles / Shapes / Tool Presets / Clone Source now toggle
+    their float flag (were PC_ERR_UNSUPPORTED) and report a checkmark (menu_state.c). Tests: new
+    `tests/ui/test_preset_ui.c` (3 tests / 44 checks: move_group + display_order, serde + lenient
+    groupOrder, Window helpers) ports the reachable Rust unit tests; `test_shell_control`
+    `test_preset_float_panels_toggle` drives the four float toggles through the shell. **Still remaining
+    (§7, the egui-coupled rendering):** the Nuklear browser (folder disclosure, thumbnail grid/list,
+    rename field, context menu, footer), drag-to-canvas apply, and the floating preset-window bodies.
+  - **2026-10-23 (claude): preset-browser RENDERING landed** — the deferred egui→Nuklear port.
+    `src/ui/shell/preset_browser.{c,h}` is the shared browser (folder disclosure rows toggling
+    `toggled`, a thumbnail grid or list at the size-slider minimum, inline rename field, right-click
+    context menu, size/New-Group/New/Delete footer, folder-header drag reorder via `move_group`,
+    select / double-click-activate / drag-to-canvas-drop mapped through the live canvas transform)
+    plus the floating Styles / Shapes / Tool Presets / Clone Source windows. The dock Gradients and
+    Patterns panels (panels.c) were rewritten onto it with real gradient-bar and pixel thumbnails,
+    and PresetUi now drives selection (not a transient runtime buffer). New public accessors
+    (`pc_ui_preset_ui_size`/`selected`/`group_open`/`toggle_group`/`set_rename`…) in preset_ui.c.
+    Tests: `test_preset_ui` +1 (browser accessors), `test_shell_control` `test_gl_preset_browser`
+    (offscreen snapshots of grid/list/rename/both dock panels/all four float windows, eyeballed).
+    Residual (§7): shape presets draw a neutral swatch (no public rasterised-coverage thumbnail
+    exposed to `src/ui`). **U5 preset subsystem is now complete.**
 - [-] **U6** (codex, 2026-10-18) · UI tools (6/10): move, transform, crop, marquee/lasso, direct select, snapping, artboards, slices · ~9,720 lines → `src/ui/`
   - `crates/ui-egui/src/`: artboard_ui.rs, artboard_tool.rs, canvas_tool_menu.rs, clip_line_ui.rs, clip_line_ui/tests.rs, crop_ui.rs, direct_select.rs, direct_select_tests.rs, lasso_ui.rs, lasso_ui/tests.rs, magnetic_lasso_ui.rs, magnetic_lasso_ui/tests.rs, marquee_tests.rs, move_auto_select_tests.rs, move_mods.rs, move_ui.rs, path_selection_tests.rs, polygon_lasso_tests.rs, slice_ui.rs, snap_ui.rs, stroke_constraint.rs, transform_tool.rs, transform_undo_tests.rs
   - 2026-10-18 ongoing: shared document-coordinate gesture routing serves native mouse input
@@ -806,6 +888,30 @@ Needs B3 and Phase 7 (the control channel). U1–U4 in order, then G1–G2, then
     ASan/UBSan plus all 24 native tests (1342 checks) passed before the filter-dialog additions.
     Custom Shape presets, remaining direct-edit feedback/details and the full integration/performance
     gates remain open alongside the advanced type and warp work.
+  - **2026-10-22 (claude, tail):** Liquify freeze/thaw mask is now visible and controllable: the
+    freeze/thaw brush tools already painted the mask (tool strip + `pc_ui_liquify_pointer`), and this
+    round adds the on-canvas **red freeze overlay** (Show Mask; subsampled rotation-correct quads over
+    frozen nodes, bounded like the mesh) in warp_ui.c `draw_liquify`, plus the **Mask Options** buttons
+    (Mask All / None / Invert All → `pc_ui_liquify_global` FreezeAll/ThawAll/InvertFreeze) and a Show
+    Mask toggle in the options bar. New GL test `test_gl_liquify_freeze_overlay` (test_shell_control)
+    enters Liquify, freezes the whole field and renders offscreen without crashing; the freeze overlay
+    + full options bar were snapshot-eyeballed.
+  - **2026-10-23 (claude, tail):** the Liquify live warped-pixel **proxy preview** is now CLOSED. New
+    generic **doc-space textured-overlay primitive** (`src/ui/shell/canvas_overlay.{c,h}`): draws an
+    RGBA8 texture positioned in document coordinates through the same origin/axisX/axisY camera
+    mapping as `render_camera`, so it lines up pixel-correct under zoom/pan/rotate/flip (reusable by
+    later perspective/puppet previews — noted in-code). Liquify wiring (`warp_ui.c`
+    `pc_ui_shell_warp_live_overlay` + `pc_ui_liquify_preview` in the runtime): a downsampled
+    premultiplied proxy of the edited layer (`pc_algo_liquify_proxy_*`, PROXY_SIDE 1600 as in the
+    reference) is re-rendered through the current field — fully on a (re)build, then INCREMENTALLY
+    over only the region a continuing brush stroke touched (bounded dab-radius dirty rect + partial
+    `glTexSubImage2D`), so a drag never blocks the frame; drawn into the canvas target
+    (`canvas_view.c render_live_overlay`, after the camera/tile passes, before `nk_draw_image`) with
+    premultiplied-over blend. Nothing draws before the first edit (the crisp canvas shows, not a
+    downsampled copy), on a degenerate mesh/huge image it falls back to the mesh overlay, and the
+    preview is dropped on commit/cancel. Tests: `test_liquify_live_proxy` (always-on CPU: build,
+    bounded incremental dirty, idle no-op, cancel drop) + GL `test_gl_liquify_live_proxy` (warped
+    stripes under a 30°/3× view, snapshot-eyeballed) in test_shell_control.
 - [-] **U9** (codex, 2026-10-18, ongoing) · UI dialogs (9/10): adjustments, filters, layer style, Color Range, Camera Raw, analysis · ~12,794 lines → `src/ui/`
   - `crates/ui-egui/src/`: adjust_dialog.rs, adjust_editors.rs, adjust_editors_tests.rs, adjust_preview.rs, adjust_preview_tests.rs, adjust_ui.rs, analysis_ui.rs, blend_preview.rs, blend_preview/tests.rs, camera_raw_detail_ui.rs, camera_raw_preview_ui.rs, camera_raw_scope_ui.rs, camera_raw_ui.rs, color_range_ui.rs, filter_dialog.rs, gallery_ui.rs, layer_style.rs, plugin_ui.rs, rgb_histogram.rs, smart_ui.rs, tone.rs
   - Registry-based native parameter editors now open for parameterized filter, adjustment and
@@ -859,13 +965,32 @@ Needs B3 and Phase 7 (the control channel). U1–U4 in order, then G1–G2, then
     Remaining: OS clipboard integration, full custom
     editor details, export/options, document properties, rasterize prompts, native chooser/platform
     QA and the complete integration test list below.
+  - **2026-10-22 (claude, tail):** OS clipboard **image out** is now wired: Copy / Copy Merged / Cut
+    mirror the session clipboard onto the OS clipboard as PNG via SDL3 `SDL_SetClipboardData`
+    (`image/png`, guarded by the Export Clipboard pref and a 64 MP cap), so an image copied in
+    PhotoCraft pastes into other apps (`src/ui/shell/os_clipboard.c`, hooked in app.c's engine-command
+    path). New GL test `test_gl_os_clipboard_image` copies a 128×96 document and reads the PNG back off
+    the OS clipboard (dims verified; SDL serves our own just-set data in-process on the offscreen
+    driver). Text cut/copy/paste in type fields already used SDL's text clipboard.
+  - **2026-10-22 (claude, tail 2): OS clipboard image IN — CLOSED.** Added the public engine setter
+    `pc_engine_set_clipboard(session, rgba, w, h, err)` (edit_cmds.c; builds an RGBA8 surface via
+    `pc_surface_from_interleaved`, caps the pixel count, replaces the session clipboard, panic-safe),
+    the small public API the §7 note needed (`edit_cmds::set_clipboard` had been static). The UI half
+    (`pc_ui_shell_os_clipboard_import`, os_clipboard.c, hooked in app.c before Edit › Paste / Paste
+    Special / File › New from Clipboard) reads an `image/png` off the OS clipboard, decodes it (codecs)
+    and sets the session clipboard, so an image copied in another app pastes in. We fingerprint our own
+    export (length + FNV-1a) so we never re-import our own data, and only override a non-empty session
+    clipboard when Export Clipboard is on. Tests: engine `test_edit` (`test_set_clipboard_external_image`
+    builds a doc from an external RGBA8 image via New from Clipboard; `test_set_clipboard_adversarial`
+    for null/zero/overflow → PC_ERR_INVALID/LIMIT, clipboard untouched); GL `test_gl_os_clipboard_image_in`
+    (a 50×40 external PNG on the OS clipboard pastes in through the shell invoke path). All green.
   - integration tests (this is the crate's last chunk; port any not yet done): `crates/ui-egui/tests/`: adjust_preview_gpu.rs, arbitrary_rotation_preview.rs, camera_raw_histogram.rs, camera_raw_localization.rs, camera_raw_scope.rs, camera_raw_zoom.rs, canvas_16f.rs, checker_canvas.rs, color_managed_canvas.rs, crop_beyond_canvas.rs, drag_preview_canvas.rs, export_as_scaling.rs, full_res_preview.rs, gpu_device_loss.rs, layout_perf.rs, live_stroke_canvas.rs, paint_bucket_all_layers.rs, support/layout_doc.rs, system_locale.rs, variables_data_sets.rs
 
 ### Phase 9: desktop app (~6,235 lines)
 
 Needs Phase 8.
 
-- [-] **P1** (2026-10-19) · desktop app (1/2): main, app dirs, logging, startup, control server, UI state persistence · ~2,937 lines → `src/app/`
+- [x] **P1** (2026-10-22, Linux) · desktop app (1/2): main, app dirs, logging, startup, control server, UI state persistence · ~2,937 lines → `src/app/`
   - `apps/photocraft/src/`: app_dirs.rs, app_icon.rs, control_server.rs, crash_guard.rs, gpu_startup.rs, linux_libs.rs, logging.rs, main.rs, ui_state.rs
   - Done: src/app/{app_dirs,logging,crash_guard,control_server,ui_state,gpu_startup,linux_libs,app_icon}.c
     (+headers) as a GUI-free library module (`app` in MODULES/check-layers), and src/app/main.c as the
@@ -874,10 +999,17 @@ Needs Phase 8.
     --control/--control-token[-file]/--safe-gpu/--version added). tests/app/ (8 files, 32 tests, 142
     checks) all green; end-to-end control server verified through the real binary; `make -j4` builds all
     binaries incl. `photocraft`; check-layers ok (1233 files); main.c strict-clean.
-  - Remaining before [x]: wire the GPU plan to actually switch the shell renderer to CPU/software on
-    `--safe-gpu` / a detected crash (today it is only computed, logged and used for crash detection);
-    the Rust in-process CPU retry; verify macOS/BSD builds. See §7 P1 lines for the deliberate SDL/GL
-    reductions (not blockers). The large wgpu/eframe machinery of main.rs is out of P1 scope.
+  - **2026-10-22 (complete):** the GPU plan now actually switches the shell to software compositing.
+    `pc_ui_shell_app_set_force_cpu`/`_force_cpu` (app.c/app.h) latch CPU-only compositing; canvas_view.c
+    ANDs it into `use_gpu` so the canvas never creates or uses the GL compositor; main.c sets it when
+    the startup plan backend is `PC_APP_GPU_CPU` (`--safe-gpu`, a `cpu` rendering pref, or a crash
+    detected on the previous run); and `pc_ui_shell_app_gpu_check` latches it on a runtime device
+    loss / GL error (the equivalent of the Rust in-process CPU retry: subsequent frames stay on the
+    CPU oracle instead of re-attempting the faulted GL context). `ui.inspect.gpuInfo` reports the CPU
+    canvas when forced. Test: `test_force_cpu_rendering` (tests/ui/test_shell_control.c), green normal
+    and under scoped ASan/UBSan. macOS/BSD build verification still deferred (D2; no machines — same
+    posture as P2's Linux [x]). See §7 P1 lines for the deliberate SDL/GL reductions (not blockers);
+    the large wgpu/eframe machinery of main.rs is out of P1 scope.
 - [x] **P2** (2026-10-20, Linux) · desktop app (2/2): OS services, monitor profile, screen colour, cursor, tablet (SDL3 pen), macOS bits · ~3,298 lines → `src/app/` — services/monitor_profile/screen_color + live X11 screen grab (xcb) and colord/RandR monitor ICC (optional, WITH_X11SCREEN/WITH_COLORD); cursors + pen covered by SDL3 (cursors.c/stylus.c). macOS (D2) and the Wayland colour portal (D19) deferred.
   - `apps/photocraft/src/`: apple_events.rs, cursor.rs, mac_menu.rs, mac_window.rs, monitor_profile.rs, screen_color.rs, services.rs, tablet.rs
   - integration tests (this is the crate's last chunk; port any not yet done): `apps/photocraft/tests/`: mac_menu_appkit.rs, startup_without_display.rs
@@ -886,13 +1018,37 @@ Needs Phase 8.
 
 ### Phase 10: tooling, docs, cutover
 
-- [ ] **Z1** · replace `xtask` (4.3k Rust lines): `tools/parity.sh` (regenerates `docs/parity.md` from
-  the C menu catalog), `tools/scorecard` (scorecard/*.toml → `docs/scorecard.md`), `tools/perf`
-  (benchmarks from `perf/budgets.toml` + `crates/testkit/src/perf.rs`, 24–36 MP release runs),
-  `make dist` / packaging scripts in `packaging/` for Linux (AppImage/tarball), macOS (.app) and FreeBSD.
-- [ ] **Z2** · documentation: rewrite `README.md`, `docs/architecture.md`, `docs/development.md`,
-  `docs/contributing.md`, `docs/control-protocol.md` (verify unchanged), `docs/plugins.md` for the C tree;
-  new `AGENTS.md` for C contributors (conventions from §4, never-crash, layering, tests).
+- [x] **Z1** (claude, 2026-10-22) · replaced `xtask` (4.3k Rust lines) with POSIX shell tools:
+  `tools/parity.sh` (regenerates `docs/parity-checklist.md` from the C menu catalog via
+  `photocraft-parity`), `tools/scorecard.sh` (scorecard/*.toml + perf budgets/baseline + corpus
+  floors + prefs audit → `docs/scorecard.md`), `tools/perf.sh` (argument/scenario stub) and
+  `tools/{check-layers,corpus,stats,golden}.sh`, all wired into `make
+  parity|scorecard|perf|corpus|stats`. The `make dist` seam landed: `packaging/linux/dist.sh`
+  stages a Linux `tar.gz` (binaries + desktop/icons/metainfo/MIME + licences) with no cargo/network/
+  signing, version from `src/engine/build_info.c`. **Closed 2026-10-23 (claude):** (a) the real C
+  **perf-bench harness** — `tools/perfbench/perfbench.c` (`make perf-bench`), 27/56 scenarios mapped
+  to CPU-oracle engine ops, 29 honest n/a; `tools/perf.sh` builds+runs it and `--update-baseline`
+  publishes `perf/baseline.json` (now a 2026-10-23 Linux CPU run; scorecard regenerated). See §6 T1.
+  (b) the **Linux package formats feasible on the C build**: `make dist-deb`
+  (`packaging/linux/deb.sh`, a hand-assembled `ar`+`tar` `.deb`, no `dpkg-deb` needed) and `make
+  dist-appimage` (`packaging/linux/appimage.sh`, a runnable `AppDir` → `.AppImage` when
+  `appimagetool` is present, else a clean skip + `.AppDir.tar.gz`); all three stage one FHS tree via
+  `dist.sh --stage`. **Still deferred (release-engineering, owners noted):** signing + `.zsync`
+  update info; `.rpm` (`rpmbuild`) and Flatpak; distro-accurate `.deb`/`.rpm` dependency resolution;
+  macOS `.app`+notarization; FreeBSD; the Windows decision — carried in `docs/releasing.md` + §6,
+  with the Rust `packaging/` scripts as the reference recipe (and `../craftrules/release/playbook.md`
+  the canonical pipeline). The GPU-compositor and per-frame/cancellation perf scenarios stay n/a
+  until a headless GL frame harness exists.
+- [x] **Z2** (claude, 2026-10-22) · documentation refreshed to the C tree: `docs/architecture.md`,
+  `docs/development.md`, `docs/contributing.md`, `docs/control-protocol.md` (verified clean) and
+  `docs/plugins.md` (earlier); **this wave** rewrote the root `AGENTS.md` (banner now says the body
+  describes the C target; module map, build/test/run commands → `make`/SDL3 app, tooling → `tools/*.sh`,
+  never-crash rules → C, parallel-agent notes → `BUILD=`/`-jN`; the "`crates/` is the read-only
+  reference until Z3" note kept) and the stale tooling refs in `docs/roadmap.md` (C17 banner + command
+  map; `make parity`/`make scorecard`; parity 631/631) and `docs/releasing.md` (C17 banner + a
+  "Building from the C tree" section for `make`/`make install`/`make dist`; the Rust signed pipeline
+  kept as the reference-to-port). `README.md` and the per-dimension parity docs were not in scope this
+  wave.
 - [ ] **Z3** · cutover: run the full differential suite one last time, then delete `Cargo.toml`,
   `Cargo.lock`, `crates/`, `apps/`, `xtask/`, `tools/rustref/`, `clippy.toml`, `rustfmt.toml`, `.cargo/`,
   Rust-only `examples/` and `book/` content; rewrite `.github/workflows/` (Linux + macOS + FreeBSD:
@@ -909,7 +1065,23 @@ Needs Phase 8.
   - Not ported (D2). `apps/photocraft-web` is dropped.
 - **T1** · testkit + perf harness · ~199 lines
   - `crates/testkit/src/`: lib.rs, perf.rs
-  - Folded into B1 (`tests/harness.h`) and Z1 (`tools/perf`).
+  - testkit folded into B1 (`tests/harness.h`). The **C perf-bench harness is ported** (Z1, claude,
+    2026-10-23): `tools/perfbench/perfbench.c` (`make perf-bench`, built library-only so it runs on
+    any host) is a headless driver that builds a representative document per scenario and times the
+    hot path through the public engine + CPU compositor APIs (`pc_headless_command_start` +
+    `pc_compose_flatten`, the CPU oracle; no GPU, no window), reporting p50/p95/max + peak RSS.
+    **27 of the 56 `perf/budgets.toml` scenarios map to real C operations** (the #209 layered-edit
+    family, the move/duplicate/paste/undo/redo/new-layer rows, PSD open+save, Smooth/Feather,
+    Content-Aware Fill/Scale, Select Subject, Gaussian Blur, Curves, and the 14000×14000 CPU
+    refresh). The other **29 are printed as "n/a (no C op)" or "not measurable", never faked**: the
+    brush/liquify/warp/type UI-tool strokes and previews, the Camera-Raw scope pipeline, the
+    cancellation-latency and app-frame-time harnesses, the GPU-compositor/bevel-shader rows, and the
+    multi-GB-fixture open. `tools/perf.sh` now builds and runs the driver; `tools/perf.sh
+    --update-baseline` publishes a C `perf/baseline.json` (schema unchanged; `tools/scorecard.sh`
+    reads it). The 2026-10-05 macOS baseline was replaced by a 2026-10-23 Linux CPU-oracle run.
+    Still not ported (need the GPU canvas and the UI frame loop): the GPU-compositor scenarios and
+    the per-frame/cancellation-latency harnesses — those stay "n/a" until a headless GL frame
+    harness exists. Do not fabricate measurements for them.
 - **W1** · Windows print spooler shim (craft_print's `windows_submit` / `Win32_Printer`
   enumeration / `windows_print.ps1`, PDF printing through powershell `Windows.Data.Pdf`) · not
   ported (D2 drops the Windows build for the first pass). `src/engine/print_cmds.c` implements the
@@ -1120,6 +1292,80 @@ Add one line per difference: `chunk · what differs · why · user-visible?`
   rejected at plan time (PC_ERR_UNSUPPORTED) and the caller composites the document on the CPU — the
   same choice the reference makes (`check_advanced` → `Unsupported`), not a C-only shortfall. · parity
   with the reference · those documents use the CPU compositor
+- U10 · OS clipboard image direction (BOTH directions now wired): Copy/Copy Merged/Cut mirror the
+  session clipboard onto the OS clipboard as PNG (SDL3 `SDL_SetClipboardData`, mime `image/png`,
+  guarded by Export Clipboard and a 64 MP cap), and Edit › Paste / Paste Special / File › New from
+  Clipboard first import an image another app put on the OS clipboard: `pc_ui_shell_os_clipboard_import`
+  (os_clipboard.c, hooked in app.c before the paste dispatch) decodes the `image/png` payload with
+  codecs and calls the new public engine setter `pc_engine_set_clipboard(session, rgba, w, h, err)`
+  (edit_cmds.c; builds an RGBA8 surface via `pc_surface_from_interleaved` and sets it as the session
+  clipboard — `edit_cmds::set_clipboard` was static, this is the small public API the §7 note called
+  for). We fingerprint our own export (PNG length + FNV-1a) so a paste does not re-import PhotoCraft's
+  own data, and we only override a non-empty session clipboard when Export Clipboard is on (then our
+  copies claim the OS clipboard, so a foreign image is genuinely newer); with mirroring off, import
+  only fills an empty clipboard. Text cut/copy/paste in type fields uses SDL's text clipboard
+  (type_ui.c). · reimplementation vs eframe/arboard · no (both directions now work)
+- U3 · cross-group dock-tab RE-PARENT drag + `window.panel.move` are WIRED (2026-10-23). The fixed
+  per-group tab arrays are replaced by a mutable panel->group membership over the six C group slots
+  (`pc_ui_dock_layout.members[]` + `customized`; `pc_ui_dock_move_panel`/`_group_labels`/`_label_group`;
+  `groups`+`customized` C-native serde emitted only once customized so uncustomized layouts stay
+  byte-exact). Dropping a tab onto another group's tab re-parents it before that tab; onto the group's
+  strip/body appends; a drop indicator shows the landing spot. `window.panel.move {panel,anchor,before}`
+  is the pure view-state shell command. Floating dock windows also stay wired (group granularity).
+  **Residual:** single-panel (vs whole-group) floating. The float model is keyed by the six group slots
+  (`floating[]`/`float_rects[]`), so a lone panel floats with its group rather than on its own — the
+  reference drives single-panel floats through its external `craft_ui::docking::Layout<String>` tree,
+  which is unported; the six-slot C model cannot host a 7th transient one-panel group. Everything else
+  of the reference's docking behaviour (re-parent, within-group/group reorder, splitter, width, float)
+  is covered at group+membership granularity. · six-fixed-slot C dock model vs the unported flexible
+  `craft_ui` tree · single-panel float only floats at group granularity; cross-group re-parent works
+- U3 · Auto-Collapse Iconic Panels "peek": a click on a collapsed group's tab strip expands it as a
+  transient peek that the first press outside it collapses again (Preferences › Workspace). Wired in
+  docking.c/app.c, matching the reference's `auto_collapse_peek`. It is an nk-button/press interaction
+  driven only in the live frame loop, which the offscreen `capture` harness cannot feed (it resets nk
+  input each frame), so it has no automated test — verified by code review against the reference.
+  (Floating dock windows, including the Studio floating Properties card, are now wired at group
+  granularity — see the floating entry above.) · harness limitation / later-chunk state · no (peek
+  works in the running app)
+- U8 · Liquify freeze mask: the freeze/thaw brush tools already paint the mask (the tool strip +
+  pointer route to `pc_ui_liquify_pointer`); this round adds the on-canvas red freeze overlay
+  (Show Mask, drawn as subsampled quads over frozen nodes, bounded like the mesh and rotation-correct)
+  and the Mask Options buttons (Mask All / None / Invert All → `pc_ui_liquify_global` FreezeAll /
+  ThawAll / InvertFreeze) to the options bar. The live warped-pixel PROXY preview is now IMPLEMENTED
+  (2026-10-23): a generic doc-space textured-overlay primitive (`src/ui/shell/canvas_overlay.*`) draws
+  the downsampled premultiplied proxy (`pc_algo_liquify_proxy_*`) through the field, mapped by the
+  same camera transform as the document layer, so the warp shows live and camera-correct before
+  commit; it re-renders incrementally over the dab-touched region (partial texture upload) to stay
+  frame-responsive. **Residual (not a behaviour difference, a fidelity choice):** unlike the egui
+  reference — a self-contained modal dialog with a dedicated preview pane and a separate
+  source-resolution crop above 100% zoom — the C port shows the preview ON the main canvas as a
+  single-layer overlay (the proxy of the edited layer composited over the live document), so very near
+  the warp's edges a hair of the unwarped composite can show through, and there is no extra
+  full-resolution crop at high zoom (the 1600 px proxy is used at every zoom). The overlay primitive is
+  reusable for later tool previews (perspective/puppet). · fidelity / on-canvas vs modal-dialog preview
+  · the live warp now shows before commit
+- U5 · preset-browser subsystem (preset_panels.rs, 1381 lines): **ported.** The serde-visible
+  **PresetUi state model** (`src/ui/preset_ui.{c,h}`, `pc_ui_preset_ui`) holds the floating-window
+  flags, per-panel thumbnail sizes, folder open-state set, per-panel selection, Current-Tool-Only,
+  custom-shape name, folder order (`groupOrder`) and the transient rename, with byte-exact serde,
+  `display_order`/`move_group` (#3658 folder reorder) and the Window-menu helpers. The **Nuklear
+  browser rendering** now lands in `src/ui/shell/preset_browser.{c,h}` (port of preset_panels.rs's
+  `browser`, the floating `windows`, and the Tool Presets / Clone Source bodies): the shared browser
+  draws folder disclosure rows (toggle via `toggled`), a thumbnail grid or a list (the size slider's
+  minimum), an inline rename field, a right-click context menu (preset: Rename / Delete; folder:
+  Rename Group / Delete Group), the footer (size slider · New Group · New · Delete), folder-header
+  drag reorder (via `move_group`), and the select / double-click-activate / drag-to-canvas-drop
+  gestures (drops map through the live canvas transform to a document point and apply/place there).
+  Generic library edits dispatch synchronously through `<prefix>.edit` / `.new`; panel-specific
+  Select/Activate/Drop apply via the engine. The dock **Gradients** and **Patterns** panels (panels.c)
+  now use the browser with real gradient-bar and pixel thumbnails; the **floating Styles, Shapes,
+  Tool Presets and Clone Source windows** draw as movable/closable Nuklear windows (preset_browser.c,
+  wired after the main window in app.c). Verified by offscreen snapshots (grid, list, rename, both
+  dock panels, all four float windows) and `test_preset_ui`/`test_shell_control`. **Residual (small,
+  honest):** shape presets have no public rasterised-coverage thumbnail exposed to `src/ui` (the
+  engine's shape thumbnail primitive is engine-internal and out of this chunk's file scope), so the
+  Shapes browser draws a neutral swatch under the name; styles/gradients/patterns have real
+  thumbnails. · Nuklear rendering complete; only shape pixel thumbnails await an engine primitive
 
 ## 8. Progress log
 
@@ -1402,3 +1648,134 @@ Newest last. One dated line per chunk session: chunk, what landed, test counts, 
 - 2026-10-20 · P2 · `src/app/` OS services: services (xdg-open/beep), monitor_profile (RGB-ICC validation, colord/XDG search), screen_color (budget/geometry/channel maths) — pure logic; then the live paths: X11 screen-pixel grab via xcb and per-monitor ICC via colord (dbus-1) with a RandR `_ICC_PROFILE` atom fallback, optional + feature-detected (Makefile WITH_X11SCREEN/WITH_COLORD, -DPC_NO_* → graceful stubs), exercised live on X11. Cursors/pen(stylus)/open-url already covered by SDL3. macOS (D2) + Wayland portal (D19) deferred. Layer rule: app may now depend on cms directly (matches the Rust app crate).
 - 2026-10-21 · layer-style GL fix · Moved the effect reorder/duplicate toolbar in `layer_style_ui.c` to directly under the effect list (above the greyed placeholder rows) so a 2nd effect no longer pushes it out of the scroll group's clickable area; fixes a GL-only regression (test_native_layer_style_instances_contour_and_cancel) that the non-GL gate had missed. The central gate now also runs the GL suite (PC_TEST_GL=1, offscreen: test_canvas_overlays / test_gpu_compositor / test_shell_control).
 - 2026-10-21 · consume-prereqs (PARTIAL, weekly rate limit) · Fill-layer double-click editing, brush-preset organizer UI, and the clone-source crosshair (`clone_marker.*`, retouch_ui) landed; the Color Range on-canvas overlay *render* was dropped (sub-agent hit the weekly API limit mid-edit, leaving a dangling `pc_ui_shell_color_range_overlay` call that was removed to restore the build). Tree re-stabilised: `make check` + GL suite green. Open: Color Range overlay render (its per-pixel core `pc_ui_color_range_overlay_pixel` exists), U9 eyedropper merged-composite sampler, U10 B1–B9, then the Z cutover.
+- 2026-10-22 · Z1/Z2 (PARTIAL) · Verified and finished the shell-tooling + docs refresh that replace the
+  Rust `xtask`. **Z1:** `tools/parity.sh` (builds `photocraft-parity` from `src/ui/paritygen`, writes
+  `docs/parity-checklist.md` — 612/631 menu items live, 97.0%), `tools/scorecard.sh` (renders
+  `docs/scorecard.md` from `scorecard/*.toml` + `perf/budgets.toml` + `perf/baseline.json` + the
+  `tests/io/` corpus floors + a C-native prefs audit over `src/engine/prefs.c`: 43 of 137 settings do
+  nothing, perf 3 within / 22 over / 9 tracked), and `tools/perf.sh` (POSIX stub: validates args, lists
+  the 56 scenarios/budgets, exits 0 — no C bench harness yet, so `--update-baseline` is refused). All
+  three run clean, are deterministic (docs regenerated byte-identical to the committed copies), use a
+  generic UA, and are wired into `make parity|scorecard|perf`. **Z2:** confirmed `docs/development.md`,
+  `docs/architecture.md`, `docs/contributing.md` and `docs/control-protocol.md` are already C-accurate;
+  rewrote the stale bits of `docs/plugins.md` (host = `src/plugins` on WAMR + `src/engine/plugin_cmds.c`,
+  fixture `tests/fixtures/plugins/invert.wasm`, dropped the web/Windows framing per D2, perf numbers
+  flagged as Rust-reference with no C bench harness). Gate: `tools/check-layers.sh` ok (1344 files),
+  `make check` green, scripts ran clean. Did NOT touch `src/` (concurrent agents) or the Rust tree.
+  Open (carried on the Z1/Z2 lines): a real C perf bench harness, `make dist`/packaging, a C-contributor
+  `AGENTS.md`, and the few remaining cargo refs in `docs/roadmap.md`/`docs/releasing.md` (pending
+  packaging). Z3 cutover remains the coordinator's step after user confirmation.
+- 2026-10-22 · UI/app close-out (claude) · **P1 → [x] (Linux); U1 → [x]; U2 → [x]** (their enumerated
+  remaining items verified landed and green in the gate — see their §5 completion notes). Closed P1's last gap: the shell now
+  actually switches to software compositing when the startup GPU plan is CPU. Added
+  `pc_ui_shell_app_set_force_cpu`/`_force_cpu` (src/ui/shell/app.c,.h); canvas_view.c ANDs the flag into
+  `use_gpu` (no GL compositor created/used when forced); main.c sets it when `plan.backend ==
+  PC_APP_GPU_CPU` (`--safe-gpu` / `cpu` pref / previous-run crash); `pc_ui_shell_app_gpu_check` latches
+  it on a runtime device loss / GL error (the Rust in-process CPU-retry equivalent — later frames stay
+  on the CPU oracle); `ui.inspect.gpuInfo` reports the CPU canvas when forced. New test
+  `test_force_cpu_rendering` (tests/ui/test_shell_control.c). Also **U5:** the Patterns dock panel now
+  draws real tiled pattern pixels — exposed `pc_ui_shell_pattern_thumbnail_image` (pattern_picker_ui.c/.h,
+  the former static `pattern_image`) and used it in panels.c `patterns()`, with the flat-grey swatch as a
+  safe fallback. Verification sweep confirmed the other previously-"partial" items are already landed in
+  the committed front-end work (Color Range overlay render at canvas_view.c:760; Levels/Curves/Color-Range
+  eyedroppers via `pc_engine_adjustment_eyedropper` + adjust_ui.c canvas routing; brush Tip-Shape/Texture/
+  Dual-Brush panes in brush_panel_ui.c; U10 Save-for-Web/Print/TIFF-Options/automate-scripts dialogs;
+  the live Gradient Fill tool in gradient_ui.c/canvas_view.c + engine gradient_fill_cmds). Gate: `make check`
+  (gcc) EXIT 0; `CC=clang make … all test` strict EXIT 0; GL suite green (test_shell_control 60/1175,
+  test_canvas_overlays 74/22047, test_gpu_compositor 17/872390, offscreen Mesa); check-layers ok (1346);
+  scoped ASan/UBSan on test_shell_control green (normal + GL). Snapshot eyeballed (default shell, 1280×800).
+  **Pre-existing engine issues found during the ASan/analyze sweep, NOT in my work area (src/engine,
+  concurrent agents) and unrelated to these changes — flagged for the engine owners, left unfixed:**
+  (1) heap-use-after-free in `src/engine/analysis_cmds.c` — the measurement log (`run_log_list` →
+  `row_values_copy` → `yyjson_mut_doc_imut_copy`) reads strings that `str_list_fini` freed in
+  `run_select_data_points` (the log's yyjson_mut values borrow `str_dup`'d strings instead of copying
+  them); surfaces under ASan via tests/ui/test_canvas_overlays' analysis path, invisible to the non-ASan
+  gate. (2) `make analyze` currently fails on a pre-existing false positive at
+  `src/engine/actions_cmds.c:285` (`action = &a->list[idx]`, `idx` initialised to 0 at line 267, can't
+  be NULL — the analyzer just can't prove the `nlist>0 ⟹ list!=NULL` invariant on the `ref==NULL` path;
+  a one-line guard/assume would silence it). Both reproduce independently of my edits (actions_cmds.c
+  includes none of my files). No commit (per instructions).
+- 2026-10-22 · GAP3 engine wave (claude) · **Closed the last engine menu-command gap: parity 612 →
+  631/631 (100%).** Ported the remaining 19 catalogue ids from `crates/engine` as tested engine
+  commands (+21 registry entries incl. the two non-menu queries `file.exrParts` and
+  `edit.transform.againCopy` was already live; `file.exrParts` added alongside `file.openExrParts`):
+  - **New modules** (each `pc_engine_<area>_specs` + one `register_modules()` line + a `tests/engine`
+    file): `background_cmds` (layer.new.backgroundFromLayer), `rasterize_style_cmds`
+    (layer.rasterize.layerStyle), `migrate_cmds` (edit.presets.migratePresets — merge helper
+    `pc_engine_presets_migrate` added to `presets_persist.c`), `layer_export_cmds`
+    (layer.quickExportAsPng / layer.exportAs / layer.layerStyle.createLayer, with a ported
+    `layer_document`), `define_brush_cmds` (edit.defineBrushPreset → brush.defineFromSelection),
+    `content_fill_cmds` (edit.contentAwareFill, synchronous PatchMatch via `pc_algo_ca_*`),
+    `vp_cmds` (filter.vanishingPoint, `pc_algo_vp_*`), `exr_parts_cmds` (file.openExrParts +
+    file.exrParts, `pc_io_exr_*`).
+  - **Added to existing modules:** `edit_cmds.c` gained edit.pasteSpecial.pasteInto / pasteOutside
+    (threaded a `limit` surface through the static `paste_to_target`) and edit.transform.again
+    (replays the last journalled `edit.transform` via `pc_algo_homography_rect_to_quad` +
+    `pc_engine_hook_transform_bounds`); `comps_cmds.c` gained file.export.layerCompsToFiles;
+    `video_cmds.c` gained the 4 file-footage commands + file.export.renderVideo (GIF/image-sequence),
+    via a new `load_frames` (GIF `pc_cdecode_gif_frames` / single image) + `pc_web_encode_gif_animated`.
+  - **Exports added:** `pc_engine_clipboard_surface` + `pc_engine_presets_migrate` (engine_internal.h/
+    presets.h). No `crates/` edits. `tests/ui/test_menus.c` CURRENT_LIVE raised 612 → 631.
+  - **Tests (all green):** test_background, test_rasterize_style, test_migrate, test_layer_export,
+    test_define_brush, test_content_fill, test_edit_gap, test_vp, test_comps_export, test_exr_parts,
+    test_video_gap (behavioural + graceful-failure each); command_lookup (ids unique) + panic_hunt
+    (all 891 registered commands, adversarial params) green.
+  - **Gate:** `make check` (gcc) green (full suite, 0 failures). CC=clang check + scoped ASan +
+    analyze: see the handback. No commit (per instructions).
+  - **Deviations (§7-worthy):** (1) migratePresets merges gradients/pattern-groups/tool-presets
+    fully; styles/shapes stay 0 because their serde is still DEFERRED in `presets_persist.c` (the
+    io/doc layer, not re-ported here). (2) pasteInto/pasteOutside into a *colour channel* (the niche
+    Channels-panel colour target) pastes without the selection `limit` (C `cc_paste` has no limit
+    param); the common pixels path and mask/quick-mask/alpha paths honour it. (3) The video
+    file-footage loaders accept a single file (GIF animation or one image); a directory image-sequence
+    (which the reference also accepts) reads as an I/O error. (4) rasterize.layerStyle pre-rasterizes
+    non-raster content via `layer.rasterize.layer` inside a compound (one undo step), not via the
+    reference's coalesced `rasterize_one`. (5) `file.openExrParts` selects the C io's unnamed-part
+    name (empty string) through a `part/` key; the reference's io names it `part 0` — an io-layer
+    naming difference, out of this wave's scope (src/engine only).
+- 2026-10-22 . 'GET EVERYTHING ELSE DONE' WAVE 1 — GREEN. PARITY 631/631 (100%), registry 891 (gap3: all 19 remaining menu cmds live+tested). UI/app close-out: P1 (desktop app, Linux), U1, U2 -> [x]; U3-U10 substantially complete with documented deep-feature tails. Z1/Z2 verified+refreshed (partial). Fixed 3 real/false-positive engine issues the gate surfaced: (1) analysis_cmds.c filtered_row heap-use-after-free — the log row borrowed yyjson key pointers owned by a->dp[] str_list (freed by str_list_fini); now yyjson_mut_strcpy the key. (2) actions_cmds.c:285 — added a real bounds guard (list!=NULL && idx<nlist), also silences the analyzer FP. (3) brush_organize_cmds.c newName x2 — added explicit newname!=NULL guards after bo_text (analyzer couldn't see bo_text's non-null-on-OK postcondition). GATE: whole-tree gcc check + clang check + analyze all rc=0; scoped ASan green (test_analysis/actions/panic_hunt-891/command_lookup/menus with detect_leaks=1; GL tests test_canvas_overlays 74/22052 + test_shell_control 60/1175 with detect_leaks=0 — the only ASan leaks are Mesa/llvmpipe offscreen-driver teardown, 0 application frames, not our code). ENV NOTES: whole-tree ASan link overruns the 907G root (~98% full); GL tests under ASan need detect_leaks=0 (driver). READY TO COMMIT. REMAINING: U3-U10 deep-feature tails; Z1/Z2 residuals (packaging scripts, C perf-bench harness, root AGENTS.md, roadmap/releasing docs); Z3 cutover (final differential vs crates/, then DELETE the Rust tree — needs user go-ahead); Z4 optional Windows.
+- 2026-10-22 · Z1/Z2 close-out (claude) · **Z1 → [x], Z2 → [x]** (feasible scope). Finished the residual Z1/Z2 items on this Linux host; worked only in `tools/`, `docs/`, `packaging/`, the root `Makefile`/`AGENTS.md` and this plan (no `src/`, no `crates/`, concurrent agent owns `src/ui`+`tests/ui`). **Perf harness decision:** confirmed there is no runnable C bench path (only env-gated timing tests under `PC_GPU_BENCH`/`PHOTOCRAFT_SLOW_TESTS`, no harness mapping the 56 `perf/budgets.toml` scenarios); left `tools/perf.sh` as the clean stub (runs clean, refuses `--update-baseline`) and recorded "C perf-bench harness not yet ported" with a one-line plan in §6 (T1). No fabricated numbers. **Packaging:** the GUI `photocraft` binary already builds here (SDL3 3.4.18 present), so added a real, self-contained `packaging/linux/dist.sh` (C-native: no cargo/env.sh/network/signing; version from `src/engine/build_info.c`; stages usr/bin + desktop/icons/metainfo/MIME + licences → `dist/release/photocraft-<v>-linux-<arch>.tar.gz` + SHA256SUMS) and wired `make dist` (`.PHONY` + `dist: all`); tested end-to-end against `build/default/bin` (13 MB tarball, all entries verified). Signed per-platform packaging (AppImage/.deb/.rpm/Flatpak, macOS `.app`+notarization, FreeBSD, Windows) left as a release-engineering item (§6 + `docs/releasing.md` banner); the Rust `packaging/` scripts stay as the reference recipe. **Docs:** rewrote the root `AGENTS.md` to the C target (module map, `make`/SDL3/`tools/*.sh`, never-crash → C, parallel-agent notes), kept the "`crates/` read-only until Z3" note; refreshed `docs/roadmap.md` (C17 banner + tool-name map, `make parity`/`make scorecard`, 631/631) and `docs/releasing.md` (C17 banner + "Building from the C tree" for `make`/`make install`/`make dist`, Rust pipeline kept as reference). Did not touch the generated parity/scorecard docs (Z1's scripts own those). **Gate:** `tools/check-layers.sh` ok (1360 files); `make -n check` parses (recipe intact: check-layers → strict `build/check` all+test); `tools/perf.sh` and `packaging/linux/dist.sh` run clean (output shown). Full `make check` not re-run to avoid colliding with the concurrent `src/ui` build — my changes are build-neutral (additive Makefile target + non-source files only), so the gate is unaffected. No commit (per instructions). **Remaining for Z-phase:** C perf-bench harness (§6 T1), signed multi-platform packaging, `README.md` + per-dimension parity-doc refresh; Z3 cutover (final differential + delete Rust tree) is the coordinator's step after user go-ahead.
+- 2026-10-22 · U3/U8/U10 deep-feature tails (claude, UI-only: `src/ui` + `tests/ui`) · closed the
+  reachable, UI-scope slices of three Phase-8 tails; the rest are genuinely engine-blocked or larger
+  integrations, recorded precisely in §5/§7. **U10 OS clipboard — image out:** new
+  `src/ui/shell/os_clipboard.c` mirrors the session clipboard onto the OS clipboard as PNG after
+  Copy/Copy Merged/Cut (SDL3 `SDL_SetClipboardData`, mime `image/png`, guarded by the Export Clipboard
+  pref + a 64 MP cap), hooked in app.c's engine-command path. Image **in** (paste an external image)
+  stays blocked: no public engine setter for the session clipboard (`edit_cmds::set_clipboard` is
+  static; adding it is a src/engine change). **U8 Liquify freeze/thaw mask:** added the on-canvas red
+  freeze overlay (Show Mask — bounded, rotation-correct quads over frozen nodes) + the Mask Options
+  bar (Mask All/None/Invert All → `pc_ui_liquify_global`) in warp_ui.c; the freeze/thaw brush tools
+  already painted the mask. The live warped-pixel **proxy preview** stays deferred (algo proxy exists,
+  but the canvas has no doc-space image-overlay primitive — a larger per-change COW/worker + textured
+  overlay). **U3 peek:** Auto-Collapse Iconic Panels — a click on a collapsed group's tab strip
+  expands it transiently (docking.c `pc_ui_docking_peek` + `autoCollapseIconPanels` check; app.c wiring),
+  the first press outside re-collapses it. Cross-group dock-tab drag stays blocked (fixed-membership C
+  dock + no engine `window.panel.move`); floating dock windows stay deferred. **Tests/verify:** two new
+  opt-in GL tests in test_shell_control (`test_gl_os_clipboard_image`: copy a 128×96 doc, read the PNG
+  back off the OS clipboard, dims verified; `test_gl_liquify_freeze_overlay`: enter Liquify, FreezeAll,
+  render offscreen without crashing). The freeze overlay + full options bar were snapshot-eyeballed
+  (shrank the options-bar widths so OK/Cancel stay on-screen). Peek is a live-frame nk interaction the
+  offscreen `capture` harness can't drive (it resets nk input per frame), so it has no automated test —
+  verified by code review vs the reference. **GATE:** `tools/check-layers.sh` ok (1361); gcc
+  `make check` rc=0 (full tree + all tests); clang `make check` rc=0 (clean rebuild + all tests);
+  scoped ASan on test_shell_control green — non-GL 62/965 `detect_leaks=1`, GL offscreen 62/1201
+  `detect_leaks=0` (no app leaks; offscreen-driver teardown only). **`make analyze` rc=2 — ONE
+  PRE-EXISTING error outside this scope:** `src/engine/color_cmds.c:1484` dead-store
+  (`const char *action = "kept"` never read before reassignment); the file is unmodified vs HEAD and
+  engine can't include UI headers, so it is not caused by this work and is left for the engine owner
+  (src/engine is outside the UI-only scope). Every file this session touched is analyzer-clean. No
+  commit (per instructions). **Still open:** U10 clipboard image-in (engine setter), U8 Liquify proxy
+  preview, U3 cross-group tab drag (engine `window.panel.move`) + floating dock windows, U5 preset
+  browser (unported subsystem — no C `PresetUi` state), and each chunk's full reference integration
+  coverage.
+- 2026-10-22 . FULL TREE GATED GREEN. gcc `make check` + `CC=clang make check` + `make analyze` (807 files, 0 findings) + scoped ASan all pass. Fixed every analyzer finding surfaced once the earlier blockers cleared (each was pre-existing, masked because `make analyze` stops at the first error): color_cmds.c:1484 dead store; fill_layer_set_cmds.c uninit pc_color (init from original); persp_warp.c build_group null-deref/OOB when nplanes==0 (guard); analysis_ui.c x6 dead-store arr_size initializers (yyjson_mut_arr_foreach resets them); gradient_ui.c uninit sc (init {0}). GATE HARDENING (Makefile analyze recipe): vendored third_party now -isystem so the analyzer stops failing on yyjson.h false positives inside our callers (yyjson_val_mut_copy); and the SRCS analyze loop now passes $(APP_OSINT_CFLAGS) so src/app/monitor_profile.c (dbus/colord, x11 screen) analyzes instead of erroring on a missing dbus header. Earlier same-session fixes: analysis_cmds.c UAF, actions_cmds.c bounds guard, brush_organize_cmds.c x2 newName guards. Registry 891, parity 631/631. READY TO COMMIT. ONLY REMAINING: a few engine-blocked UI nice-to-haves (clipboard image-IN, cross-group dock-tab drag, floating dock windows, Liquify live warped-pixel proxy, U5 preset-browser subsystem); Z3 cutover (final differential vs crates/ then DELETE the Rust tree — awaiting user go-ahead); Z4 optional Windows; and release-engineering (signed multi-platform packaging, C perf-bench harness).
+- 2026-10-22 · UI-final wave (claude; UI+engine: `src/engine` edit_cmds + `src/ui` + `tests`) · closed two of the engine-blocked Phase-8 tails and landed the U5 state model; the other two tails need large new subsystems and stay deferred with precise §5/§7 notes. **(1) U10 OS clipboard image-IN — CLOSED.** New public engine setter `pc_engine_set_clipboard(s, rgba, w, h, err)` (edit_cmds.c; builds an RGBA8 surface via `pc_surface_from_interleaved`, pixel-count capped, replaces the session clipboard, panic-safe) — the small public API the §7 note needed (`edit_cmds::set_clipboard` was static). UI half: `pc_ui_shell_os_clipboard_import` (os_clipboard.c, hooked in app.c before Edit › Paste / Paste Special / File › New from Clipboard) reads `image/png` off the OS clipboard, decodes it (codecs) and sets the session clipboard, so an image copied in another app pastes in. Our own export is fingerprinted (len + FNV-1a) so a paste never re-imports it; a non-empty session clipboard is only overridden when Export Clipboard is on. Tests: `test_edit` (`test_set_clipboard_external_image`, `test_set_clipboard_adversarial`), GL `test_gl_os_clipboard_image_in`. **(2) U5 preset-browser STATE MODEL — landed.** `src/ui/preset_ui.{c,h}` ports preset_panels.rs's `PresetUi` (float-window flags, sizes, toggled folders, selection, current-tool-only, custom shape, `groupOrder`, transient rename), byte-exact serde (BTreeMap → sorted-key), `display_order`/`move_group` (#3658 folder reorder), and the Window-menu helpers; wired into `UiState` (serde `presets_ui`) and the shell (Window › Styles/Shapes/Tool Presets/Clone Source toggle their float flag + show a checkmark, menu_state.c). Tests: new `tests/ui/test_preset_ui.c` (3/44) + `test_preset_float_panels_toggle` in test_shell_control. Remaining (large egui→Nuklear rendering port, §7): the browser grid/list, rename field, context menu, footer, drag-to-canvas, and floating-window bodies. **(3) U3 cross-group dock-tab drag + floating dock windows — still deferred:** both need the external `craft_ui::docking` flexible `Layout<String>` (not vendored/ported) plus a `window.panel.move` engine command and a float-window state model; the C dock has fixed group membership. Within-group reorder, group reorder, splitter and width drags stay wired. **(4) U8 Liquify live warped-pixel proxy — still deferred:** the algo proxy exists, but the canvas has no doc-space textured-overlay primitive (it composites the document through the GL camera shader); a per-change COW/worker + rotation-correct textured overlay is a larger integration. **Tests/verify:** all touched tests green — `test_edit` 12/92, `test_preset_ui` 3/44, `test_state` 9/437, `test_dock` 11/112, `test_shell_control` 64/1236 (offscreen GL). **GATE:** gcc `make check`, `CC=clang make check`, `make analyze`, scoped ASan on touched tests (GL detect_leaks=0, non-GL detect_leaks=1), `tools/check-layers.sh` — see the handback for results. No commit (per instructions). **Still open:** U3 cross-group/floating (external docking lib + `window.panel.move`), U8 Liquify proxy (doc-space overlay primitive), U5 browser rendering, per-chunk full reference integration coverage.
+- 2026-10-22 . UI-FINAL WAVE + FULL GREEN. Clipboard image-IN closed (new public pc_engine_set_clipboard export; OS->session paste wired). U5 preset-browser STATE MODEL landed (PresetUi + serde + folder/float logic + menu toggles); its egui->Nuklear browser RENDERING + drag-to-canvas + floating bodies remain. Gate: gcc check + clang check + analyze (808 files, 0) + scoped ASan (test_edit/preset_ui/state/panic_hunt detect_leaks=1; canvas_overlays 74/22052 + shell_control 64/1236 detect_leaks=0) all green. DOCUMENTED DEFERRALS (large subsystems / new primitives, §7): U3 cross-group dock-tab drag + floating dock windows (need the craft_ui flexible docking Layout + a window.panel.move command), U8 Liquify live warped-pixel proxy (needs a doc-space textured-overlay canvas primitive), U5 preset-browser rendering/gestures. RELEASE-ENG deferred: signed multi-platform packaging, C perf-bench harness. STATE: rewrite functionally complete, 631/631 parity, 891 cmds, fully gated green. NEXT: Z3 cutover (run final differential cert vs crates/, then DELETE the Rust tree ONLY on explicit user go-ahead).
+- 2026-10-22 · Z3 FINAL DIFFERENTIAL CERTIFICATION (claude; non-destructive, read/run only — no commit, no deletion, no edits to `src/`/`crates/`). **VERDICT: PASS — the C17 implementation is byte-identical to the Rust reference; SAFE to delete the `crates/` tree.** Built the reference dumper fresh offline on the pinned toolchain (`cargo +1.95.0 build --release --offline`, CARGO_TARGET_DIR under `tools/rustref/target`; leaf recompiled clean in 27.7 s), then regenerated EVERY committed golden from it and diffed: **1962/1962 byte-identical, zero drift.** Breakdown — `tools/golden.sh psd-info` 737/737; `decode` 204/204; composite 989/989 (regenerated via its real generator `RUSTREF_COMPOSITE_OUT=tests/golden/composite rustref io-extra-vectors`, NOT `golden.sh composite`, whose lean schema writes the same dir — a trap noted for Z-docs); all 32 `.txt` vector goldens (doc/ops/paint/algo×8/vector/text/io/compose/format/psd/raw/tiff/f9/plugins/affinity/raw-pixls) 32/32. The 10 HEIF goldens (5 decode + 5 composite) need the optional `heif` codec, which the default `golden.sh`/rustref build omits; re-built rustref offline with `--features photocraft-codecs/heif` (pure-Rust heic-rs, no file edits) and confirmed all 10 match. (`tests/golden/icc-info/system.txt` is host-ICC-specific, not a reference differential.) **Full C gate green:** `make BUILD=build/cert WITH_EXR=1 WITH_HEIF=1 test` → 483/483 test binaries pass, 0 failures. Differential-vs-reference signals: io-extra-vectors 530 exact / 0 differences; io/psd/photoshop export→re-import 0 differ; fuzz 9579 mutated imports 0 panics. (Photoshop-oracle "differ" counts — 113/258 oracles, 68/309 psd-tools — are C-vs-real-Photoshop parity grades held by the ratchet, not reference drift; 0 errors, 0 crashes.) **CLI + UI smoke:** `photocraft-cli commands` → 891; `info` on a corpus PSD → valid JSON; `photocraft-ui-snapshot` rendered a correct 560×470 offscreen frame. Working tree restored (goldens 0 changes); temp build dirs cleaned. Rust reference NOT deleted (awaiting explicit go-ahead as instructed). **NEXT:** on user go-ahead, delete `crates/` + `tools/rustref` (Z3), then Z4 final audit.
+- 2026-10-23 · Z1 close-out: C perf-bench harness + Linux packaging (claude; files only in `tools/perfbench`, `tools/perf.sh`, `packaging/linux`, `perf/`, `docs/`, root `Makefile` + this plan — no `src/`, no `crates/`; concurrent agent owned `src/ui`+`src/engine`). **Perf-bench (§6 T1 → ported):** new `tools/perfbench/perfbench.c` + `make perf-bench` target (library-only link, no GUI, runs on any host). Headless driver: per scenario builds a representative document (`pc_headless_command_start`) and times the hot path, refreshing through `pc_compose_flatten` (the CPU oracle — stands in for the GPU canvas refresh); reports p50/p95/max (nearest-rank) + peak RSS; fresh session per rep so "first"/"repeat" rows are honest. **27/56 scenarios mapped** (P1–P12/P51 layered edits incl. undo/redo/dup/paste; P14/P17 big-doc moves; P18/P19/P44 PSD open; P43 save; P21 Content-Aware Fill; P26/P27 Smooth/Feather; P28 Content-Aware Scale; P29 Select Subject; P41 Gaussian Blur; P42 Curves; P48 14000×14000 CPU refresh). **29 printed n/a and never faked** (brush/liquify/warp/type UI-tool strokes+previews, Camera-Raw scope pipeline, cancellation-latency + app-frame harnesses, GPU-compositor/bevel-shader rows, multi-GB fixtures). Full run GREEN: 27 measured ok, 0 errored. `tools/perf.sh` rewritten to build+run the driver and `--update-baseline` publishes `perf/baseline.json` (schema unchanged, `not_measured` block added before `scenarios` so `tools/scorecard.sh`'s indentation parser is unaffected). Replaced the 2026-10-05 macOS baseline with a 2026-10-23 Linux CPU-oracle run (AMD 7950X, load avg 16 — under concurrent build load, noted in the scorecard); regenerated `docs/scorecard.md` (4 within / 18 over / 5 tracked). **Packaging:** `make dist-deb` (`packaging/linux/deb.sh`: hand-assembled `ar`+`tar` `.deb`, no `dpkg-deb`/`fakeroot`; verified via `ar t` + control/data extraction) and `make dist-appimage` (`packaging/linux/appimage.sh`: runnable `AppDir` + `.AppDir.tar.gz`, real `.AppImage` only when `appimagetool`+`mksquashfs` present — both MISSING here, skipped cleanly with the finish command); all three stage one FHS tree via new `dist.sh --stage DIR`. Tested end-to-end against `build/default/bin`: tar.gz 13M, .deb 13M (valid container), AppDir CLI runs `0.8.2 (dev build)`; artifacts + SHA256SUMS in `dist/release/`. `.rpm`/Flatpak skipped (no `rpmbuild`/`flatpak-builder`), documented. **Docs:** `docs/releasing.md` banner + "Building from the C tree" now cover `make dist`/`dist-deb`/`dist-appimage` and list the still-deferred signed/multi-platform work pointing at `../craftrules/release/playbook.md`. **Gate:** `tools/check-layers.sh` ok (1363 files); `make -n check` + the new targets parse; perfbench compiles clean under `STRICT=1 -Werror`; `make check`'s build is unaffected (perf-bench/dist targets are not deps of `all`/`check`). Not committed (per instructions). **Still deferred:** signing + `.zsync`, `.rpm`/Flatpak, distro-accurate deps, macOS/FreeBSD/Windows packaging; the GPU/per-frame/cancellation perf scenarios (need a headless GL frame harness).
+- 2026-10-23 · U3 floating dock windows (claude; UI-only: `src/ui` incl. `src/ui/shell` + `src/engine` touched for NOTHING — pure view-state in the shell — + `tests/ui`; concurrent agent owned tools/+packaging/+perf). Closed the **floating dock windows** half of the U3 flexible-docking deferral at group granularity, and added a **drag-a-tab-out-to-float** gesture; the **cross-group single-tab RE-PARENT drag** half stays deferred precisely (§5/§7) because it needs the unported `craft_ui::docking` tree to replace the fixed group-index tab model (a large rework across dock.c/app.c/docking.c/serde), which could not land green in one pass without risking the existing well-tested dock. **Model (`src/ui/dock.{c,h}`):** `pc_ui_dock_layout` now carries mutable float state — `floating[]`/`n_floating` + `has_float_rect[]`/`float_rects[][4]` — with `pc_ui_dock_float/unfloat/is_floating/float_rect/set_float_rect`, all finite/clamped/odd-value safe (NaN/inf/tiny/huge rects sanitised, dedup, empty & all-floating safe); C-native serde (`floating` array + `floatRects` map under the existing `dock` object, lenient parse dropping unknown groups / wrong-arity rects, back-compat absent→none), extended deep copy + eq. Floating is orthogonal to order/collapse/heights/within-group reorder, which all stay wired. **Shell:** `window.panel.float` / `window.panel.dock` (the reference's exact ids) wired as pure view-state commands (`app.c pc_ui_shell_panel_float_command`, dispatched in `pc_ui_shell_app_invoke`; resolves panel→group, honours `workspaceLocked`, panic-safe on missing/unknown/mistyped params); `app.c draw_floating_dock` renders each floating group as a movable/scalable Nuklear window over the canvas (same tab strip + body as the column, via `draw_dock_group`, plus a "Dock to panel column" button), tracking placement with `docking.float_shown[]` (brush-picker pattern: set-bounds once on (re)float, then follow the user's drag and persist back into the model); `draw_content` excludes floating groups from the column and zeroes the column width when every shown group has floated; `docking.c` tab-drag release detaches a group when dropped left of the column. `main.c` gains `--float PANEL` for snapshots. **Tests:** `test_dock` +4 (float toggle/rect, sanitise, serde round-trip incl. copy/eq, malformed-input parse) → 15 tests/154 checks; `test_shell_control` `test_panel_float_command` (command happy-path + bad input + UiState serde round-trip) and opt-in GL `test_gl_floating_dock` (render two floats, then all-six-floated empty-column edge, then re-dock all — no crash). **Snapshot** (`photocraft-ui-shell --snapshot --theme proMedium --float properties`, offscreen) eyeballed: Properties detaches into a titled float window with its tabs/collapse/re-dock button + scale gripper, the column drops Properties cleanly; baseline (no float) unregressed. **GATE (BUILD=build/check|san, TMPDIR=/dev/shm/pc-dock, -j4):** gcc `make check` EXIT 0 (full tree + all tests, 0 failures); `CC=clang make check` EXIT 0 (test_dock 15/154, test_shell_control 66/1009); `make analyze` EXIT 0, 0 findings; scoped ASan — `test_dock` (detect_leaks=1) and `test_shell_control` non-GL (detect_leaks=1) clean, `test_shell_control` GL offscreen (detect_leaks=0, incl. the floating render path) clean; `tools/check-layers.sh` ok (1363 files, src/ui still free of ops/doc includes). Not committed (human commits). **Still open (§5/§7):** cross-group single-tab re-parent drag + single-panel (vs whole-group) floating — both need the flexible `craft_ui::docking` tree.
+- 2026-10-23 · U8 Liquify live warped-pixel proxy preview (claude; UI-only: new `src/ui/shell/canvas_overlay.{c,h}`, `src/ui/shell/warp_ui.{c,h}`, `src/ui/shell/canvas_view.{c,h}`, `tests/ui/test_shell_control.c`; concurrent agent owned the U5 preset browser `src/ui/preset_*`/`panels.c`/preset bits of `app.c`). Closed the last U8 tail. **Doc-space textured-overlay primitive (`canvas_overlay.*`):** a reusable GL primitive that draws an RGBA8 texture positioned in DOCUMENT coordinates and transformed by the canvas camera exactly like the document layer — it mirrors `render_camera`'s full-screen-triangle + origin/axisX/axisY mapping, samples the overlay texture at the back-mapped document point, discards outside the overlay rect, and blends premultiplied-over into the currently bound framebuffer/viewport. API: `prepare` (lazy shader + RGBA8 texture of exactly w×h, reports `needs_full` on realloc), `upload` (partial `glTexSubImage2D` of a proxy-pixel sub-rect from a strided source), `draw` (xf + doc rect + opacity), `fini`. GL-function-table-safe (no `glUniform1f`: opacity rides a `vec2`); `GL_ONE` defined locally; panic-safe (checked GL object creation, camera/rect validated, no host allocation). Comment notes it is deliberately generic for later perspective/puppet previews. **Liquify wiring:** `pc_ui_warp_runtime` gains a `pc_ui_liquify_preview` (CPU-only: `pc_algo_liquify_proxy` + persistent premultiplied RGBA8 `out` buffer + change-detection signature); the GL texture lives in `pc_ui_canvas_view.live_overlay` (freed with the GL context). `pc_ui_shell_warp_live_overlay` (pure CPU, no GL) builds the proxy from the active layer surface over the field bounds (PROXY_SIDE 1600, matching the reference), then re-renders through the current field — a full render on a (re)build/global-op/undo, otherwise INCREMENTALLY over only the dab-touched region of a continuing stroke (dirty = brush-radius-inflated bbox of the new points → `pc_algo_liquify_proxy_rect`), so a drag stays frame-responsive; idle frames re-render nothing and upload nothing. `canvas_view.c render_live_overlay` uploads the dirty rect (or the whole texture after a realloc) and draws the overlay into the canvas target after the camera/tile passes and before `nk_draw_image`, so the warped pixels track every view transform and sit under the mesh/freeze overlays. Nothing is drawn before the first edit (the crisp canvas composite shows, not a downsampled copy); no pixel layer / degenerate mesh / over-budget proxy falls back to the mesh overlay; commit/cancel drops the preview. §7 residual recorded (on-canvas single-layer overlay vs the reference's modal preview pane + high-zoom full-res crop; 1600 px proxy at all zooms). **Tests:** `test_liquify_live_proxy` (always-on, CPU: no-draw-before-edit, proxy built on a forward-warp drag, a continuing move reports a bounded sub-full dirty rect, idle = empty dirty, cancel drops it) and GL `test_gl_liquify_live_proxy` (paints vertical stripes, warps across them, renders under a 30°/3× view offscreen without crashing; `PC_LIQUIFY_PROXY_SNAPSHOT` PNG eyeballed — the stripes bend to follow the mesh, pixel-aligned under rotation+zoom). **GATE (BUILD=build/liq, TMPDIR=/dev/shm/pc-liq, -j4):** `tools/check-layers.sh` ok (1367); my three files `-Werror` clean under gcc AND clang (scoped `-fsyntax-only` with the full strict flag set); `test_shell_control` 68/1320 green, GL offscreen (`PC_TEST_GL=1 SDL_VIDEO_DRIVER=offscreen`) 68/1320 green. NOTE: the whole-tree `make check` / `CC=clang make check` / `make analyze` / scoped-ASan gates were blocked at hand-off by a concurrent agent's in-progress `src/ui/shell/preset_browser.h:9` (`new/*Group` → `-Werror=comment`), which is not my file — see the handback. Not committed (human commits). **Still open (other chunks):** U5 preset-browser rendering, U3 cross-group single-tab re-parent drag, per-chunk full reference integration coverage.
+- 2026-10-23 · U3 cross-group dock-tab RE-PARENT drag + `window.panel.move` — CLOSED (claude; UI-only: `src/ui/dock.{c,h}`, `src/ui/shell/docking.{c,h}`, `src/ui/shell/app.c`, `src/ui/shell/main.c`, `tests/ui/test_dock.c`, `tests/ui/test_shell_control.c`; no `src/engine`/`crates` edits, check-layers clean). The fixed per-group tab arrays are superseded by a **mutable panel->group membership** on the six C group slots: `pc_ui_dock_layout` gains `members[PC_UI_GROUP_N]` (ordered panel labels per group) + a `customized` flag. While `customized` is false the groups keep the native fixed arrays, so **every existing dock test and the serde round-trip stay byte-exact**; the first cross-group move materialises the explicit lists. New dock API: `pc_ui_dock_move_panel` (re-parent before an anchor; panic/odd-value safe, keeps the 17-panel partition), `pc_ui_dock_group_labels`/`_visible_labels`/`_label_group`/`_label_native_group`/`_label_scrolls_itself`, plus `groups`+`customized` C-native serde (emitted only once customized; lenient load drops unknown groups/labels and dedups, back-compat absent→native). **Command:** `window.panel.move {panel, anchor|onto, before?}` — a pure view-state shell command (`pc_ui_shell_panel_move_command`, exact reference id, validates fully before mutating so bad input is atomic, honours `workspaceLocked`, reveals a hidden destination group). **Render/drag:** `draw_dock_group` draws the customized member list beside the native path; `group_shown` keeps the per-group flag but hides an emptied group / shows one that gained panels; `docking.c` release re-parents on a drop onto another group's tab (insert-before) or strip/body (append), with a drop indicator (insertion bar + target-group frame); same-group drops still reorder (native `move_tab` uncustomized, else `move_panel`). `main.c --move PANEL ANCHOR` snapshots a re-parent. **Tests:** `test_dock` 18/254 (+3: move+partition invariants, serde+copy round-trip, back-compat + hostile-input), `test_shell_control` 70/1050 (+`test_panel_move_command`: happy path + 5 atomic bad-input cases + UiState serde round-trip). **Snapshots** (offscreen, proMedium): Swatches dragged Color->Layers renders in the Layers strip, baseline unregressed — eyeballed. **GATE (BUILD=build/fdock, TMPDIR=/dev/shm/pc-fdock, -j4):** gcc `make check` rc=0 (0 failures); `CC=clang make check` rc=0 (0 failures); `make analyze` and whole-tree `make sanitize` — see handback; `tools/check-layers.sh` ok (1367, src/ui still free of ops/doc includes). Not committed (human commits). **Residual (§5/§7):** single-panel (vs whole-group) floating — the float state is keyed by the six group slots, so a lone panel floats with its group; the reference's per-panel float needs the unported `craft_ui::docking` tree. U3 flipped to [x].
+- 2026-10-23 . DEFERRAL CLOSE-OUT + WHOLE-TREE ASan GATE GREEN. Closed: floating dock windows (window.panel.float/dock); Liquify live warped-pixel proxy (new reusable doc-space canvas-overlay primitive, camera-correct); preset-browser rendering (grid/list/rename/context-menu/footer/drag-to-canvas + 4 floating preset windows; gradients/patterns/styles real thumbnails); C perf-bench harness (tools/perfbench, 27/56 scenarios mapped, baseline.json real) + Linux packaging (make dist-deb/dist-appimage). ASan leak sweep: the whole-tree ASan suite now fits on disk and runs; drove it to ZERO leaks. 4 REAL production bugs fixed - move_cmds reused-`out` nested-result-doc leaks; tool_gesture intermediate/preview `out` overwrites; gpu_startup prefs pc_buf never freed; and a genuine history.newDocument USE-AFTER-FREE (released a BORROWED pc_history_state ref -> freed history's own doc -> next undo read freed tiles) - plus test-teardown leaks (gradient_edit/patch/retouch/tool_gesture/type_tool). FINAL CLEAN GATE MATRIX (no concurrent agents): gcc check + whole-tree sanitize (488 bins, 0 leaks/UB) + clang check + analyze (810 files) + no-features ALL rc=0, 0 failures. check-layers ok (1367). Registry 891, parity 631/631. READY TO COMMIT. REMAINING: cross-group dock-tab re-parent drag (needs the external craft_ui flexible-docking Layout subsystem) + minor fidelity notes (shape thumbnails, Liquify edge-composite); release-eng (signed multi-platform packaging); Z3 cutover (certified SAFE 2026-10-22; held per user). Z4 optional Windows.
+- 2026-10-23 . U3 COMPLETE -> ALL PHASE 8 UI CHUNKS (U1-U10) + G1/G2 NOW [x]. Cross-group dock-tab re-parent drag + window.panel.move landed (mutable panel->group membership model over the 6 fixed group slots, customized flag keeps uncustomized layouts byte-exact, lenient/back-compat serde; drop indicator; drag-to-float). test_dock 18/254, test_shell_control 70/1050. Gate matrix green (gcc/clang/analyze/whole-tree sanitize 0-leak/check-layers 1367). RESIDUAL (documented §7): single-panel (vs whole-group) float stays group-granularity — needs the unported external craft_ui flexible-Layout tree; everything else of the reference docking behaviour is covered. MILESTONE: the C17 rewrite is FEATURE-COMPLETE — engine 631/631 parity (891 cmds), full UI, GPU, desktop app, automation/CLI, tooling+Linux packaging, all gates green incl. whole-tree ASan. REMAINING: Z3 cutover (certified safe, held for user go-ahead); release-eng (signed macOS/Windows packaging, needs a Mac+secrets); Z4 optional Windows; single-panel-float micro-residual.
+- 2026-10-23 . STOP AT FEATURE-COMPLETE (user decision). The C17 rewrite is feature-complete and fully gated green; cutover certified byte-identical (2026-10-22). Per user: HOLD the Z3 cutover and KEEP the read-only Rust reference tree in place (dual-tree) for now; do NOT delete crates/. Independent gcc make check re-confirmed: CHECK_EXIT=0, 483 test binaries, 0 failures. Working tree ~96 uncommitted changes on WD-40 for the human to commit. DEFERRED (not blocking, user-owned): Z3 cutover (delete Rust tree — run tools/golden.sh regen + corpus diff once more then rm crates/ Cargo.toml tools/rustref); release-engineering (signed macOS .app+notarization, .rpm/Flatpak, Windows/MinGW = Z4); single-panel-float micro-residual (needs the external flexible-Layout tree). Nothing else outstanding.

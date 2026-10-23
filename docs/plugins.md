@@ -1,11 +1,11 @@
 # Plug-ins: the WebAssembly plug-in API (ABI v1)
 
 PhotoCraft does not host native Photoshop plug-ins (`.8BF`, CEP, UXP): that needs unsafe FFI into
-arbitrary machine code and cannot work in the browser build. Instead, plug-ins are **WebAssembly
-modules** run in a sandbox. One `.wasm` file works on macOS, Windows, Linux and the web.
+arbitrary machine code. Instead, plug-ins are **WebAssembly modules** run in a sandbox. One `.wasm`
+file works on every platform PhotoCraft targets (Linux, macOS and the BSDs).
 
-This page is the contract for plug-in authors and the reference for the host
-(`crates/plugins`, the `plugin.*` commands in `crates/engine/src/plugin_cmds.rs`).
+This page is the contract for plug-in authors and the reference for the host (`src/plugins`, built on
+the vendored WAMR runtime, and the `plugin.*` commands in `src/engine/plugin_cmds.c`).
 
 ## Using plug-ins
 
@@ -22,8 +22,7 @@ preview when they have parameters), next to **Install Plug-in…**.
 
 **Preference folder.** Edit › Preferences › Plug-ins › *Use Additional Plug-ins Folder* plus
 *Additional Plug-ins Folder*: when both are set, every `*.wasm` in that folder (not recursive) is
-installed at startup and whenever the preference changes (native builds only; the web build installs
-from bytes).
+installed at startup and whenever the preference changes.
 
 Plug-ins are installed **per process**, not per document. A smart filter recorded from a plug-in
 (`{"command": "plugin.run", "params": {"id", "params"}}`) re-runs on re-render while that plug-in is
@@ -154,7 +153,7 @@ rustup target add wasm32-unknown-unknown
 examples/plugins/invert-rs/build.sh      # cargo build --release --target wasm32-unknown-unknown
 ```
 
-The script also refreshes `crates/plugins/tests/fixtures/invert.wasm`, the test fixture built from
+The script also refreshes `tests/fixtures/plugins/invert.wasm`, the test fixture built from
 that source. Any language that targets core WebAssembly works (C, Zig, AssemblyScript, WAT…), as
 long as the module has no imports: in Rust, that means `no_std` or a `std` build that never touches
 WASI.
@@ -164,9 +163,9 @@ WASI.
 The interpreter costs roughly 10–100× native speed per instruction, so plug-ins suit per-pixel and
 small-neighbourhood filters. Because bands run in parallel, the example Invert on a 6000 × 4000
 RGBA 8-bit layer (24 MP, release, 14-core Apple Silicon under heavy load) took 1.1–1.6 s through
-`plugin.run`, versus 3.6–5.1 s for the (single-threaded) built-in Image › Adjustments › Invert
-(`cargo run --release -p photocraft-engine --example bench_plugin_invert`; plug-in alone:
-`cargo run --release -p photocraft-plugins --example bench_invert`). Peak extra memory is about three bands per worker thread (input,
+`plugin.run`, versus 3.6–5.1 s for the (single-threaded) built-in Image › Adjustments › Invert.
+(Those figures were measured on the Rust reference; the C tree has no plug-in benchmark harness yet —
+see `tools/perf.sh`.) Peak extra memory is about three bands per worker thread (input,
 original for the selection blend, and the instance's memory), i.e. ~12 MiB per thread.
 
 ## Not in v1

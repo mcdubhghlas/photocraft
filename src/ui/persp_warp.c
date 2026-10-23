@@ -163,8 +163,15 @@ static pc_status build_group(pc_ui_persp_session *s, size_t pi, size_t ci, pc_er
 {
     s->ngroup = 0;
     size_t *group_of = pc_malloc_array(s->nplanes * 4, sizeof *group_of);
-    if (group_of == NULL && s->nplanes > 0)
-        return pc_fail(err, PC_ERR_NOMEM, "out of memory");
+    if (group_of == NULL) {
+        if (s->nplanes > 0)
+            return pc_fail(err, PC_ERR_NOMEM, "out of memory");
+        return PC_OK; /* no planes: empty group */
+    }
+    if (pi >= s->nplanes || ci >= 4) { /* nothing selected to group around */
+        free(group_of);
+        return PC_OK;
+    }
     size_t n_groups = 0;
     pc_algo_persp_linked_corners(s->planes, s->nplanes, group_of, &n_groups);
     size_t g = group_of[pi * 4 + ci];

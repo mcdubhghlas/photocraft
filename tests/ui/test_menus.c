@@ -182,8 +182,9 @@ static void test_parity(void)
      * reference target — full catalogue coverage, which the reference reaches (100%). The C engine
      * is a port in progress: its registered commands cover CURRENT_LIVE at this point, and this
      * guard rises toward PC_UI_PARITY_FLOOR as later engine/UI chunks register the remaining
-     * commands. Never lower CURRENT_LIVE; raise it when coverage grows. */
-    enum { CURRENT_LIVE = 612 };
+     * commands. Never lower CURRENT_LIVE; raise it when coverage grows. The GAP3 engine wave
+     * (2026-10-22) closed the last 19-id engine gap: full catalogue coverage (631/631). */
+    enum { CURRENT_LIVE = 631 };
     CHECK(p.total == 631);
     CHECK(p.live >= CURRENT_LIVE);
     CHECK(p.live <= PC_UI_PARITY_FLOOR);

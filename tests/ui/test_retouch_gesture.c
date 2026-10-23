@@ -64,6 +64,7 @@ static void test_clone_stamp_set_source_and_stroke(void)
         CHECK(yyjson_mut_obj_get(p, "flow") != NULL);
         CHECK(yyjson_mut_arr_size(yyjson_mut_obj_get(p, "points")) >= 2);
     }
+    pc_ui_tool_gesture_fini(&g);
     pc_ui_state_fini(&ui);
     pc_engine_session_free(s);
 }
@@ -79,6 +80,7 @@ static void test_clone_without_source_errors_gracefully(void)
     /* No source set: the engine refuses on commit, but the gesture never crashes. */
     pc_status up = event(&g, s, &ui, PC_UI_POINTER_UP, 18, 14, 0);
     CHECK(up != PC_OK);
+    pc_ui_tool_gesture_fini(&g);
     pc_ui_state_fini(&ui);
     pc_engine_session_free(s);
 }
@@ -99,6 +101,7 @@ static void test_healing_brush_stroke(void)
         CHECK(!strcmp(yyjson_mut_get_str(yyjson_mut_obj_get(p, "sampleLayer")), "current"));
         CHECK(yyjson_mut_obj_get(p, "opacity") == NULL); /* healing sends no opacity/flow */
     }
+    pc_ui_tool_gesture_fini(&g);
     pc_ui_state_fini(&ui);
     pc_engine_session_free(s);
 }
@@ -119,6 +122,7 @@ static void test_pattern_stamp_stroke(void)
         CHECK(yyjson_mut_obj_get(p, "scale") != NULL);
         CHECK(yyjson_mut_obj_get(p, "angle") != NULL);
     }
+    pc_ui_tool_gesture_fini(&g);
     pc_ui_state_fini(&ui);
     pc_engine_session_free(s);
 }
