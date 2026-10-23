@@ -15,7 +15,7 @@ use photocraft_geom::Rect;
 use photocraft_raster::{Surface, from_rgba_into, to_rgba};
 
 use crate::brush::{BrushSettings, MaskMode, Pattern, TipShape};
-use crate::dynamics::DabGenerator;
+use crate::dynamics::{DabGenerator, grid_cell};
 use crate::retouch::{Footprint, alpha_index, over_native};
 use crate::rng::hash2;
 use crate::tile::{Mips, PatternImage};
@@ -52,7 +52,7 @@ const NOISE_SALT: u64 = 0x006E_6F69_7365;
 /// the Pencil cursor shows ([`grid_square`]).
 pub fn grid_center(x: f64, y: f64, diameter: f32) -> (f32, f32) {
     let n = if diameter.is_finite() { diameter.round().max(1.0) as i64 } else { 1 };
-    let snap = |v: f64| if n % 2 == 1 { v.floor() + 0.5 } else { v.round() };
+    let snap = |v: f64| if n % 2 == 1 { grid_cell(v, 0.5) } else { v.round() };
     (snap(x) as f32, snap(y) as f32)
 }
 
@@ -234,7 +234,7 @@ impl BrushContext {
 
     /// [`rasterize`](Self::rasterize); with `depth`, Wet Edges is left out of `out` and each
     /// painted pixel's depth inside the dab (`1 − rn`) goes to `depth`, for the stroke to apply it.
-    fn rasterize_into(&self, d: &Dab, dual: bool, rect: Rect, out: &mut Vec<f32>, mut depth: Option<&mut Vec<f32>>) {
+    pub fn rasterize_into(&self, d: &Dab, dual: bool, rect: Rect, out: &mut Vec<f32>, mut depth: Option<&mut Vec<f32>>) {
         let (w, h) = (rect.width() as usize, rect.height() as usize);
         out.clear();
         out.resize(w * h, 0.0);
@@ -394,7 +394,7 @@ impl BrushContext {
     /// [`stroke_mask`](Self::stroke_mask) with Wet Edges from the stroke's depth at the pixel
     /// (the deepest any dab reaches it, see [`CoverageMap::depth`]).
     #[inline]
-    fn stroke_mask_wet(&self, c: f32, depth: Option<f32>, dual: Option<f32>, x: i32, y: i32) -> f32 {
+    pub fn stroke_mask_wet(&self, c: f32, depth: Option<f32>, dual: Option<f32>, x: i32, y: i32) -> f32 {
         let b = &self.brush;
         let mut m = match depth {
             Some(dp) => c * wet_factor(1.0 - dp),
@@ -1043,10 +1043,11 @@ impl StrokeRenderer {
                     } else {
                         let d = to_rgba(&fmt, px);
                         let sr = to_rgba(&fmt, &src[..n]);
-                        let mut o = photocraft_color::blend::composite(b.mode, d, sr, k);
-                        if lock_transparency {
-                            o[3] = d[3];
-                        }
+                        let o = if lock_transparency {
+                            photocraft_color::blend::composite_atop(b.mode, d, sr, k)
+                        } else {
+                            photocraft_color::blend::composite(b.mode, d, sr, k)
+                        };
                         let mut enc = [0.0f32; 8];
                         from_rgba_into(&fmt, o, &mut enc);
                         px.copy_from_slice(&enc[..n]);

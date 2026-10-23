@@ -1,10 +1,11 @@
-//! Photocraft's type engine.
+//! PhotoCraft's type engine.
 //!
 //! * [`fonts::FontDb`]: bundled fonts (Inter, JetBrains Mono; always available, including on the
 //!   web), optional system fonts from platform directory scans plus Fontconfig's Linux file list,
 //!   user font data, TrueType collections, PostScript-name lookup. Builds made with the optional
 //!   craft-fonts input
-//!   (`CRAFT_FONTS_DIR`, see [`craft_fonts`]) also carry its Japanese fonts as fallbacks.
+//!   (`CRAFT_FONTS_DIR`, see [`craft_fonts`]) also carry its fonts of every script (a single-face
+//!   file under its manifest family name); the ones the fallback lists name are fallbacks.
 //! * [`layout`]: shaping and line layout with [parley] (HarfRust shaping, bidi, line breaking),
 //!   point and paragraph (box) text, per-run styles, Photoshop leading/indent/spacing rules.
 //! * [`render`]: anti-aliased rasterization (exact-area accumulation, f32 coverage) into a
@@ -92,7 +93,7 @@ impl TextEngine {
             acc += r.len;
             at < acc
         })?;
-        let em = style_run.style.size_pt * if dpi > 0.0 { dpi / 72.0 } else { 1.0 };
+        let em = style_run.style.size_pt * if dpi.is_finite() && dpi > 0.0 { dpi / 72.0 } else { 1.0 };
         if em.is_nan() || em <= 0.0 {
             return None;
         }

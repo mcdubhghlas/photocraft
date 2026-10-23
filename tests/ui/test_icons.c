@@ -4,7 +4,7 @@
 #include <string.h>
 static void test_embedded_icons_and_tool_mapping(void)
 {
-    CHECK(pc_ui_icon_count()==143);
+    CHECK(pc_ui_icon_count()==161);
     for(size_t i=0;i<pc_ui_icon_count();i++) {
         const char *name=pc_ui_icon_name(i);CHECK(name && pc_ui_icon_exists(name));
         if(i) { CHECK(strcmp(pc_ui_icon_name(i-1),name)<0); }

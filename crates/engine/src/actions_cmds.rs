@@ -45,11 +45,17 @@ pub struct Action {
     /// filled by Load Actions (`actions.load`) and written by Save Actions (`actions.save`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub set: Option<String>,
+    /// Button Mode colour. Empty is none; otherwise one of [`BUTTON_COLORS`].
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub color: String,
 }
+
+/// Button Mode colours, in Photoshop's order. Empty is no colour.
+pub const BUTTON_COLORS: [&str; 8] = ["", "red", "orange", "yellow", "green", "blue", "violet", "gray"];
 
 impl Action {
     pub fn new(name: impl Into<String>, steps: Vec<(String, Value)>) -> Self {
-        Self { name: name.into(), steps, disabled: BTreeSet::new(), dialogs: BTreeSet::new(), set: None }
+        Self { name: name.into(), steps, disabled: BTreeSet::new(), dialogs: BTreeSet::new(), set: None, color: String::new() }
     }
 
     /// Apply `f` to every per-step index set (`disabled`, `dialogs`) after steps moved.
@@ -75,6 +81,8 @@ pub struct ActionsFile {
     pub actions: Vec<Action>,
 }
 
+pub const MAX_PLAYBACK_STEPS: u64 = 100_000;
+
 /// Actions list and the recording / playback flags. Only `list` is persisted.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -89,9 +97,16 @@ pub struct ActionState {
     /// Active action names, for cycle detection in engine and desktop playback.
     #[serde(skip)]
     pub playback_stack: Vec<String>,
+    /// Number of steps executed by the current top-level playback tree.
+    #[serde(skip)]
+    pub playback_steps: u64,
     /// Bumped whenever `list` changes, so the preset store can skip unchanged writes.
     #[serde(skip)]
     pub rev: u64,
+    /// Bumped by each `actions.record`, so a background job knows whether the recording it was
+    /// started in is still the one running when its result lands.
+    #[serde(skip)]
+    pub take: u64,
 }
 
 impl ActionState {
@@ -115,13 +130,33 @@ pub fn replayable(id: &str) -> bool {
             && (shell_view_command(id) || shell_save_command(id) || crate::commands::find(id).is_some_and(|c| c.journal)))
 }
 
-/// File › Save, Save As and Save a Copy, recorded by the desktop shell once the save has a path
-/// (#2032, #4373). The shell replays them; batch and droplets write to their destination folder
-/// instead.
+/// File › Save, Save As and Save a Copy, and File › Export › Export As, recorded by the desktop
+/// shell once the file has a path (#2032, #4373, #7207). The shell replays them; batch and
+/// droplets write to their destination folder instead.
 pub fn shell_save_command(id: &str) -> bool {
-    matches!(id, "file.save" | "file.saveAs" | "file.saveACopy")
+    matches!(id, "file.save" | "file.saveAs" | "file.saveACopy" | "file.export.exportAs")
 }
 
+/// The failure for a played Save step whose document `target` (the one active when the step
+/// started) is no longer open: a Save Document script event closed it. Playback stops there, so
+/// the next step without a document, such as the Close half of an imported Close with Save: Yes,
+/// doesn't act on whichever document is active now (#7367).
+pub fn save_target_closed(s: &Session, id: &str, target: Option<photocraft_doc::DocId>) -> Option<String> {
+    let target = target.filter(|_| shell_save_command(id))?;
+    (!s.documents().iter().any(|d| d.doc.id == target)).then(|| {
+        "the document was closed during the save (by a Save Document script event); playback stopped so later steps don't act on another document".into()
+    })
+}
+
+/// Charge one step against the complete nested playback tree.
+pub fn consume_playback_step(s: &mut Session) -> bool {
+    if s.actions.playback_steps >= MAX_PLAYBACK_STEPS {
+        false
+    } else {
+        s.actions.playback_steps += 1;
+        true
+    }
+}
 /// View-only menu commands recorded by the desktop shell. Headless playback reports
 /// them as unsupported instead of silently dropping them; Batch and droplets skip them.
 pub fn shell_view_command(id: &str) -> bool {
@@ -145,18 +180,33 @@ pub fn playback_plan(s: &Session, p: &Value) -> Result<(Action, usize)> {
     Ok((action, from))
 }
 
-/// The actions that `steps` call through Play Action steps, followed transitively, in list order,
-/// so a droplet can run without the Actions panel that made it (#2794). Index references in
-/// `steps` and in the copies become names, which resolve without the rest of the list. A target
-/// that doesn't resolve is left alone: it fails at playback, as it would have before.
+/// The actions that `steps` call through Play Action steps and the branches of Conditional steps,
+/// followed transitively, in list order, so a droplet can run without the Actions panel that made
+/// it (#2794, #6804). Index references in `steps` and in the copies become names, which resolve
+/// without the rest of the list. A target that doesn't resolve is left alone: it fails at
+/// playback, as it would have before.
 pub fn called_actions(list: &[Action], steps: &mut [(String, Value)]) -> Vec<Action> {
     fn targets(list: &[Action], steps: &mut [(String, Value)], depth: usize, queue: &mut Vec<(usize, usize)>) {
-        for (_, params) in steps.iter_mut().filter(|(id, _)| id == "actions.play") {
-            let Ok(i) = resolve(list, params, "actions.play") else { continue };
-            if let (Some(action), Some(obj)) = (list.get(i), params.as_object_mut()) {
-                obj.insert("action".into(), json!(action.name));
+        for (id, params) in steps.iter_mut() {
+            match id.as_str() {
+                "actions.play" => {
+                    let Ok(i) = resolve(list, params, "actions.play") else { continue };
+                    if let (Some(action), Some(obj)) = (list.get(i), params.as_object_mut()) {
+                        obj.insert("action".into(), json!(action.name));
+                    }
+                    queue.push((i, depth));
+                }
+                // Conditional branches only take names, so there is nothing to rewrite.
+                "actions.conditional" => {
+                    for key in ["then", "else"] {
+                        let Some(name) = params.get(key).and_then(Value::as_str) else { continue };
+                        if let Some(i) = list.iter().position(|a| a.name == name) {
+                            queue.push((i, depth));
+                        }
+                    }
+                }
+                _ => {}
             }
-            queue.push((i, depth));
         }
     }
     let mut queue = Vec::new();
@@ -235,7 +285,7 @@ fn get(s: &mut Session, p: &Value) -> Result<Value> {
     let idx = resolve(&s.actions.list, p, "actions.get")?;
     let action = &s.actions.list[idx];
     let steps: Vec<Value> = action.steps.iter().map(|(id, params)| json!([id, params])).collect();
-    Ok(json!({"name": action.name, "steps": steps, "disabled": action.disabled, "dialogs": action.dialogs, "set": action.set}))
+    Ok(json!({"name": action.name, "steps": steps, "disabled": action.disabled, "dialogs": action.dialogs, "set": action.set, "color": action.color}))
 }
 
 fn record(s: &mut Session, p: &Value) -> Result<Value> {
@@ -266,6 +316,7 @@ fn record(s: &mut Session, p: &Value) -> Result<Value> {
         s.actions.list.len() - 1
     };
     s.actions.recording = Some((s.journal.len(), idx));
+    s.actions.take = s.actions.take.wrapping_add(1);
     let name = s.actions.list.get(idx).map(|a| a.name.clone()).unwrap_or_default();
     Ok(json!({"action": name, "index": idx}))
 }
@@ -301,15 +352,29 @@ fn stop(s: &mut Session, _p: &Value) -> Result<Value> {
     Ok(json!({"action": action.name, "steps": action.steps.len()}))
 }
 
+/// A step Photoshop plays as a silent no-op although its menu item is greyed: Deselect with an
+/// open document and nothing selected (actions often start with it to clear any selection, #6744).
+fn noop_step(s: &Session, id: &str) -> bool {
+    id == "select.deselect" && s.active().is_some_and(|d| d.doc.selection.is_none())
+}
+
 fn run_recorded(s: &mut Session, action: &Action, from: usize) -> (u64, Option<Value>) {
     let mut ran = 0u64;
     let mut failed = None;
     for (i, (id, params)) in action.enabled_steps().skip_while(|(i, _)| *i < from) {
+        if !consume_playback_step(s) {
+            failed = Some(json!({"step": i, "id": id, "error": format!("action playback exceeded the {}-step limit", MAX_PLAYBACK_STEPS)}));
+            break;
+        }
         if let Some(auth) = s.authorize
             && let Err(e) = auth(id, params)
         {
             failed = Some(json!({"step": i, "id": id, "error": e.to_string()}));
             break;
+        }
+        if noop_step(s, id) {
+            ran += 1;
+            continue;
         }
         match s.execute(id, params.clone()) {
             Ok(value) => {
@@ -332,6 +397,9 @@ fn run_recorded(s: &mut Session, action: &Action, from: usize) -> (u64, Option<V
 /// for diagnostics, but record just the named call in the parent action.
 pub fn begin_playback(s: &mut Session, action: &Action) -> Result<Option<(usize, usize)>> {
     flush_recording(s)?;
+    if s.actions.playing == 0 {
+        s.actions.playback_steps = 0;
+    }
     let recording = s.actions.recording.take();
     s.actions.playing = s.actions.playing.saturating_add(1);
     s.actions.playback_stack.push(action.name.clone());
@@ -342,13 +410,18 @@ pub fn finish_playback(s: &mut Session, recording: Option<(usize, usize)>, actio
     s.actions.playback_stack.pop();
     s.actions.playing = s.actions.playing.saturating_sub(1);
     if let Some((_, idx)) = recording {
-        s.actions.recording = Some((s.journal.len(), idx));
-        let mut params = json!({"action": action.name});
-        if from > 0 {
-            params["from"] = json!(from);
-        }
-        s.journal.push(("actions.play".into(), params));
+        restore_recording(s, idx, &action.name, from);
     }
+}
+
+/// Resume recording into action `idx` and journal the named call that suspended it.
+pub fn restore_recording(s: &mut Session, idx: usize, action: &str, from: usize) {
+    s.actions.recording = Some((s.journal.len(), idx));
+    let mut params = json!({"action": action});
+    if from > 0 {
+        params["from"] = json!(from);
+    }
+    s.journal.push(("actions.play".into(), params));
 }
 
 /// Nested playback returns a structured failure even though the command itself succeeded.
@@ -468,6 +541,13 @@ fn delete(s: &mut Session, p: &Value) -> Result<Value> {
     }
     let name = s.actions.list.remove(idx).name;
     s.actions.touch();
+    // Its function key goes with it, or the next action given the same name would inherit it.
+    let key = format!("{PLAY_SHORTCUT_PREFIX}{name}");
+    if s.prefs().shortcuts.contains_key(&key) {
+        s.edit_prefs(|prefs| {
+            prefs.shortcuts.remove(&key);
+        });
+    }
     Ok(json!({"deleted": name}))
 }
 
@@ -513,8 +593,9 @@ fn toggle(s: &mut Session, p: &Value) -> Result<Value> {
 /// Prefix of the persisted shortcut override that plays a named action (`actions.play:<name>`).
 pub const PLAY_SHORTCUT_PREFIX: &str = "actions.play:";
 
-/// Rename an action in place. Nested `actions.play` steps that call it by name, and its
-/// function-key binding, follow the new name so nothing silently stops working.
+/// Rename an action in place. Nested `actions.play` steps and `actions.conditional` branches
+/// that call it by name, and its function-key binding, follow the new name so nothing silently
+/// stops working.
 fn rename(s: &mut Session, p: &Value) -> Result<Value> {
     not_playing(s, "actions.rename")?;
     let idx = resolve(&s.actions.list, p, "actions.rename")?;
@@ -534,8 +615,15 @@ fn rename(s: &mut Session, p: &Value) -> Result<Value> {
     let pending = s.actions.recording.map_or(s.journal.len(), |(start, _)| start);
     let calls = s.actions.list.iter_mut().flat_map(|a| a.steps.iter_mut()).chain(s.journal.iter_mut().skip(pending));
     for (id, params) in calls {
-        if id == "actions.play" && params.get("action").and_then(Value::as_str) == Some(old.as_str()) {
-            params["action"] = json!(name);
+        let keys: &[&str] = match id.as_str() {
+            "actions.play" => &["action"],
+            "actions.conditional" => &["then", "else"],
+            _ => &[],
+        };
+        for key in keys {
+            if params.get(*key).and_then(Value::as_str) == Some(old.as_str()) {
+                params[*key] = json!(name);
+            }
         }
     }
     if let Some(action) = s.actions.list.get_mut(idx) {
@@ -551,6 +639,25 @@ fn rename(s: &mut Session, p: &Value) -> Result<Value> {
         });
     }
     Ok(json!({"action": name, "index": idx}))
+}
+
+fn set_color(s: &mut Session, p: &Value) -> Result<Value> {
+    let cmd = "actions.setColor";
+    not_playing(s, cmd)?;
+    let idx = resolve(&s.actions.list, p, cmd)?;
+    let Some(color) = p.get("color").and_then(Value::as_str) else {
+        return Err(bad(cmd, "needs \"color\""));
+    };
+    if !BUTTON_COLORS.contains(&color) {
+        return Err(bad(cmd, "color must be empty, red, orange, yellow, green, blue, violet, or gray"));
+    }
+    let Some(action) = s.actions.list.get_mut(idx) else {
+        return Err(bad(cmd, "no such action"));
+    };
+    action.color = color.to_string();
+    let name = action.name.clone();
+    s.actions.touch();
+    Ok(json!({"action": name, "color": color}))
 }
 
 pub fn specs() -> Vec<CommandSpec> {
@@ -580,7 +687,7 @@ pub fn specs() -> Vec<CommandSpec> {
             label: "Get Action",
             menu: &[],
             shortcut: None,
-            params: r##"{"action":name|index} → {name, steps:[[id, params]…], disabled:[step…], dialogs:[step…], set:name|null} (steps is the shape file.automate.batch and droplets take; disabled lists the 0-based steps playback skips; dialogs the steps whose dialog Photoshop would show; set the action set from Load Actions)"##,
+            params: r##"{"action":name|index} → {name, steps:[[id, params]…], disabled:[step…], dialogs:[step…], set:name|null, color:str} (steps is the shape file.automate.batch and droplets take; disabled lists the 0-based steps playback skips; dialogs the steps whose dialog Photoshop would show; set the action set from Load Actions; color is the Button Mode swatch, or empty)"##,
             enabled: always,
             run: get,
             journal: false,
@@ -645,6 +752,16 @@ pub fn specs() -> Vec<CommandSpec> {
             run: rename,
             journal: false,
         },
+        CommandSpec {
+            id: "actions.setColor",
+            label: "Set Action Color",
+            menu: &[],
+            shortcut: None,
+            params: r##"{"action":name|index, "color":""|"red"|"orange"|"yellow"|"green"|"blue"|"violet"|"gray"} → {action, color}. The Button Mode colour. Empty clears it."##,
+            enabled: always,
+            run: set_color,
+            journal: false,
+        },
     ]
 }
 
@@ -655,6 +772,27 @@ mod tests {
 
     fn pixel(s: &Session, layer: usize, x: i32, y: i32) -> Vec<f32> {
         s.active().unwrap().doc.layers[layer].surface().unwrap().pixel(x, y)
+    }
+
+    #[test]
+    fn deselect_with_nothing_selected_is_a_noop_in_playback() {
+        // #6744: imported actions often start with Deselect; with no selection Photoshop plays on.
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 8, "height": 8})).unwrap();
+        let before = s.active().unwrap().history.past_len();
+        // Outside playback the command stays disabled, like Photoshop's greyed menu item.
+        assert!(s.execute("select.deselect", json!({})).is_err());
+        assert!(s.active().unwrap().doc.selection.is_none());
+        assert_eq!(s.active().unwrap().history.past_len(), before, "rejection adds no history step");
+        let deselect = crate::commands::find("select.deselect").unwrap();
+        assert_eq!((deselect.run)(&mut s, &json!({})).unwrap(), Value::Null);
+        assert_eq!(s.active().unwrap().history.past_len(), before, "no history step");
+
+        let steps = vec![("select.deselect".to_string(), json!({})), ("layer.new.layer".to_string(), json!({"name": "A"}))];
+        s.actions.list.push(Action::new("Clear", steps));
+        let played = s.execute("actions.play", json!({"action": 0})).unwrap();
+        assert_eq!(played["ran"], 2, "{played}");
+        assert_eq!(s.active().unwrap().doc.layers.last().unwrap().name, "A");
     }
 
     #[test]
@@ -732,6 +870,45 @@ mod tests {
             assert!(s.execute("actions.rename", bad.clone()).is_err(), "{bad}");
         }
         assert_eq!(s.actions.list[0].name, "Sepia");
+    }
+
+    #[test]
+    fn rename_follows_conditional_branches() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 8, "height": 8})).unwrap();
+        for name in ["B", "Other"] {
+            s.actions.list.push(Action { name: name.into(), steps: vec![("layer.new.layer".into(), json!({}))], ..Default::default() });
+        }
+        s.actions.list.push(Action {
+            name: "Main".into(),
+            steps: vec![
+                ("actions.conditional".into(), json!({"if": "always", "then": "B", "else": "Other"})),
+                ("actions.conditional".into(), json!({"if": "never", "then": "Other", "else": "B"})),
+            ],
+            ..Default::default()
+        });
+        s.execute("actions.rename", json!({"action": "B", "name": "C"})).unwrap();
+        let steps = &s.actions.list[2].steps;
+        assert_eq!(steps[0].1, json!({"if": "always", "then": "C", "else": "Other"}));
+        assert_eq!(steps[1].1, json!({"if": "never", "then": "Other", "else": "C"}));
+        let r = s.execute("actions.play", json!({"action": "Main"})).unwrap();
+        assert!(r.get("failed").is_none(), "{r}");
+    }
+
+    #[test]
+    fn delete_action_drops_its_function_key_but_deleting_a_step_keeps_it() {
+        let mut s = Session::new();
+        let key = format!("{PLAY_SHORTCUT_PREFIX}Action 1");
+        s.actions.list.push(Action::new("Action 1", vec![("layer.new.layer".into(), json!({})), ("layer.new.layer".into(), json!({}))]));
+        s.edit_prefs(|p| p.shortcuts.insert(key.clone(), "F2".into()));
+        s.execute("actions.delete", json!({"action": 0, "step": 0})).unwrap();
+        assert_eq!(s.prefs().shortcuts.get(&key).map(String::as_str), Some("F2"), "deleting a step keeps the key");
+        assert_eq!(s.execute("actions.delete", json!({"action": 0})).unwrap()["deleted"], "Action 1");
+        assert!(!s.prefs().shortcuts.contains_key(&key), "the deleted action's function key is gone");
+        s.execute("actions.record", json!({})).unwrap();
+        s.execute("actions.stop", json!({})).unwrap();
+        assert_eq!(s.actions.list[0].name, "Action 1");
+        assert!(!s.prefs().shortcuts.contains_key(&key), "a new action with the same name starts unbound");
     }
 
     fn record_red(s: &mut Session, depth: u32) {
@@ -955,6 +1132,146 @@ mod tests {
             assert!(px.iter().zip([1.0, 0.0, 0.0, 1.0]).all(|(a, b)| (a - b).abs() < 1.0e-5), "depth {depth}: {px:?}");
             assert_eq!(s.actions.playing, 0);
         }
+    }
+
+    #[test]
+    fn recorded_layer_selection_replays_by_name_on_another_document() {
+        for depth in [8, 16, 32] {
+            let mut s = Session::new();
+            s.execute("file.new", json!({"width": 8, "height": 8, "depth": depth})).unwrap();
+            let original = s.active().unwrap().active_layer.unwrap();
+            s.execute("layer.setProps", json!({"name": "Photo"})).unwrap();
+            s.execute("layer.new.layer", json!({"name": "LogoBase"})).unwrap();
+            s.execute("actions.record", json!({"name": "Duplicate photo"})).unwrap();
+            s.execute("layer.select", json!({"layer": original.0, "mode": "replace"})).unwrap();
+            // The target name must be captured now, not when recording stops.
+            s.execute("layer.setProps", json!({"name": "Retouched"})).unwrap();
+            s.execute("layer.duplicate", json!({})).unwrap();
+            s.execute("actions.stop", json!({})).unwrap();
+            assert_eq!(s.actions.list[0].steps[0].1, json!({"name":"Photo", "mode":"replace"}));
+            // Persisted actions must work in an entirely different session too.
+            let saved = serde_json::to_string(&s.actions.list).unwrap();
+            let mut replay = Session::new();
+            replay.actions.list = serde_json::from_str(&saved).unwrap();
+            replay.execute("file.new", json!({"width": 8, "height": 8, "depth": depth})).unwrap();
+            replay.execute("layer.setProps", json!({"name": "Photo"})).unwrap();
+            let target = replay.active().unwrap().active_layer.unwrap();
+            assert_ne!(original, target);
+            replay.execute("layer.new.layer", json!({"name": "LogoBase"})).unwrap();
+            let result = replay.execute("actions.play", json!({"action": 0})).unwrap();
+            assert!(result.get("failed").is_none(), "{result}");
+            assert_eq!(result["ran"], 3);
+            assert_eq!(replay.active().unwrap().doc.layer(target).unwrap().name, "Retouched");
+            let active = replay.active().unwrap().active_layer.unwrap();
+            assert_eq!(replay.active().unwrap().doc.layer(active).unwrap().name, "Retouched copy");
+        }
+    }
+
+    /// An Alt-drag copy records `inPlace` (#7200), which only matters for an artboard: a plain
+    /// layer's recorded copy must still export to .atn, while an artboard's must be refused rather
+    /// than exported as a copy beside the original.
+    #[test]
+    fn recorded_in_place_duplicate_keeps_in_place_only_for_artboards() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 8, "height": 8})).unwrap();
+        s.execute("actions.record", json!({"name": "Layer copy"})).unwrap();
+        s.execute("layer.duplicate", json!({"inPlace": true})).unwrap();
+        s.execute("actions.stop", json!({})).unwrap();
+        s.execute("layer.new.artboard", json!({"name": "Board", "rect": [0, 0, 8, 8]})).unwrap();
+        s.execute("actions.record", json!({"name": "Board copy"})).unwrap();
+        s.execute("layer.duplicate", json!({"inPlace": true})).unwrap();
+        s.execute("actions.stop", json!({})).unwrap();
+        assert_eq!(s.actions.list[0].steps, vec![("layer.duplicate".to_string(), json!({}))]);
+        assert_eq!(s.actions.list[1].steps, vec![("layer.duplicate".to_string(), json!({"inPlace": true}))]);
+        assert!(crate::atn_cmds::export("Audit", &[&s.actions.list[0]], &[], false).is_ok());
+        assert!(crate::atn_cmds::export("Audit", &[&s.actions.list[1]], &[], false).is_err());
+        // Several selected layers are copied together: one artboard among them keeps `inPlace`.
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width": 8, "height": 8})).unwrap();
+        let photo = s.active().unwrap().active_layer.unwrap();
+        s.execute("layer.new.layer", json!({"name": "Logo"})).unwrap();
+        s.execute("layer.select", json!({"layer": photo.0, "mode": "add"})).unwrap();
+        s.execute("actions.record", json!({"name": "Layers copy"})).unwrap();
+        s.execute("layer.duplicate", json!({"inPlace": true})).unwrap();
+        s.execute("actions.stop", json!({})).unwrap();
+        assert_eq!(s.active().unwrap().selected_layers().len(), 2, "both layers were copied");
+        s.execute("layer.new.artboard", json!({"name": "Board", "rect": [0, 0, 8, 8]})).unwrap();
+        s.execute("layer.select", json!({"layer": photo.0, "mode": "add"})).unwrap();
+        s.execute("actions.record", json!({"name": "Mixed copy"})).unwrap();
+        s.execute("layer.duplicate", json!({"inPlace": true})).unwrap();
+        s.execute("actions.stop", json!({})).unwrap();
+        assert_eq!(s.actions.list[0].steps, vec![("layer.duplicate".to_string(), json!({}))]);
+        assert_eq!(s.actions.list[1].steps, vec![("layer.duplicate".to_string(), json!({"inPlace": true}))]);
+    }
+
+    #[test]
+    fn named_selection_preserves_modes_and_duplicate_occurrences() {
+        let mut s = Session::new();
+        s.execute("file.new", json!({"width":4,"height":4})).unwrap();
+        s.execute("layer.setProps", json!({"name":"Photo"})).unwrap();
+        let first = s.active().unwrap().active_layer.unwrap();
+        s.execute("layer.new.group", json!({"name":"Group"})).unwrap();
+        // A duplicate nested in a group must be found even when that group is collapsed.
+        let second = s
+            .edit("child", |doc, active| {
+                let child = photocraft_doc::Layer::raster("Photo", doc.pixel_format());
+                let id = child.id;
+                if let photocraft_doc::LayerContent::Group(group) = &mut doc.layer_mut(active.unwrap()).unwrap().content {
+                    group.children.push(child);
+                    group.expanded = false;
+                }
+                Ok(id)
+            })
+            .unwrap();
+        s.execute("actions.record", json!({"name":"Select duplicates"})).unwrap();
+        s.execute("layer.select", json!({"layer":first.0})).unwrap();
+        s.execute("layer.select", json!({"layer":second.0,"mode":"add"})).unwrap();
+        s.execute("actions.stop", json!({})).unwrap();
+        assert_eq!(s.actions.list[0].steps[0].1, json!({"name":"Photo","occurrence":0}));
+        assert_eq!(s.actions.list[0].steps[1].1, json!({"name":"Photo","occurrence":1,"mode":"add"}));
+        s.execute("layer.select", json!({"layer":first.0})).unwrap();
+        let r = s.execute("actions.play", json!({"action":0})).unwrap();
+        assert!(r.get("failed").is_none(), "{r}");
+        assert_eq!(s.active().unwrap().selected_layers(), vec![first, second]);
+        s.execute("layer.select", json!({"name":"Photo","occurrence":1,"mode":"toggle"})).unwrap();
+        assert_eq!(s.active().unwrap().selected_layers(), vec![first]);
+        s.execute("layer.select", json!({"name":"Photo","occurrence":1,"mode":"range"})).unwrap();
+        assert!(s.active().unwrap().selected_layers().contains(&second));
+        // Main's imported .atn steps use a string-valued `layer` and choose the topmost match.
+        s.execute("layer.select", json!({"layer":"Photo"})).unwrap();
+        assert_eq!(s.active().unwrap().selected_layers(), vec![second]);
+        s.execute("layer.select", json!({"name":"Photo","occurrence":0,"mode":"add"})).unwrap();
+        s.execute("layer.select", json!({"name":"Photo","occurrence":1,"mode":"remove"})).unwrap();
+        assert_eq!(s.active().unwrap().selected_layers(), vec![first]);
+        // Removing an unselected layer does not add it; removing the last target keeps it.
+        s.execute("layer.select", json!({"layer":"Photo","mode":"remove"})).unwrap();
+        s.execute("layer.select", json!({"name":"Photo","occurrence":0,"mode":"remove"})).unwrap();
+        assert_eq!(s.active().unwrap().selected_layers(), vec![first]);
+        for p in [
+            json!({"name":"absent"}),
+            json!({"name":"Photo"}),
+            json!({"name":1}),
+            json!({"name":"Photo","occurrence":-1}),
+            json!({"name":"Photo","occurrence":1.5}),
+            json!({"name":"Photo","occurrence":99}),
+            json!({"name":"Photo","layer":first.0}),
+            json!({"layer":first.0,"occurrence":0}),
+        ] {
+            let before = s.active().unwrap().selected_layers();
+            assert!(s.execute("layer.select", p.clone()).is_err(), "{p}");
+            assert_eq!(s.active().unwrap().selected_layers(), before);
+        }
+        s.actions.list.push(Action {
+            name: "Missing".into(),
+            steps: vec![("layer.select".into(), json!({"name":"absent"})), ("layer.duplicate".into(), json!({}))],
+            disabled: Default::default(),
+            ..Default::default()
+        });
+        let before = s.active().unwrap().doc.walk().len();
+        let result = s.execute("actions.play", json!({"action":"Missing"})).unwrap();
+        assert_eq!(result["ran"], 0);
+        assert!(result["failed"]["error"].as_str().unwrap().contains("absent"));
+        assert_eq!(s.active().unwrap().doc.walk().len(), before);
     }
 
     #[test]
@@ -1307,5 +1624,38 @@ mod tests {
         // The first document is untouched.
         let first = &s.documents()[0].doc;
         assert_eq!((first.size.width, first.size.height), (48, 48), "the recording document keeps its own crop");
+    }
+
+    #[test]
+    fn button_color_is_one_of_the_photoshop_swatches() {
+        let mut s = Session::new();
+        s.execute("actions.record", json!({"name": "Print"})).unwrap();
+        s.execute("actions.stop", json!({})).unwrap();
+        let set = s.execute("actions.setColor", json!({"action": "Print", "color": "blue"})).unwrap();
+        assert_eq!(set["color"], "blue");
+        assert_eq!(s.actions.list[0].color, "blue");
+        assert_eq!(s.execute("actions.get", json!({"action": 0})).unwrap()["color"], "blue");
+        let saved = serde_json::to_string(&s.actions.list).unwrap();
+        assert!(saved.contains("blue"));
+        s.execute("actions.setColor", json!({"action": 0, "color": ""})).unwrap();
+        assert!(s.actions.list[0].color.is_empty());
+        assert!(!serde_json::to_string(&s.actions.list).unwrap().contains("color"), "an empty colour is omitted");
+        for bad in [json!({"action": 0, "color": "pink"}), json!({"action": 0}), json!({"action": 4, "color": "red"}), json!({"color": "red"})] {
+            assert!(s.execute("actions.setColor", bad).is_err());
+        }
+        assert!(s.actions.list[0].color.is_empty(), "rejected colours change nothing");
+    }
+}
+
+#[cfg(test)]
+mod security_tests {
+    use super::*;
+
+    #[test]
+    fn playback_budget_is_shared_by_nested_calls() {
+        let mut session = Session::new();
+        session.actions.playback_steps = MAX_PLAYBACK_STEPS - 1;
+        assert!(consume_playback_step(&mut session));
+        assert!(!consume_playback_step(&mut session));
     }
 }

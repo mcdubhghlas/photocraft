@@ -152,6 +152,7 @@ pub(crate) fn fix_view(st: &mut DocState) {
 fn touch(st: &mut DocState) {
     let clean = st.saved_revision == st.revision;
     st.revision += 1;
+    st.view_revision += 1;
     if clean {
         st.saved_revision = st.revision;
     }
@@ -179,6 +180,82 @@ pub fn composite_name(mode: ColorMode) -> &'static str {
         ColorMode::Grayscale => "Gray",
         _ => "RGB",
     }
+}
+
+/// The Curves dialog's Channel popup lists only this channel when the Channels panel has a
+/// single non-composite target (a colour component, layer mask, saved channel or Quick Mask).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IsolatedCurveChannel {
+    /// Channels-panel name, including a custom alpha name or "{layer} Mask".
+    pub name: String,
+    /// Curves param key: empty = composite `points`; otherwise `red`/`green`/…
+    pub key: &'static str,
+    /// Index into the tone-space histograms (composite = 0 for RGB/CMYK).
+    pub hist: usize,
+    /// Colour components keep their curve tint; masks and alphas do not.
+    pub tint: bool,
+    /// Built-in labels (colour channels, Quick Mask) follow the interface language; a custom
+    /// alpha name or a "{layer} Mask" keeps the layer name, so it stays exactly as entered (#5335).
+    pub translate: bool,
+    /// The gray plane this target edits, whatever the document's colour mode; its surface is
+    /// what the dialog's histogram must describe (#5335). None for colour components.
+    pub gray: Option<GraySurface>,
+}
+
+/// A grayscale plane Curves can target: the dialog parses and previews its curves in gray levels
+/// even in Lab and CMYK documents (#5335).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GraySurface {
+    /// The active layer's layer mask.
+    LayerMask,
+    /// A saved channel, as an index into [`Document::channels`].
+    Alpha(usize),
+    /// The Quick Mask.
+    QuickMask,
+}
+
+/// Isolated Curves channel for the active document, matching [`inject_target`].
+pub fn isolated_curve_channel(st: &DocState) -> Option<IsolatedCurveChannel> {
+    isolated_curve_channel_for(st, false)
+}
+
+/// [`isolated_curve_channel`] with the Layers panel's mask target added: clicking a mask
+/// thumbnail targets it without touching the Channels panel, and both ways of selecting the mask
+/// must give the same Curves dropdown (#5335).
+pub fn isolated_curve_channel_for(st: &DocState, layers_panel_mask: bool) -> Option<IsolatedCurveChannel> {
+    let doc = &st.doc;
+    let mode = edit_mode(doc);
+    match st.channel_view.target {
+        ChannelTarget::Color(k) => {
+            let names = color_names(mode);
+            let keys = crate::adjust_params::channel_keys(crate::adjust_params::default_space(mode));
+            let name = names.get(k)?.to_string();
+            let key = *keys.get(k)?;
+            let hist = if matches!(mode, ColorMode::Lab) { k } else { k.saturating_add(1) };
+            Some(IsolatedCurveChannel { name, key, hist, tint: true, translate: true, gray: None })
+        }
+        ChannelTarget::Alpha(i) => doc.channels.get(i).map(|c| IsolatedCurveChannel {
+            name: c.name.clone(),
+            key: "",
+            hist: 0,
+            tint: false,
+            translate: false,
+            gray: Some(GraySurface::Alpha(i)),
+        }),
+        ChannelTarget::Composite if doc.quick_mask.is_some() => {
+            Some(IsolatedCurveChannel { name: "Quick Mask".into(), key: "", hist: 0, tint: false, translate: true, gray: Some(GraySurface::QuickMask) })
+        }
+        ChannelTarget::LayerMask => layer_mask_curve_channel(st),
+        ChannelTarget::Composite if crate::mask_view_cmds::current(st).is_some() || layers_panel_mask => layer_mask_curve_channel(st),
+        _ => None,
+    }
+}
+
+fn layer_mask_curve_channel(st: &DocState) -> Option<IsolatedCurveChannel> {
+    let layer = st.active_layer.and_then(|id| st.doc.layer(id))?;
+    layer.mask.as_ref()?;
+    let name = format!("{} Mask", layer.name);
+    Some(IsolatedCurveChannel { name, key: "", hist: 0, tint: false, translate: false, gray: Some(GraySurface::LayerMask) })
 }
 
 fn edit_mode(doc: &Document) -> ColorMode {
@@ -624,7 +701,7 @@ pub fn follows_target(id: &str) -> bool {
 }
 
 /// Commands whose target follows the Channels panel.
-fn routed(id: &str) -> bool {
+pub(crate) fn routed(id: &str) -> bool {
     id.starts_with("filter.")
         || id == "plugin.run"
         || id.starts_with("image.adjustments.")
@@ -746,15 +823,16 @@ pub(crate) fn clear_color_channel(doc: &mut Document, id: LayerId, k: usize, bac
     if area.is_empty() {
         return Ok(());
     }
-    let cover = sel.map(|m| (m.read_region(area), m.format().channels().max(1)));
-    let mut px = surf.read_region(area);
+    let cover =
+        sel.as_ref().map(|m| crate::allocation::read_region(m, area, "clearing a channel selection").map(|v| (v, m.format().channels().max(1)))).transpose()?;
+    let mut px = crate::allocation::read_region(surf, area, "clearing a channel")?;
     for (i, p) in px.chunks_exact_mut(n).enumerate() {
         let w = cover.as_ref().map_or(1.0, |(m, mk)| m.get(i * mk).copied().unwrap_or(0.0));
         if let Some(c) = p.get_mut(k) {
             *c += (v - *c) * w.clamp(0.0, 1.0);
         }
     }
-    surf.write_region(area, &px);
+    surf.try_write_region(area, &px)?;
     surf.prune();
     Ok(())
 }
@@ -1008,17 +1086,19 @@ fn indicates_param(v: Option<&Value>) -> Option<ColorIndicates> {
     }
 }
 
-fn color_value(p: &Value, key: &str) -> Option<Color> {
-    p.get(key)?;
-    let c = crate::commands::color_param(p, key, [1.0, 0.0, 0.0, 1.0]);
-    Some(Color::rgb(c[0], c[1], c[2]))
+fn color_value(cmd: &str, p: &Value, key: &str) -> Result<Option<Color>> {
+    if p.get(key).is_none() {
+        return Ok(None);
+    }
+    let c = crate::commands::color_param(cmd, p, key, [1.0, 0.0, 0.0, 1.0])?;
+    Ok(Some(Color::rgb(c[0], c[1], c[2])))
 }
 
 fn new_channel(s: &mut Session, p: &Value) -> Result<Value> {
     let fill = p.get("fill").and_then(Value::as_str).unwrap_or("black").to_string();
     let name = p.get("name").and_then(Value::as_str).map(str::to_string);
     let indicates = indicates_param(p.get("indicates"));
-    let color = color_value(p, "color");
+    let color = color_value("channel.new", p, "color")?;
     let opacity = p.get("opacity").and_then(Value::as_f64).map(|v| (v as f32 / 100.0).clamp(0.0, 1.0));
     let i = s.edit("New Channel", |doc, _| {
         let area = doc.bounds();
@@ -1047,7 +1127,7 @@ fn new_channel(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 fn new_spot(s: &mut Session, p: &Value) -> Result<Value> {
-    let color = color_value(p, "color").unwrap_or(Color::rgb(1.0, 0.0, 0.0));
+    let color = color_value("channel.newSpot", p, "color")?.unwrap_or(Color::rgb(1.0, 0.0, 0.0));
     let solidity = p.get("solidity").and_then(Value::as_f64).unwrap_or(0.0).clamp(0.0, 100.0) as f32 / 100.0;
     let name = p.get("name").and_then(Value::as_str).map(str::to_string);
     let from_sel = p.get("fromSelection").and_then(Value::as_bool).unwrap_or(true);
@@ -1343,10 +1423,11 @@ fn options(s: &mut Session, p: &Value) -> Result<Value> {
     let doc = &s.active().ok_or(EngineError::NoDocument)?.doc;
     let r = p.get("channel").and_then(|v| parse_ref(v, doc)).ok_or_else(|| bad(cmd, "missing or unknown `channel`"))?;
     let name = p.get("name").and_then(Value::as_str).map(str::trim).filter(|n| !n.is_empty()).map(str::to_string);
-    let color = color_value(p, "color");
+    let color = color_value(cmd, p, "color")?;
     let opacity = p.get("opacity").and_then(Value::as_f64).map(|v| (v as f32 / 100.0).clamp(0.0, 1.0));
     let solidity = p.get("solidity").and_then(Value::as_f64).map(|v| (v as f32 / 100.0).clamp(0.0, 1.0));
     let kind = p.get("indicates").and_then(Value::as_str).map(str::to_string);
+    let display_only = name.is_none() && kind.is_none() && solidity.is_none();
     let apply = move |ch: &mut AlphaChannel| -> Result<()> {
         if let Some(n) = &name {
             ch.name = n.clone();
@@ -1415,7 +1496,31 @@ fn options(s: &mut Session, p: &Value) -> Result<Value> {
                 })?;
             }
         }
-        _ => return Err(bad(cmd, "`channel` must be an alpha/spot channel or \"quickMask\"")),
+        ChanRef::LayerMask => {
+            // Layer Mask Display Options: only the rubylith's colour and opacity, for every mask.
+            if !display_only {
+                return Err(bad(cmd, "a layer mask's options are only `color` and `opacity`"));
+            }
+            // A preference, kept across restarts; not an undo step.
+            if color.is_some() || opacity.is_some() {
+                s.edit_prefs(|prefs| {
+                    let o = &mut prefs.layer_mask_overlay;
+                    if let Some(c) = color {
+                        o.color = crate::adjust_params::hex(c.to_rgb());
+                    }
+                    if let Some(a) = opacity {
+                        o.opacity = (a * 100.0).round();
+                    }
+                });
+            }
+            let o = serde_json::to_value(&s.prefs().layer_mask_overlay).unwrap_or(Value::Null);
+            let mut out = list(s);
+            if let Some(m) = out.as_object_mut() {
+                m.insert("layerMaskOverlay".into(), o);
+            }
+            return Ok(out);
+        }
+        _ => return Err(bad(cmd, "`channel` must be an alpha/spot channel, \"quickMask\" or \"mask\"")),
     }
     Ok(list(s))
 }
@@ -1591,14 +1696,24 @@ fn apply_image(s: &mut Session, p: &Value) -> Result<Value> {
         let area = doc.bounds();
         let selection = doc.selection.as_ref().map(|m| sel::mask_from_surface(Some(m), area));
         let weight = |i: usize| opacity * mask.as_ref().map_or(1.0, |m| m[i]) * selection.as_ref().map_or(1.0, |m| m[i]);
-        if is_channel_target(p) {
+        let mask_target = target_of(p) == Target::Mask;
+        if is_channel_target(p) || mask_target {
             // A grayscale target gets the luminosity of a colour source (one plane).
             let srcp =
                 if src.len() == 1 { src[0].clone() } else { (0..src[0].len()).map(|i| src.iter().map(|pl| pl[i]).sum::<f32>() / src.len() as f32).collect() };
-            let (surf, _) = target_surface(doc, None, p)?;
+            let (surf, _) = target_surface(doc, layer, p)?;
             let base = read_plane(surf, area);
             let out: Vec<f32> = base.iter().enumerate().map(|(i, &b)| b + (blending.apply(b, srcp[i]) - b) * weight(i)).collect();
-            *surf = plane_surface(&out, area, surf.format());
+            if mask_target {
+                // A layer mask keeps its default (reveal or hide) outside the canvas.
+                if surf.channels() != 1 {
+                    return Err(EngineError::Other("the layer mask is not a grayscale surface".into()));
+                }
+                surf.write_region(area, &out);
+                surf.prune();
+            } else {
+                *surf = plane_surface(&out, area, surf.format());
+            }
             return Ok(());
         }
         let id = layer.ok_or_else(|| EngineError::Other("no active layer".into()))?;
@@ -1812,7 +1927,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Channel Options…",
             [],
             None,
-            r##"{"channel":index|name|"quickMask","name":str?,"indicates":"masked|selected|spot"?,"color":"#rrggbb"?,"opacity":0..100?,"solidity":0..100?}"##,
+            r##"{"channel":index|name|"quickMask"|"mask","name":str?,"indicates":"masked|selected|spot"?,"color":"#rrggbb"?,"opacity":0..100?,"solidity":0..100?} ("mask": Layer Mask Display Options, the rubylith's color and opacity for every layer mask, kept in the preferences as layerMaskOverlay; not an undo step; returns them as layerMaskOverlay)"##,
             has_doc,
             options
         ),

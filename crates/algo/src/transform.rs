@@ -43,6 +43,27 @@ impl Homography {
         ((m[0] * x + m[1] * y + m[2]) / w, (m[3] * x + m[4] * y + m[5]) / w)
     }
 
+    /// The homogeneous `w` of `(x, y)`: its sign is the side of the horizon the point maps to
+    /// (0 on the horizon itself).
+    pub fn w(&self, x: f64, y: f64) -> f64 {
+        let m = &self.0;
+        m[6] * x + m[7] * y + m[8]
+    }
+
+    /// The side of the horizon (+1 or −1) that most corners of `r` (`[x0, y0, x1, y1]`) map to,
+    /// the centre's on a tie. A Distort dragged past the horizon maps the rest of the source to the
+    /// far side, where it would show as a mirrored copy wrapped round infinity; drawing keeps to
+    /// this side, as Photoshop's does (#4863).
+    pub fn front_side(&self, r: [f64; 4]) -> f64 {
+        let ahead = [(r[0], r[1]), (r[2], r[1]), (r[2], r[3]), (r[0], r[3])].iter().filter(|(x, y)| self.w(*x, *y) > 0.0).count();
+        match ahead {
+            3 | 4 => 1.0,
+            0 | 1 => -1.0,
+            _ if self.w((r[0] + r[2]) / 2.0, (r[1] + r[3]) / 2.0) >= 0.0 => 1.0,
+            _ => -1.0,
+        }
+    }
+
     pub fn mul(&self, o: &Homography) -> Homography {
         let (a, b) = (&self.0, &o.0);
         let mut r = [0.0; 9];
@@ -210,21 +231,61 @@ pub fn quad_to_rect(q: &[[f64; 2]; 4], w: f64, h: f64) -> Option<Homography> {
 
 /// The destination rectangle [`warp_surface`] fills for `src_rect` under `h`: the warped corners
 /// plus a pixel for filter support, each side clamped to ±2²⁰. `None` when a corner maps to
-/// infinity (the result is then empty). Lets a caller price a warp before allocating it.
+/// infinity (the result is then empty). Use [`warp_output_size`] to price the full result before
+/// admitting a transform: clipping these bounds must not hide an excessive scale.
 pub fn warp_output_bounds(src_rect: Rect, h: &Homography) -> Option<Rect> {
+    corner_bounds(&warp_corners(src_rect, h)?)
+}
+
+/// Unclipped output dimensions, including the same filter support as [`warp_output_bounds`].
+/// Position does not affect the price, so translating a small layer far away stays cheap.
+/// Unrepresentable or non-finite dimensions saturate at `u64::MAX`, allowing a caller to refuse
+/// the warp with a saturating pixel-budget comparison. Empty and singular inputs have no output.
+pub fn warp_output_size(src_rect: Rect, h: &Homography) -> Option<(u64, u64)> {
+    let corners = warp_corners(src_rect, h)?;
+    if !corners.iter().all(|(x, y)| x.is_finite() && y.is_finite()) {
+        return Some((u64::MAX, u64::MAX));
+    }
+    let x0 = corners.iter().map(|c| c.0).fold(f64::MAX, f64::min).floor();
+    let y0 = corners.iter().map(|c| c.1).fold(f64::MAX, f64::min).floor();
+    let x1 = corners.iter().map(|c| c.0).fold(f64::MIN, f64::max).ceil();
+    let y1 = corners.iter().map(|c| c.1).fold(f64::MIN, f64::max).ceil();
+    // Float-to-integer casts saturate, including when the finite endpoints' difference overflows.
+    Some((((x1 - x0) as u64).saturating_add(2), ((y1 - y0) as u64).saturating_add(2)))
+}
+
+/// The farthest from the origin (px) [`warp_surface`] places a pixel: each side of
+/// [`warp_output_bounds`] is clamped to ±2²⁰.
+pub const WARP_REACH: i32 = 1 << 20;
+
+/// Would [`warp_surface`] clip the result of warping `src_rect` by `h`: does a warped corner land
+/// past [`WARP_REACH`], whether the result is that large or only placed that far out? A caller
+/// refuses such a warp rather than lose the pixels beyond it. Empty and singular inputs have no
+/// output to clip.
+pub fn warp_output_clipped(src_rect: Rect, h: &Homography) -> bool {
+    let Some(corners) = warp_corners(src_rect, h) else { return false };
+    let lim = f64::from(WARP_REACH);
+    let within = |v: f64| v.is_finite() && v.floor() >= -lim && v.ceil() <= lim;
+    !corners.iter().all(|&(x, y)| within(x) && within(y))
+}
+
+fn warp_corners(src_rect: Rect, h: &Homography) -> Option<[(f64, f64); 4]> {
     if src_rect.is_empty() || h.inverse().is_none() {
         return None;
     }
-    let corners = [(src_rect.x0, src_rect.y0), (src_rect.x1, src_rect.y0), (src_rect.x1, src_rect.y1), (src_rect.x0, src_rect.y1)]
-        .map(|(x, y)| h.apply(x as f64, y as f64));
-    corner_bounds(&corners)
+    Some(
+        [(src_rect.x0, src_rect.y0), (src_rect.x1, src_rect.y0), (src_rect.x1, src_rect.y1), (src_rect.x0, src_rect.y1)]
+            .map(|(x, y)| h.apply(x as f64, y as f64)),
+    )
 }
 
+/// The pixel rectangle over the warped `corners` plus a pixel for filter support, each side
+/// clamped to [`WARP_REACH`]; `None` when a corner is not finite.
 fn corner_bounds(corners: &[(f64, f64); 4]) -> Option<Rect> {
     if !corners.iter().all(|c| c.0.is_finite() && c.1.is_finite()) {
         return None;
     }
-    let lim = (1 << 20) as f64;
+    let lim = f64::from(WARP_REACH);
     let bx0 = corners.iter().map(|c| c.0).fold(f64::MAX, f64::min).floor().max(-lim) as i32 - 1;
     let by0 = corners.iter().map(|c| c.1).fold(f64::MAX, f64::min).floor().max(-lim) as i32 - 1;
     let bx1 = corners.iter().map(|c| c.0).fold(f64::MIN, f64::max).ceil().min(lim) as i32 + 1;
@@ -250,7 +311,7 @@ fn warp(
         converted = src.try_convert(fmt)?;
         &converted
     };
-    let mut out = Surface::new(fmt);
+    let out = Surface::new(fmt);
     if src_rect.is_empty() || clip.is_some_and(|c| c.is_empty()) {
         return Ok(out);
     }
@@ -260,7 +321,7 @@ fn warp(
     // that matters is the one at the source point landing in the clip's centre.
     let (cx, cy) = match clip.and_then(|c| Some((c, h.inverse()?))) {
         Some((c, inv)) => inv.apply((c.x0 as f64 + c.x1 as f64) / 2.0, (c.y0 as f64 + c.y1 as f64) / 2.0),
-        None => ((src_rect.x0 + src_rect.x1) as f64 / 2.0, (src_rect.y0 + src_rect.y1) as f64 / 2.0),
+        None => ((f64::from(src_rect.x0) + f64::from(src_rect.x1)) / 2.0, (f64::from(src_rect.y0) + f64::from(src_rect.y1)) / 2.0),
     };
     let scale = h.local_scale(cx, cy);
     let reduced;
@@ -286,6 +347,15 @@ fn warp(
     let fwd_w = [(sx0, sy0), (sx1, sy0), (sx1, sy1), (sx0, sy1)].map(|(x, y)| h.0[6] * x + h.0[7] * y + h.0[8]);
     let side = [1.0, -1.0].into_iter().find(|&s| fwd_w.iter().all(|&c| s * c > 0.0));
     let w_lo = 1.0 / fwd_w.iter().fold(0.0f64, |m, c| m.max(c.abs()));
+    // A source straddling the horizon draws only its front side: the inverse w at a pixel has the
+    // sign of the forward w at the source point it samples, and the other side would show as a
+    // mirrored copy wrapped round infinity (#4863).
+    // A clip wholly on one side of the inverse horizon only samples that side, so that side is drawn
+    // (a Perspective Crop low on a converging photo has most of the layer beyond its horizon, #7557).
+    let clip_w = clip.map(|c| [(c.x0, c.y0), (c.x1, c.y0), (c.x1, c.y1), (c.x0, c.y1)].map(|(x, y)| inv.w(x as f64, y as f64)));
+    let clip_side = clip_w.and_then(|cw| [1.0, -1.0].into_iter().find(|&s| cw.iter().all(|&w| s * w > 0.0)));
+    let front =
+        side.is_none().then(|| clip_side.unwrap_or_else(|| h.front_side([src_rect.x0 as f64, src_rect.y0 as f64, src_rect.x1 as f64, src_rect.y1 as f64])));
     let bounds = corner_bounds(&corners);
     let dst = match (clip, bounds) {
         // The warped corners only bound the result while the whole source is in front of the horizon.
@@ -313,7 +383,7 @@ fn warp(
             return Ok(None);
         }
         let k = finished.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-        // The last few percent are the writes.
+        // Short of 100 %: the result is still pruned and handed back after the last tile.
         ctl.progress(0.98 * k as f32 / total as f32);
         // Source footprint of this tile (inverse-mapped corners of its sampled part), padded for the filter.
         let tc = [(t.x0, t.y0), (t.x1, t.y0), (t.x1, t.y1), (t.x0, t.y1)].map(|(x, y)| (x as f64, y as f64));
@@ -341,10 +411,10 @@ fn warp(
             return Ok(None);
         }
         let fp: Vec<(f64, f64)> = poly.iter().map(|&(x, y)| inv.apply(x, y)).collect();
-        let fx0 = fp.iter().map(|c| c.0).fold(f64::MAX, f64::min).floor() as i32 - 3;
-        let fy0 = fp.iter().map(|c| c.1).fold(f64::MAX, f64::min).floor() as i32 - 3;
-        let fx1 = fp.iter().map(|c| c.0).fold(f64::MIN, f64::max).ceil() as i32 + 3;
-        let fy1 = fp.iter().map(|c| c.1).fold(f64::MIN, f64::max).ceil() as i32 + 3;
+        let fx0 = (fp.iter().map(|c| c.0).fold(f64::MAX, f64::min).floor() as i32).saturating_sub(3);
+        let fy0 = (fp.iter().map(|c| c.1).fold(f64::MAX, f64::min).floor() as i32).saturating_sub(3);
+        let fx1 = (fp.iter().map(|c| c.0).fold(f64::MIN, f64::max).ceil() as i32).saturating_add(3);
+        let fy1 = (fp.iter().map(|c| c.1).fold(f64::MIN, f64::max).ceil() as i32).saturating_add(3);
         // Without a one-signed forward w, a tile straddling the inverse horizon has no bounded footprint.
         let straddles = side.is_none() && wc.iter().any(|w| *w <= 0.0) && wc.iter().any(|w| *w >= 0.0);
         let foot = if straddles { src_rect } else { Rect::new(fx0, fy0, fx1, fy1).intersect(&src_rect) };
@@ -367,6 +437,15 @@ fn warp(
                 px[((y - foot.y0) as usize * fw + (x - foot.x0) as usize) * n + c] as f64
             }
         };
+        // Samples past the source rect repeat its edge, so a stretched edge row or column keeps its
+        // colour and opacity (the "pixel stretch", #3773); the outline is antialiased by coverage
+        // instead. `foot_u`/`foot_v` are a destination pixel's extent in source pixels.
+        let clamped = |x: i32, y: i32, c: usize| at(x.clamp(src_rect.x0, src_rect.x1 - 1), y.clamp(src_rect.y0, src_rect.y1 - 1), c);
+        let (mx, my) = ((t.x0 + t.x1) as f64 / 2.0, (t.y0 + t.y1) as f64 / 2.0);
+        let (o, dx, dy) = (inv.apply(mx, my), inv.apply(mx + 1.0, my), inv.apply(mx, my + 1.0));
+        let extent = |e: f64| if e.is_finite() && e > 1e-12 { e } else { 1.0 };
+        let foot_u = extent((dx.0 - o.0).abs() + (dy.0 - o.0).abs());
+        let foot_v = extent((dx.1 - o.1).abs() + (dy.1 - o.1).abs());
         let w = t.width() as usize;
         let len = w.checked_mul(t.height() as usize).and_then(|v| v.checked_mul(n)).ok_or(photocraft_raster::AllocationError::SizeOverflow)?;
         let bytes = len.checked_mul(std::mem::size_of::<f32>()).ok_or(photocraft_raster::AllocationError::SizeOverflow)?;
@@ -377,6 +456,9 @@ fn warp(
         let mut acc = [0.0f64; 8];
         for y in t.y0..t.y1 {
             for x in t.x0..t.x1 {
+                if front.is_some_and(|s| s * inv.w(x as f64 + 0.5, y as f64 + 0.5) <= 0.0) {
+                    continue;
+                }
                 let (u, v) = inv.apply(x as f64 + 0.5, y as f64 + 0.5);
                 let (u, v) = (u - 0.5, v - 0.5);
                 if u < src_rect.x0 as f64 - 1.0 || v < src_rect.y0 as f64 - 1.0 || u > src_rect.x1 as f64 || v > src_rect.y1 as f64 {
@@ -396,7 +478,7 @@ fn warp(
                         for (dy, wy) in [(0, 1.0 - fy), (1, fy)] {
                             for (dx, wx) in [(0, 1.0 - fx), (1, fx)] {
                                 for (c, s) in acc.iter_mut().enumerate().take(n) {
-                                    *s += at(ix + dx, iy + dy, c) * wx * wy;
+                                    *s += clamped(ix + dx, iy + dy, c) * wx * wy;
                                 }
                             }
                         }
@@ -408,10 +490,19 @@ fn warp(
                             for (i, wxi) in wx.iter().enumerate() {
                                 let k = wxi * wyj;
                                 for (c, s) in acc.iter_mut().enumerate().take(n) {
-                                    *s += at(ix - 1 + i as i32, iy - 1 + j as i32, c) * k;
+                                    *s += clamped(ix - 1 + i as i32, iy - 1 + j as i32, c) * k;
                                 }
                             }
                         }
+                    }
+                }
+                if interp != Interp::Nearest {
+                    // How much of this pixel the warped source rect covers, per axis.
+                    let (uc, vc) = (u + 0.5, v + 0.5);
+                    let cu = ((uc - src_rect.x0 as f64).min(src_rect.x1 as f64 - uc) / foot_u + 0.5).clamp(0.0, 1.0);
+                    let cv = ((vc - src_rect.y0 as f64).min(src_rect.y1 as f64 - vc) / foot_v + 0.5).clamp(0.0, 1.0);
+                    for s in acc.iter_mut().take(n) {
+                        *s *= cu * cv;
                     }
                 }
                 let al = acc[a].clamp(0.0, 1.0);
@@ -421,41 +512,40 @@ fn warp(
                 any = true;
                 let o = ((y - t.y0) as usize * w + (x - t.x0) as usize) * n;
                 for c in 0..a {
-                    // Integer storage clips on write; float colours retain their signed/HDR range.
-                    outp[o + c] = (acc[c] / al) as f32;
+                    // Un-premultiply by the unclamped alpha: bicubic overshoots it past 1 next to
+                    // partly transparent pixels, and dividing by the clamped 1 would lighten the
+                    // colour by the overshoot (#6203). Integer storage clips on write; float
+                    // colours retain their signed/HDR range.
+                    outp[o + c] = (acc[c] / acc[a]) as f32;
                 }
                 outp[o + a] = al as f32;
             }
         }
         Ok(any.then_some((*t, outp)))
     };
-    let result_bytes = tiles.len().checked_mul(std::mem::size_of::<(Rect, Vec<f32>)>()).ok_or(photocraft_raster::AllocationError::SizeOverflow)?;
-    let mut done = Vec::new();
-    done.try_reserve_exact(tiles.len()).map_err(|_| photocraft_raster::AllocationError::NotEnoughMemory { bytes: result_bytes })?;
-    let done = std::sync::Mutex::new(done);
+    // Each tile is written as soon as it is warped, so only the tiles in flight hold their `f32`
+    // pixels: kept until the last one was done, they cost 16 bytes a pixel of an RGBA result on
+    // top of the result's own (#7807).
+    let out = std::sync::Mutex::new(out);
+    let warp_and_write = |tile: &Rect| -> Result<(), photocraft_raster::AllocationError> {
+        if let Some((r, v)) = work(tile)? {
+            out.lock().unwrap_or_else(std::sync::PoisonError::into_inner).try_write_region(r, &v)?;
+        }
+        Ok(())
+    };
     #[cfg(not(target_arch = "wasm32"))]
     {
         use rayon::prelude::*;
-        tiles.into_par_iter().try_for_each(|tile| -> Result<(), photocraft_raster::AllocationError> {
-            if let Some(result) = work(&tile)? {
-                done.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(result);
-            }
-            Ok(())
-        })?;
+        tiles.into_par_iter().try_for_each(|tile| warp_and_write(&tile))?;
     }
     #[cfg(target_arch = "wasm32")]
     for tile in tiles {
-        if let Some(result) = work(&tile)? {
-            done.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(result);
-        }
+        warp_and_write(&tile)?;
     }
-    let done = done.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner);
     if ctl.cancelled() {
-        return Ok(out);
+        return Ok(Surface::new(fmt));
     }
-    for (r, v) in done {
-        out.try_write_region(r, &v)?;
-    }
+    let mut out = out.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner);
     out.prune();
     Ok(out)
 }
@@ -463,6 +553,47 @@ fn warp(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn output_size_prices_the_unclipped_extent_independently_of_position() {
+        let src = Rect::new(0, 0, 24, 16);
+        for dx in [0.0, 900_000.0, 10_000_000.0] {
+            let h = Homography([1.0, 0.0, dx, 0.0, 1.0, -dx, 0.0, 0.0, 1.0]);
+            assert_eq!(warp_output_size(src, &h), Some((26, 18)));
+        }
+        for sx in [1e7, -1e7] {
+            let h = Homography([sx, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]);
+            assert_eq!(warp_output_size(src, &h), Some((240_000_002, 18)));
+        }
+    }
+
+    /// The unclipped size matches the clipped bounds where nothing is clipped, saturates when it
+    /// can't be represented, and is `None` for empty or singular inputs.
+    #[test]
+    fn output_size_saturates_overflows_and_preserves_filter_support() {
+        let src = Rect::new(0, 0, 24, 16);
+        let fractional = Homography([0.5, 0.0, 0.25, 0.0, 1.0, 0.75, 0.0, 0.0, 1.0]);
+        let bounds = warp_output_bounds(src, &fractional).unwrap();
+        assert_eq!(warp_output_size(src, &fractional), Some((u64::from(bounds.width()), u64::from(bounds.height()))));
+        let huge = Homography([1e308, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]);
+        assert_eq!(warp_output_size(src, &huge), Some((u64::MAX, u64::MAX)));
+        assert_eq!(warp_output_size(Rect::EMPTY, &Homography::IDENTITY), None);
+        assert_eq!(warp_output_size(src, &Homography([0.0; 9])), None);
+    }
+
+    /// [`warp_output_clipped`] says yes exactly when [`warp_output_bounds`] clamps a side (#7807).
+    #[test]
+    fn output_clipped_matches_the_clamped_bounds() {
+        let src = Rect::new(0, 0, 24, 16);
+        let at = |dx: f64| Homography([1.0, 0.0, dx, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]);
+        let edge = f64::from(WARP_REACH) - 24.0;
+        assert!(!warp_output_clipped(src, &at(edge)), "the right edge lands on the reach");
+        assert_eq!(warp_output_bounds(src, &at(edge)).map(|b| b.x1), Some(WARP_REACH + 1));
+        assert!(warp_output_clipped(src, &at(edge + 1.0)), "one pixel past it");
+        assert_eq!(warp_output_bounds(src, &at(edge + 1.0)).map(|b| b.x1), Some(WARP_REACH + 1), "clamped");
+        assert!(warp_output_clipped(src, &at(-f64::from(WARP_REACH) - 1.0)));
+        assert!(!warp_output_clipped(Rect::EMPTY, &at(1e12)), "nothing to clip");
+    }
 
     #[test]
     fn the_interruptible_warp_reports_progress_and_stops_when_cancelled() {
@@ -509,6 +640,24 @@ mod tests {
 
     fn rgba() -> Surface {
         Surface::new(PixelFormat::RGBA8)
+    }
+
+    /// The "pixel stretch" (#3773): a 1 px column scaled 100x stays solid across the stretch, as in
+    /// Photoshop. Samples past the source edge repeat the edge, and only the outline is antialiased.
+    #[test]
+    fn stretched_single_column_stays_opaque() {
+        let mut s = rgba();
+        s.fill_rect(Rect::new(0, 0, 1, 4), &[0.0, 1.0, 0.0, 1.0]);
+        for interp in [Interp::Bicubic, Interp::Bilinear] {
+            let h = Homography::rect_to_quad([0.0, 0.0, 1.0, 4.0], [[0.0, 0.0], [100.0, 0.0], [100.0, 4.0], [0.0, 4.0]]).unwrap();
+            let w = warp_surface(&s, Rect::new(0, 0, 1, 4), &h, interp).unwrap();
+            assert_eq!(w.content_bounds(), Rect::new(0, 0, 100, 4), "{interp:?}");
+            for x in [0, 1, 25, 50, 75, 99] {
+                for y in 0..4 {
+                    assert!((w.sample_channel(x, y, 3) - 1.0).abs() < 1e-6, "{interp:?} alpha at ({x}, {y}) = {}", w.sample_channel(x, y, 3));
+                }
+            }
+        }
     }
 
     /// Photoshop 27.11's Free Transform, Bicubic, 200 % about the centre of a 64 px image whose left
@@ -560,6 +709,60 @@ mod tests {
         }
         for (x, y) in [(200, 200), (280, 100), (100, 280)] {
             assert_eq!(w.read_region(Rect::new(x, y, x + 1, y + 1))[3], 0.0, "({x},{y}) outside the quad is painted");
+        }
+    }
+
+    /// #4863: a Distort with the bottom corners pulled in and one dragged past the horizon (a
+    /// concave quad) leaves part of the source behind the horizon. That part maps to the far side,
+    /// where it showed as a mirrored copy wrapped round infinity; only the front side is drawn.
+    #[test]
+    fn a_distort_past_the_horizon_draws_only_its_front_side() {
+        let mut s = rgba();
+        s.fill_rect(Rect::new(0, 0, 100, 100), &[0.0, 0.5, 1.0, 1.0]);
+        let r = s.content_bounds();
+        let h = Homography::rect_to_quad([0.0, 0.0, 100.0, 100.0], [[0.0, 0.0], [300.0, 0.0], [60.0, 60.0], [0.0, 300.0]]).unwrap();
+        let corners = [(0.0, 0.0), (100.0, 0.0), (100.0, 100.0), (0.0, 100.0)].map(|(x, y)| h.w(x, y));
+        assert!(corners.iter().any(|w| *w > 0.0) && corners.iter().any(|w| *w < 0.0), "the source straddles the horizon: {corners:?}");
+        let front = h.front_side([0.0, 0.0, 100.0, 100.0]);
+        let inv = h.inverse().unwrap();
+        let clip = Rect::new(-400, -400, 700, 700);
+        for interp in [Interp::Nearest, Interp::Bilinear] {
+            let w = warp_surface_clipped(&s, r, &h, interp, clip).unwrap();
+            let px = w.read_region(clip);
+            let (mut drawn, mut behind) = (0, 0);
+            for y in clip.y0..clip.y1 {
+                for x in clip.x0..clip.x1 {
+                    let i = ((y - clip.y0) * clip.width() as i32 + (x - clip.x0)) as usize * 4;
+                    if px[i + 3] > 0.0 {
+                        drawn += 1;
+                        // The source point this pixel samples is on the far side of the horizon.
+                        if front * inv.w(x as f64 + 0.5, y as f64 + 0.5) <= 0.0 {
+                            behind += 1;
+                        }
+                    }
+                }
+            }
+            assert!(drawn > 1000, "{interp:?}: the front side is drawn ({drawn} px)");
+            assert_eq!(behind, 0, "{interp:?}: {behind} pixels come from behind the horizon");
+        }
+        // A quad wholly in front of the horizon is drawn exactly as before.
+        let ok = Homography::rect_to_quad([0.0, 0.0, 100.0, 100.0], [[0.0, 0.0], [300.0, 0.0], [155.0, 155.0], [0.0, 300.0]]).unwrap();
+        assert_eq!(ok.front_side([0.0, 0.0, 100.0, 100.0]), ok.w(50.0, 50.0).signum());
+    }
+
+    /// #7557: a Perspective Crop quad low on a strongly converging photo puts the horizon across
+    /// the layer with most of it (and its centre) on the far side. The clip maps wholly into the
+    /// quad, so its side is the one drawn, not the source's majority.
+    #[test]
+    fn a_clip_wholly_on_one_side_draws_that_side() {
+        let mut s = rgba();
+        s.fill_rect(Rect::new(0, 0, 100, 100), &[1.0, 0.0, 0.0, 1.0]);
+        let q = [[40.0, 70.0], [60.0, 70.0], [90.0, 95.0], [10.0, 95.0]];
+        let h = quad_to_rect(&q, 50.0, 39.0).unwrap();
+        assert!(h.front_side([0.0, 0.0, 100.0, 100.0]) * h.w(50.0, 80.0) < 0.0, "the source's majority is behind the quad's side");
+        for interp in [Interp::Nearest, Interp::Bilinear, Interp::Bicubic] {
+            let w = warp_surface_clipped(&s, s.content_bounds(), &h, interp, Rect::new(0, 0, 50, 39)).unwrap();
+            assert_eq!(w.rgba(25, 20), [1.0, 0.0, 0.0, 1.0], "{interp:?}");
         }
     }
 
@@ -635,6 +838,32 @@ mod tests {
         assert!(b.width().abs_diff(20) <= 2 && b.height().abs_diff(40) <= 2, "{b:?}");
         let p = rot.pixel(20, 10);
         assert!((p[0] - 0.2).abs() < 0.01 && p[3] > 0.99, "{p:?}");
+    }
+
+    /// #6203: a bicubic rotation of a sprite whose edge pixels are partly transparent overshoots
+    /// its alpha past 1. The colour must stay the sprite's, not grow with the overshoot into a
+    /// light border.
+    #[test]
+    fn rotation_keeps_the_colour_of_a_soft_edged_sprite() {
+        let mut s = rgba();
+        s.fill_rect(Rect::new(10, 10, 30, 30), &[0.8, 0.6, 0.4, 0.5]);
+        s.fill_rect(Rect::new(11, 11, 29, 29), &[0.8, 0.6, 0.4, 1.0]);
+        let (c, k) = (20.0, std::f64::consts::FRAC_1_SQRT_2 * 10.0);
+        let q = [[c, c - 2.0 * k], [c + 2.0 * k, c], [c, c + 2.0 * k], [c - 2.0 * k, c]];
+        let h = Homography::rect_to_quad([10.0, 10.0, 30.0, 30.0], q).unwrap();
+        for interp in [Interp::Bicubic, Interp::Bilinear] {
+            let out = warp_surface(&s, s.content_bounds(), &h, interp).unwrap();
+            let b = out.content_bounds();
+            for y in b.y0..b.y1 {
+                for x in b.x0..b.x1 {
+                    let p = out.pixel(x, y);
+                    if p[3] > 0.0 {
+                        let off = (0..3).map(|i| (p[i] - [0.8, 0.6, 0.4][i]).abs()).fold(0.0f32, f32::max);
+                        assert!(off <= 1.0 / 255.0, "{interp:?} ({x}, {y}): {p:?}");
+                    }
+                }
+            }
+        }
     }
 
     #[test]

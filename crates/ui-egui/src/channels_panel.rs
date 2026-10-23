@@ -223,6 +223,10 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
             if row == Row::QuickMask && resp.double_clicked() {
                 actions.push(("ui.channelOptions".into(), json!("quickMask")));
             }
+            // The layer mask's row: Layer Mask Display Options (the rubylith's colour, opacity).
+            if row == Row::LayerMask && resp.double_clicked() {
+                actions.push(("ui.channelOptions".into(), json!("mask")));
+            }
             if let Row::Alpha(i) = row {
                 if resp.double_clicked() && on_thumb {
                     actions.push(("ui.channelOptions".into(), json!(i)));
@@ -281,6 +285,7 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
                             let enabled = masked.as_ref().and_then(|l| l.mask.as_ref()).is_none_or(|m| m.enabled);
                             item(ui, a, crate::layer_menu_ui::mask_toggle_label(enabled), "layer.layerMask.enabled", json!({}));
                             item(ui, a, "Delete Layer Mask", "layer.layerMask.delete", json!({}));
+                            item(ui, a, "Layer Mask Display Options…", "ui.channelOptions", json!("mask"));
                         }
                     }
                     ui.separator();
@@ -330,7 +335,11 @@ pub fn show(app: &mut PhotocraftApp, ui: &mut egui::Ui) {
         }
         let load = icons::button(ui, "circle-dashed", 26.0, false, tl!("Load channel as selection"));
         if load.clicked() {
-            actions.push(("select.loadSelection".into(), json!({ "channel": target_ref })));
+            // The selected mask row can coexist with a Composite engine target while mask
+            // painting is active. The footer follows the row the user sees as targeted.
+            let params =
+                if mask_targeted { json!({ "channel": "mask", "layer": masked.as_ref().map(|layer| layer.id.0) }) } else { json!({ "channel": target_ref }) };
+            actions.push(("select.loadSelection".into(), params));
         }
         actions.extend(drop(ui, &load, Footer::Load));
     });
@@ -537,7 +546,8 @@ mod tests {
         let masked = s.execute("layer.new.layer", json!({"name": "Masked"})).unwrap()["layer"].as_u64().unwrap();
         s.execute("layer.layerMask.revealAll", json!({"layer": masked})).unwrap();
         s.execute("channel.new", json!({})).unwrap();
-        let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 1000.0)).with_max_steps(64).build_eframe(move |cc| {
+        // 60 fps steps, so two clicks a frame apart count as a double-click.
+        let mut h = egui_kittest::Harness::builder().with_size(vec2(1440.0, 1000.0)).with_step_dt(1.0 / 60.0).with_max_steps(64).build_eframe(move |cc| {
             PhotocraftApp::setup_context(&cc.egui_ctx, Default::default());
             PhotocraftApp::new(s, crate::Services::default())
         });
@@ -615,6 +625,68 @@ mod tests {
         assert!(h.state().session.active().unwrap().doc.selection.is_some(), "the white channel selects everything");
     }
 
+    /// The footer follows the targeted row shown by the panel when mask painting is active,
+    /// even though the engine's channel-view target remains Composite. Other channel targets
+    /// continue to load their own values, and each load remains one undoable selection change.
+    #[test]
+    fn footer_loads_the_selected_layer_mask_and_preserves_color_alpha_targets() {
+        let (mut h, _) = channels_harness();
+        h.state_mut().run("select.rect", json!({"x": 0, "y": 0, "width": 32, "height": 48})).unwrap();
+        h.state_mut().run("layer.layerMask.hideAll", json!({})).unwrap();
+        h.state_mut().run("layer.layerMask.revealSelection", json!({})).unwrap();
+        h.state_mut().run("channel.target", json!({"channel": "composite"})).unwrap();
+        h.state_mut().ui.mask_target = true;
+        h.run_steps(2);
+
+        let click_load = |h: &mut egui_kittest::Harness<'_, PhotocraftApp>| {
+            use egui::{Modifiers, PointerButton};
+            let p = at(h, "Load channel as selection");
+            h.hover_at(p);
+            h.run_steps(1);
+            h.event(egui::Event::PointerButton { pos: p, button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
+            h.run_steps(1);
+            h.event(egui::Event::PointerButton { pos: p, button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
+            h.run_steps(2);
+        };
+        let sample =
+            |h: &egui_kittest::Harness<'_, PhotocraftApp>, x, y| h.state().session.active().unwrap().doc.selection.as_ref().unwrap().sample_channel(x, y, 0);
+
+        assert_eq!(h.state().session.active().unwrap().channel_view.target, ChannelTarget::Composite);
+        click_load(&mut h);
+        assert_eq!((sample(&h, 8, 8), sample(&h, 48, 8)), (1.0, 0.0), "mask row selection wins over the Composite engine target");
+        h.state_mut().run("edit.undo", json!({})).unwrap();
+        assert!(h.state().session.active().unwrap().doc.selection.is_none());
+        h.state_mut().run("edit.redo", json!({})).unwrap();
+        assert_eq!((sample(&h, 8, 8), sample(&h, 48, 8)), (1.0, 0.0));
+
+        h.state_mut().ui.mask_target = false;
+        h.state_mut().run("channel.target", json!({"channel": "composite"})).unwrap();
+        click_load(&mut h);
+        assert_eq!((sample(&h, 8, 8), sample(&h, 48, 8)), (1.0, 1.0), "composite luminosity remains available");
+        h.state_mut().run("edit.undo", json!({})).unwrap();
+        assert_eq!((sample(&h, 8, 8), sample(&h, 48, 8)), (1.0, 0.0));
+        h.state_mut().run("edit.redo", json!({})).unwrap();
+        assert_eq!((sample(&h, 8, 8), sample(&h, 48, 8)), (1.0, 1.0));
+
+        h.state_mut().run("select.rect", json!({"x": 0, "y": 0, "width": 32, "height": 48})).unwrap();
+        h.state_mut().run("channel.new", json!({"fill": "selection"})).unwrap();
+        h.state_mut().run("select.deselect", json!({})).unwrap();
+        h.state_mut().run("channel.target", json!({"channel": "red"})).unwrap();
+        click_load(&mut h);
+        assert_eq!((sample(&h, 8, 8), sample(&h, 48, 8)), (1.0, 1.0), "color channel still loads its own plane");
+        h.state_mut().run("edit.undo", json!({})).unwrap();
+        h.state_mut().run("edit.redo", json!({})).unwrap();
+        assert_eq!((sample(&h, 8, 8), sample(&h, 48, 8)), (1.0, 1.0));
+
+        h.state_mut().run("channel.target", json!({"channel": 1})).unwrap();
+        click_load(&mut h);
+        assert_eq!((sample(&h, 8, 8), sample(&h, 48, 8)), (1.0, 0.0), "alpha channel still loads its own plane");
+        h.state_mut().run("edit.undo", json!({})).unwrap();
+        assert_eq!((sample(&h, 8, 8), sample(&h, 48, 8)), (1.0, 1.0));
+        h.state_mut().run("edit.redo", json!({})).unwrap();
+        assert_eq!((sample(&h, 8, 8), sample(&h, 48, 8)), (1.0, 0.0));
+    }
+
     /// A plain click on a row still targets it, and a drag released elsewhere does nothing.
     #[test]
     fn clicks_still_target_and_a_drop_elsewhere_does_nothing() {
@@ -635,6 +707,33 @@ mod tests {
         assert_eq!(alphas(&h), ["Alpha 1"]);
         assert_eq!(h.state().session.active().unwrap().history.past_len(), steps, "nothing ran");
         assert!(h.ctx.data(|d| d.get_temp::<(Row, String)>(drag_id())).is_none(), "the drag ended");
+    }
+
+    /// Double-clicking the layer mask's row opens Layer Mask Display Options, as in Photoshop; OK
+    /// sets the rubylith's colour and opacity, a view setting rather than an undo step.
+    #[test]
+    fn double_clicking_the_layer_mask_row_opens_its_display_options() {
+        let (mut h, _) = channels_harness();
+        let steps = h.state().session.active().unwrap().history.past_len();
+        let p = at(&h, "Masked Mask");
+        h.hover_at(p);
+        h.run_steps(30);
+        for pressed in [true, false, true, false] {
+            h.event(egui::Event::PointerButton { pos: p, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE });
+            h.step();
+        }
+        h.run_steps(3);
+        let d = h.state().ui.dialogs.last().expect("a dialog opens");
+        assert!(crate::channel_options_ui::owns(&d.fields), "{:?}", d.fields);
+        assert_eq!((d.fields["channel"].clone(), d.fields["color"].clone(), d.fields["opacity"].clone()), (json!("mask"), json!("#ff0000"), json!(50.0)));
+        let id = d.id;
+        let d = h.state_mut().ui.dialog_mut(id).unwrap();
+        d.fields.insert("color".into(), json!("#0000ff"));
+        d.fields.insert("opacity".into(), json!(80.0));
+        crate::dialogs::confirm(h.state_mut(), id).unwrap();
+        let o = &h.state().session.prefs().layer_mask_overlay;
+        assert_eq!((o.color.as_str(), o.opacity), ("#0000ff", 80.0));
+        assert_eq!(h.state().session.active().unwrap().history.past_len(), steps, "no history step");
     }
 
     /// The layer mask's row asks "Apply mask to layer before removing?", like its Layers thumbnail.

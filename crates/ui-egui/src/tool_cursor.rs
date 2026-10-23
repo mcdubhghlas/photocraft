@@ -9,7 +9,10 @@ use std::sync::Arc;
 
 use egui::{CursorIcon, CustomCursorImage, Painter, Pos2, Stroke, Vec2, vec2};
 
+use crate::canvas::ViewXform;
+
 mod hand;
+mod zoom;
 
 /// The largest cursor bitmap (physical pixels; points on macOS, see [`native_scale`]); a larger tip
 /// paints its outline instead, with a small OS crosshair at the hotspot, and that outline trails
@@ -20,13 +23,15 @@ mod hand;
 /// bounded for hostile brush sizes or zooms.
 const MAX_SIDE: u16 = if cfg!(any(target_os = "windows", target_os = "macos")) { 2048 } else { 255 };
 
-/// What a bitmap cursor shows. `Hand` is the Hand tool's open hand, or its fist while it drags.
-/// `Outline` is a brush tip outline: closed rings of logical-point offsets from the hotspot.
+/// What a bitmap cursor shows. `Hand` is the Hand tool's open hand, or its fist while it drags;
+/// `Zoom` is the Zoom tool's magnifier, with a minus when it zooms out. `Outline` is a brush tip
+/// outline: closed rings of logical-point offsets from the hotspot.
 #[derive(Clone, Debug, PartialEq)]
 enum Shape {
     Circle { radius: f32, centre: bool },
     Crosshair { length: f32, gap: f32 },
     Hand { closed: bool },
+    Zoom { out: bool },
     Outline { rings: Arc<[Vec<Vec2>]>, centre: bool },
 }
 
@@ -88,9 +93,25 @@ fn close_ring() -> Vec<Vec2> {
 }
 
 /// Can this pass show an OS cursor bitmap? eframe's immediate viewports and its web integration
-/// don't upload cursor images; every desktop root viewport does (winit custom cursors).
+/// don't upload cursor images; every desktop root viewport does (winit custom cursors). Wayland at
+/// any scale but 1 doesn't either: winit sizes the bitmap there with a `wp_viewport` destination
+/// that some compositors ignore on cursor surfaces (Hyprland 0.56; Mutter before GNOME 48). They
+/// show it one bitmap pixel per logical pixel, so at 1.25 a brush outline was 1.25× too large and
+/// its centre sat 0.2 × its half-width right of and below the pointer, which is where the brush
+/// painted. Nothing tells the app which compositor does what, so the outline is painted instead.
 fn native(ctx: &egui::Context) -> bool {
-    cfg!(not(target_arch = "wasm32")) && ctx.viewport_id() == egui::ViewportId::ROOT
+    cfg!(not(target_arch = "wasm32")) && ctx.viewport_id() == egui::ViewportId::ROOT && !scaled_wayland(ctx)
+}
+
+/// Mark this window as a Wayland surface (or not), for [`native`]; the shell calls it every pass.
+pub(crate) fn set_wayland(ctx: &egui::Context, wayland: bool) {
+    ctx.data_mut(|d| d.insert_temp(egui::Id::new("photocraft-cursor-wayland"), wayland));
+}
+
+/// A Wayland window whose scale is not 1, where winit's cursor bitmaps are unreliable.
+fn scaled_wayland(ctx: &egui::Context) -> bool {
+    let wayland = cfg!(target_os = "linux") && ctx.data(|d| d.get_temp::<bool>(egui::Id::new("photocraft-cursor-wayland"))).unwrap_or(false);
+    wayland && ctx.native_pixels_per_point().unwrap_or_else(|| ctx.pixels_per_point() / ctx.zoom_factor()) != 1.0
 }
 
 /// Bitmap pixels per egui point. winit takes an `NSCursor` image's dimensions as logical points on
@@ -99,6 +120,48 @@ fn native(ctx: &egui::Context) -> bool {
 /// sizing is from @jerrykimo's #968.)
 pub(crate) fn native_scale(ctx: &egui::Context) -> f32 {
     if cfg!(target_os = "macos") { ctx.zoom_factor() } else { ctx.pixels_per_point() }
+}
+
+/// The resize arrow for a handle that resizes along document direction `d`, as the view shows it
+/// (its rotation, flip and pixel aspect): the nearest of the four arrows. Free Transform (handles
+/// and Warp splits), the type box, Content-Aware Move's box, the Artboard tool and guides pick
+/// their arrows here.
+pub(crate) fn resize(d: [f64; 2], xf: &ViewXform) -> CursorIcon {
+    resize_on_screen(xf.map_vec(vec2(d[0] as f32, d[1] as f32)))
+}
+
+/// The resize arrow for corner `i` of a box's `quad` (corners in order round the box), as the view
+/// shows it: along the corner's bisector, so an upright box's corners always show a diagonal arrow,
+/// as in Photoshop, however wide or tall the box is. Aiming from the opposite corner instead gave a
+/// box wider than about 2.4:1 the horizontal arrow at its corners (and a tall one the vertical).
+pub(crate) fn corner_resize(quad: &[[f64; 2]; 4], i: usize, xf: &ViewXform) -> CursorIcon {
+    let at = quad[i % 4];
+    let edge = |k: usize| {
+        let to = quad[k % 4];
+        let v = xf.map_vec(vec2((at[0] - to[0]) as f32, (at[1] - to[1]) as f32));
+        let l = v.length();
+        (l.is_finite() && l > 1e-6).then(|| v / l)
+    };
+    let bisector = edge(i + 1).zip(edge(i + 3)).map(|(a, b)| a + b).filter(|s| s.length() > 1e-3);
+    match bisector {
+        Some(s) => resize_on_screen(s),
+        // A collapsed or folded corner has no bisector: aim away from the opposite corner.
+        None => {
+            let opposite = quad[(i + 2) % 4];
+            resize([at[0] - opposite[0], at[1] - opposite[1]], xf)
+        }
+    }
+}
+
+/// The nearest of the four resize arrows to screen direction `s`.
+fn resize_on_screen(s: Vec2) -> CursorIcon {
+    let angle = f64::from(s.y).atan2(f64::from(s.x)).rem_euclid(std::f64::consts::PI);
+    match (angle / std::f64::consts::FRAC_PI_4).round() as u8 % 4 {
+        0 => CursorIcon::ResizeHorizontal,
+        1 => CursorIcon::ResizeNwSe,
+        2 => CursorIcon::ResizeVertical,
+        _ => CursorIcon::ResizeNeSw,
+    }
 }
 
 /// The Hand tool's pointer: an open hand, a fist while it drags (`closed`). winit maps `Grab` and
@@ -114,6 +177,27 @@ fn hand_with(ctx: &egui::Context, closed: bool, bitmap: bool) -> CursorIcon {
         return CursorIcon::None;
     }
     if closed { CursorIcon::Grabbing } else { CursorIcon::Grab }
+}
+
+/// The bitmap [`hand`] hands Windows, for tests that check the Hand's pointer on every platform.
+#[cfg(test)]
+pub(crate) fn hand_bitmap(ctx: &egui::Context, closed: bool) -> Option<CustomCursorImage> {
+    rasterize(&Shape::Hand { closed }, native_scale(ctx))
+}
+
+/// The Zoom tool's pointer: a magnifier with a plus, or a minus when it zooms `out`. winit maps
+/// `ZoomIn` and `ZoomOut` to the plain arrow on Windows (#3735), so there it is a bitmap; macOS and
+/// the Linux themes already draw magnifiers.
+pub(crate) fn zoom(ctx: &egui::Context, out: bool) -> CursorIcon {
+    zoom_with(ctx, out, cfg!(target_os = "windows") && ctx.viewport_id() == egui::ViewportId::ROOT)
+}
+
+fn zoom_with(ctx: &egui::Context, out: bool, bitmap: bool) -> CursorIcon {
+    if bitmap && let Some(image) = cached_image(ctx, &Shape::Zoom { out }, native_scale(ctx)) {
+        ctx.set_cursor_image(Some(image));
+        return CursorIcon::None;
+    }
+    if out { CursorIcon::ZoomOut } else { CursorIcon::ZoomIn }
 }
 
 fn show(painter: &Painter, at: Pos2, shape: Shape) -> CursorIcon {
@@ -176,7 +260,7 @@ fn paint(painter: &Painter, at: Pos2, shape: &Shape) {
                 }
             }
             // Only ever a bitmap: without one the OS draws its own grab cursors.
-            Shape::Hand { .. } => {}
+            Shape::Hand { .. } | Shape::Zoom { .. } => {}
         }
     }
 }
@@ -224,6 +308,7 @@ fn extent(shape: &Shape) -> Option<f32> {
             if *centre { e.max(3.0) } else { e }
         }
         Shape::Hand { .. } => hand::HALF,
+        Shape::Zoom { .. } => zoom::HALF,
     })
 }
 
@@ -265,13 +350,23 @@ fn coverage(shape: &Shape, dx: f32, dy: f32, scale: f32) -> (f32, f32) {
         }
         Shape::Hand { closed } => {
             let (lx, ly) = (dx / scale, dy / scale);
-            let edge = hand::shape(*closed, lx, ly) * scale;
-            let inside = (0.5 - edge).clamp(0.0, 1.0);
-            let outline = (scale + 0.5 - edge).clamp(0.0, 1.0);
-            let crease = (0.45 * scale + 0.5 - hand::crease(*closed, lx, ly) * scale).clamp(0.0, 1.0);
-            (inside * (1.0 - crease), outline.max(inside * crease))
+            silhouette(hand::shape(*closed, lx, ly), hand::crease(*closed, lx, ly), 0.45, scale)
+        }
+        Shape::Zoom { out } => {
+            let (lx, ly) = (dx / scale, dy / scale);
+            silhouette(zoom::shape(lx, ly), zoom::glyph(*out, lx, ly), 0.75, scale)
         }
     }
+}
+
+/// A light filled shape with a 1 px dark outline and dark lines `half_width` logical pixels either
+/// side of its creases, from their signed distances in logical pixels.
+fn silhouette(edge: f32, crease: f32, half_width: f32, scale: f32) -> (f32, f32) {
+    let edge = edge * scale;
+    let inside = (0.5 - edge).clamp(0.0, 1.0);
+    let outline = (scale + 0.5 - edge).clamp(0.0, 1.0);
+    let crease = (half_width * scale + 0.5 - crease * scale).clamp(0.0, 1.0);
+    (inside * (1.0 - crease), outline.max(inside * crease))
 }
 
 /// A 1 px light line with a 1 px dark one on each side, `distance` physical pixels from its centre.

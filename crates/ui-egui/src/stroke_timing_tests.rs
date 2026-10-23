@@ -338,6 +338,80 @@ fn a_committed_stroke_refreshes_only_what_each_cache_had_not_shown() {
     assert_eq!(c.since(99), None, "not a key of this stroke");
 }
 
+/// A stroke that grows a layer with a Gradient Overlay lays the one gradient out again over the
+/// whole layer (#4053): the canvas, which already showed the live stroke, still repaints where
+/// the earlier strokes are, not just the new stroke's own pixels (it repainted nothing, leaving
+/// one gradient per stroke).
+#[test]
+fn a_committed_stroke_repaints_a_gradient_overlay_over_the_whole_layer() {
+    let mut h = harness();
+    h.state_mut().run("layer.new.layer", json!({})).unwrap();
+    h.state_mut().run("layer.layerStyle.gradientOverlay", json!({"from": "#ff0000", "to": "#0000ff", "angle": 0})).unwrap();
+    h.state_mut().run("tools.setBrush", json!({"brush": {"size": 10, "hardness": 1.0}})).unwrap();
+    let drag = |h: &mut Harness<'static, PhotocraftApp>, pts: &[(f32, f32)]| {
+        move_to(h, pts[0].0, pts[0].1);
+        button(h, pts[0].0, pts[0].1, true);
+        for (x, y) in &pts[1..] {
+            move_to(h, *x, *y);
+        }
+        let (x, y) = pts[pts.len() - 1];
+        button(h, x, y, false);
+        h.run_steps(2);
+    };
+    drag(&mut h, &[(20.0, 20.0), (30.0, 25.0), (40.0, 30.0)]);
+    drag(&mut h, &[(150.0, 60.0), (160.0, 70.0), (170.0, 80.0)]);
+    let app = h.state();
+    let idx = app.session.active_index().unwrap();
+    let st = app.session.active().unwrap();
+    let c = app.committed_stroke.as_ref().expect("the commit took the live stroke's pixels");
+    assert_eq!(c.revision, st.revision);
+    // A cache that showed the live stroke's last step.
+    let missed = crate::canvas::damage_since(app, idx, (st.revision - 1, c.last_key()), (st.revision, 0), 0, st.last_damage).unwrap();
+    assert!(missed.contains(25, 25), "the gradient around the first stroke is repainted: {missed:?}");
+}
+
+#[test]
+fn the_stroke_trace_times_each_frame_of_a_stroke_and_ends_on_release() {
+    // The app's hooks around the canvas (`raw_input_hook` starts a frame, `ui` ends it); the
+    // canvas times the live stroke and the release's commit itself.
+    let mut app = PhotocraftApp::new(photocraft_engine::Session::new(), crate::Services::default());
+    app.run("file.new", json!({"width": 200, "height": 100, "background": "white"})).unwrap();
+    app.sync_views();
+    app.ui.tool = Tool::Brush;
+    app.stroke_trace.output = crate::stroke_trace::Output::Stderr;
+    let mut h = Harness::builder().with_size(vec2(900.0, 600.0)).build_ui_state(
+        |ui, app: &mut PhotocraftApp| {
+            let ctx = ui.ctx().clone();
+            if !ctx.fonts(|f| f.families().contains(&egui::FontFamily::Name("medium".into()))) {
+                return;
+            }
+            let t0 = crate::gpu_canvas::now_ms();
+            let moves = ctx.input(|i| i.raw.events.iter().filter(|e| matches!(e, egui::Event::PointerMoved(_))).count());
+            app.stroke_trace.begin_frame(t0, moves);
+            app.stroke_trace.cpu_prev(Some(0.004));
+            egui::CentralPanel::default().show(ui, |ui| crate::canvas::document_area(app, ui));
+            let stroking = app.live_stroke.is_some();
+            app.stroke_trace.end_frame(crate::gpu_canvas::now_ms() - t0, stroking, || "test".into());
+        },
+        app,
+    );
+    PhotocraftApp::setup_context(&h.ctx, crate::theme::ThemeKind::ALL[0]);
+    h.run_steps(4);
+    move_to(&mut h, 20.0, 50.0);
+    button(&mut h, 20.0, 50.0, true);
+    for x in [40.0, 60.0, 80.0, 100.0, 120.0] {
+        move_to(&mut h, x, 50.0);
+    }
+    assert!(h.state().stroke_trace.last.is_none(), "the stroke is still being drawn");
+    button(&mut h, 120.0, 50.0, false);
+    h.run_steps(2);
+    let s = h.state().stroke_trace.last.clone().expect("releasing ends the stroke's trace");
+    assert!(s.frames >= 6, "{s:?}");
+    assert!(s.stroke[1] > 0.0 && s.ui[0] >= s.stroke[0], "{s:?}");
+    assert_eq!(s.moves[1], 1.0, "one move per test frame: {s:?}");
+    assert_eq!(s.backend, "test");
+}
+
 /// A Clone Stamp stroke through the canvas renders the points its commit gets (position and
 /// pressure, no tilt or times), so the commit can take the live pixels; they are what replaying
 /// the journaled command paints.

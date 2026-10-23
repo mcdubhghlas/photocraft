@@ -124,6 +124,68 @@ fn puppet_identity_translation_and_undo() {
     }
 }
 
+fn mask_at(s: &Session, x: i32, y: i32) -> f32 {
+    let st = s.active().unwrap();
+    st.doc.layer(st.active_layer.unwrap()).unwrap().mask.as_ref().unwrap().surface.sample_channel(x, y, 0)
+}
+
+/// [`session`] with a reveal-all mask that hides the stripes `stripes` (x ranges, y 10..40).
+fn masked_session(depth: u64, stripes: &[(i32, i32)]) -> Session {
+    let mut s = session(depth);
+    s.execute("layer.layerMask.revealAll", json!({})).unwrap();
+    s.edit("mask", |doc, active| {
+        let m = doc.layer_mut(active.unwrap()).unwrap().mask.as_mut().unwrap();
+        for &(x0, x1) in stripes {
+            m.surface.fill_rect(Rect::new(x0, 10, x1, 40), &[0.0]);
+        }
+        Ok(())
+    })
+    .unwrap();
+    s
+}
+
+#[test]
+fn puppet_moves_a_linked_mask_with_the_pixels() {
+    // #4910: Puppet Warp warped only the pixels and left a linked mask behind. A one-pin rigid
+    // warp moves the block by (6, 4); the stripe the mask hides (x 20..24) must move with it.
+    for depth in [8u64, 16, 32] {
+        let mut s = masked_session(depth, &[(20, 24)]);
+        let before = s.active().unwrap().doc.clone();
+        s.execute(PUPPET, json!({"pins": [{"src": [30, 25], "dst": [36, 29]}], "mode": "rigid", "interpolation": "bilinear"})).unwrap();
+        for y in [16, 30, 42] {
+            assert!(mask_at(&s, 27, y) < 0.01, "{depth}: the stripe moved to x 26..30 (y {y})");
+            assert!(mask_at(&s, 21, y) > 0.99, "{depth}: and left x 20..24 (y {y})");
+        }
+        assert!(mask_at(&s, 27, 12) > 0.99, "{depth}: and down by 4");
+        // Pixels and mask still line up: the same layer pixel is hidden as before the warp.
+        let was = before.layer(s.active().unwrap().active_layer.unwrap()).unwrap().surface().unwrap().pixel(21, 26);
+        assert!(worst_px(&active_surface(&s).pixel(27, 30), &was) <= 1.0 / 255.0, "{depth}");
+        s.undo();
+        assert!(mask_at(&s, 21, 30) < 0.01 && mask_at(&s, 27, 30) > 0.99, "{depth}: undo puts the mask back");
+    }
+}
+
+#[test]
+fn puppet_leaves_an_unlinked_mask_in_place() {
+    let mut s = masked_session(8, &[(20, 24)]);
+    s.execute("layer.layerMask.linked", json!({"linked": false})).unwrap();
+    s.execute(PUPPET, json!({"pins": [{"src": [30, 25], "dst": [36, 29]}], "mode": "rigid"})).unwrap();
+    assert!(mask_at(&s, 21, 30) < 0.01 && mask_at(&s, 27, 30) > 0.99);
+    assert_eq!(active_surface(&s).content_bounds(), Rect::new(16, 14, 66, 44), "the pixels still moved");
+}
+
+#[test]
+fn puppet_with_a_selection_moves_only_the_selected_part_of_a_linked_mask() {
+    // The selection lifts the block's left part (x 10..30): the stripe hidden there moves with
+    // it, the one outside (x 40..44) stays over its pixels.
+    let mut s = masked_session(8, &[(20, 24), (40, 44)]);
+    s.execute("select.rect", json!({"x": 0, "y": 0, "width": 30, "height": 60})).unwrap();
+    s.execute(PUPPET, json!({"pins": [{"src": [20, 25], "dst": [26, 29]}], "mode": "rigid"})).unwrap();
+    assert!(mask_at(&s, 27, 30) < 0.01 && mask_at(&s, 21, 30) > 0.99, "the selected stripe moved");
+    assert!(mask_at(&s, 41, 30) < 0.01 && mask_at(&s, 45, 30) > 0.99, "the other stayed");
+    assert_eq!(active_surface(&s).pixel(41, 30)[3], 1.0, "over its pixels");
+}
+
 #[test]
 fn puppet_with_an_expansion_that_empties_the_mesh_keeps_the_layer() {
     // #951: a pinned warp over an empty mesh panicked in the solver; it must not erase the layer

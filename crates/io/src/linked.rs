@@ -50,6 +50,14 @@ impl<'a> Rd<'a> {
 
 /// Parses one item; `None` for malformed data or non-`liFD` items.
 fn parse_item(item: &[u8]) -> Option<LinkedFile> {
+    let (uuid, file_name, start, len) = item_header(item)?;
+    let bytes = item.get(start..start.checked_add(len)?)?.to_vec();
+    Some(LinkedFile { uuid, file_name, bytes })
+}
+
+/// The uuid and file name of an embedded (`liFD`) item, and where its file bytes start and how
+/// many there are; `None` for malformed data or other items.
+fn item_header(item: &[u8]) -> Option<(String, String, usize, usize)> {
     let mut r = Rd { d: item, p: 0 };
     let kind = r.take(4)?;
     let _version = r.u32()?;
@@ -65,8 +73,26 @@ fn parse_item(item: &[u8]) -> Option<LinkedFile> {
     if kind != b"liFD" {
         return None;
     }
-    let bytes = r.take(len)?.to_vec();
-    Some(LinkedFile { uuid, file_name, bytes })
+    Some((uuid, file_name, r.p, len))
+}
+
+/// The file name of the embedded file for smart-object `uuid` among the document's preserved PSD
+/// global blocks, without copying its bytes: whether a placed layer's source is embedded.
+pub fn embedded_file_name(meta: &Metadata, uuid: &str) -> Option<String> {
+    if uuid.is_empty() {
+        return None;
+    }
+    meta.psd_global_blocks.iter().filter(|(_, k, _)| matches!(k, b"lnk2" | b"lnk3" | b"lnkD")).find_map(|(_, _, d)| {
+        let mut r = Rd { d, p: 0 };
+        while let Some(len) = r.u64() {
+            let item = r.take(usize::try_from(len).ok()?)?;
+            if let Some((_, name, ..)) = item_header(item).filter(|h| h.0 == uuid) {
+                return Some(name);
+            }
+            r.p = r.p.next_multiple_of(4);
+        }
+        None
+    })
 }
 
 /// Every embedded (`liFD`) file in one linked-layer block's data.
@@ -110,9 +136,11 @@ pub(crate) fn source_size_in_blocks<'a>(
 }
 
 /// Pixel size of an embedded source file from its header: PSD/PSB, TIFF (the default page's
-/// directory), PNG (`IHDR`) and JPEG (the frame header); any other image is decoded flat by
-/// `photocraft-codecs`. It never imports a document: a layered TIFF can carry PSD layer data
-/// whose `lnkD` holds another file, so a full import here would nest without bound (#2465).
+/// directory), PNG (`IHDR`) and JPEG (the frame header); WebP, GIF, BMP, EXR and the rest of
+/// `photocraft_codecs::probe_size`'s formats from their decoder's header; anything else (or a
+/// header that probe cannot read) is decoded flat by `photocraft-codecs`. It never imports a
+/// document: a layered TIFF can carry PSD layer data whose `lnkD` holds another file, so a full
+/// import here would nest without bound (#2465).
 pub(crate) fn source_size_probe(bytes: &[u8]) -> Option<(f64, f64)> {
     let be32 = |at: usize| bytes.get(at..at + 4).map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]]));
     let size = |w: u32, h: u32| (f64::from(w), f64::from(h));
@@ -125,10 +153,7 @@ pub(crate) fn source_size_probe(bytes: &[u8]) -> Option<(f64, f64)> {
         }
         [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, ..] => be32(16).zip(be32(20)).map(|(w, h)| size(w, h)),
         [0xFF, 0xD8, ..] => jpeg_size(bytes),
-        _ => photocraft_codecs::decode(bytes).ok().map(|img| {
-            let (w, h) = img.dimensions();
-            size(w, h)
-        }),
+        _ => photocraft_codecs::probe_size(bytes).or_else(|_| photocraft_codecs::decode(bytes).map(|img| img.dimensions())).ok().map(|(w, h)| size(w, h)),
     }
 }
 
@@ -382,9 +407,11 @@ mod tests {
     fn source_size_probe_reads_headers() {
         use photocraft_codecs::{ChannelLayout, EncodeOptions, Format, Image, SampleType};
         let img = Image::new(7, 5, ChannelLayout::Rgb, SampleType::U8).unwrap();
-        for format in [Format::Png, Format::Jpeg, Format::Tiff, Format::Bmp] {
+        for format in [Format::Png, Format::Jpeg, Format::Tiff, Format::Bmp, Format::WebP, Format::Gif, Format::OpenExr, Format::Tga] {
             let bytes = photocraft_codecs::encode(&img, format, &EncodeOptions::default()).unwrap();
             assert_eq!(source_size_probe(&bytes), Some((7.0, 5.0)), "{format:?}");
+            // A header cut short neither panics nor invents a size (the decode fallback fails too).
+            assert_eq!(source_size_probe(&bytes[..10]), None, "{format:?} truncated");
         }
         let mut psd = b"8BPS\0\x01".to_vec();
         psd.extend([0; 6]);

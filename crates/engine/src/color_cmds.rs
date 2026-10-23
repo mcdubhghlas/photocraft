@@ -315,6 +315,60 @@ impl ColorState {
         }
     }
 
+    /// Whether opening `doc` asks about its profile first (Ask When Opening, for a mismatched or
+    /// missing profile), and if so what the prompt shows: the report [`Self::open_policy`]
+    /// would give, with `ask: true` and `action` the answer the policy suggests. Nothing is
+    /// changed: the answer is applied with [`Self::resolve_open`] before the document opens.
+    pub fn open_question(&self, doc: &Document) -> Option<Value> {
+        let space = mode_space(doc.mode);
+        if !matches!(space, ColorSpace::Rgb | ColorSpace::Cmyk | ColorSpace::Gray) {
+            return None;
+        }
+        let working = self.working(doc.mode);
+        let policy = self.settings.policy(doc.mode);
+        let embedded = doc.icc_profile.as_ref().and_then(|b| profile_from_bytes(b).ok()).filter(|p| p.color_space == space);
+        match embedded {
+            Some(emb) => {
+                let linear_hdr =
+                    doc.depth == SampleType::F32 && (emb.same_colors(Builtin::LinearSrgb.profile()) || emb.same_colors(photocraft_cms::builtin::linear_gray()));
+                if !self.settings.ask_on_mismatch || emb.same_colors(&working) || linear_hdr {
+                    return None;
+                }
+                let action = match policy {
+                    Policy::Preserve => "preserve",
+                    Policy::Off => "discard",
+                    Policy::Convert => "convert",
+                };
+                Some(
+                    json!({"embedded": emb.description, "working": working.description, "mismatch": true, "policy": policy.id(), "action": action, "ask": true}),
+                )
+            }
+            None if self.settings.ask_on_missing => {
+                Some(json!({"working": working.description, "policy": policy.id(), "missing": true, "action": "preserve", "ask": true}))
+            }
+            None => None,
+        }
+    }
+
+    /// Applies the answer to an [`Self::open_question`] to a document not opened yet:
+    /// `preserve` (keep the embedded profile, or leave an untagged file as is), `convert` to the
+    /// working space, `discard` the embedded profile, or `assignWorking` (untagged files).
+    pub fn resolve_open(&self, doc: &mut Document, action: &str) -> Result<()> {
+        match action {
+            "preserve" | "useEmbedded" => Ok(()),
+            "convert" | "convertToWorking" => convert_document(doc, &self.working(doc.mode), self.settings.intent(), self.settings.bpc),
+            "discard" | "off" => {
+                doc.icc_profile = None;
+                Ok(())
+            }
+            "assignWorking" => {
+                doc.icc_profile = Some(self.working(doc.mode).to_bytes());
+                Ok(())
+            }
+            other => Err(EngineError::Other(format!("unknown answer `{other}` (preserve|convert|discard|assignWorking)"))),
+        }
+    }
+
     /// Proofing state of a document (defaults: coated CMYK, relative colorimetric + BPC, off).
     pub fn proof(&self, doc: DocId) -> ProofView {
         self.proofs.get(&doc).cloned().unwrap_or_else(|| ProofView { gamut_threshold: photocraft_cms::gamut::DEFAULT_THRESHOLD, ..Default::default() })
@@ -403,6 +457,21 @@ impl ColorState {
     /// [`ColorState::gpu_canvas_lut`] for a window on `display`.
     pub fn gpu_canvas_lut_for(&self, doc: &Document, size: usize, display: Option<u32>) -> Result<Option<Vec<u8>>> {
         self.canvas_lut_with(doc, size, false, display)
+    }
+
+    /// Accurate GPU representation of RGB matrix/TRC display transforms. Gamut warnings,
+    /// proof simulations beyond profile conversion, and transforms containing a CLUT retain
+    /// the existing 3D LUT path. The shader applies the 32-bit preview before this transform,
+    /// just as it does before the display LUT.
+    pub fn gpu_canvas_matrix_shaper_for(&self, doc: &Document, display: Option<u32>) -> Result<Option<photocraft_cms::GpuMatrixShaper>> {
+        let proof = self.proof(doc.id);
+        if proof.gamut_warning || (proof.enabled && proof.setup.kind != crate::proof_sim::ProofKind::Profile) {
+            return Ok(None);
+        }
+        if !proof.enabled && self.canvas_display_for(doc, display)?.transform.is_none() {
+            return Ok(None);
+        }
+        Ok(self.display_transform_for(doc, display)?.gpu_matrix_shaper())
     }
 
     fn canvas_lut_with(&self, doc: &Document, size: usize, hdr: bool, on: Option<u32>) -> Result<Option<Vec<u8>>> {
@@ -1285,6 +1354,44 @@ mod tests {
     }
 
     #[test]
+    fn gpu_matrix_shaper_keeps_special_proof_simulations_on_the_lut_path() {
+        let mut s = session("rgb", 8);
+        let d = doc(&s).clone();
+        // These valid synthetic RGB profiles make the ordinary profile-proof pipeline
+        // separable. Thus the test cannot pass just because a typical proof happens to
+        // contain unsupported stages; the simulation kind must be excluded explicitly.
+        let mut proof = Builtin::LinearSrgb.profile().clone();
+        proof.description = "Synthetic identity-matrix proof".into();
+        proof.matrix = Some([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]);
+        proof.trc = Some([photocraft_cms::Curve::Identity, photocraft_cms::Curve::Identity, photocraft_cms::Curve::Identity]);
+        let proof = proof.with_encoded_bytes();
+        let mut monitor = proof.clone();
+        monitor.description = "Synthetic identity-matrix gamma monitor".into();
+        monitor.trc = Some(std::array::from_fn(|_| photocraft_cms::Curve::Gamma(2.2)));
+        let monitor = monitor.with_encoded_bytes();
+        s.color.set_displays(Ok(vec![crate::display_color::Display {
+            id: 1,
+            name: "Synthetic monitor".into(),
+            frame: [0.0, 0.0, 800.0, 600.0],
+            profile_name: None,
+            icc: Some(monitor.to_bytes()),
+        }]));
+        let pv = s.color.proof_mut(d.id);
+        pv.setup.profile = Arc::new(Profile::parse(&proof.to_bytes()).unwrap());
+        pv.enabled = true;
+        assert!(s.color.gpu_canvas_matrix_shaper_for(&d, Some(1)).unwrap().is_some(), "ordinary profile conversion is separable");
+        for command in ["view.proofSetup.legacyMacintoshRgb", "view.proofSetup.colorBlindnessProtanopia", "view.proofSetup.colorBlindnessDeuteranopia"] {
+            // These commands retain the previously selected custom profile.
+            s.execute(command, json!({})).unwrap();
+            assert!(s.color.display_transform_for(&d, Some(1)).unwrap().gpu_matrix_shaper().is_some(), "fixture must exercise the shortcut");
+            assert!(s.color.gpu_canvas_matrix_shaper_for(&d, Some(1)).unwrap().is_none(), "{command} must retain its simulation");
+            assert!(s.color.gpu_canvas_lut_for(&d, 9, Some(1)).unwrap().is_some(), "{command} still has its LUT fallback");
+        }
+        s.execute("view.proofColors", json!({"on": false})).unwrap();
+        assert!(s.color.gpu_canvas_matrix_shaper_for(&d, Some(1)).unwrap().is_some(), "disabled simulations do not block ordinary display conversion");
+    }
+
+    #[test]
     fn proofing_state_and_gamut_warning() {
         let mut s = session("rgb", 8);
         paint_rgb(&mut s);
@@ -1397,6 +1504,35 @@ mod settings_tests {
 
     // The Blend Text Colors Using Gamma test is `tests/text_gamma.rs`: it changes the
     // process-wide text gamma, which would race every unit test here that composites type.
+
+    #[test]
+    fn open_question_asks_only_when_set_and_resolve_open_applies_each_answer() {
+        let mut s = Session::new();
+        // Ask When Opening off: nothing to ask, mismatched or missing.
+        s.execute("edit.colorSettings", json!({"askOnMismatch": false, "askOnMissing": false})).unwrap();
+        assert!(s.color.open_question(&tagged("adobe-rgb-compat")).is_none());
+        let mut untagged = tagged("srgb");
+        untagged.icc_profile = None;
+        assert!(s.color.open_question(&untagged).is_none());
+        // On: a mismatch asks, suggesting the policy's answer; a matching profile never asks.
+        s.execute("edit.colorSettings", json!({"askOnMismatch": true, "askOnMissing": true, "policyRgb": "convert"})).unwrap();
+        let q = s.color.open_question(&tagged("adobe-rgb-compat")).unwrap();
+        assert_eq!((q["mismatch"].as_bool(), q["action"].as_str()), (Some(true), Some("convert")));
+        assert!(q["embedded"].as_str().unwrap().starts_with("Adobe RGB"));
+        assert!(s.color.open_question(&tagged("srgb")).is_none());
+        assert_eq!(s.color.open_question(&untagged).unwrap()["missing"], true);
+        // Asking changes nothing; the answer is applied to the document.
+        let mut d = tagged("adobe-rgb-compat");
+        s.color.resolve_open(&mut d, "preserve").unwrap();
+        assert!(desc(&d).unwrap().starts_with("Adobe RGB"));
+        s.color.resolve_open(&mut d, "convert").unwrap();
+        assert_eq!(desc(&d).as_deref(), Some("sRGB IEC61966-2.1"));
+        s.color.resolve_open(&mut d, "discard").unwrap();
+        assert_eq!(desc(&d), None);
+        s.color.resolve_open(&mut d, "assignWorking").unwrap();
+        assert_eq!(desc(&d).as_deref(), Some("sRGB IEC61966-2.1"));
+        assert!(s.color.resolve_open(&mut d, "explode").is_err());
+    }
 
     #[test]
     fn open_policies() {

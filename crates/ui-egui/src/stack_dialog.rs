@@ -1,7 +1,8 @@
-//! File › Scripts › Load Files into Stack… (#4671, #4696), laid out as Photoshop's: Source Files
+//! File › Scripts › Load Files into Stack… and Statistics: shared Source Files controls
 //! with Use (Files or Folder), the list of what will be loaded, Browse…, Remove, Add Open Files and
 //! Sort By Name, then Attempt to Automatically Align Source Images and Create Smart Object after
-//! Loading Layers. OK runs `file.scripts.loadFilesIntoStack` with the list or the folder.
+//! Loading Layers. Statistics adds Stack Mode and always creates a smart object. OK runs the
+//! corresponding engine command with the list or the folder.
 use egui::{RichText, vec2};
 use serde_json::{Map, Value, json};
 
@@ -10,6 +11,7 @@ use crate::{PhotocraftApp, state::DialogKind, theme::Tokens, widgets};
 
 const MARK: &str = "__loadStack";
 pub const COMMAND: &str = "file.scripts.loadFilesIntoStack";
+const STATISTICS: &str = "file.scripts.statistics";
 
 pub fn owns(fields: &Map<String, Value>) -> bool {
     fields.contains_key(MARK)
@@ -17,15 +19,30 @@ pub fn owns(fields: &Map<String, Value>) -> bool {
 
 /// Open the dialog with an empty Files list. Returns its id.
 pub fn open(app: &mut PhotocraftApp) -> u64 {
+    open_for(app, COMMAND, "Load Files into Stack…")
+}
+
+pub fn open_statistics(app: &mut PhotocraftApp) -> u64 {
+    open_for(app, STATISTICS, "Image Statistics")
+}
+
+fn statistics(f: &Map<String, Value>) -> bool {
+    f.get("__command").and_then(Value::as_str) == Some(STATISTICS)
+}
+
+fn open_for(app: &mut PhotocraftApp, command: &str, label: &str) -> u64 {
     let mut f = Map::new();
     f.insert(MARK.into(), json!(true));
-    f.insert("__command".into(), json!(COMMAND));
-    f.insert("__label".into(), json!("Load Files into Stack…"));
+    f.insert("__command".into(), json!(command));
+    f.insert("__label".into(), json!(label));
     f.insert("use".into(), json!("files"));
     f.insert("files".into(), json!([]));
     f.insert("folder".into(), json!(""));
     f.insert("align".into(), json!(false));
     f.insert("smartObject".into(), json!(false));
+    if command == STATISTICS {
+        f.insert("mode".into(), json!("median"));
+    }
     app.ui.open_dialog(DialogKind::Command, f)
 }
 
@@ -96,6 +113,17 @@ fn browse(app: &mut PhotocraftApp, id: u64, folder: bool) {
 /// The dialog's body (dialog `id`); OK and Cancel are the standard ones below it.
 pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Value>, id: u64) {
     let t = Tokens::get(ui.ctx());
+    if statistics(f) {
+        ui.horizontal(|ui| {
+            ui.label(tl!("Choose Stack Mode:"));
+            let mut mode = f.get("mode").and_then(Value::as_str).unwrap_or("median").to_string();
+            let options: Vec<_> = photocraft_doc::StackMode::ALL.iter().map(|m| (m.id().to_string(), m.label())).collect();
+            if widgets::dropdown(ui, "statistics-stack-mode", &mut mode, &options, 180.0) {
+                f.insert("mode".into(), json!(mode));
+            }
+        });
+        ui.add_space(8.0);
+    }
     ui.label(RichText::new(tl!("Source Files")).font(crate::theme::semibold(13.0)));
     ui.add_space(4.0);
     ui.horizontal(|ui| {
@@ -122,15 +150,17 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
             ui.set_min_size(vec2(300.0, 160.0));
             ui.set_max_width(300.0);
             egui::ScrollArea::vertical().id_salt("load-stack-files").max_height(160.0).auto_shrink([false, false]).show(ui, |ui| {
-                if folder_mode && !folder(f).is_empty() {
-                    ui.label(RichText::new(folder(f)).color(t.text_dim));
-                }
-                for (i, p) in shown.iter().enumerate() {
-                    let row = ui.add(egui::Button::selectable(!folder_mode && sel == Some(i), file_name(p))).on_hover_text(p.as_str());
-                    if row.clicked() && !folder_mode {
-                        f.insert("selected".into(), json!(i));
+                ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
+                    if folder_mode && !folder(f).is_empty() {
+                        ui.label(RichText::new(folder(f)).color(t.text_dim));
                     }
-                }
+                    for (i, p) in shown.iter().enumerate() {
+                        let row = ui.add(egui::Button::selectable(!folder_mode && sel == Some(i), file_name(p))).on_hover_text(p.as_str());
+                        if row.clicked() && !folder_mode {
+                            f.insert("selected".into(), json!(i));
+                        }
+                    }
+                });
             });
         });
         ui.add_space(8.0);
@@ -162,6 +192,9 @@ pub fn body(app: &mut PhotocraftApp, ui: &mut egui::Ui, f: &mut Map<String, Valu
     });
     ui.add_space(8.0);
     for (key, label) in [("align", tl!("Attempt to Automatically Align Source Images")), ("smartObject", tl!("Create Smart Object after Loading Layers"))] {
+        if statistics(f) && key == "smartObject" {
+            continue;
+        }
         let mut on = f.get(key).and_then(Value::as_bool).unwrap_or(false);
         if widgets::checkbox(ui, &mut on, label).changed() {
             f.insert(key.into(), json!(on));
@@ -193,7 +226,12 @@ pub fn confirm(app: &mut PhotocraftApp, f: &Map<String, Value>) -> Result<Value,
     };
     let align = f.get("align").and_then(Value::as_bool).unwrap_or(false);
     let smart = f.get("smartObject").and_then(Value::as_bool).unwrap_or(false);
-    let r = app.run(COMMAND, json!({"paths": paths, "align": align, "createSmartObject": smart}));
+    let r = if statistics(f) {
+        let mode = f.get("mode").and_then(Value::as_str).unwrap_or("median");
+        app.run(STATISTICS, json!({"paths": paths, "align": align, "mode": mode}))
+    } else {
+        app.run(COMMAND, json!({"paths": paths, "align": align, "createSmartObject": smart}))
+    };
     if r.is_ok() {
         app.sync_views();
     }

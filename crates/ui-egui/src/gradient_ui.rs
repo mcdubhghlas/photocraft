@@ -219,6 +219,11 @@ pub fn pointer(app: &mut PhotocraftApp, ev: ToolEvent, mods: egui::Modifiers) ->
         app.gradient.drag = None;
         return false;
     }
+    // ⌘ is the Move tool (`hold_keys::cmd_moves`): a press with it held drags a guide or the layer
+    // (#6288). A drag already under way keeps its events.
+    if app.gradient.drag.is_none() && crate::canvas::event_tool(app, mods) != Tool::Gradient {
+        return false;
+    }
     let zoom = app.point_zoom().max(0.01);
     match ev {
         ToolEvent::Down { x, y, .. } => {
@@ -676,6 +681,25 @@ pub fn options_changed(app: &mut PhotocraftApp, before: &crate::state::ToolOptio
         p["dither"] = json!(o.gradient_dither);
     }
     let _ = app.run(cmds::SET, p);
+}
+
+/// Live mode: the options bar's Opacity sets a selected gradient fill layer's opacity, as a
+/// drag's `opacity` does, live while it is scrubbed; `drag` numbers the scrub so it is one undo
+/// step, as in the Layers panel (#5012).
+pub fn opacity_changed(app: &mut PhotocraftApp, drag: Option<u64>) {
+    let o = &app.ui.tool_options;
+    if app.ui.tool != Tool::Gradient || o.gradient_classic {
+        return;
+    }
+    let opacity = o.fill_opacity / 100.0;
+    let Some((l, ..)) = active_gradient(app) else { return };
+    if (l.opacity - opacity).abs() > 1e-6 {
+        let mut p = json!({"layer": l.id.0, "opacity": opacity});
+        if let Some(n) = drag {
+            p["coalesce"] = json!(format!("gradient-tool-opacity:{n}"));
+        }
+        let _ = app.run("layer.setProps", p);
+    }
 }
 
 // ---------------------------------------------------------------- Properties panel
@@ -1255,6 +1279,27 @@ mod tests {
         options_changed(&mut app, &before);
         let layer = app.session.active().unwrap().doc.layers.last().unwrap();
         assert_eq!(layer.blend, BlendMode::Difference);
+    }
+
+    #[test]
+    fn changing_live_gradient_opacity_updates_selected_fill_layer() {
+        let mut app = app_with_gradient("linear");
+        drag(&mut app, [20.0, 60.0], [180.0, 60.0]);
+        let past = app.session.active().unwrap().history.past_len();
+        // A scrub is live on every frame and one undo step.
+        for pct in [70.0, 55.0, 40.0] {
+            app.ui.tool_options.fill_opacity = pct;
+            opacity_changed(&mut app, Some(7));
+        }
+        opacity_changed(&mut app, None);
+        let st = app.session.active().unwrap();
+        assert!((st.doc.layers.last().unwrap().opacity - 0.4).abs() < 1e-6);
+        assert_eq!(st.history.past_len(), past + 1, "one undo step, none for an unchanged value");
+        // Classic mode paints pixels: the options bar leaves the layer alone.
+        app.ui.tool_options.gradient_classic = true;
+        app.ui.tool_options.fill_opacity = 80.0;
+        opacity_changed(&mut app, None);
+        assert!((app.session.active().unwrap().doc.layers.last().unwrap().opacity - 0.4).abs() < 1e-6);
     }
 
     #[test]

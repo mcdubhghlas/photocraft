@@ -397,3 +397,61 @@ fn proof_colors_still_apply_on_top() {
     s.execute("view.gamutWarning", json!({"on": true})).unwrap();
     assert_ne!(sig, s.color.display_signature(&d));
 }
+
+#[test]
+fn parallel_linear_encodes_match_the_scalar_curve() {
+    // Several parallel pieces, a ragged last one, and HDR, negative and NaN values.
+    let n: usize = 3 * 16 * 1024 + 77;
+    let px: Vec<[f32; 4]> = (0..n)
+        .map(|i| {
+            let v = match i % 9 {
+                0 => f32::NAN,
+                1 => -0.5,
+                2 => 3.25,
+                _ => (i % 1001) as f32 / 1000.0,
+            };
+            [v, (i % 257) as f32 / 256.0, 1.0 - (i % 113) as f32 / 112.0, (i % 5) as f32 / 4.0]
+        })
+        .collect();
+    let buf = photocraft_compose::Buffer { rect: Rect::new(-4, 2, -4 + n as i32, 3), px };
+    let mut doc = Document::new("t", Size::new(1, 1), ColorMode::Rgb, SampleType::F32);
+    doc.icc_profile = Some(Builtin::LinearSrgb.profile().to_bytes());
+    let mut color = crate::color_cmds::ColorState::default();
+    color.settings.monitor_profile = "srgb".into();
+    let d = color.canvas_display(&doc).unwrap();
+    assert!(d.encode_srgb);
+    let enc = |v: f32| photocraft_color::convert::linear_to_srgb(v.clamp(0.0, 65504.0));
+    let tex = d.texture_buffer(&buf);
+    assert_eq!(tex.rect, buf.rect);
+    for (t, p) in tex.px.iter().zip(&buf.px) {
+        let want = [enc(p[0]), enc(p[1]), enc(p[2]), p[3]];
+        assert!(t.iter().zip(want).all(|(a, b)| a.to_bits() == b.to_bits()), "{p:?} -> {t:?}, want {want:?}");
+    }
+    let code = |v: f32| (photocraft_color::convert::linear_to_srgb(((v.clamp(0.0, 1.0) * 65535.0 + 0.5) as usize) as f32 / 65535.0) * 255.0 + 0.5) as u8;
+    let img = d.to_rgba8(&buf);
+    for (o, p) in img.pixels.as_chunks::<4>().0.iter().zip(&buf.px) {
+        assert_eq!(*o, [code(p[0]), code(p[1]), code(p[2]), (p[3].clamp(0.0, 1.0) * 255.0 + 0.5) as u8], "{p:?}");
+    }
+}
+
+#[test]
+fn parallel_plain_quantize_matches_the_scalar_rounding() {
+    let n: usize = 3 * 16 * 1024 + 77;
+    let px: Vec<[f32; 4]> = (0..n)
+        .map(|i| {
+            let v = match i % 9 {
+                0 => f32::NAN,
+                1 => -0.5,
+                2 => 3.25,
+                _ => (i % 1001) as f32 / 1000.0,
+            };
+            [v, (i % 257) as f32 / 256.0, 1.0 - (i % 113) as f32 / 112.0, (i % 5) as f32 / 4.0]
+        })
+        .collect();
+    let buf = photocraft_compose::Buffer { rect: Rect::new(-4, 2, -4 + n as i32, 3), px };
+    let img = buf.to_rgba8();
+    let q = |v: f32| (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8;
+    for (o, p) in img.pixels.as_chunks::<4>().0.iter().zip(&buf.px) {
+        assert_eq!(*o, p.map(q), "{p:?}");
+    }
+}
