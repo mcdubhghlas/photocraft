@@ -146,8 +146,8 @@ sel.lab.4.true 5038bbc9162aa3f4
 sel.lab_loc.4.true 5f24ccfbad00ec6a
 sel.lab_cov.4 2f5e0a09d5deb195
 sel.lab_subtract d1eec8e4a84bc8c4
-sel.hue.0 fcc304aaccf4baf7
-sel.hue.60 b3a88e11a1acfb15
+sel.hue.0 a243e65eb61b3eec
+sel.hue.60 e2a987e4d7a98abd
 sel.hue.120 dbd349e6aa40fdc3
 sel.hue.180 7bedc11832b557a2
 sel.hue.240 b9d0059d61083025
@@ -404,7 +404,7 @@ seg.sky.select.2 d705071ac209c533
 seg.sky.overcast 8e616edc40c3b1fb
 seg.saliency 46f1b6d6fe8ef295
 seg.otsu 55e8ae5c2cf8eecd
-seg.subject ed101c64ac6a2800
+seg.subject 1710fb4c6791b429
 seg.sharpness.0 abd576f9ada9da0f
 seg.sharpness.0.4 ccc69d54b06ba589
 seg.focus.0.5.0 1284b59b72ce25a4
@@ -554,10 +554,10 @@ r5.shift.4 19 7 06570465fc9cd1de 6e7ece0c4ee32e55
 r5.shift.5 3 2 ce3e32b189f76165 ce3e32b189f76165
 r5.shift.6 8 4 0bb455e98dbfac3f ce3e32b189f76165
 r5.shift.7 -2147483583 -2147483584 3c9ab6064438f265 3c9ab6064438f265
-r5.brush.0 408c200000000000 45ce512273dd09df
-r5.brush.1 4094500000000000 29d2ea49a3c1a339
-r5.brush.2 4094500000000000 666bbbcdaa7df249
-r5.brush.3 40904c95a1d90000 f10d74f75b03b311
+r5.brush.0 408c200000000000 ba11bb7e56db947f
+r5.brush.1 4094500000000000 04cdd836f3357831
+r5.brush.2 4094500000000000 225bee3771a9e389
+r5.brush.3 40904c95a1d90000 eac144c619007c28
 r5.brush.4 4072c00000000000 none
 r5.brush.5 41f2b836a4000000 none
 r5.brush.6 3ff0000000000000 09e587a4b056609c

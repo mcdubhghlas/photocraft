@@ -13,7 +13,7 @@
 #include "base/status.h"
 #include "profile.h"
 
-#define PC_SYNTH_DESCRIPTION "Photocraft Coated CMYK (synthetic, 300% TAC, medium GCR)"
+#define PC_SYNTH_DESCRIPTION "PhotoCraft Coated CMYK (synthetic, 300% TAC, medium GCR)"
 
 typedef struct pc_cmyk_params {
     const char *description; /* borrowed; copied into the profile */

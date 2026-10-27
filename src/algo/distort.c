@@ -38,31 +38,50 @@ static centre centre_of(pc_rect b)
     return c;
 }
 
+/* The bounds' centre and half width/height: Twirl, Pinch and Spherize act inside the inscribed
+ * ellipse, so a wide or tall image's effect reaches all four edges (#5643). */
+typedef struct ell {
+    float cx, cy, hx, hy;
+} ell;
+
+static ell ellipse_of(pc_rect b)
+{
+    float w = (float)pc_rect_width(b), h = (float)pc_rect_height(b);
+    ell e = {(float)b.x0 + w / 2.0f, (float)b.y0 + h / 2.0f, w / 2.0f, h / 2.0f};
+    return e;
+}
+
 /* ---- Twirl ---- */
 
 typedef struct twirl_m {
-    centre c;
+    ell e;
     float a;
 } twirl_m;
 
 static void twirl_map(const void *vm, float x, float y, float *sx, float *sy)
 {
     const twirl_m *m = vm;
-    float dx = x - m->c.cx, dy = y - m->c.cy, r = sqrtf(dx * dx + dy * dy), t, s, co;
-    if (r >= m->c.rr || m->c.rr <= 0.0f) {
+    float u, v, r, t, s, co;
+    if (m->e.hx <= 0.0f || m->e.hy <= 0.0f) {
         *sx = x, *sy = y;
         return;
     }
-    t = m->a * (1.0f - r / m->c.rr);
+    u = (x - m->e.cx) / m->e.hx, v = (y - m->e.cy) / m->e.hy;
+    r = sqrtf(u * u + v * v);
+    if (r >= 1.0f) {
+        *sx = x, *sy = y;
+        return;
+    }
+    t = m->a * (1.0f - r);
     s = sinf(t), co = cosf(t);
-    *sx = m->c.cx + dx * co - dy * s;
-    *sy = m->c.cy + dx * s + dy * co;
+    *sx = m->e.cx + (u * co - v * s) * m->e.hx;
+    *sy = m->e.cy + (u * s + v * co) * m->e.hy;
 }
 
 static pc_status twirl_k(const void *p, const void *prep, const pc_algo_image *src, pc_rect out,
                          const pc_algo_ctx *ctx, float *dst, pc_error *err)
 {
-    twirl_m m = {centre_of(ctx->bounds), pc_fx_rad(((const pc_algo_twirl_params *)p)->angle)};
+    twirl_m m = {ellipse_of(ctx->bounds), pc_fx_rad(((const pc_algo_twirl_params *)p)->angle)};
     (void)prep, (void)err;
     remap(src, out, ctx, PC_ALGO_EDGE_REPEAT, twirl_map, &m, dst);
     return PC_OK;
@@ -71,27 +90,33 @@ static pc_status twirl_k(const void *p, const void *prep, const pc_algo_image *s
 /* ---- Pinch ---- */
 
 typedef struct pinch_m {
-    centre c;
+    ell e;
     float a;
 } pinch_m;
 
 static void pinch_map(const void *vm, float x, float y, float *sx, float *sy)
 {
     const pinch_m *m = vm;
-    float dx = x - m->c.cx, dy = y - m->c.cy, r = sqrtf(dx * dx + dy * dy), rs;
-    if (r >= m->c.rr || r <= 0.0f) {
+    float u, v, r, k;
+    if (m->e.hx <= 0.0f || m->e.hy <= 0.0f) {
         *sx = x, *sy = y;
         return;
     }
-    rs = m->c.rr * powf(r / m->c.rr, 1.0f - m->a * 0.5f);
-    *sx = m->c.cx + dx * rs / r;
-    *sy = m->c.cy + dy * rs / r;
+    u = (x - m->e.cx) / m->e.hx, v = (y - m->e.cy) / m->e.hy;
+    r = sqrtf(u * u + v * v);
+    if (r >= 1.0f || r <= 0.0f) {
+        *sx = x, *sy = y;
+        return;
+    }
+    k = powf(r, 1.0f - m->a * 0.5f) / r;
+    *sx = m->e.cx + u * k * m->e.hx;
+    *sy = m->e.cy + v * k * m->e.hy;
 }
 
 static pc_status pinch_k(const void *p, const void *prep, const pc_algo_image *src, pc_rect out,
                          const pc_algo_ctx *ctx, float *dst, pc_error *err)
 {
-    pinch_m m = {centre_of(ctx->bounds),
+    pinch_m m = {ellipse_of(ctx->bounds),
                  pc_clampf(((const pc_algo_pinch_params *)p)->amount / 100.0f, -1.0f, 1.0f)};
     (void)prep, (void)err;
     remap(src, out, ctx, PC_ALGO_EDGE_REPEAT, pinch_map, &m, dst);
@@ -130,13 +155,18 @@ static void sphere_map(const void *vm, float x, float y, float *sx, float *sy)
         }
         break;
     default: {
-        float r = sqrtf(dx * dx + dy * dy), rs;
-        if (r >= m->c.rr || r <= 0.0f) {
+        float u, v, r, k;
+        if (m->hx <= 0.0f || m->hy <= 0.0f) {
             return;
         }
-        rs = m->c.rr * sphere_1d(r / m->c.rr, m->a);
-        *sx = m->c.cx + dx * rs / r;
-        *sy = m->c.cy + dy * rs / r;
+        u = dx / m->hx, v = dy / m->hy;
+        r = sqrtf(u * u + v * v);
+        if (r >= 1.0f || r <= 0.0f) {
+            return;
+        }
+        k = sphere_1d(r, m->a) / r;
+        *sx = m->c.cx + u * k * m->hx;
+        *sy = m->c.cy + v * k * m->hy;
         break;
     }
     }
@@ -262,17 +292,27 @@ typedef struct polar_m {
 static void polar_map(const void *vm, float x, float y, float *sx, float *sy)
 {
     const polar_m *m = vm;
+    /* Photoshop evaluates the map at pixel corners and reads the source at that index (half a pixel
+     * from remap's centres); the angle runs counter-clockwise from 12 o'clock. */
+    float xx = x - 0.5f, yy = y - 0.5f, rx, ry;
     if (m->mode == PC_ALGO_POLAR_POLAR_TO_RECT) {
-        float theta = (x - m->bx) / m->w * PC_FX_TAU, r = (y - m->by) / m->h * m->rmax;
-        *sx = m->cx + r * sinf(theta);
-        *sy = m->cy - r * cosf(theta);
+        /* The angle is one column ahead of its radius row. */
+        float theta = (xx + 1.0f - m->bx) / m->w * PC_FX_TAU, r = (yy - m->by) / m->h * m->rmax;
+        rx = m->cx - r * sinf(theta);
+        ry = m->cy - r * cosf(theta);
     } else {
-        /* Output is polar: angle from 12 o'clock clockwise -> source x, radius -> source y. */
-        float dx = x - m->cx, dy = y - m->cy;
-        float theta = pc_algo_rem_euclidf(atan2f(dx, -dy), PC_FX_TAU), r = sqrtf(dx * dx + dy * dy);
-        *sx = m->bx + theta / PC_FX_TAU * m->w;
-        *sy = m->by + r / m->rmax * m->h;
+        /* Output is polar: angle from 12 o'clock counter-clockwise -> source x, radius -> source y.
+         * The 12 o'clock seam reads the source's right edge (360 deg, not 0). */
+        float dx = xx - m->cx, dy = yy - m->cy;
+        float theta = atan2f(-dx, -dy), r = sqrtf(dx * dx + dy * dy);
+        if (theta <= 0.0f) {
+            theta += PC_FX_TAU;
+        }
+        rx = m->bx + theta / PC_FX_TAU * m->w;
+        ry = m->by + r / m->rmax * m->h;
     }
+    *sx = rx + 0.5f;
+    *sy = ry + 0.5f;
 }
 
 static pc_status polar_k(const void *p, const void *prep, const pc_algo_image *src, pc_rect out,
@@ -290,7 +330,7 @@ static pc_status polar_k(const void *p, const void *prep, const pc_algo_image *s
     m.cy = m.by + m.h / 2.0f;
     m.rmax = pc_rs_minf(m.w, m.h) / 2.0f;
     m.mode = ((const pc_algo_polar_params *)p)->mode;
-    remap(src, out, ctx, PC_ALGO_EDGE_TRANSPARENT, polar_map, &m, dst);
+    remap(src, out, ctx, PC_ALGO_EDGE_REPEAT, polar_map, &m, dst);
     return PC_OK;
 }
 

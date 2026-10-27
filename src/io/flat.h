@@ -35,9 +35,11 @@ pc_status pc_io_document_to_image(const pc_document *doc, pc_io_warnings *warnin
 
 /* As pc_io_document_to_image, but a CMYK document is reseparated to a 4-channel CMYK image (kept,
  * tagged with the document profile or built-in coated CMYK) only when cmyk_target; otherwise its
- * sRGB composite is written. The public entry above passes cmyk_target = true. */
+ * sRGB composite is written. A Lab document keeps its Lab pixels only when lab_target (a format
+ * that stores Lab, i.e. TIFF); otherwise its sRGB composite is written. The public entry above
+ * passes cmyk_target = true, lab_target = false. */
 pc_status pc_io_document_to_image_for(const pc_document *doc, pc_io_warnings *warnings, bool cmyk_target,
-                                      pc_cimage *out, pc_error *err);
+                                      bool lab_target, pc_cimage *out, pc_error *err);
 
 /* ---- internal to io (used by lib, raw, tiff_layers and I5's affinity) ---- */
 
@@ -55,6 +57,9 @@ pc_status pc_io_image_to_document(const char *name, const pc_cimage *img, pc_io_
  * band of rows at a time. Not pruned. *out initialised on success. */
 pc_status pc_io_image_surface(const pc_cimage *img, pc_clayout target, pc_csample cs, pc_surface *out,
                               pc_error *err);
+/* Whether every pixel of s over r is fully opaque (read from the tiles, no copy). */
+bool pc_io_opaque_surface(const pc_surface *s, pc_rect r);
+
 /* The one visible, unmasked, Normal, opaque raster layer whose pixels can be written natively,
  * or NULL. Borrowed. */
 const pc_surface *pc_io_single_layer(const pc_document *doc);

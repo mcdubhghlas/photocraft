@@ -1378,7 +1378,11 @@ static void test_hostile_parameters_never_crash(void)
     CHECK(pc_algo_resize_surface(&s, NAN, NAN, PC_ALGO_RESAMPLE_BILINEAR, &o, &err) == PC_OK);
     CHECK(pc_rect_is_empty(pc_surface_content_bounds(&o)));
     pc_surface_fini(&o);
-    CHECK(pc_algo_resize_surface(&s, 1e-9, 1e-9, (pc_algo_resample)99, &o, &err) == PC_ERR_LIMIT);
+    /* A tiny Keys/bicubic reduction no longer needs a weight per covered source sample (the
+     * reductions fold what lies beyond the content onto its ends), so it completes rather than
+     * hitting the tap limit. */
+    CHECK(pc_algo_resize_surface(&s, 1e-9, 1e-9, (pc_algo_resample)99, &o, &err) == PC_OK);
+    pc_surface_fini(&o);
     CHECK(pc_algo_resize_surface(&s, 1e-6, 1e-6, PC_ALGO_RESAMPLE_BILINEAR, &o, &err) == PC_OK);
     pc_surface_fini(&o);
     /* Box blur radii beyond any sensible size, NaN sigma, empty buffers. */

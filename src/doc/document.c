@@ -153,6 +153,8 @@ pc_status pc_document_clone(const pc_document *d, pc_document *out, pc_error *er
     c.timeline = d->timeline;
     c.quick_mask_unselected = d->quick_mask_unselected;
     c.file_encoding = d->file_encoding;
+    c.ruler_origin[0] = d->ruler_origin[0];
+    c.ruler_origin[1] = d->ruler_origin[1];
     s = pc_str_clone(&d->name, &c.name, err);
     if (s != PC_OK) {
         goto fail;
@@ -293,7 +295,8 @@ bool pc_document_eq(const pc_document *a, const pc_document *b)
         a->has_quick_mask != b->has_quick_mask ||
         (a->has_quick_mask && !pc_alpha_channel_eq(&a->quick_mask, &b->quick_mask)) ||
         a->quick_mask_unselected != b->quick_mask_unselected ||
-        !pc_file_encoding_eq(&a->file_encoding, &b->file_encoding)) {
+        !pc_file_encoding_eq(&a->file_encoding, &b->file_encoding) ||
+        a->ruler_origin[0] != b->ruler_origin[0] || a->ruler_origin[1] != b->ruler_origin[1]) {
         return false;
     }
     PC_DOC_EQ_VEC(same, a->patterns, a->npatterns, b->patterns, b->npatterns, pc_pattern_eq);

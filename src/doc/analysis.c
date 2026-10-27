@@ -48,17 +48,6 @@ static size_t rust_fixed4_f64(double v, char out[NUM_TEXT_MAX])
     return (size_t)n < NUM_TEXT_MAX ? (size_t)n : NUM_TEXT_MAX - 1;
 }
 
-/* The reference's trim(): an integral value as `v as i64` (saturating), else Display. */
-static size_t trim_f64(double v, char out[NUM_TEXT_MAX])
-{
-    double fract = v - trunc(v); /* f64::fract; NaN for infinities */
-    if (fract == 0.0) {
-        int n = snprintf(out, NUM_TEXT_MAX, "%" PRId64, pc_f64_to_i64(v));
-        return n > 0 ? (size_t)n : 0;
-    }
-    return pc_rust_display_f64(v, out);
-}
-
 /* ---- measurement scale ---- */
 
 pc_status pc_measurement_scale_default(pc_measurement_scale *out, pc_error *err)
@@ -116,7 +105,9 @@ pc_status pc_measurement_scale_describe(const pc_measurement_scale *s, pc_str *o
 {
     char a[NUM_TEXT_MAX];
     char b[NUM_TEXT_MAX];
-    size_t na = trim_f64(s->pixel_length, a);
+    /* f64 Display drops a whole number's `.0`, keeps `-0`, and (unlike an i64 cast) prints
+     * lengths past i64::MAX in full. */
+    size_t na = pc_rust_display_f64(s->pixel_length, a);
     size_t nb = rust_fixed4_f64(s->logical_length, b);
     pc_str t = PC_STR_INIT;
     pc_status st = pc_str_append(&t, a, na, err);

@@ -307,7 +307,7 @@ static void test_fade_ramps_over_steps(void)
     b.size = 20.0f;
     b.spacing = 0.5f;
     b.shape_dynamics.enabled = true;
-    b.shape_dynamics.size = (pc_paint_dynamic){0.0f, PC_PAINT_CONTROL_FADE, 10, 0.0f};
+    b.shape_dynamics.size = (pc_paint_dynamic){0.0f, PC_PAINT_CONTROL_FADE, 10, 0.0f, pc_paint_response_curve_linear()};
     tb_line(0.0, 300.0, 0.0, pts);
     d = tb_dabs(&b, pts, 2);
     CHECK(d.len > 10);
@@ -321,7 +321,7 @@ static void test_fade_ramps_over_steps(void)
     /* Fade on opacity (Transfer). */
     b = tb_brush();
     b.transfer.enabled = true;
-    b.transfer.opacity = (pc_paint_dynamic){0.0f, PC_PAINT_CONTROL_FADE, 4, 0.0f};
+    b.transfer.opacity = (pc_paint_dynamic){0.0f, PC_PAINT_CONTROL_FADE, 4, 0.0f, pc_paint_response_curve_linear()};
     tb_line(0.0, 100.0, 0.0, pts);
     d = tb_dabs(&b, pts, 2);
     CHECK(d.len > 4);
@@ -398,7 +398,7 @@ static void test_jitter_is_deterministic_per_seed(void)
     b.shape_dynamics.enabled = true;
     b.shape_dynamics.size = pc_paint_dynamic_jitter(1.0f);
     b.shape_dynamics.angle = pc_paint_dynamic_jitter(1.0f);
-    b.shape_dynamics.roundness = (pc_paint_dynamic){1.0f, PC_PAINT_CONTROL_OFF, 25, 0.2f};
+    b.shape_dynamics.roundness = (pc_paint_dynamic){1.0f, PC_PAINT_CONTROL_OFF, 25, 0.2f, pc_paint_response_curve_linear()};
     b.shape_dynamics.flip_x_jitter = true;
     b.shape_dynamics.flip_y_jitter = true;
     b.scattering =

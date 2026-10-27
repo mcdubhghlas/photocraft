@@ -162,7 +162,8 @@ static void test_every_compression_keeps_the_layers(void)
 }
 
 /* #1545: a layered TIFF carries EXIF as resource 1058 and reads it back, so it must not report a
- * loss; a flat TIFF really loses the tags and says so. */
+ * loss it never makes. A flat TIFF writes the EXIF block's tags as its own (here IFD0's Artist,
+ * read back as the document's "Artist" text), so it reports no loss either. */
 static void test_layered_tiff_keeps_exif_without_claiming_a_loss(void)
 {
     static const char ARTIST[] = "fixture-artist";
@@ -202,7 +203,21 @@ static void test_layered_tiff_keeps_exif_without_claiming_a_loss(void)
     pc_buf_fini(&b);
     pc_io_export_result_fini(&r);
     r = tiff(&d, false);
-    CHECK(pc_io_warnings_any(&r.warnings, "EXIF"));
+    CHECK(!pc_io_warnings_any(&r.warnings, "EXIF"));
+    {
+        pc_buf fb = PC_BUF_INIT;
+        pc_document fback;
+        bool found = false;
+        must(pc_buf_append(&fb, r.bytes, r.len, NULL));
+        fback = rt_import("x.tif", &fb);
+        for (size_t i = 0; i < fback.metadata.ntext && !found; i++) {
+            found = pc_str_eq_c(&fback.metadata.text[i].key, "Artist") &&
+                    pc_str_eq_c(&fback.metadata.text[i].value, ARTIST);
+        }
+        CHECK(found);
+        pc_document_fini(&fback);
+        pc_buf_fini(&fb);
+    }
     pc_io_export_result_fini(&r);
     pc_document_fini(&d);
 }
@@ -499,13 +514,14 @@ static void test_resolution_axes(void)
     CHECK_EQ_UINT(resolution_notes(&r, NULL, NULL), 0);
     pc_io_import_result_fini(&r);
     pc_buf_fini(&b);
-    /* Each axis is read in its own unit: 100 px/cm on both is 254 ppi on both. */
+    /* The Fixed hRes/vRes are pixels per inch whatever the display unit: a 100 ppi value with a
+     * cm unit still reads as 100 ppi (the unit does not convert the density). */
     ri = pc_psd_resolution_from_dpi(100.0);
     ri.h_res_unit = 2;
     ri.v_res_unit = 2;
     b = psd_with_resolution(ri);
     must(pc_io_import("x.psd", b.data, b.len, &r, NULL));
-    CHECK(fabsf(r.document.resolution_dpi - 254.0f) < 1e-3f);
+    CHECK(fabsf(r.document.resolution_dpi - 100.0f) < 1e-3f);
     CHECK_EQ_UINT(resolution_notes(&r, NULL, NULL), 0);
     pc_io_import_result_fini(&r);
     pc_buf_fini(&b);

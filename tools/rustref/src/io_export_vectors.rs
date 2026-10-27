@@ -34,7 +34,7 @@ use photocraft_psd::{Compression, ImageData, PsdFile};
 use photocraft_raster::Surface;
 use serde_json::json;
 
-#[path = "../../../crates/io/tests/common/mod.rs"]
+#[path = "../../../crates/io/tests/it/common/mod.rs"]
 mod common;
 
 use common::{Features, gen_doc, mask_surface, pattern, raster};
@@ -297,6 +297,7 @@ fn docs() -> Vec<(String, Document)> {
                 size: 3.0,
                 position: StrokePosition::Center,
                 paint: FxPaint::Color(Color::rgb(0.0, 1.0, 0.0)),
+                overprint: false,
             }),
         ];
         d.layers[1].effects.reference = Some((2.5, -1.0));
@@ -373,6 +374,8 @@ fn docs() -> Vec<(String, Document)> {
             live: Some(LiveShape::Rect { rect: [2.0, 2.0, 10.0, 7.0], radii: [0.0; 4] }),
             cache: Some(cache.clone()),
             psd_raw: None,
+            density: 1.0,
+            feather: 0.0,
         };
         d.layers.push(Layer::new("Shape", LayerContent::Shape(sh)));
         let nofill = ShapeLayer { path: rect_path(1.0, 1.0, 5.0, 5.0), fill: None, cache: Some(cache.clone()), ..Default::default() };
@@ -827,7 +830,7 @@ fn export_lines(name: &str, d: &Document) {
     for (variant, opts) in [
         ("d", PsdExportOptions::default()),
         ("b", PsdExportOptions { force_psb: true, ..Default::default() }),
-        ("t", PsdExportOptions { force_psb: false, merged_matte: false, merged_compression: Compression::Raw, maximize_compatibility: true }),
+        ("t", PsdExportOptions { force_psb: false, size_limit_psb: false, merged_matte: false, merged_compression: Compression::Raw, maximize_compatibility: true, document_path: None, read_linked_files: true }),
     ] {
         let (f, w) = document_to_psd_with(d, &opts);
         let (r, o) = psd_result(&f, &w);

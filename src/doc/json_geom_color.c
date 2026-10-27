@@ -180,6 +180,7 @@ static const jfield file_encoding_f[] = {
     JFOSKIP("jpegQuality", pc_file_encoding, jpeg_quality, has_jpeg_quality, pc_jt_u8, JD_ZERO),
     JFOSKIP("webpLossless", pc_file_encoding, webp_lossless, has_webp_lossless, pc_jt_bool, JD_ZERO),
     JFOSKIP("webpQuality", pc_file_encoding, webp_quality, has_webp_quality, pc_jt_u8, JD_ZERO),
+    JFOSKIP("pngStereo", pc_file_encoding, png_stereo, has_png_stereo, pc_jt_u8, JD_ZERO),
 };
 static const jstruct file_encoding_s = {"struct FileEncoding", file_encoding_f, JCOUNT(file_encoding_f), NULL,
                                         sizeof(pc_file_encoding)};

@@ -782,6 +782,8 @@ void pc_preset_state_fini(pc_preset_state *st)
     pc_json_value_fini(&st->layer_defaults);
     pc_preset_groups_fini(&st->swatches, pc_swatch_ops());
     pc_engine_document_presets_fini(st); /* E3: File > New presets / recent list */
+    pc_engine_contour_lib_fini(st);      /* R0-feat: user contour library */
+    pc_engine_export_presets_fini(st);   /* R0-feat: Export As presets */
     memset(st, 0, sizeof *st);
 }
 

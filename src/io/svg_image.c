@@ -182,6 +182,18 @@ static bool data_url(sv_conv *c, const char *href, char mime[64], uint8_t **data
 
 typedef enum { K_NONE, K_JPEG, K_PNG, K_GIF, K_WEBP } rkind;
 
+/* svg.rs png_dimensions: the PNG signature (8 bytes), the IHDR chunk's length and type (8 bytes),
+ * then big-endian width and height. Stricter than sniff_raster: the IHDR tag must be present. */
+static bool png_dims(const uint8_t *d, size_t n, uint32_t *w, uint32_t *h)
+{
+    if (n < 24 || memcmp(d, "\x89PNG\r\n\x1a\n", 8) != 0 || memcmp(d + 12, "IHDR", 4) != 0) {
+        return false;
+    }
+    *w = (uint32_t)d[16] << 24 | (uint32_t)d[17] << 16 | (uint32_t)d[18] << 8 | d[19];
+    *h = (uint32_t)d[20] << 24 | (uint32_t)d[21] << 16 | (uint32_t)d[22] << 8 | d[23];
+    return true;
+}
+
 /* imagesize's image_type, for the four formats usvg keeps. */
 static rkind sniff_raster(const uint8_t *d, size_t n)
 {
@@ -334,6 +346,33 @@ bool sv_load_href(sv_conv *c, const char *href, sv_href_image *out)
     } else {
         return false;
     }
+    /* svg.rs embedded_image_dimensions: a PNG or WebP (by MIME, or by magic bytes under
+     * text/plain) whose header does not parse is rejected before resvg decodes it (the
+     * reference's resolver returns Some(None)); so is one whose intrinsic RGBA storage would
+     * exceed MAX_EMBEDDED_IMAGE_BYTES (= MAX_RASTER_PIXELS * 4). This is why a JPEG served as
+     * image/png is dropped, not kept as an empty node. Other formats have no cheap header probe
+     * and fall through to the imagesize-style sizing below, as resvg's raster_images does. */
+    {
+        bool is_png = strcmp(mime, "image/png") == 0 ||
+                      (strcmp(mime, "text/plain") == 0 && len >= 8 && memcmp(data, "\x89PNG\r\n\x1a\n", 8) == 0);
+        bool is_webp = strcmp(mime, "image/webp") == 0 ||
+                       (strcmp(mime, "text/plain") == 0 && len >= 12 && memcmp(data, "RIFF", 4) == 0 &&
+                        memcmp(data + 8, "WEBP", 4) == 0);
+        uint32_t pw = 0;
+        uint32_t ph = 0;
+        if (is_png) {
+            if (!png_dims(data, len, &pw, &ph)) {
+                return false;
+            }
+        } else if (is_webp) {
+            if (sniff_raster(data, len) != K_WEBP || !header_size(data, len, &pw, &ph)) {
+                return false;
+            }
+        }
+        if ((is_png || is_webp) && (uint64_t)pw * ph > (uint64_t)24000000) {
+            return false;
+        }
+    }
     if (!header_size(data, len, &w, &h) || w == 0 || h == 0) {
         return false;
     }
@@ -473,10 +512,14 @@ void sv_convert_image(sv_conv *c, const st_node *n, const sv_cstate *st, sv_unod
     img->size_h = ah;
     img->transform = ts_identity();
     img->abs_transform = ts_pre_concat(parent->abs_transform, image_ts);
-    if (!rect_transform(rect, img->abs_transform, &img->abs_bbox)) {
+    /* The image's bounding box is its intrinsic (0,0,aw,ah) placed by abs_transform (which
+     * already carries the view scale and alignment through image_ts); transforming the target
+     * rect here instead would apply that scale a second time and push the box off-canvas, so
+     * every image but one at the origin was dropped as "outside the canvas". */
+    (void)rect_from_xywh(0.0f, 0.0f, aw, ah, &img->bbox);
+    if (!rect_transform(img->bbox, img->abs_transform, &img->abs_bbox)) {
         return;
     }
-    (void)rect_from_xywh(0.0f, 0.0f, aw, ah, &img->bbox);
     img->stroke_bbox = img->bbox;
     img->abs_stroke_bbox = img->abs_bbox;
     g->id = st->markers == NULL ? st_id(n) : "";

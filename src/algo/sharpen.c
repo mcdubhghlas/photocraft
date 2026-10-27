@@ -77,6 +77,33 @@ static pc_status with_blur(const pc_algo_image *src, pc_rect out, const pc_algo_
     return PC_OK;
 }
 
+/* The filter dialog caps radius at 1000; Preserve Details resampling can ask for more, so permit
+ * up to the limit at which the i32 kernel square stays safe (sharpen::exact). */
+#define UNSHARP_MAX_RADIUS 15446.0f
+
+static bool valid_area(pc_rect r)
+{
+    int32_t v[4];
+    int i;
+    if (r.x0 > r.x1 || r.y0 > r.y1 || pc_rect_width(r) > 300000u || pc_rect_height(r) > 300000u) {
+        return false;
+    }
+    v[0] = r.x0, v[1] = r.x1, v[2] = r.y0, v[3] = r.y1;
+    for (i = 0; i < 4; i++) {
+        if (v[i] < -1000000 || v[i] > 1000000) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool pc_algo_unsharp_valid(float amount, float radius, float threshold, pc_rect out, pc_rect src_rect)
+{
+    bool params = isfinite(amount) && isfinite(threshold) && isfinite(radius) && radius >= 0.0f &&
+                  radius <= UNSHARP_MAX_RADIUS;
+    return params && valid_area(out) && valid_area(src_rect);
+}
+
 pc_status pc_algo_unsharp_k(const pc_algo_image *src, pc_rect out, const pc_algo_ctx *ctx,
                             const pc_algo_unsharp_params *p, float *dst, pc_error *err)
 {

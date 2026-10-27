@@ -161,6 +161,7 @@ static bool gain_row(const pc_raw_sensor *s, size_t y, size_t x0, size_t w, size
     double rv;
     bool any = false;
     size_t mi;
+    (void)row_buf; /* gains are now interpolated per pixel (rx_gain_map_at_rv); no row buffer needed */
     if (s->ngain_maps == 0 || y < a.y || a.width == 0 || a.height == 0) {
         return false;
     }
@@ -173,7 +174,6 @@ static bool gain_row(const pc_raw_sensor *s, size_t y, size_t x0, size_t w, size
         if (k < m->plane || k >= pe || ay < m->top || ay >= m->bottom || (ay - m->top) % m->row_pitch != 0) {
             continue;
         }
-        rx_gain_map_row(m, rv, k - m->plane, row_buf);
         if (!any) {
             for (i = 0; i < w; i++) {
                 out[i] = 1.0f;
@@ -183,7 +183,7 @@ static bool gain_row(const pc_raw_sensor *s, size_t y, size_t x0, size_t w, size
         for (i = 0; i < w; i++) {
             size_t x = x0 + i;
             if (x >= a.x && rx_gain_map_covers(m, x - a.x, ay)) {
-                out[i] *= rx_gain_map_at(m, row_buf, ((double)(x - a.x) + 0.5) / (double)a.width);
+                out[i] *= rx_gain_map_at_rv(m, rv, k - m->plane, ((double)(x - a.x) + 0.5) / (double)a.width);
             }
         }
     }

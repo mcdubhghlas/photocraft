@@ -437,7 +437,7 @@ static void test_raw_tuning(void)
     CHECK(applied);
     CHECK(pc_io_warnings_any(&r.warnings,
                              "developed in Camera Raw (exposure +0.50 EV, as-shot white balance, "
-                             "temperature +25, tint -10)"));
+                             "temperature +25, tint -10, ahd demosaic)"));
     pc_io_import_result_fini(&r);
     t.exposure = 10.5f;
     CHECK(pc_io_import_raw_tuned("t.cr2", b.d, b.n, &t, &r, &applied, &e) == PC_ERR_FORMAT);

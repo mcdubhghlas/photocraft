@@ -350,3 +350,120 @@ pc_status pc_io_gradient_bake(const pc_io_color_stop *stops, size_t n, const flo
     *nout = k;
     return PC_OK;
 }
+
+/* Exponent of Photoshop's opacity response for Perceptual and Linear gradients: the opacity stops
+ * enter the method's space as if they were sRGB grey levels (Linear: linear light; Perceptual:
+ * Oklab L), and the interpolated linear-light value y comes out as opacity y^0.65 (fitted on
+ * Photoshop; see gradient_bake.rs). */
+#define OPACITY_RESPONSE 0.65f
+
+/* Opacity into the method's space. */
+static float opacity_into(pc_io_bake_method m, float o)
+{
+    o = isfinite(o) ? pc_clampf(o, 0.0f, 1.0f) : 1.0f;
+    switch (m) {
+    case PC_IO_BAKE_LINEAR:
+        return lin(o);
+    case PC_IO_BAKE_PERCEPTUAL:
+        return pc_cbrtf(lin(o));
+    default: /* Classic / Smooth */
+        return o;
+    }
+}
+
+/* Interpolated linear-light value back to opacity. */
+static float opacity_out(pc_io_bake_method m, float v)
+{
+    float y;
+    v = isfinite(v) ? v : 1.0f;
+    switch (m) {
+    case PC_IO_BAKE_LINEAR:
+        y = v;
+        break;
+    case PC_IO_BAKE_PERCEPTUAL:
+        y = v < 0.0f ? 0.0f : v * v * v;
+        break;
+    default: /* Classic / Smooth */
+        return pc_clampf(v, 0.0f, 1.0f);
+    }
+    return powf(pc_clampf(y, 0.0f, 1.0f), OPACITY_RESPONSE);
+}
+
+pc_status pc_io_gradient_bake_opacity(const pc_io_opacity_stop *stops, size_t n, const float *midpoints,
+                                      size_t nmid, float smoothness, pc_io_bake_method method,
+                                      pc_io_opacity_stop **out, size_t *nout, pc_error *err)
+{
+    bool plain_mids = true;
+    pc_io_opacity_stop *s;
+    pt *pts;
+    pc_io_opacity_stop *v;
+    size_t k = 0;
+    float smooth;
+    /* Smooth keeps Classic's opacity curve: it was not measured. */
+    if (method == PC_IO_BAKE_SMOOTH) {
+        method = PC_IO_BAKE_CLASSIC;
+    }
+    smooth = isfinite(smoothness) ? pc_clampf(smoothness, 0.0f, 1.0f) : 0.0f;
+    for (size_t i = 0; i < nmid; i++) {
+        if (!(fabsf(midpoints[i] - 0.5f) < 1e-3f)) {
+            plain_mids = false;
+        }
+    }
+    if (n < 2 || (smooth <= 0.0f && method == PC_IO_BAKE_CLASSIC && plain_mids)) {
+        v = pc_malloc_array(n > 0 ? n : 1, sizeof *v);
+        if (v == NULL) {
+            return pc_io_nomem(err, "baking gradient opacity");
+        }
+        if (n > 0) {
+            memcpy(v, stops, n * sizeof *v);
+        }
+        *out = v;
+        *nout = n;
+        return PC_OK;
+    }
+    s = pc_malloc_array(n, sizeof *s);
+    pts = pc_malloc_array(n, sizeof *pts);
+    v = pc_malloc_array(SAMPLES + 1, sizeof *v);
+    if (s == NULL || pts == NULL || v == NULL) {
+        free(s);
+        free(pts);
+        free(v);
+        return pc_io_nomem(err, "baking gradient opacity");
+    }
+    memcpy(s, stops, n * sizeof *s);
+    /* Stable insertion sort by position. */
+    for (size_t i = 1; i < n; i++) {
+        pc_io_opacity_stop x = s[i];
+        size_t j = i;
+        while (j > 0 && total_cmp(s[j - 1].at, x.at) > 0) {
+            s[j] = s[j - 1];
+            j--;
+        }
+        s[j] = x;
+    }
+    for (size_t i = 0; i < n; i++) {
+        float o = opacity_into(method, s[i].opacity);
+        pts[i].t = s[i].at;
+        pts[i].c[0] = o;
+        pts[i].c[1] = o;
+        pts[i].c[2] = o;
+    }
+    for (int32_t i = 0; i <= SAMPLES; i++) {
+        float t = (float)i / (float)SAMPLES;
+        float c[3];
+        pc_io_opacity_stop stop;
+        /* Smoothness and midpoints shape the curve as for Classic colours, in the method's space. */
+        eval(pts, n, midpoints, nmid, smooth, t, PC_IO_BAKE_CLASSIC, c);
+        stop.at = t;
+        stop.opacity = opacity_out(method, c[0]);
+        if (k > 0 && fabsf(stop.at - v[k - 1].at) < 1e-6f) {
+            continue;
+        }
+        v[k++] = stop;
+    }
+    free(s);
+    free(pts);
+    *out = v;
+    *nout = k;
+    return PC_OK;
+}

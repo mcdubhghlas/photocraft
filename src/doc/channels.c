@@ -286,12 +286,14 @@ bool pc_file_encoding_eq(const pc_file_encoding *a, const pc_file_encoding *b)
            a->has_webp_lossless == b->has_webp_lossless &&
            (!a->has_webp_lossless || a->webp_lossless == b->webp_lossless) &&
            a->has_webp_quality == b->has_webp_quality &&
-           (!a->has_webp_quality || a->webp_quality == b->webp_quality);
+           (!a->has_webp_quality || a->webp_quality == b->webp_quality) &&
+           a->has_png_stereo == b->has_png_stereo &&
+           (!a->has_png_stereo || a->png_stereo == b->png_stereo);
 }
 
 bool pc_file_encoding_is_empty(const pc_file_encoding *e)
 {
-    return !e->has_jpeg_quality && !e->has_webp_lossless && !e->has_webp_quality;
+    return !e->has_jpeg_quality && !e->has_webp_lossless && !e->has_webp_quality && !e->has_png_stereo;
 }
 
 void pc_metadata_fini(pc_metadata *m)

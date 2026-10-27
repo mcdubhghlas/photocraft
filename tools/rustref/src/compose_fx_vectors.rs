@@ -411,6 +411,7 @@ fn bevel(r: &mut Rng, pats: &[Pattern]) -> Bevel {
         altitude,
         use_global_light,
         gloss_contour,
+        gloss_anti_alias: false,
         highlight,
         highlight_color,
         shadow,
@@ -431,7 +432,7 @@ fn effect(r: &mut Rng, pats: &[Pattern]) -> Effect {
             let size = size(r);
             let position = POSITIONS[r.below(3) as usize];
             let paint = paint(r, pats);
-            Effect::Stroke(StrokeFx { common, size, position, paint })
+            Effect::Stroke(StrokeFx { common, size, position, paint, overprint: false })
         }
         5 => {
             let common = common(r);
@@ -622,7 +623,7 @@ fn unit_sweeps() {
     let mut h = H0;
     for &s in &vals {
         for p in POSITIONS {
-            let st = StrokeFx { common: FxCommon::new(BlendMode::Normal, 1.0), size: s, position: p, paint: FxPaint::Color(Color::BLACK) };
+            let st = StrokeFx { common: FxCommon::new(BlendMode::Normal, 1.0), size: s, position: p, paint: FxPaint::Color(Color::BLACK), overprint: false };
             let (a, b) = fx::stroke_widths(&st);
             hf(&mut h, a);
             hf(&mut h, b);

@@ -106,7 +106,12 @@ static pc_status write_gradient_map(const pc_gradient_map_stop *stops, size_t n,
             st = put16(v, mm[i], err);
         }
     }
-    return st != PC_OK ? st : put16(v, 0, err);
+    st = st != PC_OK ? st : put16(v, 0, err);
+    /* Photoshop includes the two-byte pad in the `grdm` length when the block is 2 mod 4 (#8070). */
+    while (st == PC_OK && v->len % 4 != 0) {
+        st = put_byte(v, 0, err);
+    }
+    return st;
 }
 
 static pc_status add_value(pc_psd_desc *d, const char *key, pc_psd_value v, pc_error *err)
@@ -185,15 +190,37 @@ static pc_status write_brit(const pc_adjustment *adj, pc_buf *v, pc_buf *cged, p
 
 static pc_status write_hue(const pc_adjustment *adj, pc_buf *v, pc_error *err)
 {
-    const float hsl[3] = {adj->u.hue_saturation.hue, adj->u.hue_saturation.saturation,
-                          adj->u.hue_saturation.lightness};
-    pc_status st = put16(v, 2, err);
-    st = st != PC_OK ? st : put_byte(v, adj->u.hue_saturation.colorize, err);
+    bool colorize = adj->u.hue_saturation.colorize;
+    float hue = adj->u.hue_saturation.hue;
+    float sat = adj->u.hue_saturation.saturation;
+    float light = adj->u.hue_saturation.lightness;
+    /* The colorize triplet, then the master triplet. The inactive one gets Photoshop's defaults;
+     * the colorize hue (0..360 in the model) is stored signed, -180..180 (adjust_map.rs). */
+    float colorize_hsl[3];
+    float master[3];
+    pc_status st;
+    if (colorize) {
+        float h = rem_euclid(hue, 360.0f);
+        colorize_hsl[0] = h > 180.0f ? h - 360.0f : h;
+        colorize_hsl[1] = sat;
+        colorize_hsl[2] = light;
+        master[0] = master[1] = master[2] = 0.0f;
+    } else {
+        colorize_hsl[0] = 30.0f;
+        colorize_hsl[1] = 25.0f;
+        colorize_hsl[2] = 0.0f;
+        master[0] = hue;
+        master[1] = sat;
+        master[2] = light;
+    }
+    st = put16(v, 2, err);
+    st = st != PC_OK ? st : put_byte(v, colorize, err);
     st = st != PC_OK ? st : put_byte(v, 0, err);
-    for (size_t t = 0; t < 2; t++) {
-        for (size_t i = 0; i < 3 && st == PC_OK; i++) {
-            st = put_i16(v, clamp_i16(hsl[i]), err);
-        }
+    for (size_t i = 0; i < 3 && st == PC_OK; i++) {
+        st = put_i16(v, clamp_i16(colorize_hsl[i]), err);
+    }
+    for (size_t i = 0; i < 3 && st == PC_OK; i++) {
+        st = put_i16(v, clamp_i16(master[i]), err);
     }
     /* Six hue ranges (reds ... magentas): range values in 0..360, then hue, saturation, lightness. */
     for (size_t r = 0; r < 6 && st == PC_OK; r++) {

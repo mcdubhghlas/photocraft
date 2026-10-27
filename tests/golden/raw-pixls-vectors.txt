@@ -24,7 +24,7 @@ pdevelop IMG_4059.CR2 bilinear 1733c3a5763f0fe1
 pdevelop IMG_4059.CR2 ahd 1e33599994d7ceca
 pfile JD1_8203.NEF 8891234 ff9e64292529973b
 ppreviews JD1_8203.NEF 1 4256x2832:583324
-pcspace JD1_8203.NEF none
+pcspace JD1_8203.NEF Srgb
 pdecode JD1_8203.NEF cb717cfefc9cec62
 pdevelop JD1_8203.NEF bilinear a7ba072b85ba00ce
 pdevelop JD1_8203.NEF ahd 2183fd04ad31523f

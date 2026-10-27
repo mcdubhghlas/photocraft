@@ -16,6 +16,7 @@ const pc_casymmetric PC_ASYMMETRIC_EXCEPTIONS[] = {
 const size_t PC_ASYMMETRIC_EXCEPTIONS_LEN = sizeof PC_ASYMMETRIC_EXCEPTIONS / sizeof PC_ASYMMETRIC_EXCEPTIONS[0];
 
 static const pc_csample D_U8[] = {PC_CS_U8};
+static const pc_csample D_U16[] = {PC_CS_U16};
 static const pc_csample D_U8_U16[] = {PC_CS_U8, PC_CS_U16};
 static const pc_csample D_INT_F32[] = {PC_CS_U8, PC_CS_U16, PC_CS_F32};
 static const pc_csample D_FLOAT[] = {PC_CS_F16, PC_CS_F32};
@@ -23,6 +24,9 @@ static const pc_csample D_F32[] = {PC_CS_F32};
 static const pc_clayout L_RGB_RGBA[] = {PC_CL_RGB, PC_CL_RGBA};
 static const pc_clayout L_RGB_GRAY[] = {PC_CL_GRAY, PC_CL_GRAYA, PC_CL_RGB, PC_CL_RGBA};
 static const pc_clayout L_ALL[] = {PC_CL_GRAY, PC_CL_GRAYA, PC_CL_RGB, PC_CL_RGBA, PC_CL_CMYK, PC_CL_CMYKA};
+/* TIFF also stores CIE L*a*b* (CIELab). */
+static const pc_clayout L_TIFF[] = {PC_CL_GRAY,  PC_CL_GRAYA, PC_CL_RGB, PC_CL_RGBA,
+                                    PC_CL_CMYK,  PC_CL_CMYKA, PC_CL_LAB, PC_CL_LABA};
 static const pc_clayout L_JPEG[] = {PC_CL_GRAY, PC_CL_RGB, PC_CL_CMYK};
 static const pc_clayout L_RGBA[] = {PC_CL_RGBA};
 static const pc_clayout L_RGB[] = {PC_CL_RGB};
@@ -59,9 +63,11 @@ pc_ccaps pc_cformat_caps(pc_cformat f)
     case PC_CF_TIFF:
         c.depths = D_INT_F32;
         c.ndepths = 3;
-        c.layouts = L_ALL;
-        c.nlayouts = 6;
-        c.icc = c.xmp = c.dpi = c.text = true;
+        c.layouts = L_TIFF;
+        c.nlayouts = 8;
+        /* TIFF carries EXIF: its Exif (34665) and GPS (34853) directories and IFD0's descriptive
+         * tags are written and read through src/codecs tiff_exif (cx_exif_*). */
+        c.icc = c.exif = c.xmp = c.dpi = c.text = true;
         break;
     case PC_CF_WEBP:
         c.icc = c.exif = c.xmp = c.animation = true;
@@ -125,6 +131,18 @@ pc_ccaps pc_cformat_caps(pc_cformat f)
         c.alpha = true;
         c.text = true; /* the DPX header fields only (see pc_cfidelity_warnings_with) */
         break;
+    case PC_CF_DDS:
+        /* Uncompressed by default; a block compression is lossy (see pc_cfidelity_warnings_with). */
+        c.layouts = L_RGB_GRAY;
+        c.nlayouts = 4;
+        break;
+    case PC_CF_CINEON:
+        c.depths = D_U16;
+        c.ndepths = 1;
+        c.layouts = L_GRAY_RGB;
+        c.nlayouts = 2;
+        c.alpha = false;
+        break;
     case PC_CF_AVIF:
         c.read = false;
         c.write = false;
@@ -150,7 +168,8 @@ const char *pc_cformat_name(pc_cformat f)
 {
     static const char *const N[PC_CF_COUNT] = {"PNG",          "JPEG", "TIFF",   "WebP", "GIF",  "BMP",
                                                "TGA",          "ICO",  "Netpbm", "PCX",  "QOI",  "OpenEXR",
-                                               "Radiance HDR", "AVIF", "HEIF",   "FITS", "DPX"};
+                                               "Radiance HDR", "AVIF", "HEIF",   "FITS", "DPX",  "DDS",
+                                               "Cineon"};
     return (unsigned)f < PC_CF_COUNT ? N[f] : "?";
 }
 
@@ -158,7 +177,8 @@ const char *pc_cformat_debug(pc_cformat f)
 {
     static const char *const N[PC_CF_COUNT] = {"Png", "Jpeg", "Tiff", "WebP", "Gif",  "Bmp",
                                                "Tga", "Ico",  "Pnm",  "Pcx",  "Qoi",  "OpenExr",
-                                               "Hdr", "Avif", "Heif", "Fits", "Dpx"};
+                                               "Hdr", "Avif", "Heif", "Fits", "Dpx",  "Dds",
+                                               "Cineon"};
     return (unsigned)f < PC_CF_COUNT ? N[f] : "?";
 }
 
@@ -181,8 +201,10 @@ const char *const *pc_cformat_extensions(pc_cformat f)
     static const char *const PCX[] = {"pcx", NULL};
     static const char *const FITS[] = {"fits", "fit", "fts", NULL};
     static const char *const DPX[] = {"dpx", NULL};
-    static const char *const *const ALL[PC_CF_COUNT] = {PNG, JPEG, TIFF, WEBP, GIF,  BMP,  TGA, ICO, PNM,
-                                                        PCX, QOI,  EXR,  HDR,  AVIF, HEIF, FITS, DPX};
+    static const char *const DDS[] = {"dds", NULL};
+    static const char *const CINEON[] = {"cin", NULL};
+    static const char *const *const ALL[PC_CF_COUNT] = {PNG, JPEG, TIFF, WEBP, GIF,  BMP,  TGA,  ICO,   PNM, PCX,
+                                                        QOI, EXR,  HDR,  AVIF, HEIF, FITS, DPX,  DDS,   CINEON};
     return (unsigned)f < PC_CF_COUNT ? ALL[f] : HEIF + 3;
 }
 
@@ -194,7 +216,8 @@ const char *pc_cformat_mime(pc_cformat f)
         "image/x-tga",        "image/x-icon", "image/x-portable-anymap",
         "image/x-pcx",        "image/qoi",    "image/x-exr",
         "image/vnd.radiance", "image/avif",   "image/heif",
-        "image/fits",         "image/x-dpx"};
+        "image/fits",         "image/x-dpx",  "image/vnd-ms.dds",
+        "image/x-cin"};
     return (unsigned)f < PC_CF_COUNT ? N[f] : "image/unknown";
 }
 
@@ -327,8 +350,12 @@ bool pc_cformat_detect(const uint8_t *b, size_t n, pc_cformat *out)
     } else if (n >= 3 && b[0] == 'P' && ((b[1] >= '1' && b[1] <= '7') || b[1] == 'F' || b[1] == 'f') &&
                is_space(b[2])) {
         f = PC_CF_PNM;
+    } else if (starts(b, n, "DDS ", 4)) {
+        f = PC_CF_DDS;
     } else if (starts(b, n, "SDPX", 4) || starts(b, n, "XPDS", 4)) {
         f = PC_CF_DPX;
+    } else if (n >= 4 && b[0] == 0x80 && b[1] == 0x2A && b[2] == 0x5F && b[3] == 0xD7) {
+        f = PC_CF_CINEON;
     } else if (starts(b, n, "SIMPLE  =", 9)) {
         f = PC_CF_FITS;
     } else if (cx_pcx_looks_like(b, n)) {

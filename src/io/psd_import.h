@@ -25,6 +25,13 @@ extern const char PC_IO_REGENERATED[9][5];
  * before import; iterative). */
 size_t pc_io_psd_group_depth(const pc_psd_file *file);
 
+/* Whether a merged image damaged after a fully-parsed layer stack can be discarded and the
+ * document rebuilt from its layers (psd_import::can_recover_layers): a layered colour mode
+ * (Grayscale / RGB / CMYK / Lab), not 1-bit, with at least one layer. Flattened and multichannel
+ * modes *are* the merged image, so theirs cannot be discarded. Used as the `recover` predicate of
+ * pc_psd_file_parse_recovering. */
+bool pc_io_psd_can_recover_layers(const pc_psd_file *file);
+
 /* Converts a parsed PSD into a document; problems become warnings appended to *warnings (the
  * reference never fails; C fails only on out of memory). *out initialised on success. */
 pc_status pc_io_psd_to_document(const pc_psd_file *file, pc_document *out, pc_io_warnings *warnings,

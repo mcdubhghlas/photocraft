@@ -919,7 +919,8 @@ static bool preset(mapper *m, const pc_psd_desc *d, pc_paint_brush *out)
         (void)num(d, "brushPoseAngle", &v);
         p->rotation = pc_f64_to_f32(rem_euclid(v, 360.0));
         p->pressure = pc_clampf(pct_or(d, "brushPosePressure", 1.0f), 0.0f, 1.0f);
-        p->override_tilt = bool_or(d, "overridePoseTiltX", false) || bool_or(d, "overridePoseTiltY", false);
+        p->override_tilt_x = bool_or(d, "overridePoseTiltX", false);
+        p->override_tilt_y = bool_or(d, "overridePoseTiltY", false);
         p->override_rotation = bool_or(d, "overridePoseAngle", false);
         p->override_pressure = bool_or(d, "overridePosePressure", false);
     }

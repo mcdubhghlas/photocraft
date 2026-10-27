@@ -16,6 +16,7 @@
 #include "io/annotations_map.h"
 #include "io/channel_map.h"
 #include "io/comps_map.h"
+#include "io/flat.h"
 #include "io/pattern_map.h"
 #include "io/pixels.h"
 #include "io/psd_import_internal.h"
@@ -197,6 +198,147 @@ static uint32_t rd32(const uint8_t *d)
     return (uint32_t)d[0] << 24 | (uint32_t)d[1] << 16 | (uint32_t)d[2] << 8 | d[3];
 }
 
+/* Duotone Color Mode Data (colour mode 8), port of crates/io duotone_map::parse. The block is
+ * undocumented; Photoshop writes 524 bytes with 1-4 inks (colour + name + transfer curve each). */
+#define PC_DUO_DOT_GAIN_AT 412
+#define PC_DUO_NAMES_AT 44
+#define PC_DUO_CURVES_AT 300
+
+static bool duo_u16(const uint8_t *b, size_t len, size_t at, uint16_t *out)
+{
+    if (at + 2 > len) {
+        return false;
+    }
+    *out = (uint16_t)((uint16_t)b[at] << 8 | b[at + 1]);
+    return true;
+}
+
+/* The sRGB display colour of the 10-byte colour structure at `at`; false for a colour book or a
+ * space we cannot show. */
+static bool duo_display(const uint8_t *b, size_t len, size_t at, float out[3])
+{
+    uint16_t space;
+    uint16_t c[4];
+    pc_color col;
+    float rgb[3];
+    if (!duo_u16(b, len, at, &space) || !duo_u16(b, len, at + 2, &c[0]) ||
+        !duo_u16(b, len, at + 4, &c[1]) || !duo_u16(b, len, at + 6, &c[2]) ||
+        !duo_u16(b, len, at + 8, &c[3])) {
+        return false;
+    }
+    if (!pc_io_decode_known_color(space, c, &col)) {
+        return false;
+    }
+    pc_color_to_rgb(&col, rgb);
+    for (size_t i = 0; i < 3; i++) {
+        out[i] = pc_clampf(rgb[i], 0.0f, 1.0f);
+    }
+    return true;
+}
+
+/* Parse the Duotone inks (colours, names, curves). Returns false when the block is not one this
+ * reads (caller keeps it raw). `alt` is image resource 1066 (Alternate Duotone Colors), which
+ * gives a colour-book ink its colour. */
+static pc_status duotone_parse(const uint8_t *b, size_t len, const uint8_t *alt, size_t altlen,
+                               pc_duotone_ink **out, size_t *nout, bool *unknown, bool *ok, pc_error *err)
+{
+    static const uint16_t curve_at[13] = {0, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 100};
+    uint16_t ver;
+    uint16_t nn;
+    pc_duotone_ink *inks;
+    *ok = false;
+    *unknown = false;
+    if (len < PC_DUO_DOT_GAIN_AT || !duo_u16(b, len, 0, &ver) || ver != 1 || !duo_u16(b, len, 2, &nn) ||
+        nn < 1 || nn > 4) {
+        return PC_OK;
+    }
+    inks = pc_malloc_array(nn, sizeof *inks);
+    if (inks == NULL) {
+        return pc_io_nomem(err, "reading duotone inks");
+    }
+    for (size_t i = 0; i < nn; i++) {
+        float color[3] = {0.0f, 0.0f, 0.0f};
+        size_t name_at = PC_DUO_NAMES_AT + 64 * i;
+        size_t curve_base = PC_DUO_CURVES_AT + 28 * i;
+        uint8_t nlen;
+        char namebuf[64];
+        pc_curve_point pts[13];
+        size_t np = 0;
+        pc_status st;
+        bool alt_ok = false;
+        uint16_t av;
+        uint16_t ac;
+        if (alt != NULL && duo_u16(alt, altlen, 0, &av) && av == 1 && duo_u16(alt, altlen, 2, &ac) &&
+            (size_t)ac > i) {
+            alt_ok = true;
+        }
+        if (!duo_display(b, len, 4 + 10 * i, color) && !(alt_ok && duo_display(alt, altlen, 4 + 10 * i, color))) {
+            *unknown = true;
+            color[0] = color[1] = color[2] = 0.0f;
+        }
+        /* Pascal name (length byte, then bytes). */
+        if (name_at >= len) {
+            for (size_t k = 0; k < i; k++) {
+                pc_duotone_ink_fini(&inks[k]);
+            }
+            free(inks);
+            return PC_OK; /* truncated: keep raw */
+        }
+        nlen = b[name_at];
+        if (nlen > 63) {
+            nlen = 63;
+        }
+        if (name_at + 1 + nlen > len) {
+            for (size_t k = 0; k < i; k++) {
+                pc_duotone_ink_fini(&inks[k]);
+            }
+            free(inks);
+            return PC_OK;
+        }
+        memcpy(namebuf, b + name_at + 1, nlen);
+        namebuf[nlen] = '\0';
+        /* Transfer curve: 13 points; -1 (i16) leaves a point out. */
+        for (size_t k = 0; k < 13; k++) {
+            uint16_t raw;
+            int16_t v;
+            if (!duo_u16(b, len, curve_base + 2 * k, &raw)) {
+                raw = 0;
+            }
+            v = (int16_t)raw;
+            if (v >= 0) {
+                float o = (float)v / 1000.0f;
+                pts[np].input = (float)curve_at[k] / 100.0f;
+                pts[np].output = o < 0.0f ? 0.0f : (o > 1.0f ? 1.0f : o);
+                np++;
+            }
+        }
+        st = pc_duotone_ink_new(namebuf, color, &inks[i], err);
+        if (st == PC_OK && np >= 2) {
+            pc_curve_point *cp = pc_malloc_array(np, sizeof *cp);
+            if (cp == NULL) {
+                st = pc_io_nomem(err, "reading a duotone curve");
+                pc_duotone_ink_fini(&inks[i]);
+            } else {
+                memcpy(cp, pts, np * sizeof *cp);
+                pc_curve_fini(&inks[i].curve);
+                inks[i].curve.pts = cp;
+                inks[i].curve.len = np;
+            }
+        }
+        if (st != PC_OK) {
+            for (size_t k = 0; k < i; k++) {
+                pc_duotone_ink_fini(&inks[k]);
+            }
+            free(inks);
+            return st;
+        }
+    }
+    *out = inks;
+    *nout = nn;
+    *ok = true;
+    return PC_OK;
+}
+
 static pc_status parse_guides(const uint8_t *data, size_t len, pc_document *doc, pc_error *err)
 {
     uint32_t count;
@@ -293,14 +435,10 @@ static pc_status read_resources(const pc_psd_file *file, pc_document *doc, pc_io
         if (r->id == PC_PSD_RES_RESOLUTION_INFO) {
             pc_psd_resolution ri;
             if (pc_psd_resolution_parse(d, len, &ri, NULL) == PC_OK) {
+                /* Fixed 16.16 hRes/vRes are pixels per inch. The unit shorts only say how to
+                 * show that number (1 = px/in, 2 = px/cm); they do not convert the density. */
                 double x = pc_psd_resolution_h(&ri);
                 double y = pc_psd_resolution_v(&ri);
-                if (ri.h_res_unit == 2) {
-                    x *= 2.54;
-                }
-                if (ri.v_res_unit == 2) {
-                    y *= 2.54;
-                }
                 doc->resolution_dpi = pc_f64_to_f32(x);
                 st = pc_io_unequal_resolution_warning(x, y, warnings, err);
             }
@@ -752,34 +890,79 @@ static pc_status flattened(pc_io_imp *cx, pc_document *doc, const pc_psd_bytes *
         return st;
     }
     if (h->color_mode == PC_PSD_MODE_INDEXED && file->color_mode_data.len >= 768) {
-        /* Planar palette: 256 reds, 256 greens, 256 blues (the Color Table). */
+        /* Planar palette: 256 reds, 256 greens, 256 blues (the Color Table). Resource 1046 says
+         * how many entries are used, 1047 which one is transparent. */
         const uint8_t *m = file->color_mode_data.data;
-        doc->color_table.colors = pc_malloc_array(256, sizeof *doc->color_table.colors);
+        const pc_psd_resource *cr = pc_psd_file_resource(file, 1046);
+        const pc_psd_resource *tr = pc_psd_file_resource(file, 1047);
+        size_t count = 256;
+        if (cr != NULL && cr->data.len >= 2) {
+            count = (size_t)((uint16_t)cr->data.data[0] << 8 | cr->data.data[1]);
+            count = count < 1 ? 1 : (count > 256 ? 256 : count);
+        }
+        doc->color_table.colors = pc_malloc_array(count, sizeof *doc->color_table.colors);
         if (doc->color_table.colors == NULL) {
             return pc_io_nomem(err, "reading the color table");
         }
-        for (size_t i = 0; i < 256; i++) {
+        for (size_t i = 0; i < count; i++) {
             doc->color_table.colors[i][0] = m[i];
             doc->color_table.colors[i][1] = m[256 + i];
             doc->color_table.colors[i][2] = m[512 + i];
         }
-        doc->color_table.ncolors = 256;
+        doc->color_table.ncolors = count;
+        if (tr != NULL && tr->data.len >= 2) {
+            size_t ti = (size_t)((uint16_t)tr->data.data[0] << 8 | tr->data.data[1]);
+            if (ti < count) {
+                doc->color_table.has_transparent = true;
+                doc->color_table.transparent = (uint8_t)ti;
+            }
+        }
         doc->has_color_table = true;
     } else if (h->color_mode == PC_PSD_MODE_DUOTONE && file->color_mode_data.len > 0) {
-        /* The duotone ink block is undocumented: keep it raw; the image shows as its gray plate. */
+        /* Duotone inks: colours, names and transfer curves from the Color Mode Data, with any
+         * colour-book ink's colour taken from image resource 1066. The raw block is kept so the
+         * dot-gain and overprint data (not modelled here) survive the round trip; a block this
+         * can't read shows as the gray plate. */
         const float black[3] = {0.0f, 0.0f, 0.0f};
+        const pc_psd_resource *altr = pc_psd_file_resource(file, 1066);
+        const uint8_t *alt = altr != NULL ? altr->data.data : NULL;
+        size_t altlen = altr != NULL ? altr->data.len : 0;
         pc_duotone d;
+        pc_duotone_ink *inks = NULL;
+        size_t ninks = 0;
+        bool parsed = false;
+        bool unknown = false;
         memset(&d, 0, sizeof d);
-        d.inks = pc_malloc_array(1, sizeof *d.inks);
-        if (d.inks == NULL) {
-            return pc_io_nomem(err, "reading duotone inks");
-        }
-        st = pc_duotone_ink_new("Black", black, &d.inks[0], err);
+        st = duotone_parse(file->color_mode_data.data, file->color_mode_data.len, alt, altlen, &inks, &ninks,
+                           &unknown, &parsed, err);
         if (st != PC_OK) {
-            free(d.inks);
             return st;
         }
-        d.ninks = 1;
+        /* An ink whose colour is unknown (a colour book without its Lab equivalent) would show
+         * black and darken the image: discard the inks and show the grey plate instead. */
+        if (parsed && unknown) {
+            for (size_t k = 0; k < ninks; k++) {
+                pc_duotone_ink_fini(&inks[k]);
+            }
+            free(inks);
+            inks = NULL;
+            parsed = false;
+        }
+        if (parsed) {
+            d.inks = inks;
+            d.ninks = ninks;
+        } else {
+            d.inks = pc_malloc_array(1, sizeof *d.inks);
+            if (d.inks == NULL) {
+                return pc_io_nomem(err, "reading duotone inks");
+            }
+            st = pc_duotone_ink_new("Black", black, &d.inks[0], err);
+            if (st != PC_OK) {
+                free(d.inks);
+                return st;
+            }
+            d.ninks = 1;
+        }
         st = pc_io_set_blob(&d.psd_raw, file->color_mode_data.data, file->color_mode_data.len, err);
         if (st != PC_OK) {
             pc_duotone_fini(&d);
@@ -787,7 +970,10 @@ static pc_status flattened(pc_io_imp *cx, pc_document *doc, const pc_psd_bytes *
         }
         doc->duotone = d;
         doc->has_duotone = true;
-        st = pc_io_warn(cx->warnings, err, "%s", "duotone inks are not interpreted (shown as grayscale)");
+        /* A colour-book ink whose colour cannot be shown leaves the image on its gray plate. */
+        if (!parsed || unknown) {
+            st = pc_io_warn(cx->warnings, err, "%s", "duotone inks are not interpreted (shown as grayscale)");
+        }
     } else if (file->color_mode_data.len > 0) {
         st = pc_io_warn(cx->warnings, err, "%s", "color mode data is not preserved");
     }
@@ -797,6 +983,32 @@ static pc_status flattened(pc_io_imp *cx, pc_document *doc, const pc_psd_bytes *
     st = flat_rgba(file, merged, merged_ok, &img, &ok, err);
     if (st != PC_OK || !ok) {
         return st;
+    }
+    /* Resource 1047: pixels of the Indexed transparent entry are transparent. */
+    if (h->color_mode == PC_PSD_MODE_INDEXED && doc->has_color_table &&
+        doc->color_table.has_transparent && merged_ok) {
+        size_t hh = h->height;
+        size_t w = h->width;
+        size_t plane = pc_psd_header_row_bytes(h) * hh;
+        size_t n = w * hh;
+        if (plane > 0 && plane <= merged->len) {
+            pc_psd_bytes p = {NULL, 0};
+            pc_error e2;
+            pc_status st2 = pc_psd_plane_to_u8(merged->data, plane, h->depth, w, hh, &p, &e2);
+            if (st2 == PC_OK && p.len >= n && img.data.len >= n * 4) {
+                uint8_t t = doc->color_table.transparent;
+                for (size_t i = 0; i < n; i++) {
+                    if (p.data[i] == t) {
+                        img.data.data[i * 4 + 3] = 0;
+                    }
+                }
+            }
+            pc_psd_bytes_fini(&p);
+            if (st2 == PC_ERR_NOMEM) {
+                pc_psd_image8_fini(&img);
+                return pc_io_nomem(err, "decoding the composite");
+            }
+        }
     }
     {
         size_t n = (size_t)img.width * img.height;
@@ -834,10 +1046,17 @@ static pc_status flattened(pc_io_imp *cx, pc_document *doc, const pc_psd_bytes *
             return st;
         }
         pc_surface_prune(&c.u.raster);
-        st = pc_layer_init(&bg, "Background", &c, err);
-        if (st != PC_OK) {
-            pc_surface_fini(&c.u.raster);
-            return st;
+        {
+            /* Like Photoshop, an opaque flat image opens as the locked Background; one with a
+             * transparent pixel (e.g. an Indexed file's transparent entry) stays unlocked. */
+            bool opaque = pc_io_opaque_surface(&c.u.raster, pc_surface_content_bounds(&c.u.raster));
+            st = pc_layer_init(&bg, "Background", &c, err);
+            if (st != PC_OK) {
+                pc_surface_fini(&c.u.raster);
+                return st;
+            }
+            bg.locks.transparency = opaque;
+            bg.locks.position = opaque;
         }
         return push_layer(doc, &bg, err);
     }
@@ -1004,6 +1223,28 @@ static pc_status layered(pc_io_imp *cx, pc_document *doc, const pc_psd_bytes *me
     st = pc_io_imp_build(cx, tree, ntree, 0, &doc->layers, &doc->nlayers, err);
     pc_cmyk_space_leave(prev);
     pc_cmyk_space_release(space);
+    /* Photoshop's Background: the bottom record stored without a transparency channel (-1),
+     * locked whatever its (localized) name and whether or not the file carries an `lspf`
+     * block. Its name is kept. */
+    if (st == PC_OK) {
+        size_t nrec = 0;
+        const pc_psd_layer *recs = pc_psd_file_layers(file, &nrec);
+        if (nrec > 0 && doc->nlayers > 0) {
+            const pc_psd_layer *rec = &recs[0];
+            pc_layer *bottom = &doc->layers[0];
+            bool opaque_record = rec->nchannels > 0;
+            for (size_t c = 0; c < rec->nchannels; c++) {
+                if (rec->channels[c].id < 0) {
+                    opaque_record = false;
+                    break;
+                }
+            }
+            if (opaque_record && bottom->content.kind == PC_LAYER_RASTER && !bottom->clipped) {
+                bottom->locks.transparency = true;
+                bottom->locks.position = true;
+            }
+        }
+    }
     /* Layer > Link Layers: resource 1026 holds one group id per layer record (0 = unlinked). */
     gi = st == PC_OK ? pc_psd_file_resource(file, PC_PSD_RES_LAYER_GROUP_INFO) : NULL;
     if (gi != NULL) {
@@ -1022,6 +1263,16 @@ static pc_status layered(pc_io_imp *cx, pc_document *doc, const pc_psd_bytes *me
         st = merged_background(cx, doc, merged, err);
     }
     return st;
+}
+
+bool pc_io_psd_can_recover_layers(const pc_psd_file *file)
+{
+    const pc_psd_header *h = &file->header;
+    size_t nl = 0;
+    (void)pc_psd_file_layers(file, &nl);
+    return (h->color_mode == PC_PSD_MODE_GRAYSCALE || h->color_mode == PC_PSD_MODE_RGB ||
+            h->color_mode == PC_PSD_MODE_CMYK || h->color_mode == PC_PSD_MODE_LAB) &&
+           h->depth != 1 && nl > 0;
 }
 
 pc_status pc_io_psd_to_document_with(const pc_psd_file *file, const pc_interrupt *ctl, pc_document *out,
@@ -1108,6 +1359,12 @@ pc_status pc_io_psd_to_document_with(const pc_psd_file *file, const pc_interrupt
             if (!merged_ok) {
                 TRY(pc_io_warn(warnings, err, "merged image could not be decoded: %s", e.msg));
             }
+        } else if (file->image_damaged) {
+            /* The merged composite is not read for this layered file, but the parse accepted a
+             * damaged one (pc_psd_file_parse_recovering): the layers opened instead. Report it as
+             * the reference does (psd_import::psd_to_document_decoded). */
+            TRY(pc_io_warn(warnings, err, "merged image could not be decoded; opened the available layers instead: %s",
+                           file->image_error.msg));
         }
     }
 

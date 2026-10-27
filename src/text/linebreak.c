@@ -41,7 +41,10 @@ typedef struct breaker {
     line_state line;
     bool has_prev;
     prev_boundary prev;
+    bool has_emergency;
+    prev_boundary emergency;
     bool done;
+    bool break_word; /* box overflow-wrap: break a word wider than the box at a grapheme edge */
 } breaker;
 
 typedef enum yield { Y_NONE, Y_LINE, Y_MAX_HEIGHT } yield;
@@ -78,6 +81,12 @@ static void mark_break(breaker *b)
 {
     b->has_prev = true;
     b->prev = (prev_boundary){b->item_idx, b->run_idx, b->cluster_idx, b->line};
+}
+
+static void mark_emergency(breaker *b)
+{
+    b->has_emergency = true;
+    b->emergency = (prev_boundary){b->item_idx, b->run_idx, b->cluster_idx, b->line};
 }
 
 static size_t cluster_text_start(const pl_run *r, const pl_cluster *c)
@@ -364,6 +373,7 @@ static pc_status start_new_line(breaker *b, pl_break_reason reason, float max_ad
     b->line.x = 0.0f;
     b->line.running_line_height = 0.0f;
     b->has_prev = false;
+    b->has_emergency = false;
     st = finish_line(b, b->nlines - 1, h, err);
     b->line_y += (double)h;
     return st;
@@ -415,6 +425,11 @@ static pc_status break_next(breaker *b, yield *y, pc_error *err)
                 append_cluster(b, b->line.x, lh);
                 *y = Y_LINE;
                 return start_new_line(b, PL_BREAK_EXPLICIT, max_advance, indent, err);
+            } else if (b->break_word && !lig_cont && b->line.x != 0.0f) {
+                /* Overflow-wrap break-word: a cluster that is not at the line start is an
+                 * emergency break opportunity, so a word wider than the box breaks at a
+                 * grapheme edge instead of running out of the box (parley OverflowWrap). */
+                mark_emergency(b);
             }
             advance = c->advance;
             if ((c->flags & PL_CLUSTER_LIGATURE_START) != 0) {
@@ -455,6 +470,14 @@ static pc_status break_next(breaker *b, yield *y, pc_error *err)
                 b->line = b->prev.state;
                 *y = Y_LINE;
                 return start_new_line(b, PL_BREAK_REGULAR, max_advance, indent, err);
+            } else if (b->has_emergency) {
+                b->has_emergency = false;
+                b->item_idx = b->emergency.item_idx;
+                b->run_idx = b->emergency.run_idx;
+                b->cluster_idx = b->emergency.cluster_idx;
+                b->line = b->emergency.state;
+                *y = Y_LINE;
+                return start_new_line(b, PL_BREAK_EMERGENCY, max_advance, indent, err);
             } else {
                 if (exceeded) {
                     *y = Y_MAX_HEIGHT;
@@ -474,7 +497,7 @@ static pc_status break_next(breaker *b, yield *y, pc_error *err)
     return start_new_line(b, PL_BREAK_NONE, max_advance, indent, err);
 }
 
-pc_status pl_break_all_lines(pl_layout *l, float max_advance, pc_error *err)
+pc_status pl_break_all_lines(pl_layout *l, float max_advance, bool break_word, pc_error *err)
 {
     breaker b;
     pc_status st = PC_OK;
@@ -485,6 +508,7 @@ pc_status pl_break_all_lines(pl_layout *l, float max_advance, pc_error *err)
     b.line_max_height = FLT_MAX;
     b.layout_max_advance = max_advance;
     b.line_max_advance = max_advance;
+    b.break_word = break_word;
     for (;;) {
         yield y;
         st = break_next(&b, &y, err);

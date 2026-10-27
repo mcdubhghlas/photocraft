@@ -274,6 +274,10 @@ static pc_status read_header(rd *r, bool long_names, bool single_tiled, exr_hdr 
             }
             has_dw = true;
         } else if (IS(name, nl, "displayWindow") && IS(type, tl, "box2i") && size == 16) {
+            int i;
+            for (i = 0; i < 4; i++) {
+                h->disp[i] = i32le(v + 4 * i);
+            }
             has_disp = true;
         } else if (IS(name, nl, "tiles") && IS(type, tl, "tiledesc") && size == 9) {
             h->tw = cx_le32(v);
@@ -957,6 +961,31 @@ pc_status cx_exr_decode_deep(const exr_meta *m, const uint8_t *b, size_t n, cons
     }
     d.width = (uint32_t)w;
     d.height = (uint32_t)hh;
+    /* The display window is the full stage the renderer composed onto (a render pass's data
+     * window is often its crop). Open on the stage when it plausibly holds the data region: a
+     * sane size for the limits, and the data region inside it. Otherwise open on the data
+     * window alone (port of deep_exr.rs). */
+    {
+        int64_t dsw = (int64_t)h->disp[2] - h->disp[0] + 1;
+        int64_t dsh = (int64_t)h->disp[3] - h->disp[1] + 1;
+        uint32_t sw = dsw > 1 ? (dsw > (int64_t)UINT32_MAX ? UINT32_MAX : (uint32_t)dsw) : 1;
+        uint32_t sh = dsh > 1 ? (dsh > (int64_t)UINT32_MAX ? UINT32_MAX : (uint32_t)dsh) : 1;
+        int64_t dx = (int64_t)h->dw[0] - h->disp[0];
+        int64_t dy = (int64_t)h->dw[1] - h->disp[1];
+        /* saturating data-region extents on the stage, in stage coordinates */
+        int64_t dxr = (int64_t)h->dw[0] + (int64_t)w;
+        int64_t dyr = (int64_t)h->dw[1] + (int64_t)hh;
+        int64_t sxr = (int64_t)h->disp[0] + (int64_t)sw;
+        int64_t syr = (int64_t)h->disp[1] + (int64_t)sh;
+        if (sw <= (1u << 15) && sh <= (1u << 15) && cx_check_bytes(l, sw, sh, 4, NULL) == PC_OK &&
+            h->dw[0] >= h->disp[0] && h->dw[1] >= h->disp[1] && dxr <= sxr && dyr <= syr) {
+            d.has_stage = true;
+            d.stage_w = sw;
+            d.stage_h = sh;
+            d.origin_x = (int32_t)dx;
+            d.origin_y = (int32_t)dy;
+        }
+    }
     *out = d;
     memset(&d, 0, sizeof d);
 fail:
@@ -1114,7 +1143,53 @@ pc_status cx_exr_flatten(const pc_cdeep *d, pc_cimage *out, pc_error *err)
     }
 #undef AT
     free(order);
-    st = pc_cimage_from_raw(d->width, d->height, layout, PC_CS_F32, (uint8_t *)o, npx * nc * sizeof(float), out, err);
+    /* Open on the full display-window stage when the file declares one: pad the data region to
+     * the stage at its offset, transparent elsewhere (port of deep_exr.rs). */
+    if (d->has_stage) {
+        size_t spx;
+        size_t sbytes;
+        float *padded;
+        size_t row_len = (size_t)d->width * nc;
+        size_t dx = d->origin_x > 0 ? (size_t)d->origin_x : 0;
+        size_t dy = d->origin_y > 0 ? (size_t)d->origin_y : 0;
+        size_t row;
+        if (!pc_size_mul((size_t)d->stage_w, (size_t)d->stage_h, &spx) || !pc_size_mul(spx, nc, &spx) ||
+            !pc_size_mul(spx, sizeof(float), &sbytes)) {
+            free(o);
+            return cx_malformed(err, F, "the display window is too large");
+        }
+        padded = calloc(spx > 0 ? spx : 1, sizeof(float));
+        if (padded == NULL) {
+            free(o);
+            return cx_nomem(err);
+        }
+        for (row = 0; row < (size_t)d->height; row++) {
+            size_t src = row * row_len;
+            size_t dst = (row + dy) * (size_t)d->stage_w + dx;
+            size_t dstoff = dst * nc;
+            if (dstoff <= spx && row_len <= spx - dstoff && src + row_len <= npx * nc) {
+                memcpy(padded + dstoff, o + src, row_len * sizeof(float));
+            }
+        }
+        free(o);
+        st = pc_cimage_from_raw(d->stage_w, d->stage_h, layout, PC_CS_F32, (uint8_t *)padded, sbytes, out, err);
+    } else {
+        st = pc_cimage_from_raw(d->width, d->height, layout, PC_CS_F32, (uint8_t *)o, npx * nc * sizeof(float), out,
+                                err);
+    }
+    if (st == PC_OK && d->has_stage) {
+        pc_cwarning w;
+        memset(&w, 0, sizeof w);
+        w.kind = PC_CW_DISPLAY_WINDOW_STAGE;
+        w.stage_w = d->stage_w;
+        w.stage_h = d->stage_h;
+        w.origin_x = d->origin_x;
+        w.origin_y = d->origin_y;
+        st = pc_cimage_add_warning(out, w, err);
+        if (st != PC_OK) {
+            pc_cimage_fini(out);
+        }
+    }
     if (st == PC_OK) {
         pc_cwarning w;
         memset(&w, 0, sizeof w);

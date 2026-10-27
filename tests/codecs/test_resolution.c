@@ -734,7 +734,7 @@ static void test_png_phys_outranks_its_exif(void)
     (void)pc_buf_append(&with, crc, 4, NULL);
     (void)pc_buf_append(&with, png.data + ihdr_end, png.len - ihdr_end, NULL);
     CHECK_EQ_INT(pc_cdecode(with.data, with.len, &back, NULL), PC_OK);
-    NEAR_DPI(back.meta.has_dpi, back.meta.dpi_x, back.meta.dpi_y, 150.0114f);
+    NEAR_DPI(back.meta.has_dpi, back.meta.dpi_x, back.meta.dpi_y, 150.00f);
     pc_cimage_fini(&back);
     pc_cimage_fini(&img);
     pc_buf_fini(&png);

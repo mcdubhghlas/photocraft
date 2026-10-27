@@ -647,6 +647,10 @@ static void layer_fini_shallow(pc_layer *l)
         pc_video_data_fini(&l->video);
         l->has_video = false;
     }
+    if (l->has_xmp) {
+        pc_str_fini(&l->xmp);
+        l->has_xmp = false;
+    }
 }
 
 /* Finalises layers arr[0 .. n) and their subtrees, then frees arr, without recursion and
@@ -781,6 +785,13 @@ static pc_status layer_clone_shallow(const pc_layer *l, pc_layer *out, bool fres
         }
         c.has_video = true;
     }
+    if (l->has_xmp) {
+        s = pc_str_clone(&l->xmp, &c.xmp, err);
+        if (s != PC_OK) {
+            goto fail;
+        }
+        c.has_xmp = true;
+    }
     if (fresh) {
         c.id = pc_layer_id_fresh();
         c.has_psd_id = false;
@@ -827,7 +838,8 @@ static bool layer_eq_shallow(const pc_layer *a, const pc_layer *b)
            a->has_link_group == b->has_link_group && (!a->has_link_group || a->link_group == b->link_group) &&
            a->excluded_channels == b->excluded_channels && pc_blend_if_eq(&a->blend_if, &b->blend_if) &&
            pc_advanced_blending_eq(&a->advanced, &b->advanced) && a->has_video == b->has_video &&
-           (!a->has_video || pc_video_data_eq(&a->video, &b->video));
+           (!a->has_video || pc_video_data_eq(&a->video, &b->video)) && a->has_xmp == b->has_xmp &&
+           (!a->has_xmp || pc_str_eq(&a->xmp, &b->xmp));
 }
 
 /* ---- whole subtrees (explicit stacks) ----------------------------------------------------- */

@@ -1,14 +1,14 @@
-fn	apply_depth_100	5293dc116303e3c5
-fn	apply_depth_200	31cea40aca190440
-fn	apply_depth_300	a725d64310faba4b
-fn	apply_depth_400	a86a9346ae8d26f2
-fn	apply_depth_500	1d58eac3666e5dcd
-fn	apply_depth_600	bf878eb22913e9e4
-fn	tone_luts_depth	dc77ab6cb3a2baf1
+fn	apply_depth_100	7fb0441464023b6d
+fn	apply_depth_200	96b07a6a38f9077f
+fn	apply_depth_300	5864a169256aff99
+fn	apply_depth_400	9f91c7201cc907be
+fn	apply_depth_500	4755d635f8eea416
+fn	apply_depth_600	1b35922bc58e0f1d
+fn	tone_luts_depth	8c5b4baec8940930
 fn	curve_lut	40365e4eff87b3da
-fn	levels_q	9f04fd839e1a9aa9
+fn	levels_q	39dfb4bac4ba22d4
 fn	levels_float	efb5c1807052fa2e
-fn	modern_brightness	cc03b2e00d00599c
+fn	modern_brightness	7dc3f0fd29483ffa
 fn	modern_contrast	85f03e5010915dca
 fn	posterize	3a40d3e57a4abdf5
 fn	hsl	280cdf4b880c0494
@@ -62,7 +62,7 @@ q	9	2	bounds=3,2,39,19	comp=3,2,26,9	change=3,2,26,9	to=1	occ=0	adv=0	shapeless=
 q	9	3	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,26,9	shape=0302cd300be5a245
 doc	10	flat=04d8c6dc765b2668	tiled=04d8c6dc765b2668	sub=118d56c3d3e6a40f	reduced=973f6cf0862649ea	damage=e8e0d5d4a43d2f11	area=5b40d0146055dcc7	thumb=fb11a2796cab24a2	surface=b2122be157ce3254	proxy=c8d7383a717f0d30	layers=79ef299e9285a314
 q	10	0	bounds=0,0,27,22	comp=0,0,27,22	change=0,0,27,22	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,27,22	fill=8f85ebaac73cfce8	shape=d467f0b959779979
-doc	11	flat=8cc363d17cea285a	tiled=b3c748d81a183e79	sub=26473e5287340101	reduced=656895f4ecf1012b	damage=f62015dfc6cd21d2	area=f9049bffe0797118	thumb=5f7044729f2b7870	surface=4e6f88ac18cd1a49	proxy=ac4dd0f757092d84	layers=74ad261fd93d2118
+doc	11	flat=628899bc69ac633e	tiled=890cb0747f6dac54	sub=26473e5287340101	reduced=eeddc33810316850	damage=6e9b132d4fc775d9	area=ef13b44cb4efb08d	thumb=5f7044729f2b7870	surface=a23b3ec191dd7d2d	proxy=6fd6edf2a42d6a38	layers=e7b5ff005c867e71
 q	11	0	bounds=0,0,23,21	comp=0,0,23,21	change=0,0,23,21	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,23,21	shape=d74202231f2530c4
 q	11	1	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,1,23,14	shape=498287856b4fa133
 q	11	2	bounds=1,1,21,26	comp=1,1,21,21	change=1,1,21,21	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,23,21	shape=887ddb5954e5c275
@@ -81,12 +81,12 @@ q	14	1	bounds=0,0,35,25	comp=0,0,35,25	change=0,0,35,25	to=1	occ=0	adv=0	shapele
 q	14	2	bounds=4,3,48,36	comp=4,3,35,25	change=4,3,35,25	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,35,25	shape=e616f6b812c18388
 doc	15	flat=47030bf3246a0122	tiled=47030bf3246a0122	sub=69d34283b24c2746	reduced=be24c4510b8bd6bf	damage=88201fb960ff6465	area=3121a6a5f49b2972	thumb=b14c3fd7f0fdf3b0	surface=51940e71febc5134	proxy=c5a8f97a2f19d7e1	layers=57abe28929a54406
 q	15	0	bounds=0,0,15,24	comp=0,0,15,24	change=0,0,15,24	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,15,24	shape=6c94b17cde000cf5
-q	15	1	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,15,24	shape=78e7f76b5c14a3a5	split=a2f1b1479fe03fa3,fa756835b13057b3
+q	15	1	bounds=0,3,15,20	comp=0,3,15,20	change=0,3,15,20	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,15,24	shape=78e7f76b5c14a3a5	split=a2f1b1479fe03fa3,fa756835b13057b3
 q	15	2	bounds=4,12,24,38	comp=4,12,15,24	change=4,12,15,24	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=8,0,15,17	shape=78e7f76b5c14a3a5
 q	15	3	bounds=-3,6,10,23	comp=0,6,10,23	change=0,6,10,23	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=1,4,13,24	shape=13d3835ea8f5cc9b
 q	15	4	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,15,24	shape=78e7f76b5c14a3a5
 q	15	5	bounds=-3,5,10,19	comp=0,5,10,19	change=0,5,10,19	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,15,24	shape=c7858fbe1f177c3c
-doc	16	flat=dedf0d8a07fc33ca	tiled=dedf0d8a07fc33ca	sub=e6073d17f2c1035d	reduced=73a390ab5fec78ec	damage=e407555c65f5a69c	area=6e048043ed1d60f9	thumb=c881c9fc413e69d1	surface=08966aa25ccf8e45	proxy=a8a45de5132f3b2d	layers=67b05764eebf6958
+doc	16	flat=dedf0d8a07fc33ca	tiled=dedf0d8a07fc33ca	sub=e6073d17f2c1035d	reduced=73a390ab5fec78ec	damage=e407555c65f5a69c	area=6e048043ed1d60f9	thumb=c881c9fc413e69d1	surface=08966aa25ccf8e45	proxy=a8a45de5132f3b2d	layers=803f8ba1b19b06f1
 q	16	0	bounds=0,0,24,7	comp=0,0,24,7	change=0,0,24,7	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,24,7	fill=dedf0d8a07fc33ca	shape=82342c0a6891e7a5
 q	16	1	bounds=1,-4,28,10	comp=1,0,24,7	change=1,0,24,7	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,24,7	shape=fff7fcbea364a304
 q	16	2	bounds=6,-4,39,13	comp=6,0,24,7	change=6,0,24,7	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,24,7	shape=5ca914641b5f2662
@@ -97,9 +97,9 @@ q	17	1	bounds=0,0,17,26	comp=0,0,17,26	change=0,0,17,26	to=1	occ=0	adv=0	shapele
 q	17	2	bounds=0,0,17,26	comp=0,0,17,26	change=0,0,17,26	to=1	occ=0	adv=1	shapeless=1	bg=0	frame=0,0,17,26	shape=51d06d278a52bc35
 doc	18	flat=51d32facbe1d8948	tiled=51d32facbe1d8948	sub=1905baf7d1df37e2	reduced=eaa1e0d19a2e3992	damage=7ee1f17948dcaf74	area=7284547a8eee2c96	thumb=ac3cead264f3cf0e	surface=dd6f7c9f9c440b84	proxy=bb8f09908b0ddbc2	layers=3e245bb0ce6cdefe
 q	18	0	bounds=0,0,21,24	comp=0,0,21,24	change=0,0,21,24	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,21,24	shape=5ec3f852b94daf35
-q	18	1	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=1,3,13,17	shape=3882fe847adf30a5	split=e17759da00dddae1,dc6b7b5e9e59f4ce
+q	18	1	bounds=1,2,17,21	comp=1,2,17,21	change=1,2,17,21	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=1,3,13,17	shape=3882fe847adf30a5	split=e17759da00dddae1,dc6b7b5e9e59f4ce
 q	18	2	bounds=0,0,21,24	comp=0,0,21,24	change=0,0,21,24	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,21,24	fill=c9882d72d702e548	shape=3882fe847adf30a5
-q	18	3	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,21,24	shape=3131b05cd1ea48fe	split=d1c50da03fc57e25,445600faf814f7f0
+q	18	3	bounds=0,0,12,24	comp=0,0,12,24	change=0,0,12,24	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,21,24	shape=3131b05cd1ea48fe	split=d1c50da03fc57e25,445600faf814f7f0
 q	18	4	bounds=23,1,26,9	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,21,24	shape=3882fe847adf30a5
 q	18	5	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,21,24	shape=3882fe847adf30a5
 doc	19	flat=f18a1a6d848ce619	tiled=f18a1a6d848ce619	sub=0b9558b6b35d2c1c	reduced=677bd28fad53fa42	damage=fa1ee3b63ac052fa	area=8ce9b9d9952a126a	thumb=89eb58625f7cad4f	surface=3a3b5bb4e26d5dfb	proxy=77fd290e7934af4c	layers=ec13ee04296bd554
@@ -111,23 +111,23 @@ q	19	4	bounds=-1,6,6,14	comp=0,6,6,14	change=0,6,6,14	to=1	occ=0	adv=1	shapeless
 doc	20	flat=9f87f3a36387c44a	tiled=9f87f3a36387c44a	sub=76085cda07585724	reduced=03c44bf143017f79	damage=88201fb960ff6465	area=db7d1716974e88c7	thumb=bf012ccf8c11e1f0	surface=a7d25af0facd57d7	proxy=945914554737fc20	layers=8e859a656845ca9d
 q	20	0	bounds=0,0,17,8	comp=0,0,17,8	change=0,0,17,8	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,17,8	shape=99fb8429595b9b45
 q	20	1	bounds=-3,-4,18,10	comp=0,0,17,8	change=0,0,17,8	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,17,8	shape=e76f7f5b163966c7
-q	20	2	bounds=11,3,24,11	comp=11,3,17,8	change=11,3,17,8	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,17,8	shape=0e4d0c676648066d	split=f838dab7d0ccc414,341f5e8539ee2fd1
+q	20	2	bounds=0,0,24,11	comp=0,0,17,8	change=0,0,17,8	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,17,8	shape=0e4d0c676648066d	split=f838dab7d0ccc414,341f5e8539ee2fd1
 q	20	3	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,17,8	shape=9986ba9af2021da5
 q	20	4	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,17,8	shape=9986ba9af2021da5
 q	20	5	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,17,8	shape=9986ba9af2021da5
 doc	21	flat=799ae98bb1723601	tiled=799ae98bb1723601	sub=b2d570e71c3056e3	reduced=8547c4f5fc81862f	damage=b0fbb4b15f7455aa	area=2617ab2880521d6d	thumb=545bc232bea21889	surface=f790fd24627a2a48	proxy=bc136d7f9ecddff2	layers=ea7870b5791c98e2
 q	21	0	bounds=0,0,9,19	comp=0,0,9,19	change=0,0,9,19	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,9,19	shape=5c6c7c6d97a1708c
-q	21	1	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,9,19	shape=16c1610aa0534115	split=725d85be93d04c05,23432ede0c835319
+q	21	1	bounds=0,0,7,19	comp=0,0,7,19	change=0,0,7,19	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,9,19	shape=16c1610aa0534115	split=725d85be93d04c05,23432ede0c835319
 q	21	2	bounds=-4,-3,13,20	comp=0,0,9,19	change=0,0,9,19	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,9,19	shape=37e8b877319b7275
 q	21	3	bounds=0,0,9,19	comp=0,0,9,19	change=0,0,9,19	to=1	occ=0	adv=1	shapeless=1	bg=0	frame=0,0,9,19	fill=11575a4ce9314674	shape=55aa86e202bcb588
 q	21	4	bounds=0,0,9,19	comp=0,0,9,19	change=0,0,9,19	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,9,19	fill=0d538b34ce719fcf	shape=16c1610aa0534115
 doc	22	flat=144ad3379ea0c6ac	tiled=144ad3379ea0c6ac	sub=7911d1c2c1996fc3	reduced=0780fc386ae705d5	damage=e43efb77aa681f81	area=ae3db9982c6295a3	thumb=a188fcabce496822	surface=f2c21f45b05c1a78	proxy=1471a61549ce4df4	layers=6d834435ca3b8dca
 q	22	0	bounds=0,0,34,7	comp=0,0,34,7	change=0,0,34,7	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,34,7	shape=430f1eca232937f5
 q	22	1	bounds=3,-1,60,11	comp=3,0,34,7	change=3,0,34,7	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,34,7	shape=e5c8a201863f6ee7
-doc	23	flat=be1b8f33b255b2f5	tiled=be1b8f33b255b2f5	sub=feefa66dd8bed89e	reduced=ba08c943816e8d79	damage=85202a0a84c3b7e6	area=d84fd96b82f5409d	thumb=d2f499491239132f	surface=1f1a31f3f3884707	proxy=14d7832713085277	layers=ac91359b309c1ed7
+doc	23	flat=d2a6aee3616d291f	tiled=d2a6aee3616d291f	sub=058b28184816960f	reduced=b346c131ee1c04f4	damage=26048eff200634ae	area=bc2319c4bae0d33f	thumb=a2f99da9a1e552a9	surface=647d420bae4be46f	proxy=35fab2b9bb1fcceb	layers=7e4aee069515bec3
 q	23	0	bounds=15,1,63,37	comp=15,1,36,24	change=15,1,36,24	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,36,24	shape=60c0b2bfae946289
-q	23	1	bounds=2,10,38,35	comp=2,10,36,24	change=2,10,36,24	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=1,22,29,24	shape=ed049cb5c294bd64
-q	23	2	bounds=0,0,36,24	comp=0,0,36,24	change=0,0,36,24	to=1	occ=0	adv=1	shapeless=1	bg=0	frame=0,0,36,24	fill=56c20591053e0a39	shape=91dcc7f52f014c41
+q	23	1	bounds=2,10,38,35	comp=2,10,36,24	change=2,10,36,24	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=1,22,29,24	shape=de38c778477e29ea
+q	23	2	bounds=0,0,36,24	comp=0,0,36,24	change=0,0,36,24	to=1	occ=0	adv=1	shapeless=1	bg=0	frame=0,0,36,24	fill=56c20591053e0a39	shape=30983b15744c63bd
 q	23	3	bounds=0,0,36,24	comp=0,0,36,24	change=0,0,36,24	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,36,24	fill=3741fa6bd3bc91b9	shape=f42d52f8f3a11065
 doc	24	flat=7e56dfe2fd3f0ded	tiled=7e56dfe2fd3f0ded	sub=84295c516b830607	reduced=9c19aa9141ddcdff	damage=2fe755245a943df7	area=3a4e45d82abf7166	thumb=48b5507c1183cb71	surface=d917d383713ee824	proxy=c503b146e030c611	layers=bc1f1b478fe63142
 q	24	0	bounds=0,0,30,22	comp=0,0,30,22	change=0,0,30,22	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,30,22	fill=d654f60f5799a3f5	shape=b286be34bdeadcb5
@@ -148,7 +148,7 @@ q	27	1	bounds=17,-1,33,9	comp=17,0,24,9	change=17,0,24,9	to=1	occ=0	adv=0	shapel
 doc	28	flat=8cc29bab166b5e85	tiled=8cc29bab166b5e85	sub=0cb3de8dff83d219	reduced=d6f590d50d0aa2af	damage=58d1d3a1876c5c63	area=42832a49c954a6a2	thumb=c3d9612f2f5ef1e3	surface=3d634436b1b21ee2	proxy=52d0809ef64d5c12	layers=d7423aa5ef77e892
 q	28	0	bounds=0,0,21,9	comp=0,0,21,9	change=0,0,21,9	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,21,9	shape=af98964267fcf2dc
 q	28	1	bounds=0,0,21,9	comp=0,0,21,9	change=0,0,21,9	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,21,9	fill=5d6d3ff98dcf05d7	shape=289f861ee0bcd3b8
-q	28	2	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,21,9	shape=84f2628e45ffeab5	split=84f2628e45ffeab5,e110db7c03dca5af
+q	28	2	bounds=0,0,10,9	comp=0,0,10,9	change=0,0,10,9	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,21,9	shape=84f2628e45ffeab5	split=84f2628e45ffeab5,e110db7c03dca5af
 q	28	3	bounds=5,2,43,18	comp=5,2,21,9	change=5,2,21,9	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,21,9	shape=84f2628e45ffeab5
 q	28	4	bounds=5,-2,30,17	comp=5,0,21,9	change=5,0,21,9	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,21,9	shape=967cfcb68bc367b1
 doc	29	flat=f0533fecf79dc0fe	tiled=f0533fecf79dc0fe	sub=92f7a651f374c38a	reduced=ab433c87c880f2a2	damage=88201fb960ff6465	area=6d628119d01d8840	thumb=5092f6dc371095cf	surface=c88d9976b23e3eb0	proxy=2d91aeca4e2c33b9	layers=819eaf1424dadea7
@@ -158,15 +158,15 @@ doc	30	flat=72190768c05e47b3	tiled=3156050050e665d3	sub=1b59aea077c45206	reduced
 q	30	0	bounds=-4,0,27,24	comp=0,0,23,13	change=0,0,23,13	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=15,12,23,13	shape=511944611d364fed
 q	30	1	bounds=0,0,23,13	comp=0,0,23,13	change=0,0,23,13	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,23,13	fill=b1d0fad0e9682946	shape=eaf2f3473e696c0d
 q	30	2	bounds=0,0,23,13	comp=0,0,23,13	change=0,0,23,13	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,23,13	shape=2c5b122414a70988
-doc	31	flat=8c80a7a4ddfed8eb	tiled=8c80a7a4ddfed8eb	sub=a383309f9e6561d9	reduced=3947b49e7c179438	damage=c8a5d97e159500d5	area=70d6132aa12c30c7	thumb=160551cb05ce1d78	surface=ec215f2f8b995696	proxy=22f66974fca7f7db	layers=fb6d2258c8c16aae
-q	31	0	bounds=1,3,9,9	comp=1,3,9,9	change=1,3,9,9	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,13,6	shape=62e9c081656396a1
+doc	31	flat=1f97c85fbb308919	tiled=1f97c85fbb308919	sub=4b22d44252fb388b	reduced=352583bb3bbbb42a	damage=c8a5d97e159500d5	area=f634aa4f90124881	thumb=160551cb05ce1d78	surface=ec215f2f8b995696	proxy=1f9ce0aced9581f1	layers=441daeb39466e1eb
+q	31	0	bounds=1,3,9,9	comp=1,3,9,9	change=1,3,9,9	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,13,6	shape=9e4b53853f160ead
 doc	32	flat=d4dea7d2de9eaf69	tiled=d4dea7d2de9eaf69	sub=b8b86ce787fbaf4f	reduced=7db63079baa37134	damage=02cfddce9574da74	area=13f9c3b04366a066	thumb=1ce4678427cbd2ab	surface=bf267e7274157605	proxy=8ab94b5ed57dbd7b	layers=eac3c6d3760d113c
 q	32	0	bounds=0,0,17,13	comp=0,0,17,13	change=0,0,17,13	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=7,1,14,13	fill=d4dea7d2de9eaf69	shape=01ced4aa4e51d4b5
-q	32	1	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,17,13	shape=6ed5947121b0dbdb	split=bc3168abac7f0173,643d98ab55e4b6b3
+q	32	1	bounds=0,0,15,13	comp=0,0,15,13	change=0,0,15,13	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,17,13	shape=6ed5947121b0dbdb	split=bc3168abac7f0173,643d98ab55e4b6b3
 q	32	2	bounds=0,0,17,13	comp=0,0,17,13	change=0,0,17,13	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=7,3,17,10	fill=465f6eca1419d6f8	shape=99a4d3060277a19f
 doc	33	flat=a4b3ae13b618153e	tiled=a4b3ae13b618153e	sub=560aa8bad6bf1c3f	reduced=6cc95367bfede13a	damage=a184ef537ba021e5	area=cc403d7ad9bb0b91	thumb=c8bf31ed9a6a3bad	surface=f34ece2caaf8c7a3	proxy=a77d8915d4009c31	layers=364bcca15b3cc99c
 q	33	0	bounds=0,0,30,23	comp=0,0,30,23	change=0,0,30,23	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,23	shape=9507d298bfa3d609
-q	33	1	bounds=4,-2,33,18	comp=4,0,30,18	change=4,0,30,18	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,23	shape=209993184b455233	split=aa323ed65a661a7b,2c320a724d388889
+q	33	1	bounds=0,-2,33,19	comp=0,0,30,19	change=0,0,30,19	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,23	shape=209993184b455233	split=aa323ed65a661a7b,2c320a724d388889
 q	33	2	bounds=0,0,50,36	comp=0,0,30,23	change=0,0,30,23	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,23	shape=9963b3e3dc109b59
 q	33	3	bounds=0,0,30,23	comp=0,0,30,23	change=0,0,30,23	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=12,12,26,23	fill=5d3ccfa5db1f6d1c	shape=d4e30a57dd6bbcb9
 doc	34	flat=cb7cac70deae0655	tiled=a2a89e05a2d515ba	sub=0ab73a7cf71bc808	reduced=508b8ab2f5e343d4	damage=f7f5f692568096b3	area=22cb9c3688f4d226	thumb=d1ea03efb244e241	surface=c53160e5430c3721	proxy=770200aab93f5942	layers=4848037032c76766
@@ -195,8 +195,8 @@ q	38	2	bounds=14,10,34,39	comp=14,10,21,20	change=14,10,21,20	to=1	occ=0	adv=0	s
 doc	39	flat=d87e228aea9a6cac	tiled=d87e228aea9a6cac	sub=dec448b7b5d23466	reduced=1c015c15454320a9	damage=bd49fb7b356f03a8	area=951b3f8801277575	thumb=a20a8e61ff00e558	surface=d7bd76aa08ff701c	proxy=f9cd17b80df08918	layers=c0f01aaeca2561cb
 q	39	0	bounds=0,0,11,14	comp=0,0,11,14	change=0,0,11,14	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,11,14	shape=93e6d5295bd69fb5
 q	39	1	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,11,14	shape=ae0697b2eb768945
-doc	40	flat=3efd7c9795a70355	tiled=3efd7c9795a70355	sub=709cd7892fdef1b3	reduced=869083d75a7c196b	damage=bae95f514ee840a0	area=f0e098befb391265	thumb=48dac7951122ef68	surface=395ae3356d345051	proxy=d89a9e1602253de7	layers=4b21c790e47436d7
-q	40	0	bounds=0,-3,29,33	comp=0,0,22,28	change=0,0,22,28	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=13,13,22,28	shape=8496adf4f5f507ae
+doc	40	flat=4a2cfba121ffcf27	tiled=4a2cfba121ffcf27	sub=3d6e966caf86e332	reduced=5b02f2a55fce2316	damage=bae95f514ee840a0	area=d16ba3d9adc1e011	thumb=48dac7951122ef68	surface=395ae3356d345051	proxy=851cefd757a5876d	layers=36cc5704e2e28bed
+q	40	0	bounds=0,-3,29,33	comp=0,0,22,28	change=0,0,22,28	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=13,13,22,28	shape=f4651331440485ed
 q	40	1	bounds=10,5,28,22	comp=10,5,22,22	change=10,5,22,22	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,22,28	shape=7c4c4a35442ebba5
 q	40	2	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,22,28	shape=beecaa4b8122f3a5
 doc	41	flat=60c1a319ed6c31ac	tiled=60c1a319ed6c31ac	sub=2d60af0697a0e3c5	reduced=4d3f02da387dea68	damage=860209571d42bf61	area=d11b8217c7a9f71b	thumb=bfc407da83eb9b18	surface=53e91ef104dcc068	proxy=63c3cc625d0c64d8	layers=e23eb3fd3f9b6977
@@ -215,7 +215,7 @@ q	43	1	bounds=-4,-1,15,14	comp=0,0,15,14	change=0,0,15,14	to=1	occ=0	adv=0	shape
 doc	44	flat=fd1bcaaef02913b3	tiled=fd1bcaaef02913b3	sub=859197e4a9d4d9ff	reduced=d89bee10843039a6	damage=e7b52ca04bb833d0	area=852b589f06d4d6f7	thumb=721f282405d446dc	surface=74e3b884f8ada0f4	proxy=5f9d904c602abd2f	layers=6fb509fc77d5cd38
 q	44	0	bounds=0,0,20,21	comp=0,0,20,21	change=0,0,20,21	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,20,21	shape=9c57bf1fd651864d
 q	44	1	bounds=0,0,20,21	comp=0,0,20,21	change=0,0,20,21	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,20,21	fill=6c237a5216561a62	shape=ef17f2328cebbdf5
-doc	45	flat=b25e841f39df7c2e	tiled=b25e841f39df7c2e	sub=79d5a9ac00f45ffe	reduced=6c270c01341b450b	damage=cb232cb9acc01546	area=b8f7a5f47684cc14	thumb=11db5e324d1750a7	surface=2951692675bdd21a	proxy=49eb20f86fe71b0d	layers=be5f470c5ea9b977
+doc	45	flat=8e354c05f4b78d73	tiled=8e354c05f4b78d73	sub=8ad44a08be906827	reduced=284a61589041ed03	damage=357015711c9c3ad2	area=bfe5e35a2402478d	thumb=27a1594bf7b26369	surface=277ab816c2c58b87	proxy=964c025ea2261da3	layers=be5f470c5ea9b977
 q	45	0	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,16,21	shape=3cfe05482570ec25
 q	45	1	bounds=-3,3,26,34	comp=0,3,16,21	change=0,3,16,21	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,16,21	shape=68130910c99d0eb4
 q	45	2	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,16,21	shape=3cfe05482570ec25
@@ -226,14 +226,14 @@ q	46	1	bounds=6,-1,36,27	comp=6,0,23,14	change=6,0,23,14	to=1	occ=0	adv=0	shapel
 q	46	2	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,23,14	shape=4e924f81418e9dc5
 doc	47	flat=ab30f72872248790	tiled=ab30f72872248790	sub=b9b0d57040e30b83	reduced=ea3a6cde6f7d066b	damage=f78d66a5e718cfa8	area=1f908d251b7321f8	thumb=9289d3674a976393	surface=dc519aa24d3df176	proxy=732e2614955e5720	layers=626b9379f7436dae
 q	47	0	bounds=5,3,29,23	comp=5,3,19,13	change=5,3,19,13	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,19,13	shape=87f9653836372c3d
-doc	48	flat=42d175bc283bef0f	tiled=42d175bc283bef0f	sub=b84f4c6bb84ed27b	reduced=bfcc3ee78a027307	damage=70cac35f19874c77	area=757bfa340480fe90	thumb=e0a31bc0f5743ab8	surface=09dff9be1e273dc3	proxy=b3031500c7052431	layers=79b959d272475e14
+doc	48	flat=a9f72a7fc50f519f	tiled=a9f72a7fc50f519f	sub=76fb6f9a4f70d8bd	reduced=7f32c942ff439156	damage=fcbfeb86bd19d489	area=88dc028b8143ae1a	thumb=ed9a0980086667cb	surface=c06a5503f7b1fd62	proxy=52af543b364769e6	layers=79b959d272475e14
 q	48	0	bounds=0,0,37,24	comp=0,0,37,24	change=0,0,37,24	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,37,24	fill=52137fd9d1f13d62	shape=c6d98b3eb50a187d
 q	48	1	bounds=0,0,37,24	comp=0,0,37,24	change=0,0,37,24	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,37,24	fill=fe29f23993e637f8	shape=4e064632a3dbb1d5
 q	48	2	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,37,24	shape=e447a2218b8ca8a5
-doc	49	flat=98089b44ace99ced	tiled=98089b44ace99ced	sub=26180442c11c0632	reduced=e345d6b5fbc7a4a5	damage=b102ee6c28d8cc72	area=256bdf288f73d305	thumb=5b0b7cf78e177fa7	surface=6b0ae879e5484f0d	proxy=7055b0fe850aa628	layers=c86f12383e6bc188
+doc	49	flat=98089b44ace99ced	tiled=98089b44ace99ced	sub=26180442c11c0632	reduced=e345d6b5fbc7a4a5	damage=b102ee6c28d8cc72	area=256bdf288f73d305	thumb=5b0b7cf78e177fa7	surface=6b0ae879e5484f0d	proxy=7055b0fe850aa628	layers=9692bf327b56d740
 q	49	0	bounds=0,0,15,14	comp=0,0,15,14	change=0,0,15,14	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,15,14	shape=e5107944accaa525
 q	49	1	bounds=9,4,18,20	comp=9,4,15,14	change=9,4,15,14	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,15,14	shape=642e2506cd1fd642
-q	49	2	bounds=0,4,31,23	comp=0,4,15,14	change=0,4,15,14	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,15,14	shape=12c6c6255b0a080c
+q	49	2	bounds=0,4,31,23	comp=0,4,15,14	change=0,4,15,14	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,15,14	shape=44899e63708df2f0
 q	49	3	bounds=1,5,13,16	comp=1,5,13,14	change=1,5,13,14	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=4,4,14,14	shape=0916dcc2be4a2287
 doc	50	flat=64ca21b2037f3d98	tiled=64ca21b2037f3d98	sub=08f4b56fc2848db9	reduced=3b1377f065934927	damage=9b8c6e26fca73832	area=6f7426e216af626c	thumb=6ae31102b4715a40	surface=a99374d8ca746445	proxy=a820678eb4f663b0	layers=8316f37e3d7ed21f
 q	50	0	bounds=14,3,45,21	comp=14,3,38,11	change=14,3,38,11	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,38,11	shape=409a8c2f5d4da200
@@ -241,28 +241,28 @@ q	50	1	bounds=0,0,38,11	comp=0,0,38,11	change=0,0,38,11	to=1	occ=0	adv=0	shapele
 q	50	2	bounds=4,0,40,7	comp=4,0,38,7	change=4,0,38,7	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=30,4,36,9	shape=22224337865041d1
 doc	51	flat=74148e4a4186fafd	tiled=74148e4a4186fafd	sub=6794e368e8972fc3	reduced=fcdd6fade1b4af70	damage=136a868887df8c28	area=3c06030abbb27549	thumb=964225fec782c4d7	surface=d1f1e54f775a152a	proxy=f16f0f1ca5205dc0	layers=dba6966c89142221
 q	51	0	bounds=3,1,34,38	comp=3,1,20,21	change=3,1,20,21	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,20,21	shape=8fa1231414228f4e	split=0afe90e529f83c8f,249e576b29e3603e
-q	51	1	bounds=-2,-4,29,20	comp=0,0,20,20	change=none	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,20,21	shape=34a49043d82387d5
+q	51	1	bounds=-2,-4,29,21	comp=0,0,20,21	change=none	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,20,21	shape=34a49043d82387d5
 q	51	2	bounds=1,9,29,45	comp=1,9,20,21	change=1,9,20,21	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,20,21	shape=d673f7b602e5ce90
 q	51	3	bounds=0,0,20,21	comp=0,0,20,21	change=0,0,20,21	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,20,21	fill=4249c76058c52814	shape=8fe365a904a447c5
 q	51	4	bounds=0,0,20,21	comp=0,0,20,21	change=0,0,20,21	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,20,21	fill=e1c5684ef96e0634	shape=8fe365a904a447c5
-doc	52	flat=5a25107f02cc5da7	tiled=5a25107f02cc5da7	sub=bca099f39e2c9c0f	reduced=2b3bac542a6c90a5	damage=957f72f08f5f1605	area=5b26ccf975f56c6b	thumb=43bb4219c3f78a64	surface=b4179c2f4c8a03de	proxy=9df6729b14d25e9f	layers=80f47b4103805b4b
+doc	52	flat=b0719e1e8661dfc2	tiled=b0719e1e8661dfc2	sub=be016bd9b09fdefc	reduced=c95f0742bedc42d7	damage=957f72f08f5f1605	area=08954817892eb366	thumb=dcbb0c7124dc5c6d	surface=1294b80403eb0bdb	proxy=dbab9d7cedc11186	layers=c2d77ca9d8b2a273
 q	52	0	bounds=0,1,27,42	comp=0,1,19,27	change=0,1,19,27	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,19,27	shape=42544f44bbe95b15
-q	52	1	bounds=0,14,22,37	comp=0,14,19,27	change=0,14,19,27	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,9,6,27	shape=e0aa59efdf0ab7af
+q	52	1	bounds=0,14,22,37	comp=0,14,19,27	change=0,14,19,27	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,9,6,27	shape=67d9ce1211b04132
 q	52	2	bounds=0,0,19,27	comp=0,0,19,27	change=0,0,19,27	to=1	occ=0	adv=1	shapeless=1	bg=0	frame=0,0,19,27	shape=373894fb59f37f98
-q	52	3	bounds=5,13,15,41	comp=5,13,15,27	change=5,13,15,27	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=6,6,12,8	shape=1774b4df6c4c5521
+q	52	3	bounds=5,13,15,41	comp=5,13,15,27	change=5,13,15,27	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=6,6,12,8	shape=f81d6ef1fb3c95b4
 q	52	4	bounds=-2,1,32,47	comp=0,1,19,27	change=0,1,19,27	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,19,27	shape=15fc73061848f37e
-doc	53	flat=7000030ea04f6ebb	tiled=7000030ea04f6ebb	sub=a59198c5a6846d31	reduced=963adb4d98b42e91	damage=b04d92be299c6657	area=af85640ae6c4ac88	thumb=bc915e1207268c57	surface=32e4f1b6eba25af0	proxy=be143cbe4d42a459	layers=04155827f4ca1a63
+doc	53	flat=4344e34309a90b75	tiled=4344e34309a90b75	sub=a59198c5a6846d31	reduced=36df47576cac25c8	damage=43336ae1175316c1	area=d9f99b001f9474cd	thumb=e2732fbc38038734	surface=05870c4051cb08db	proxy=a08cfa4a7ca2817b	layers=04155827f4ca1a63
 q	53	0	bounds=0,0,35,27	comp=0,0,35,27	change=0,0,35,27	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,35,27	shape=d5ff5235a64ee367
 q	53	1	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,23,34,27	shape=9205390be0d8ae4e
 q	53	2	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=1,3,35,25	shape=6e99fc3bb7efcaf5
 q	53	3	bounds=26,4,53,48	comp=26,4,35,27	change=26,4,35,27	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,35,27	shape=640faa98c0159441
 q	53	4	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,35,27	shape=6e99fc3bb7efcaf5
-doc	54	flat=923144120ab3aa35	tiled=923144120ab3aa35	sub=c2f2f36fd81bffea	reduced=85bb302936aa5651	damage=16280e7399cbe3f7	area=abdd8b9515749107	thumb=721139836064ed42	surface=becc0b5fdf2676dd	proxy=bf428d029cf34c5f	layers=78b8a9d2ced8a857
+doc	54	flat=283a53a0371a1ba4	tiled=283a53a0371a1ba4	sub=c2f2f36fd81bffea	reduced=cc19e6187894ad1a	damage=16280e7399cbe3f7	area=4ee7bdd785330b6c	thumb=721139836064ed42	surface=6d600037af0ccc0c	proxy=306cb98cb218cc49	layers=ffa78dcf6df5fa41
 q	54	0	bounds=2,-4,35,19	comp=2,0,25,16	change=2,0,25,16	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,25,16	shape=bc771f8919041dfb
 q	54	1	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,25,16	shape=a947e50590de8025
 q	54	2	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,25,16	shape=a947e50590de8025
 q	54	3	bounds=-4,0,34,30	comp=0,0,25,16	change=0,0,25,16	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,25,16	shape=a843785ba2cffdfc
-q	54	4	bounds=22,12,48,21	comp=22,12,25,16	change=22,12,25,16	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=10,13,20,16	shape=add9b219024f651c
+q	54	4	bounds=22,12,48,21	comp=22,12,25,16	change=22,12,25,16	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=10,13,20,16	shape=66e85eb0b82caaa5
 doc	55	flat=c6d56e82128e23d5	tiled=815fa8c6a3f7e6f1	sub=ce1ab993decb5de5	reduced=78361df33e11b109	damage=13737fb15206d43d	area=f9102baf1329d93f	thumb=f264ceac8acb7fd4	surface=95f8ae8b845e0d26	proxy=e7125a062ac5f825	layers=7be142908f9ce037
 q	55	0	bounds=0,0,29,29	comp=0,0,29,29	change=0,0,29,29	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,29,29	shape=cb5361f5343fa74c
 q	55	1	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,29,29	shape=186a49cd85bc1275
@@ -277,8 +277,8 @@ q	57	0	bounds=14,4,37,29	comp=14,4,35,24	change=14,4,35,24	to=1	occ=0	adv=0	shap
 doc	58	flat=165170172419b3fb	tiled=165170172419b3fb	sub=31cd32c000ffb1b8	reduced=9676c91f77b00589	damage=4156c47128d874dd	area=630263e06dba20f5	thumb=09d05a30c83aa722	surface=d115d068e2ec36a4	proxy=973f6cf0862649ea	layers=8be08bcaf84fe8e1
 q	58	0	bounds=-1,-4,13,10	comp=0,0,13,10	change=0,0,13,10	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,18,12	shape=d859732887d58ae5
 doc	59	flat=fdf52489e3c88abd	tiled=fdf52489e3c88abd	sub=5f12cf30f3302649	reduced=fbe826c058ba4275	damage=fbe826c058ba4275	area=8af6937af85486d6	thumb=a1c626d2d24d1cff	surface=62b333fca32ee4e4	proxy=dacce002b979cfc9	layers=fa1843c610a08625
-q	59	0	bounds=16,-1,17,9	comp=16,0,17,9	change=16,0,17,9	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,20,12	shape=f7a832f6590d0973	split=dbdf10dd95ecb2e2,cd9bc539b66d2306
-q	59	1	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,20,12	shape=c42a06f7e7a28e25	split=ad1806b01441cf25,b46343da7637521a
+q	59	0	bounds=1,-1,19,9	comp=1,0,19,9	change=1,0,19,9	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,20,12	shape=f7a832f6590d0973	split=dbdf10dd95ecb2e2,cd9bc539b66d2306
+q	59	1	bounds=0,0,20,12	comp=0,0,20,12	change=0,0,20,12	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,20,12	shape=c42a06f7e7a28e25	split=ad1806b01441cf25,b46343da7637521a
 doc	60	flat=aed3f7ed6af8005b	tiled=aed3f7ed6af8005b	sub=69745f65be7e7bef	reduced=ab83507fbaa49249	damage=fc31805eedaf8b36	area=60ca6fea368de638	thumb=0c8ed917c4fe7a9e	surface=477703edf2ae1fa5	proxy=611fba7891bf83e1	layers=35e85c76a76cb192
 q	60	0	bounds=0,0,30,17	comp=0,0,30,17	change=0,0,30,17	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,17	shape=73698448c300f5e5
 q	60	1	bounds=14,3,50,30	comp=14,3,30,17	change=14,3,30,17	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,17	shape=74c4703561d42300
@@ -287,7 +287,7 @@ q	60	3	bounds=1,-4,41,17	comp=1,0,30,17	change=1,0,30,17	to=1	occ=0	adv=0	shapel
 doc	61	flat=ae2c93f43dc6a499	tiled=ae2c93f43dc6a499	sub=6aa248410c7b6898	reduced=db693b26ab62fcbe	damage=3345f03f444792a8	area=cd02d60e80cd812c	thumb=d835f082b6dcdc85	surface=2b2948c29a93b23a	proxy=f9abd38025145f33	layers=72057f1397e919bb
 q	61	0	bounds=0,0,31,28	comp=0,0,31,28	change=0,0,31,28	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,31,28	fill=2a5650547d29c3d6	shape=67945f56c96035dd
 q	61	1	bounds=6,7,55,30	comp=6,7,31,28	change=6,7,31,28	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,31,28	shape=8cca88177fff1596
-q	61	2	bounds=3,1,38,36	comp=3,1,31,28	change=3,1,31,28	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,31,28	shape=b45e8f23d372af47
+q	61	2	bounds=3,1,38,36	comp=3,1,31,28	change=3,1,31,28	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,31,28	shape=579366d28478338c
 q	61	3	bounds=10,-2,50,18	comp=10,0,31,18	change=10,0,31,18	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,31,28	shape=012348684914ca29
 doc	62	flat=71bffef89fbe150a	tiled=71bffef89fbe150a	sub=42cf8cd714d9dfa4	reduced=92ba351984fa7754	damage=589cb598e004c719	area=4f6a452529fc56a1	thumb=216617588c11bb22	surface=c42a06f7e7a28e25	proxy=94b83d57c63e35db	layers=aabc5b4e14422555
 q	62	0	bounds=0,9,11,26	comp=0,9,11,17	change=0,9,11,17	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=1,14,7,17	shape=9e092b1c3d700d35
@@ -300,10 +300,10 @@ q	63	3	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0
 doc	64	flat=47946fd8998df543	tiled=47946fd8998df543	sub=c4ab78738ee2c6fb	reduced=fe39b41f95d77551	damage=63769073660ea252	area=6c724e0d32d80017	thumb=ae5936717b46e42f	surface=8172fe01c86f2349	proxy=c82fac95a5b68c29	layers=d724489d9353801d
 q	64	0	bounds=3,-1,15,21	comp=3,0,10,17	change=3,0,10,17	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,10,17	shape=16bf398f7afb81b5
 q	64	1	bounds=0,0,10,17	comp=0,0,10,17	change=0,0,10,17	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,6,5	fill=7267acf41bd8488e	shape=08966aa25ccf8e45
-doc	65	flat=7985a39f5337a3ca	tiled=7985a39f5337a3ca	sub=6a8a4c26b5f6b179	reduced=910724bedd0deed7	damage=fb456a182aaee660	area=88b91c922a1f9ee4	thumb=6e79db28a9f11d26	surface=97f5733969a0fa4a	proxy=3221dceeb00ce10d	layers=5eca3a68d483ef3e
+doc	65	flat=71d10e694c687dc6	tiled=71d10e694c687dc6	sub=6a8a4c26b5f6b179	reduced=e4f1e03eff21ce5b	damage=c07ca69fd6d379cc	area=39e1fe7d7946af62	thumb=6e79db28a9f11d26	surface=97f5733969a0fa4a	proxy=0e74a7572e76b7a6	layers=ca443cbeb804a7ed
 q	65	0	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=3,5,16,8	shape=16c1610aa0534115
 q	65	1	bounds=-1,0,15,17	comp=0,0,15,9	change=0,0,15,9	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,19,9	shape=55aa86e202bcb588
-q	65	2	bounds=0,-4,34,12	comp=0,0,19,9	change=0,0,19,9	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,19,9	shape=e658f6f50ff4b198
+q	65	2	bounds=0,-4,34,12	comp=0,0,19,9	change=0,0,19,9	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,19,9	shape=abd1d5ed9e924fab
 q	65	3	bounds=4,0,23,7	comp=4,0,19,7	change=4,0,19,7	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,19,9	shape=db217027753367af
 q	65	4	bounds=0,0,19,9	comp=0,0,19,9	change=0,0,19,9	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,19,9	fill=d9c0c973e6247c72	shape=395c8157de7ac237
 doc	66	flat=1a418b6116b14b96	tiled=1a418b6116b14b96	sub=714af11bb9da5fd7	reduced=fc8588cf1dfd586a	damage=7d4635520c41cfb0	area=a9af8e37695b0f1f	thumb=aa1dfb58ba4b4076	surface=df1478a094ede2ae	proxy=40500211d4d880eb	layers=161880847aa3f2c5
@@ -328,7 +328,7 @@ q	70	1	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0
 q	70	2	bounds=0,0,14,25	comp=0,0,14,25	change=0,0,14,25	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,14,25	fill=78d0b07eab02a44d	shape=3b7a3ccadfe79bd5
 doc	71	flat=279cad45858772c5	tiled=279cad45858772c5	sub=b79412465111e230	reduced=c64ece7b7eecb12a	damage=98eb9352d64887f0	area=650d60e9a49a34d5	thumb=bf03885a95baf6f4	surface=8eec154769e4480b	proxy=c98f2bd6f0d2afa6	layers=1f89a0836cfb878f
 q	71	0	bounds=0,0,29,18	comp=0,0,29,18	change=0,0,29,18	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,29,18	shape=c82d15db8951e025
-q	71	1	bounds=13,-3,25,16	comp=13,0,25,16	change=13,0,25,16	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,29,18	shape=dd3328ce4f0d09eb	split=60a040be85e7a3d0,a96130eb5819cdbf
+q	71	1	bounds=5,-3,28,16	comp=5,0,28,16	change=5,0,28,16	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,29,18	shape=dd3328ce4f0d09eb	split=60a040be85e7a3d0,a96130eb5819cdbf
 q	71	2	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,29,18	shape=eb37f93b0c26fc45
 q	71	3	bounds=13,4,31,24	comp=13,4,29,18	change=13,4,29,18	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,29,18	shape=a74d3532b324d935
 q	71	4	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,29,18	shape=eb37f93b0c26fc45
@@ -341,14 +341,14 @@ doc	73	flat=b5f9165253dbc3d7	tiled=b5f9165253dbc3d7	sub=79eda1db2a4b7fe5	reduced
 q	73	0	bounds=0,0,17,19	comp=0,0,17,19	change=0,0,17,19	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,17,19	shape=0a7dbf5035703202
 q	73	1	bounds=-3,-2,36,21	comp=0,0,17,19	change=0,0,17,19	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,17,19	shape=20ff2b94b82adb48
 doc	74	flat=847dfe3ede00ff9a	tiled=847dfe3ede00ff9a	sub=c72aafabf8cb74c9	reduced=30852e7a1c8f9a89	damage=88201fb960ff6465	area=c75950f21bf19aa2	thumb=a7021192e8314010	surface=78e4c5ca6107ac71	proxy=f95687e84ae5eae7	layers=50fd6a89bf0ca2b8
-q	74	0	bounds=11,3,57,29	comp=11,3,33,21	change=11,3,33,21	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,33,19	shape=0798e8869df1a646	split=15907b796bfbf45d,55b6963653a1c228
+q	74	0	bounds=0,3,57,29	comp=0,3,33,21	change=0,3,33,21	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,33,19	shape=0798e8869df1a646	split=15907b796bfbf45d,55b6963653a1c228
 q	74	1	bounds=2,0,56,40	comp=2,0,33,21	change=2,0,33,21	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,33,21	shape=9fc6c01ac65b65ea
 q	74	2	bounds=1,0,56,21	comp=1,0,33,21	change=1,0,33,21	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=24,0,32,21	shape=88306c8b50d0e8aa
 doc	75	flat=57940e544882a754	tiled=57940e544882a754	sub=c75f515f963d01d0	reduced=d36445a18192d7a5	damage=29c52e0fe5372f4b	area=2cbfd4d1ca76f0b5	thumb=89caa8ab81bdb987	surface=52792ab540b784fb	proxy=61a051da2eaade58	layers=578dd52a8c261da4
 q	75	0	bounds=0,0,29,9	comp=0,0,29,9	change=0,0,29,9	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,29,9	shape=a720c40824da2cb0
 q	75	1	bounds=0,0,29,9	comp=0,0,29,9	change=0,0,29,9	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,29,9	fill=f2d533b0895bf321	shape=60452880aaf25935
 q	75	2	bounds=10,2,50,9	comp=10,2,29,9	change=10,2,29,9	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,29,9	shape=e9c547e9526c1f3d
-q	75	3	bounds=25,1,34,13	comp=25,1,29,9	change=25,1,29,9	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,29,9	shape=f8be5a485a4251f8	split=70698c37e77a7d20,114f05a2b4c7abae
+q	75	3	bounds=0,0,34,13	comp=0,0,29,9	change=0,0,29,9	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,29,9	shape=f8be5a485a4251f8	split=70698c37e77a7d20,114f05a2b4c7abae
 q	75	4	bounds=-3,1,33,10	comp=0,1,29,9	change=0,1,29,9	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=3,1,9,8	shape=5e5d577169144804
 q	75	5	bounds=0,0,29,9	comp=0,0,29,9	change=0,0,29,9	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,29,9	fill=6b95297efca1acb4	shape=92e7cc1e7ed7e3ae
 doc	76	flat=ebb00845934fdad6	tiled=ebb00845934fdad6	sub=7030feb39b5d92dd	reduced=0c2c8c1c1ebef7d5	damage=11755c66a46caac3	area=5a4a1cd7795a19cc	thumb=218f43aa80627d43	surface=08a5c660c7dd2505	proxy=9370c48777d663c3	layers=95e8e2c312917685
@@ -363,9 +363,9 @@ q	77	4	bounds=0,0,34,7	comp=0,0,34,7	change=0,0,34,7	to=1	occ=0	adv=0	shapeless=
 doc	78	flat=7358fe13416f0afb	tiled=7358fe13416f0afb	sub=bf218877154591cf	reduced=1ad64e1961277898	damage=1bb01502a7a58cf9	area=4fcdcfcf1f8f65ce	thumb=ee16384a462bac29	surface=946a71fd0d0f47c5	proxy=2830f82a7106cb9a	layers=0104107462832521
 q	78	0	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,12,18	shape=ea39157d66ff16a5
 q	78	1	bounds=0,0,12,18	comp=0,0,12,18	change=0,0,12,18	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,4,12,18	fill=8f7c0789897a3d7b	shape=233073b9ab888cfd
-doc	79	flat=9aa83ad8968541f1	tiled=3e3adcd59da0dff9	sub=eb6341c3c8967d17	reduced=e3e0d3b9bb78ed77	damage=3df20a30abdaaae5	area=cbb54fc059db4808	thumb=cbad5bf28f115c0c	surface=f73aaf799bbf7fb6	proxy=4e91a01e3c857fa3	layers=dbf245ebf6f33b5a
+doc	79	flat=bb9ab4c3db61872b	tiled=7629373999434f63	sub=18fc640859a8e66b	reduced=5678755b1a92ef98	damage=da4b56c22274538d	area=3f6a7649560fd816	thumb=0fe7ea5c11d1d1ff	surface=7855bcbd996621c0	proxy=878f52fc78c8f8b3	layers=b029f1103e11f51f
 q	79	0	bounds=2,-2,29,19	comp=2,0,16,19	change=2,0,16,19	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,3,16,20	shape=2ea6d3025206dfc0
-q	79	1	bounds=0,0,16,20	comp=0,0,16,20	change=0,0,16,20	to=1	occ=0	adv=1	shapeless=1	bg=0	frame=11,2,16,15	shape=e4e16c9f9067583d
+q	79	1	bounds=0,0,16,20	comp=0,0,16,20	change=0,0,16,20	to=1	occ=0	adv=1	shapeless=1	bg=0	frame=11,2,16,15	shape=e201e3ec86efa801
 doc	80	flat=400ed758720a2893	tiled=400ed758720a2893	sub=92472910f784678d	reduced=8901b57da2a53ef9	damage=231cc3164a03a3e2	area=45b04bda0d3de454	thumb=bbf8fa95e03be3ce	surface=91523e6f10036fa4	proxy=d4b8cf76116f6aa5	layers=31e48a426cfbdf65
 q	80	0	bounds=0,0,30,12	comp=0,0,30,12	change=0,0,30,12	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,30,12	fill=550f8e31ef9bae57	shape=f7a5046a13fa3d05
 q	80	1	bounds=0,0,30,12	comp=0,0,30,12	change=0,0,30,12	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,12	fill=37a6215d4296d2f7	shape=78e7f76b5c14a3a5
@@ -373,9 +373,9 @@ q	80	2	bounds=-1,5,24,16	comp=0,5,24,12	change=0,5,24,12	to=1	occ=0	adv=0	shapel
 doc	81	flat=944f7c639923d2f7	tiled=944f7c639923d2f7	sub=d3598505f523b2d1	reduced=b06d9aeba37a09b6	damage=11e6b770e1e07de9	area=6a37d52381948e7d	thumb=bb1dd23a7c8e7ea3	surface=7465d8c8a3a81cd4	proxy=4c101df5d6e8f1c0	layers=367feda77305fa00
 q	81	0	bounds=0,0,30,28	comp=0,0,30,28	change=0,0,30,28	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,28	shape=3134f2299507d6d5
 q	81	1	bounds=0,0,30,28	comp=0,0,30,28	change=0,0,30,28	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,28	shape=e2c4d99a7fe979a5
-q	81	2	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,28	shape=e2c4d99a7fe979a5	split=54359bf1452f6d01,ecbf33b1e8ab9708
-q	81	3	bounds=0,7,29,42	comp=0,7,29,28	change=0,7,29,28	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,28	shape=3333600ec47c4e99
-q	81	4	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,28	shape=e2c4d99a7fe979a5	split=e2c4d99a7fe979a5,2a65eeaa49e04707
+q	81	2	bounds=8,1,22,21	comp=8,1,22,21	change=8,1,22,21	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,28	shape=e2c4d99a7fe979a5	split=54359bf1452f6d01,ecbf33b1e8ab9708
+q	81	3	bounds=0,7,29,42	comp=0,7,29,28	change=0,7,29,28	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,28	shape=3d232f3710f6476d
+q	81	4	bounds=0,2,7,28	comp=0,2,7,28	change=0,2,7,28	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,28	shape=e2c4d99a7fe979a5	split=e2c4d99a7fe979a5,2a65eeaa49e04707
 doc	82	flat=65f6b91e3a7a9b30	tiled=65f6b91e3a7a9b30	sub=c23ba7f7f15a1305	reduced=dcd98da04d62a630	damage=902aaad957d1fefe	area=19d9b81d4e39302d	thumb=f2c6fd29d2b3ce78	surface=e9dda1cc4e07777b	proxy=8f9f943973d4719e	layers=85f43874c7428fda
 q	82	0	bounds=0,0,21,15	comp=0,0,21,15	change=0,0,21,15	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,21,15	shape=d0631061df4086e7
 q	82	1	bounds=-2,-4,32,22	comp=0,0,21,15	change=0,0,21,15	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,21,15	shape=951e04f542ec9314
@@ -385,11 +385,11 @@ q	83	1	bounds=-4,0,19,19	comp=0,0,12,15	change=0,0,12,15	to=1	occ=0	adv=0	shapel
 q	83	2	bounds=2,1,25,19	comp=2,1,12,15	change=2,1,12,15	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,12,15	shape=44b6b00f49cbd203
 doc	84	flat=5d4bf67e0cedd691	tiled=5d4bf67e0cedd691	sub=46bf04627f5b2938	reduced=8ee44bca17eb5d3f	damage=37182e7fd9e473e5	area=3ab015c1a3b95bb8	thumb=3233de067efff232	surface=19c73a7d17aa17a9	proxy=3ac710a3598dbfce	layers=434b086ec5b54433
 q	84	0	bounds=0,0,26,19	comp=0,0,26,19	change=0,0,26,19	to=1	occ=0	adv=1	shapeless=1	bg=0	frame=0,0,26,19	shape=740dcfa68639fe55
-doc	85	flat=f40d7cbe3bf13871	tiled=f40d7cbe3bf13871	sub=b672ece443abffad	reduced=972023d2c027dc4a	damage=237df64a664ca80e	area=e127e349dee5cb2b	thumb=c18a2b0546625cc7	surface=38af7cf3de5e3f59	proxy=5ec54fd28413e4a2	layers=c17bea637fd20a01
+doc	85	flat=371e2d32a9a1083d	tiled=371e2d32a9a1083d	sub=b17e403c2882c8b2	reduced=e6cae992c90f449a	damage=9ec67d778ed36de0	area=49d33fcd0ff453c5	thumb=ce3f5399d40a4565	surface=1bc9701bb231e315	proxy=c32d982c7c68c1c4	layers=2dc8b5276461e500
 q	85	0	bounds=3,-1,28,17	comp=3,0,20,13	change=3,0,20,13	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,20,13	shape=3785b5da19cd7bda
-q	85	1	bounds=6,1,11,23	comp=6,1,11,13	change=6,1,11,13	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,20,13	shape=b221665a53dfd0f0
+q	85	1	bounds=6,1,11,23	comp=6,1,11,13	change=6,1,11,13	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,20,13	shape=1eeaee309398b5c3
 q	85	2	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,20,13	shape=392519d0a519b465
-q	85	3	bounds=0,0,20,13	comp=0,0,20,13	change=0,0,20,13	to=1	occ=0	adv=1	shapeless=1	bg=0	frame=4,2,14,6	shape=82399e131d9a4f83
+q	85	3	bounds=0,0,20,13	comp=0,0,20,13	change=0,0,20,13	to=1	occ=0	adv=1	shapeless=1	bg=0	frame=4,2,14,6	shape=4f90d0bc757e223b
 q	85	4	bounds=0,4,23,17	comp=0,4,20,13	change=0,4,20,13	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,20,13	shape=5501432e4496a8d9
 doc	86	flat=b228064ca9109555	tiled=b228064ca9109555	sub=130138964f997455	reduced=4e12956d58cc93b7	damage=8c15cefa8a7505e9	area=75ebc2e950a0d79a	thumb=e899a596a78c3169	surface=6a20711e1eb08604	proxy=896de49eccaea44f	layers=501fcaa26d8cae84
 q	86	0	bounds=0,-4,21,14	comp=0,0,21,8	change=0,0,21,8	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,24,8	shape=9831d53890efba59
@@ -406,13 +406,13 @@ doc	89	flat=3d536b2fa33bd1b5	tiled=3d536b2fa33bd1b5	sub=80bf5722c89109d7	reduced
 q	89	0	bounds=5,5,54,29	comp=5,5,29,22	change=5,5,29,22	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,29,22	shape=e43663d316ac88bd
 q	89	1	bounds=0,0,29,22	comp=0,0,29,22	change=0,0,29,22	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,29,22	fill=c06675bfcbea501e	shape=f5cc18a5d858c8d5
 q	89	2	bounds=0,0,29,22	comp=0,0,29,22	change=0,0,29,22	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,29,22	fill=71d8c907dd8852ec	shape=431af8b0e327bfb5
-doc	90	flat=8064151bf11aacd7	tiled=8064151bf11aacd7	sub=752dc3d9be791d31	reduced=29b2a57dec7c68de	damage=f0e2c551ab57e3e6	area=a65f7a92ca5ebbd5	thumb=3788dee51e88773c	surface=5ff9b1f41bfefcb3	proxy=c8fb7a2bf2110d12	layers=76e585f3eb1ac342
+doc	90	flat=8064151bf11aacd7	tiled=8064151bf11aacd7	sub=752dc3d9be791d31	reduced=29b2a57dec7c68de	damage=f0e2c551ab57e3e6	area=a65f7a92ca5ebbd5	thumb=3788dee51e88773c	surface=5ff9b1f41bfefcb3	proxy=37f2b81f631e6406	layers=8712f4ea50e9334d
 q	90	0	bounds=0,0,29,24	comp=0,0,29,24	change=0,0,29,24	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,29,24	shape=f19912eadb82c1f5
 q	90	1	bounds=0,0,29,24	comp=0,0,29,24	change=0,0,29,24	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,29,24	fill=3a1ba43d7b4a8f80	shape=f97427d91ddc5c45
-q	90	2	bounds=9,0,38,45	comp=9,0,29,24	change=9,0,29,24	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,23,7	shape=391fd980a5ae4f67
+q	90	2	bounds=9,0,38,45	comp=9,0,29,24	change=9,0,29,24	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,23,7	shape=90de418db8c2a14a
 q	90	3	bounds=0,0,46,46	comp=0,0,29,24	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,29,24	shape=7102a52300cdeca5
 q	90	4	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,29,24	shape=7102a52300cdeca5
-q	90	5	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=4,13,18,24	shape=7102a52300cdeca5	split=2257dacfb7d00140,60c88ac72e3cb412
+q	90	5	bounds=1,0,29,17	comp=1,0,29,17	change=1,0,29,17	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=4,13,18,24	shape=7102a52300cdeca5	split=2257dacfb7d00140,60c88ac72e3cb412
 doc	91	flat=3fdab5247c1db5ff	tiled=3fdab5247c1db5ff	sub=451d4248d6361212	reduced=1b025e27b0666087	damage=7a663732cfe56217	area=3f25140c3d7180fe	thumb=7b05d4a02e0c85e4	surface=64d26e0c692652f2	proxy=0df5aec08b495b3f	layers=252b42e864f55418
 q	91	0	bounds=0,0,27,7	comp=0,0,27,7	change=0,0,27,7	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,27,7	shape=b0c6bbd0aa0a27a3
 q	91	1	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,27,7	shape=84f2628e45ffeab5
@@ -426,7 +426,7 @@ q	93	3	bounds=-2,6,15,9	comp=0,6,15,7	change=0,6,15,7	to=1	occ=0	adv=0	shapeless
 doc	94	flat=72dd3e99c7eb1682	tiled=72dd3e99c7eb1682	sub=2dcba969eb5b491a	reduced=bee7c3d9cc2bcac5	damage=41ccefd0de875498	area=a4a461419e4023c4	thumb=4fcfc7b57eb58f87	surface=9f732ac98933bfb4	proxy=836d954de419e8b9	layers=5e51682180ef82b6
 q	94	0	bounds=6,-4,49,35	comp=6,0,31,24	change=6,0,31,24	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=18,19,26,24	shape=94703eb40fd49925	split=7019ff053d05fc19,dad293ee1ddb8357
 q	94	1	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=6,0,26,8	shape=94a548f3e18a1ba5
-q	94	2	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,31,24	shape=94a548f3e18a1ba5	split=afe2d1f47cf55425,dcf689594fc9f332
+q	94	2	bounds=0,0,31,23	comp=0,0,31,23	change=0,0,31,23	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,31,24	shape=94a548f3e18a1ba5	split=afe2d1f47cf55425,dcf689594fc9f332
 q	94	3	bounds=-3,-2,48,34	comp=0,0,31,24	change=0,0,31,24	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,31,24	shape=2a8c24a26fa4bfa2
 doc	95	flat=9a980049bd3490b3	tiled=9a980049bd3490b3	sub=130bf103e3afa020	reduced=d1c7848936e78cc4	damage=1bbae2fb3e870f80	area=38b670fddb5d6018	thumb=b4fefa404b5aefc1	surface=a988756b017b61b6	proxy=c2521dc40344886b	layers=6cb02a128464407a
 q	95	0	bounds=0,0,12,8	comp=0,0,12,8	change=0,0,12,8	to=1	occ=1	adv=0	shapeless=0	bg=0	frame=0,0,12,8	fill=e2ffa034ad512fa1	shape=6be59f9f3d311225
@@ -434,8 +434,8 @@ q	95	1	bounds=0,0,12,8	comp=0,0,12,8	change=0,0,12,8	to=1	occ=0	adv=0	shapeless=
 q	95	2	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,11,8	shape=c86ec345c0ee8125
 doc	96	flat=28beb2c8ada18c8b	tiled=28beb2c8ada18c8b	sub=a08865a321ed68ed	reduced=88424679b6638453	damage=ae28b46476f47306	area=bd97c29b7c628114	thumb=4c5757d440729c76	surface=49cbaba8b8b4c3c5	proxy=46c6deb627e8e9e2	layers=d84822e8e8eb524c
 q	96	0	bounds=0,0,26,20	comp=0,0,26,20	change=0,0,26,20	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,26,20	fill=28beb2c8ada18c8b	shape=e98024f3aaa46e15
-doc	97	flat=6f475e8902a00dd0	tiled=6f475e8902a00dd0	sub=e7abe7600c454f5d	reduced=c1251034534ab87f	damage=adbef1c3b2bf6c11	area=df14849c34e4bc64	thumb=d715c6e27ecffbf2	surface=933e29e1124c513f	proxy=995e4e2055b15028	layers=7d3c8c94781ecfce
-q	97	0	bounds=0,0,30,22	comp=0,0,30,22	change=0,0,30,22	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=2,12,11,22	fill=d877ab7bc4ecd0fd	shape=6cd90f87e63e16de
+doc	97	flat=75422ab7682abae4	tiled=75422ab7682abae4	sub=4c5b1f2d55d803a1	reduced=13cf313b3bbe5413	damage=adbef1c3b2bf6c11	area=937c34968951950b	thumb=5da5192eaaeab025	surface=90eb757e6309529a	proxy=e95d0bb637d4f68c	layers=f85390861dbfe81c
+q	97	0	bounds=0,0,30,22	comp=0,0,30,22	change=0,0,30,22	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=2,12,11,22	fill=d877ab7bc4ecd0fd	shape=4234c85bf48cf9ef
 doc	98	flat=97bc9c82fe5caedf	tiled=97bc9c82fe5caedf	sub=cc70b29b05714a16	reduced=d0d4cda5f91ef178	damage=416c0c0c3d81ece4	area=0d93571354beae18	thumb=30a8976eb7b8bada	surface=6bb75a04573feca4	proxy=9b290c474bee6fa8	layers=351426f96e0cad47
 q	98	0	bounds=0,0,16,10	comp=0,0,16,10	change=0,0,16,10	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,16,10	shape=d686f11e473d4e25
 q	98	1	bounds=0,0,16,10	comp=0,0,16,10	change=0,0,16,10	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=7,3,16,7	fill=f737cb4085af2c1f	shape=96554ce2cfb01525
@@ -446,14 +446,14 @@ doc	99	flat=75970cc562ab8c52	tiled=75970cc562ab8c52	sub=5a158e68d4b46c50	reduced
 q	99	0	bounds=6,8,25,36	comp=6,8,13,20	change=6,8,13,20	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,13,20	shape=85f8d70e3cb60384
 doc	100	flat=9997edac9e332bfd	tiled=9997edac9e332bfd	sub=87ae70f39ad8fa43	reduced=432f26c2de05dd03	damage=4feeb09de05ac6ed	area=19aa0486edfa0df7	thumb=14554735a86614f7	surface=2206b6542edee502	proxy=ad69cbe9b576c556	layers=112b22823989f083
 q	100	0	bounds=0,0,27,21	comp=0,0,27,21	change=0,0,27,21	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,27,21	shape=3042a6aef32e021f
-q	100	1	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,27,21	shape=f099fb0c9a8ae0d5	split=d28477df1e41814a,94f0b5b98760d666
+q	100	1	bounds=0,0,14,21	comp=0,0,14,21	change=0,0,14,21	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,27,21	shape=f099fb0c9a8ae0d5	split=d28477df1e41814a,94f0b5b98760d666
 q	100	2	bounds=0,0,27,21	comp=0,0,27,21	change=0,0,27,21	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,27,21	fill=97fffbfd6f37eb5b	shape=f099fb0c9a8ae0d5
 q	100	3	bounds=0,0,27,21	comp=0,0,27,21	change=0,0,27,21	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,27,21	fill=f8f82ca2f8237a5b	shape=5079053507bfca28
 q	100	4	bounds=10,10,44,35	comp=10,10,27,21	change=10,10,27,21	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,27,21	shape=495efa870670e603
 q	100	5	bounds=0,0,27,21	comp=0,0,27,21	change=0,0,27,21	to=1	occ=0	adv=1	shapeless=1	bg=0	frame=0,0,27,21	shape=5079053507bfca28
 doc	101	flat=f4f3c9b1445db295	tiled=f4f3c9b1445db295	sub=1f5eb801f5cf01b2	reduced=75e8539db68d8d54	damage=88201fb960ff6465	area=cc6ec62168ea9f17	thumb=35ebdce0da1d4c36	surface=792b98db84304964	proxy=c5eabab78b99112a	layers=ae849d85332d1cd5
 q	101	0	bounds=2,0,40,34	comp=2,0,30,24	change=2,0,30,24	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,24	shape=2d28374088260b08
-q	101	1	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,24	shape=dce5896aa4b26425	split=dce5896aa4b26425,0b3ce5632bc40e9e
+q	101	1	bounds=0,7,27,19	comp=0,7,27,19	change=0,7,27,19	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,24	shape=dce5896aa4b26425	split=dce5896aa4b26425,0b3ce5632bc40e9e
 q	101	2	bounds=0,0,30,24	comp=0,0,30,24	change=0,0,30,24	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,24	fill=c2b7ff6464adabc3	shape=dce5896aa4b26425
 q	101	3	bounds=0,0,30,24	comp=0,0,30,24	change=0,0,30,24	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,24	fill=c2b7ff6464adabc3	shape=dce5896aa4b26425
 doc	102	flat=a71cc0010da36d91	tiled=a71cc0010da36d91	sub=c2d5d69b1e74e25e	reduced=2023e57ac2c6bc74	damage=99439507cf034baa	area=2b484d927f967ba5	thumb=3a7d916c78ecf99b	surface=ede3a90b81f81280	proxy=83fec62a2ed68afd	layers=46cba428efd54918
@@ -502,10 +502,10 @@ q	114	1	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=
 q	114	2	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,34,13	shape=dd16b6e58175e345
 doc	115	flat=34a591305dfe677a	tiled=c7bb10186517984d	sub=d7dfed6d268381ce	reduced=efd94dd9658d2439	damage=88201fb960ff6465	area=fb61328ceb52df70	thumb=6e1fad6b9d1b79ed	surface=90392e28f5e98238	proxy=9860113270d6d38b	layers=053c34223582f3ea
 q	115	0	bounds=0,0,17,18	comp=0,0,17,18	change=0,0,17,18	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,13,18	shape=18ad720712350857
-q	115	1	bounds=2,-2,33,20	comp=2,0,17,18	change=2,0,17,18	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,17,18	shape=d717e19ec9dcf0e2
+q	115	1	bounds=0,-2,33,20	comp=0,0,17,18	change=0,0,17,18	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,17,18	shape=d717e19ec9dcf0e2
 q	115	2	bounds=13,9,30,24	comp=13,9,17,18	change=13,9,17,18	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,17,18	shape=3538f32c925e3582
 q	115	3	bounds=0,0,17,18	comp=0,0,17,18	change=0,0,17,18	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,17,18	fill=b9c8359f3e014e06	shape=d02ec4b4d67d5d51
-q	115	4	bounds=9,3,17,28	comp=9,3,17,18	change=9,3,17,18	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,17,18	shape=a9c9514c9ddb699b	split=feb57c1feb0618c5,dbb2c4213fdae13a
+q	115	4	bounds=0,0,17,28	comp=0,0,17,18	change=0,0,17,18	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,17,18	shape=a9c9514c9ddb699b	split=feb57c1feb0618c5,dbb2c4213fdae13a
 doc	116	flat=09c4b5d5682cb721	tiled=09c4b5d5682cb721	sub=09d27d8dba4d4f91	reduced=f9a5ec0ad8dcfcdb	damage=3d8980daa0e26b7c	area=7d01b6a00a68b14c	thumb=870fe98aedce4f6a	surface=5c7a50bec2a3e3dc	proxy=ebc49b330d1ed577	layers=051425b76ffcb77f
 q	116	0	bounds=0,0,23,27	comp=0,0,23,27	change=0,0,23,27	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,23,27	shape=f1167490f1780c33
 q	116	1	bounds=4,10,33,38	comp=4,10,23,27	change=4,10,23,27	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,23,27	shape=af60e17ea2026950
@@ -517,7 +517,7 @@ q	118	0	bounds=1,-4,38,9	comp=1,0,27,9	change=1,0,27,9	to=1	occ=0	adv=0	shapeles
 q	118	1	bounds=3,-2,24,15	comp=3,0,24,14	change=3,0,24,14	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,27,14	shape=52656b3fe3053235
 doc	119	flat=93336cf922585b94	tiled=93336cf922585b94	sub=eb3c9985d6de5f69	reduced=abff67909504825f	damage=202b6bedac98cc18	area=c1e5ce6550e4d60e	thumb=4967458cd0b9ea5a	surface=413c26780ea65340	proxy=2c4a96512cdbf800	layers=171389ec077dae7a
 q	119	0	bounds=0,0,31,10	comp=0,0,31,10	change=0,0,31,10	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,31,10	shape=00c96b7709449bed
-q	119	1	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,31,10	shape=f308c061e607c205	split=f308c061e607c205,631550319f94ca35
+q	119	1	bounds=7,0,31,10	comp=7,0,31,10	change=7,0,31,10	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,31,10	shape=f308c061e607c205	split=f308c061e607c205,631550319f94ca35
 q	119	2	bounds=0,0,31,10	comp=0,0,31,10	change=0,0,31,10	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,31,10	fill=d951fcc64e3e2ef0	shape=f308c061e607c205
 q	119	3	bounds=0,0,31,10	comp=0,0,31,10	change=0,0,31,10	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,31,10	fill=e1c28b4b3c883950	shape=5b60bb897d2c35cd
 q	119	4	bounds=3,1,32,14	comp=3,1,31,10	change=3,1,31,10	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,31,10	shape=f308c061e607c205
@@ -533,18 +533,18 @@ q	121	4	bounds=5,2,56,10	comp=5,2,30,7	change=5,2,30,7	to=1	occ=0	adv=0	shapeles
 doc	122	flat=b4491b3d3f69c2ba	tiled=b4491b3d3f69c2ba	sub=c4e2dedba336b393	reduced=92ba351984fa7754	damage=1496408b47f385e6	area=2ed33ec77e1336cd	thumb=a5519a66f829e150	surface=14d5bceae7b5b1a5	proxy=7b5626d1566450bb	layers=fdbdab2e9fe4a3bd
 q	122	0	bounds=-3,-1,3,32	comp=0,0,3,22	change=0,0,3,22	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,9,22	shape=746e48e159268e75
 q	122	1	bounds=0,14,15,34	comp=0,14,9,22	change=0,14,9,22	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,9,22	shape=3e85bd6e69a75f05
-q	122	2	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,9,22	shape=3f3d0f0cb4683924	split=c78838c87b66a002,4c61b2856bfb3894
+q	122	2	bounds=0,0,7,19	comp=0,0,7,19	change=0,0,7,19	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,9,22	shape=3f3d0f0cb4683924	split=c78838c87b66a002,4c61b2856bfb3894
 q	122	3	bounds=0,0,9,22	comp=0,0,9,22	change=0,0,9,22	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=8,10,9,22	fill=b4491b3d3f69c2ba	shape=3e85bd6e69a75f05
 doc	123	flat=74a6bf06553d4cc4	tiled=74a6bf06553d4cc4	sub=f76f5b5307147f4f	reduced=b8b4529b5aa59390	damage=58e749bf97c6358e	area=1b5dce66f677c11e	thumb=ab2272146299afc7	surface=b2059799dd7d94a4	proxy=dc3c07cf00a6d4da	layers=36860868fa887122
 q	123	0	bounds=0,0,38,23	comp=0,0,38,23	change=0,0,38,23	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,38,23	shape=aad9d5a504419061
 q	123	1	bounds=0,0,38,23	comp=0,0,38,23	change=0,0,38,23	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,38,23	fill=50ff05530cc27abd	shape=97fd506f1d526fb5
-doc	124	flat=b5a3efee307b7b9a	tiled=b5a3efee307b7b9a	sub=c549ec2693ca5fd6	reduced=58741dff2f41dad9	damage=3a5544ee8f9cb846	area=5ebd111924e818ab	thumb=632951d6a26a6d92	surface=a55213f01adf79ac	proxy=b245e47295081a25	layers=519ac03123e902d1
+doc	124	flat=279d7b601332e862	tiled=279d7b601332e862	sub=c549ec2693ca5fd6	reduced=9cd2bd1510ebf272	damage=3a5544ee8f9cb846	area=bc7a108d383a8017	thumb=0e1617bdee84ce89	surface=b098125de09cb8a7	proxy=6e3f7a3483d30c33	layers=700c880bbec9e501
 q	124	0	bounds=0,0,36,17	comp=0,0,36,17	change=0,0,36,17	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,36,17	shape=0d85baa6cf094b85
-q	124	1	bounds=11,10,62,27	comp=11,10,36,17	change=11,10,36,17	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,36,17	shape=ad9c492a4c703c43
+q	124	1	bounds=11,10,62,27	comp=11,10,36,17	change=11,10,36,17	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,36,17	shape=b9469e4b8d6f4adc
 q	124	2	bounds=14,-4,53,31	comp=14,0,36,17	change=14,0,36,17	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,36,17	shape=00fa52ad213c5f3f
 q	124	3	bounds=0,0,36,17	comp=0,0,36,17	change=0,0,36,17	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,36,17	fill=10e570f10ddbeb88	shape=a02757ab7c2fa5c5
 q	124	4	bounds=0,0,36,17	comp=0,0,36,17	change=0,0,36,17	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,36,17	fill=75195e8bd73bbaf0	shape=72bfcaeb2089d635
-q	124	5	bounds=-1,3,62,33	comp=0,3,36,17	change=0,3,36,17	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,36,17	shape=a49a7ad68862654a	split=37b0dfb19eb67114,f432fadcedab63da
+q	124	5	bounds=-1,0,62,33	comp=0,0,36,17	change=0,0,36,17	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,36,17	shape=a49a7ad68862654a	split=37b0dfb19eb67114,f432fadcedab63da
 doc	125	flat=300858c052484e16	tiled=300858c052484e16	sub=0b677539d1ee6545	reduced=c474f2ff1edd6c61	damage=e4a32efeb75058ee	area=dba230b081386756	thumb=98616764187ab46a	surface=6be68edf4a8971a4	proxy=281f0000a6c79807	layers=260f22fde91b7e6e
 q	125	0	bounds=0,0,16,19	comp=0,0,16,19	change=0,0,16,19	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,16,19	shape=ccbb3137d8b1afc5
 q	125	1	bounds=0,0,16,19	comp=0,0,16,19	change=0,0,16,19	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,16,19	fill=fec5b97f19f97e23	shape=df668d8d5de8fea5
@@ -577,7 +577,7 @@ q	130	0	bounds=0,0,23,16	comp=0,0,23,16	change=0,0,23,16	to=1	occ=0	adv=1	shapel
 q	130	1	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,23,16	shape=2a39cfc039ddb625
 q	130	2	bounds=6,11,38,17	comp=6,11,23,16	change=6,11,23,16	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,23,16	shape=0d85e69b48ade6f0
 doc	131	flat=702dfa5820437dbd	tiled=702dfa5820437dbd	sub=c2a192b706fff723	reduced=8fb06f8138071794	damage=8605ec3dcc0d5831	area=dc872b0dbf8eddc3	thumb=850a0bcae45684b8	surface=47fc399c4efe7684	proxy=5fa3f560540da719	layers=2d39fddeba415a65
-q	131	0	bounds=-4,9,18,40	comp=0,9,14,22	change=0,9,14,22	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,14,22	shape=2b3cab183865c44d	split=68a9107f49692ec3,0922031fcf85332b
+q	131	0	bounds=-4,1,18,40	comp=0,1,14,22	change=0,1,14,22	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,14,22	shape=2b3cab183865c44d	split=68a9107f49692ec3,0922031fcf85332b
 q	131	1	bounds=3,0,18,14	comp=3,0,14,14	change=3,0,14,14	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,14,22	shape=718c797c651ed445
 q	131	2	bounds=0,0,14,22	comp=0,0,14,22	change=0,0,14,22	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,14,22	fill=2512cc29dc9469fd	shape=718c797c651ed445
 q	131	3	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,14,22	shape=b31ae3a2e0dd2365
@@ -595,9 +595,9 @@ doc	135	flat=5d9ddda2df954330	tiled=5d9ddda2df954330	sub=5bfc0a73d1c9fbe3	reduce
 q	135	0	bounds=0,0,31,30	comp=0,0,31,30	change=0,0,31,30	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,31,30	shape=21d0dc8a3a7c6f45
 q	135	1	bounds=-4,-4,34,31	comp=0,0,31,30	change=0,0,31,30	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,31,30	shape=b54baa6cad70dfb8
 q	135	2	bounds=0,0,31,30	comp=0,0,31,30	change=0,0,31,30	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,31,30	fill=709a3645437d3f24	shape=f279d22fb0299027
-q	135	3	bounds=21,6,49,30	comp=21,6,31,30	change=21,6,31,30	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,31,30	shape=f954eb38d60619ce	split=a1788a6a63062865,229f7e7af8f933c2
+q	135	3	bounds=0,0,49,30	comp=0,0,31,30	change=0,0,31,30	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,31,30	shape=f954eb38d60619ce	split=a1788a6a63062865,229f7e7af8f933c2
 q	135	4	bounds=28,1,45,21	comp=28,1,31,21	change=28,1,31,21	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,31,30	shape=64599538e90811c0
-q	135	5	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,31,30	shape=7bcd9b658fa0bffb	split=ad87aa65a352b01c,706d1291798d9a58
+q	135	5	bounds=0,0,31,29	comp=0,0,31,29	change=0,0,31,29	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,31,30	shape=7bcd9b658fa0bffb	split=ad87aa65a352b01c,706d1291798d9a58
 doc	136	flat=4f586052d9957868	tiled=4f586052d9957868	sub=851f55b3678d8115	reduced=14a7cc69c0672454	damage=ce10ba3212454c76	area=80483418eb310706	thumb=2fc076e8030c1d0c	surface=8bfa5fb44a42ec1d	proxy=a162df0772267b46	layers=4f9ba2f70ddad699
 q	136	0	bounds=-2,1,19,14	comp=0,1,13,7	change=0,1,13,7	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,13,7	shape=4ab31ab0736b9a08
 q	136	1	bounds=0,0,13,7	comp=0,0,13,7	change=0,0,13,7	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,13,7	fill=e704d915b623bc7f	shape=6924abb5b3ae1815
@@ -620,7 +620,7 @@ doc	140	flat=4878007979bd1fe2	tiled=4878007979bd1fe2	sub=227c63e4d7fdb33f	reduce
 q	140	0	bounds=0,0,34,10	comp=0,0,34,10	change=0,0,34,10	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,34,10	shape=2a8a041a244269bd
 q	140	1	bounds=0,0,34,10	comp=0,0,34,10	change=0,0,34,10	to=1	occ=0	adv=1	shapeless=1	bg=0	frame=0,0,34,10	shape=d812511d7e24b945
 q	140	2	bounds=0,1,41,19	comp=0,1,34,10	change=0,1,34,10	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,14,10	shape=6ec1d3d183bb0f05
-q	140	3	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,34,10	shape=2cfe148635d86d65	split=f967e33cf08e67e5,429cc7d64277c404
+q	140	3	bounds=0,3,33,8	comp=0,3,33,8	change=0,3,33,8	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,34,10	shape=2cfe148635d86d65	split=f967e33cf08e67e5,429cc7d64277c404
 q	140	4	bounds=-3,-4,58,15	comp=0,0,34,10	change=0,0,34,10	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,34,10	shape=a11c911085438183
 q	140	5	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,34,10	shape=2cfe148635d86d65
 doc	141	flat=311e3fdaaee8f315	tiled=311e3fdaaee8f315	sub=9c4f68983643f7ee	reduced=3e987663dc81ae96	damage=8d81f57798d16815	area=5369d92257162061	thumb=a6c7555f6c4241f1	surface=500b9309a284fec5	proxy=ee227a206f93d2dd	layers=dc52b1b1d041a2f9
@@ -628,7 +628,7 @@ q	141	0	bounds=0,0,26,10	comp=0,0,26,10	change=0,0,26,10	to=1	occ=0	adv=1	shapel
 doc	142	flat=29645551248b223e	tiled=c2cf14ed21fe63de	sub=d63489f462e73d2f	reduced=e0a3c95e26811c31	damage=018aea659dbdcd66	area=5893b92978d090b7	thumb=c67b5a5eb765561f	surface=f45e59d478b01fcf	proxy=d6aa16c48d7124a1	layers=4161f9de3f7bc557
 q	142	0	bounds=0,0,28,10	comp=0,0,28,10	change=0,0,28,10	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=10,0,28,10	fill=d2303bbcc3800213	shape=ae1c29d6ece1a093
 q	142	1	bounds=0,-1,28,7	comp=0,0,28,7	change=0,0,28,7	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,28,10	shape=34d6775e3f5802ad
-q	142	2	bounds=13,8,33,18	comp=13,8,28,10	change=13,8,28,10	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,28,10	shape=c8345dbe50245e6d	split=5ef7ea92c130ec2c,f9cc6b39bd5867f3
+q	142	2	bounds=0,0,33,18	comp=0,0,28,10	change=0,0,28,10	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,28,10	shape=c8345dbe50245e6d	split=5ef7ea92c130ec2c,f9cc6b39bd5867f3
 q	142	3	bounds=0,0,28,10	comp=0,0,28,10	change=0,0,28,10	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,28,10	fill=3bb313c61bf00a53	shape=87222388ea80f6a5
 doc	143	flat=cb673ddc4162f17c	tiled=cb673ddc4162f17c	sub=834d1ad7edb44bb6	reduced=d358429ea9beb1ca	damage=7026c782114defee	area=9dc0ec60c2ce5c4b	thumb=0f00a7a1e2016fef	surface=e743c5361500c824	proxy=0d03078ef27e5920	layers=31a0004916c10186
 q	143	0	bounds=0,0,32,9	comp=0,0,32,9	change=0,0,32,9	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,32,9	shape=c8abba5861beb3e5
@@ -651,7 +651,7 @@ doc	148	flat=0ba5beea3c11e6f4	tiled=0ba5beea3c11e6f4	sub=746d542d678ed49e	reduce
 q	148	0	bounds=0,0,16,17	comp=0,0,16,17	change=0,0,16,17	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,16,17	shape=375215a62f394e25
 q	148	1	bounds=-4,7,19,29	comp=0,7,16,17	change=0,7,16,17	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,16,17	shape=14ce9dd39109b3f3
 doc	149	flat=2941af12cbf1b7da	tiled=2941af12cbf1b7da	sub=b2ce30dd2db3cbc1	reduced=248fe2ab571a6b4b	damage=4b87ace2f9bd7a3b	area=f65c949b9a853e0e	thumb=85827cb30856faac	surface=8939e83301e9e764	proxy=ccc5265d735008c1	layers=d672630c786f5507
-q	149	0	bounds=10,13,36,49	comp=10,13,20,27	change=10,13,20,27	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,20,27	shape=a0eafd682e395285	split=af66fba9db1b64a5,b06c1720681bc1ba
+q	149	0	bounds=0,0,36,49	comp=0,0,20,27	change=0,0,20,27	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,20,27	shape=a0eafd682e395285	split=af66fba9db1b64a5,b06c1720681bc1ba
 doc	150	flat=8802ef04ec7a7c5f	tiled=8802ef04ec7a7c5f	sub=ef1b0b7e81954300	reduced=609b081842b34be3	damage=976809d546c7a564	area=c1cce6cda55691a6	thumb=c524dd669c2085e4	surface=52bb858be40ad022	proxy=ec5966f53c780c86	layers=af132533b1936276
 q	150	0	bounds=-3,0,28,17	comp=0,0,28,8	change=0,0,28,8	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,33,8	shape=45a3f6de53196441
 q	150	1	bounds=9,-4,29,6	comp=9,0,29,6	change=9,0,29,6	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,33,8	shape=619710eb0282d350
@@ -660,11 +660,11 @@ q	150	3	bounds=0,0,33,8	comp=0,0,33,8	change=0,0,33,8	to=1	occ=0	adv=0	shapeless
 doc	151	flat=a066ea3ed75d4103	tiled=a066ea3ed75d4103	sub=97737f69cc22bba9	reduced=510c9080a1b34273	damage=f8d7643dffbbb525	area=92bc361f932529f2	thumb=6458ba1a961d3c44	surface=2e4eb1756b571175	proxy=83fabfca5b142040	layers=8a67c811b4807725
 q	151	0	bounds=-4,-3,37,23	comp=0,0,25,15	change=0,0,25,15	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=3,8,8,15	shape=9af77572f0526a73
 q	151	1	bounds=0,0,25,15	comp=0,0,25,15	change=0,0,25,15	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,25,15	fill=90c8f73bb20ceedc	shape=63e66890034dcc28
-doc	152	flat=1ea00499a41702b3	tiled=1ea00499a41702b3	sub=166c52f48f1985a8	reduced=6503e7f3c9ae0a42	damage=2ea1b1eebbbad061	area=7f24cbec87e5e88c	thumb=e7c2308edbf852ff	surface=6473dc9219c19253	proxy=d898c768e4527879	layers=381d828d3a41591e
+doc	152	flat=b074dcb2cdef817f	tiled=b074dcb2cdef817f	sub=166c52f48f1985a8	reduced=03da0d12be59422f	damage=14df91c01123e6e6	area=cf09144e9f682ee1	thumb=547d6cad3198b826	surface=4d95f5db750bc27d	proxy=047bdf302c1033fa	layers=aa86268f55bb199a
 q	152	0	bounds=0,0,17,20	comp=0,0,17,20	change=0,0,17,20	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,17,20	shape=f80f64046c94d2b5
 q	152	1	bounds=0,0,17,20	comp=0,0,17,20	change=0,0,17,20	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,17,20	fill=315f5f19024a99c1	shape=0acb0813ff4578b5
-q	152	2	bounds=-3,4,15,28	comp=0,4,15,20	change=0,4,15,20	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=15,11,17,19	shape=7b8610ec44c4cd61
-q	152	3	bounds=-2,1,13,20	comp=0,1,13,20	change=0,1,13,20	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,17,20	shape=82a74622272c370f	split=303eb64547135d0b,0e81117215983ad6
+q	152	2	bounds=-3,4,15,28	comp=0,4,15,20	change=0,4,15,20	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=15,11,17,19	shape=f30216c0829d6c97
+q	152	3	bounds=-2,0,17,20	comp=0,0,17,20	change=0,0,17,20	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,17,20	shape=82a74622272c370f	split=303eb64547135d0b,0e81117215983ad6
 q	152	4	bounds=1,1,33,33	comp=1,1,17,20	change=1,1,17,20	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,17,20	shape=66e63ab8569de946
 q	152	5	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,17,20	shape=2cfe148635d86d65
 doc	153	flat=6a7c9a28efcf88be	tiled=6a7c9a28efcf88be	sub=e0d695080c07d8e3	reduced=569a8207cf88dd39	damage=32cfa333a90433b5	area=4f7a38155f1b85ee	thumb=7aacdc428bfa8e14	surface=057ef1bf23e6da68	proxy=0f6c2189cd1af27b	layers=715402b850b1a352
@@ -674,11 +674,11 @@ q	153	2	bounds=7,3,35,33	comp=7,3,31,28	change=7,3,31,28	to=1	occ=0	adv=0	shapel
 q	153	3	bounds=-4,11,34,33	comp=0,11,31,28	change=0,11,31,28	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,31,28	shape=d461e68a6234a53b
 doc	154	flat=6bb302fdc1a8f6b4	tiled=6bb302fdc1a8f6b4	sub=e3342f69f14b790d	reduced=5e873ecd434520f9	damage=88201fb960ff6465	area=773e202ddee758bf	thumb=ba32809c85541ca5	surface=7e7feec7fc7e8f7c	proxy=913edcbc420e0965	layers=0aeb3868a9e812b9
 q	154	0	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,15,28	shape=8fe365a904a447c5
-q	154	1	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,15,28	shape=26dfcaf1ebf42665	split=dd61986ab31241f2,55da9802becfa612
+q	154	1	bounds=1,6,15,27	comp=1,6,15,27	change=1,6,15,27	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,15,28	shape=26dfcaf1ebf42665	split=dd61986ab31241f2,55da9802becfa612
 q	154	2	bounds=4,14,14,29	comp=4,14,14,28	change=4,14,14,28	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,15,28	shape=1ea7d514f5002027
 q	154	3	bounds=0,0,15,28	comp=0,0,15,28	change=0,0,15,28	to=1	occ=1	adv=0	shapeless=0	bg=0	frame=0,0,15,28	fill=5afcf367e00b19d6	shape=8fe365a904a447c5
 q	154	4	bounds=0,0,15,28	comp=0,0,15,28	change=0,0,15,28	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,15,28	fill=428d68ab98312315	shape=62fab60677a423fa
-doc	155	flat=0283c3b59df44f34	tiled=0283c3b59df44f34	sub=c646e9b12d6ab4f9	reduced=51bce16a7a79fe2e	damage=4ed6fa4c398cbbfc	area=03806ecead0f875b	thumb=3ec4615aabb8d9cc	surface=ee047ba8da5cd5b4	proxy=94367959ffd9531d	layers=a03760550577b351
+doc	155	flat=c26e006a07a7cd7d	tiled=c26e006a07a7cd7d	sub=c646e9b12d6ab4f9	reduced=a30d233917cfa3ee	damage=4ed6fa4c398cbbfc	area=f94458550f9eb799	thumb=45314fe6f14a9776	surface=8cc4e116d7229bc0	proxy=58d4980f950a95f7	layers=a03760550577b351
 q	155	0	bounds=0,0,15,30	comp=0,0,15,30	change=0,0,15,30	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,15,30	shape=aebcd8e3b7c0e7d9
 q	155	1	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,9,10	shape=d34ab51bc386c5c5
 q	155	2	bounds=0,0,15,30	comp=0,0,15,30	change=0,0,15,30	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,15,30	fill=4b64c7917f1339d8	shape=e974b2b5cb219215
@@ -692,17 +692,17 @@ doc	157	flat=2920b8f949859d52	tiled=2920b8f949859d52	sub=ecbc891002f7c13c	reduce
 q	157	0	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,38,20	shape=6a721bd9bcbd80a5
 q	157	1	bounds=0,0,38,20	comp=0,0,38,20	change=0,0,38,20	to=1	occ=0	adv=1	shapeless=1	bg=0	frame=0,0,38,20	shape=3dec72836d50ffe5
 q	157	2	bounds=-4,-1,42,27	comp=0,0,38,20	change=0,0,38,20	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,38,20	shape=0cfce3404c498c1c
-doc	158	flat=9346f9956dfa1143	tiled=9346f9956dfa1143	sub=54891f810d31703d	reduced=1025ddccbcd09706	damage=c76a8cf96656fbcf	area=d9a48a86c0b7c52d	thumb=7ba3fc27d6b2528d	surface=2e6d3cd5653bc503	proxy=4816eca09cb2d3e4	layers=803b72e815f25ffc
+doc	158	flat=1e0a8afcf84a0fa2	tiled=1e0a8afcf84a0fa2	sub=54891f810d31703d	reduced=a9fd53b29ecb1156	damage=1860fee74540c68d	area=5ed83b5f4d96f64f	thumb=e4c15f4a2c47455e	surface=8b0a81499501e696	proxy=890800fb36877011	layers=8cb2110337dfa5d5
 q	158	0	bounds=0,0,18,14	comp=0,0,18,14	change=0,0,18,14	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,18,14	shape=f8d749d00fc09325
 q	158	1	bounds=0,0,18,14	comp=0,0,18,14	change=0,0,18,14	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,18,14	fill=e73471e2485ade39	shape=73c7d49d8568b205
-q	158	2	bounds=0,0,18,14	comp=0,0,18,14	change=0,0,18,14	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,18,14	fill=808fd85b89e2b271	shape=0039d8c0e8c82c6f
-doc	159	flat=54edb135ef44037e	tiled=54edb135ef44037e	sub=9d008e52ac286ce3	reduced=4c82d8e86e5879ba	damage=88201fb960ff6465	area=ba38ed889f9d7711	thumb=3c6e16a4b0ec2403	surface=d3f0b753f4cca98d	proxy=da98853d17bf103f	layers=ef93612dc6b128a3
+q	158	2	bounds=0,0,18,14	comp=0,0,18,14	change=0,0,18,14	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,18,14	fill=808fd85b89e2b271	shape=0940bb347199262f
+doc	159	flat=188d43a53369f1f9	tiled=188d43a53369f1f9	sub=78df09c5ca8970cc	reduced=70b3c422beaab1dd	damage=88201fb960ff6465	area=bb78fb92729b7c36	thumb=3c6e16a4b0ec2403	surface=d3f0b753f4cca98d	proxy=88ee30ab6dfe9616	layers=eda04284756043f0
 q	159	0	bounds=0,0,36,18	comp=0,0,36,18	change=0,0,36,18	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,36,18	shape=8f180221f2a90b55
 q	159	1	bounds=1,-2,73,14	comp=1,0,36,14	change=1,0,36,14	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,36,18	shape=44985e554417be65
 q	159	2	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,36,18	shape=3e70b835e05ebda5
 q	159	3	bounds=29,2,71,16	comp=29,2,36,16	change=29,2,36,16	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=21,17,36,18	shape=3e70b835e05ebda5
 q	159	4	bounds=4,0,57,33	comp=4,0,36,18	change=4,0,36,18	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,36,18	shape=68d9879849b8cdff
-q	159	5	bounds=19,3,55,39	comp=19,3,36,18	change=19,3,36,18	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,36,18	shape=499b86ad7f6a1e8d	split=3e70b835e05ebda5,4a3b80e8725d6613
+q	159	5	bounds=0,1,55,39	comp=0,1,36,18	change=0,1,36,18	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,36,18	shape=cf81f2c33a427c18	split=3e70b835e05ebda5,4a3b80e8725d6613
 doc	160	flat=14f0552ccbc1f394	tiled=5391c9ad6824c5db	sub=08dc21e9bbd4c741	reduced=2c21fba1d55f09b0	damage=1abc5b19bfb43211	area=0aa0edc14348b1bd	thumb=2b0d1edb4c241d34	surface=f5af89b6d4e21e0f	proxy=d12175dfc1f489a7	layers=7292f73f21fe4fa5
 q	160	0	bounds=0,0,38,28	comp=0,0,38,28	change=0,0,38,28	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,38,28	shape=6fc24a6f68127c45
 q	160	1	bounds=0,0,38,28	comp=0,0,38,28	change=0,0,38,28	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=3,3,37,28	fill=684a30d006d96e28	shape=1cce907d5974a195
@@ -711,11 +711,11 @@ q	161	0	bounds=0,0,12,18	comp=0,0,12,18	change=0,0,12,18	to=1	occ=0	adv=0	shapel
 q	161	1	bounds=0,0,12,18	comp=0,0,12,18	change=0,0,12,18	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,12,18	fill=55cf01a6bb33f45f	shape=e5f42ef7ce6d9c33
 q	161	2	bounds=0,4,25,18	comp=0,4,12,18	change=0,4,12,18	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,12,18	shape=8c3cbb03dabd1ff8
 q	161	3	bounds=0,0,12,18	comp=0,0,12,18	change=0,0,12,18	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,12,18	fill=7ccb6b54beaa985b	shape=132cb732da3455d5
-q	161	4	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,12,18	shape=ea39157d66ff16a5	split=419422a64988d11b,b4dedb9d0b366de5
-doc	162	flat=ef9a667ae669d5ac	tiled=ef9a667ae669d5ac	sub=a7e966a7766e0328	reduced=4f49890737025bec	damage=5817c0b5fc6e09b6	area=3fb17a4cb4b7e29c	thumb=4adb852bf0acb430	surface=e5dd112df51cea79	proxy=9d1ff72bb4f78196	layers=292f7aefd7a34ec9
+q	161	4	bounds=0,0,12,17	comp=0,0,12,17	change=0,0,12,17	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,12,18	shape=ea39157d66ff16a5	split=419422a64988d11b,b4dedb9d0b366de5
+doc	162	flat=cf83bc560bc33810	tiled=cf83bc560bc33810	sub=a7e966a7766e0328	reduced=b66e6e1126f1b0ae	damage=5817c0b5fc6e09b6	area=9a763a5e7982106d	thumb=4adb852bf0acb430	surface=e5dd112df51cea79	proxy=9d1ff72bb4f78196	layers=cb91b67029b13c9e
 q	162	0	bounds=0,0,37,29	comp=0,0,37,29	change=0,0,37,29	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,37,29	shape=2ecabff54c183808
 q	162	1	bounds=0,0,37,29	comp=0,0,37,29	change=0,0,37,29	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,37,29	fill=043bd53de4916a49	shape=2df74b0b861ea418
-q	162	2	bounds=-1,0,62,53	comp=0,0,37,29	change=0,0,37,29	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,37,29	shape=3d52907466c79d06
+q	162	2	bounds=-1,0,62,53	comp=0,0,37,29	change=0,0,37,29	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,37,29	shape=e111be890c31c392
 q	162	3	bounds=0,0,37,29	comp=0,0,37,29	change=0,0,37,29	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,37,29	fill=5778a30047d41a69	shape=2df74b0b861ea418
 q	162	4	bounds=0,0,37,29	comp=0,0,37,29	change=0,0,37,29	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,37,29	fill=4d0e024109eddf8d	shape=292f7b0fc5b172f5
 doc	163	flat=9aabab14780a34b1	tiled=9aabab14780a34b1	sub=be5da0dde6e965c7	reduced=25fc9ee85fb5f132	damage=88201fb960ff6465	area=0b03870e4f12d813	thumb=3174795a8ebfcfa8	surface=ab4237f10162a4e5	proxy=c9f6deede3057783	layers=e9e13aecafb94f16
@@ -730,19 +730,19 @@ q	165	1	bounds=0,0,24,16	comp=0,0,24,16	change=0,0,24,16	to=1	occ=0	adv=0	shapel
 doc	166	flat=97170640e31a7272	tiled=97170640e31a7272	sub=68df9b26c099434e	reduced=3b03bfbf9029546a	damage=bff5dc87db20c412	area=b57cc3bf85ac33f8	thumb=693bec89408b6477	surface=296386972336060c	proxy=552adfda876fa349	layers=2f5ad972c3ae9837
 q	166	0	bounds=0,0,20,27	comp=0,0,20,27	change=0,0,20,27	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,20,27	shape=c459cd9290cf77ed
 q	166	1	bounds=12,8,28,50	comp=12,8,20,27	change=12,8,20,27	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,20,27	shape=917e44e7c7aaf724
-q	166	2	bounds=0,0,20,27	comp=0,0,0,0	change=none	to=1	occ=0	adv=1	shapeless=1	bg=0	frame=19,14,20,27	shape=d4b8cc1f0c239cb9
+q	166	2	bounds=0,0,20,27	comp=0,0,0,0	change=none	to=1	occ=0	adv=1	shapeless=1	bg=0	frame=19,14,20,27	shape=23aa2463f226a39a
 q	166	3	bounds=0,0,20,27	comp=0,0,20,27	change=0,0,20,27	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=1,6,16,23	fill=5a8b77eab6e6cb1a	shape=1300e226ee5c1be5
-doc	167	flat=0e5a9e9e3d6fa321	tiled=0e5a9e9e3d6fa321	sub=a1b10c48b1cc5f42	reduced=771288ce02b9caf6	damage=88201fb960ff6465	area=d946af9c9fdb1621	thumb=7c25ac952edd30cb	surface=ec77e56578b4e5f2	proxy=9739c987e104c8ab	layers=d7a2cff32a802524
+doc	167	flat=2814405b3aa5edd0	tiled=2814405b3aa5edd0	sub=4c92b8c23136bb14	reduced=660da241e21f0f1c	damage=88201fb960ff6465	area=76ba419a61d8b36a	thumb=35ef6ba2973e6f72	surface=e4cf1d1db4859503	proxy=066635864747e2e3	layers=d7a2cff32a802524
 q	167	0	bounds=0,0,12,30	comp=0,0,12,30	change=0,0,12,30	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,12,30	shape=c96f527ab6a885d5
 q	167	1	bounds=-4,1,12,23	comp=0,1,12,23	change=0,1,12,23	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,12,30	shape=9d89809758f9267f
 q	167	2	bounds=3,-4,26,26	comp=3,0,12,26	change=3,0,12,26	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,12,30	shape=cd8f5820cfa86dfa
-q	167	3	bounds=0,3,13,33	comp=0,3,12,30	change=0,3,12,30	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,12,30	shape=6f8c8a6c8337ad73	split=78e7f76b5c14a3a5,738d45473c157fcc
+q	167	3	bounds=0,0,13,33	comp=0,0,12,30	change=0,0,12,30	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,12,30	shape=6f8c8a6c8337ad73	split=78e7f76b5c14a3a5,738d45473c157fcc
 q	167	4	bounds=0,1,21,46	comp=0,1,12,30	change=0,1,12,30	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,12,30	shape=fde3ab4a05d87165
 q	167	5	bounds=0,0,12,30	comp=0,0,12,30	change=0,0,12,30	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,12,30	fill=5898b9ff30e2c033	shape=fde3ab4a05d87165
 doc	168	flat=82cb76f68cb7912f	tiled=82cb76f68cb7912f	sub=92ff2539d0956940	reduced=1fa730cd51d31651	damage=d15b0361a4b6000e	area=d7564a5ca79f7b64	thumb=ed31e3abec1059d0	surface=d26aa46908be1db5	proxy=c8ce8cd410a244be	layers=7dabd2cd5113f677
 q	168	0	bounds=10,-4,22,9	comp=10,0,22,9	change=10,0,22,9	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,23,13	shape=0b9db49de165743e
 q	168	1	bounds=0,0,23,13	comp=0,0,23,13	change=0,0,23,13	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,23,13	fill=82cb76f68cb7912f	shape=c0705cca2605e915
-q	168	2	bounds=0,0,23,13	comp=0,0,23,13	change=0,0,23,13	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,23,13	fill=3cdd6c8c0943601a	shape=a563c11126015330
+q	168	2	bounds=0,0,23,13	comp=0,0,23,13	change=0,0,23,13	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,23,13	fill=3cdd6c8c0943601a	shape=abaae3e4dd7f2359
 doc	169	flat=ba8d67b8c1283da5	tiled=ba8d67b8c1283da5	sub=96efd56bdd17153b	reduced=151660d1961e143e	damage=ae35d5427f56a57c	area=8941bf2850b0529d	thumb=2f544bef83577279	surface=79b3f0cefe0543c4	proxy=0a11f6f9c2931f6d	layers=b855989f1af3526a
 q	169	0	bounds=0,0,37,21	comp=0,0,37,21	change=0,0,37,21	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,37,21	shape=922195956a33d22a
 q	169	1	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=32,12,37,14	shape=80cf1cb17d353e75
@@ -767,14 +767,14 @@ doc	174	flat=843371bce1f64281	tiled=843371bce1f64281	sub=db8f8469a5bed5b5	reduce
 q	174	0	bounds=0,0,28,20	comp=0,0,28,20	change=0,0,28,20	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,28,20	fill=16f81631d2db93cd	shape=fc1fde513b2626a5
 q	174	1	bounds=3,5,38,24	comp=3,5,28,20	change=3,5,28,20	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,28,20	shape=8a82299740bef3d5
 q	174	2	bounds=0,0,28,20	comp=0,0,28,20	change=0,0,28,20	to=1	occ=0	adv=1	shapeless=1	bg=0	frame=0,0,28,20	fill=56dd59e16daf725e	shape=fc1fde513b2626a5
-q	174	3	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,28,20	shape=0a68d2c1a28e7225	split=9faf8a9e5dc93024,ace8183206a1bf18
+q	174	3	bounds=0,1,28,20	comp=0,1,28,20	change=0,1,28,20	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,28,20	shape=0a68d2c1a28e7225	split=9faf8a9e5dc93024,ace8183206a1bf18
 q	174	4	bounds=0,0,28,20	comp=0,0,28,20	change=0,0,28,20	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,28,20	fill=8c5646b0b14e2493	shape=298cf9db6602c1c7
 doc	175	flat=6b7fa5282cb3685f	tiled=6b7fa5282cb3685f	sub=c40917fbe3106751	reduced=bd97c29b7c628114	damage=721b5dd9961f3eb4	area=fefb46cde2b3e410	thumb=b47afd7dddf28d3a	surface=a39c260954df97c5	proxy=94ef5971ea3e58e8	layers=41d691935230a680
 q	175	0	bounds=0,0,14,20	comp=0,0,14,20	change=0,0,14,20	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=13,5,14,17	fill=6b7fa5282cb3685f	shape=1873f8b64196aaa5
 q	175	1	bounds=2,-4,16,41	comp=2,0,14,20	change=2,0,14,20	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,14,20	shape=e8e8bdf5c2475ea0
-doc	176	flat=671f5cfe23d76057	tiled=671f5cfe23d76057	sub=3ce553fbfa8d50a8	reduced=59165d7e2663cd9d	damage=68bc7a2de0710243	area=672e1aed61d37cf6	thumb=a936b796c9b8a6a2	surface=168994ff74ddb350	proxy=a162df0772267b46	layers=03e869358724e7d3
+doc	176	flat=63f9c3fc058898bb	tiled=63f9c3fc058898bb	sub=3ce553fbfa8d50a8	reduced=d33ce8be025a2381	damage=68bc7a2de0710243	area=3e260150ce613aa8	thumb=a936b796c9b8a6a2	surface=a6a5c0bb30343114	proxy=a162df0772267b46	layers=c9cc716b1d007046
 q	176	0	bounds=0,0,14,8	comp=0,0,14,8	change=0,0,14,8	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,14,8	shape=693b0b30b55c3105
-q	176	1	bounds=-3,-2,8,8	comp=0,0,8,8	change=0,0,8,8	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=12,0,14,3	shape=c632cddcc19028e5
+q	176	1	bounds=-3,-2,8,8	comp=0,0,8,8	change=0,0,8,8	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=12,0,14,3	shape=8e62c6f2d947ff89
 q	176	2	bounds=0,0,14,8	comp=0,0,14,8	change=0,0,14,8	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,14,8	fill=5e5912fd4ca904e3	shape=f0324bd1a2defc85
 q	176	3	bounds=8,0,14,13	comp=8,0,14,8	change=8,0,14,8	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,14,8	shape=01981adf68960944
 doc	177	flat=9e2dfc787c18473d	tiled=9e2dfc787c18473d	sub=43ff848fa0f411d5	reduced=e8cb362f34c5a899	damage=88201fb960ff6465	area=677e364b6af54d01	thumb=06ae331f7a94eb61	surface=ddaa1a41efbfcf41	proxy=688b62b35daae5ee	layers=de2f5768c2b56f70
@@ -805,7 +805,7 @@ doc	182	flat=d625113dd14d6994	tiled=d625113dd14d6994	sub=df1885b9d62efafb	reduce
 q	182	0	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,18,19	shape=725d85be93d04c05
 q	182	1	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,18,19	shape=725d85be93d04c05
 doc	183	flat=b269936ef31f7125	tiled=b269936ef31f7125	sub=c27499ebb85c1485	reduced=e42d6b80af6b98ee	damage=88201fb960ff6465	area=8f6f1b9a5540a3c2	thumb=4b96712b37173c34	surface=1be39cc019f0a291	proxy=a94b184d9c1c5e5e	layers=da41c9cad8da27fd
-q	183	0	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,9,18	shape=c2922e8d50282ca8
+q	183	0	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,9,18	shape=3d7199530a13b417
 q	183	1	bounds=-1,-2,11,16	comp=0,0,9,16	change=0,0,9,16	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,9,18	shape=82bcf9bea09be8a1
 q	183	2	bounds=-2,0,11,25	comp=0,0,9,18	change=0,0,9,18	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,9,18	shape=22e769f73510d33f
 q	183	3	bounds=-4,0,15,24	comp=0,0,9,18	change=0,0,9,18	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,9,18	shape=e6fbc3050f245231
@@ -833,7 +833,7 @@ q	188	0	bounds=0,0,27,12	comp=0,0,27,12	change=0,0,27,12	to=1	occ=0	adv=0	shapel
 q	188	1	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=8,6,16,10	shape=051d11d8a9e84865
 doc	189	flat=2c1d71e11d810ee1	tiled=2c1d71e11d810ee1	sub=fdb79eb9a4b2a7a5	reduced=cd3b539f9f080d30	damage=88201fb960ff6465	area=31b6ef5c6a59a676	thumb=2e19469d7431f23f	surface=a4233db8119abde1	proxy=eeabeb9cf5d408f7	layers=846ba7591ef98131
 q	189	0	bounds=0,0,38,9	comp=0,0,38,9	change=0,0,38,9	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,38,9	shape=962db78efcc101a1
-q	189	1	bounds=9,0,54,11	comp=9,0,38,9	change=9,0,38,9	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,38,9	shape=2f17e91a2d86dcc9	split=5db82b015e2d3d26,4b0caa27f7d2687e
+q	189	1	bounds=6,0,54,11	comp=6,0,38,9	change=6,0,38,9	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,38,9	shape=2f17e91a2d86dcc9	split=5db82b015e2d3d26,4b0caa27f7d2687e
 q	189	2	bounds=9,3,43,21	comp=9,3,38,9	change=9,3,38,9	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,38,9	shape=7e08dd49be54a16b
 q	189	3	bounds=6,2,56,7	comp=6,2,38,7	change=6,2,38,7	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,38,9	shape=5a129a3a9efab2f5
 doc	190	flat=fd4c4de4059d6ff4	tiled=fd4c4de4059d6ff4	sub=40eff6cb6827a8f1	reduced=15ca34203bf0afd8	damage=b5e541ce8d151b8e	area=d50e4fdf2e972680	thumb=f6f9a59ac2e344ea	surface=add4d8c0787f0ed0	proxy=610fad893c357894	layers=020bb45f70744758
@@ -843,7 +843,7 @@ q	191	0	bounds=0,0,9,28	comp=0,0,9,28	change=0,0,9,28	to=1	occ=0	adv=0	shapeless
 q	191	1	bounds=1,-4,22,29	comp=1,0,9,28	change=1,0,9,28	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=5,22,9,25	shape=da86b8489fd181e5
 q	191	2	bounds=-4,0,12,46	comp=0,0,9,28	change=0,0,9,28	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,9,28	shape=b4583aa114dec233
 doc	192	flat=a61091b3bfe1ea04	tiled=a61091b3bfe1ea04	sub=f3c3ab3f9f4867d0	reduced=efd529f1f41a712f	damage=c8b48ce5eb09be9b	area=bfc79bbb18fbc8d2	thumb=085173850c5b4d56	surface=6bf657252205c6c5	proxy=d7564a5ca79f7b64	layers=b515a9b6d1a978a4
-q	192	0	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,21,20	shape=26dfcaf1ebf42665	split=26dfcaf1ebf42665,3ce6baadeeafdda6
+q	192	0	bounds=0,2,19,8	comp=0,2,19,8	change=0,2,19,8	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,21,20	shape=26dfcaf1ebf42665	split=26dfcaf1ebf42665,3ce6baadeeafdda6
 q	192	1	bounds=-1,0,41,31	comp=0,0,21,20	change=0,0,21,20	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,21,20	shape=874c05cc7e3d3853
 doc	193	flat=0421f41f4981be02	tiled=0421f41f4981be02	sub=c38ad82cd0614763	reduced=f5a06f52026860de	damage=30f74507138b6484	area=eadb52616a8dc8fc	thumb=4e3439b35f67630a	surface=1be3a27e27bd3825	proxy=4fc7e4912060328d	layers=4afd1c46bc1f948f
 q	193	0	bounds=0,0,26,28	comp=0,0,26,28	change=0,0,26,28	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,26,28	shape=bcf11dbf50129195
@@ -854,7 +854,7 @@ q	193	4	bounds=0,0,26,28	comp=0,0,26,28	change=0,0,26,28	to=1	occ=0	adv=0	shapel
 doc	194	flat=835b0be7f6ad2a00	tiled=835b0be7f6ad2a00	sub=36804456a6dcf18f	reduced=880ed1286ef94028	damage=948654002613fdea	area=8d94aff4b485d991	thumb=bb8f4d48de0717c2	surface=59e9d6a19b1e8f0c	proxy=ff10a7aa5ab5128e	layers=603839277d2f7b79
 q	194	0	bounds=0,0,36,25	comp=0,0,36,25	change=0,0,36,25	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,36,25	shape=953dfe241bc4d76d
 q	194	1	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=28,0,34,19	shape=b98c0c5ef93b7c65
-q	194	2	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,36,25	shape=b98c0c5ef93b7c65	split=9bb53889f4e6964a,d5f1899992f209c3
+q	194	2	bounds=14,9,36,23	comp=14,9,36,23	change=14,9,36,23	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,36,25	shape=b98c0c5ef93b7c65	split=9bb53889f4e6964a,d5f1899992f209c3
 q	194	3	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,36,25	shape=b98c0c5ef93b7c65
 q	194	4	bounds=0,0,36,25	comp=0,0,36,25	change=0,0,36,25	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,36,25	fill=28c402c1cba6e9f0	shape=221e8e1513b2ec21
 doc	195	flat=c68321bfeb2615d8	tiled=c68321bfeb2615d8	sub=e9705d273470947d	reduced=a2c7fe3acee8c397	damage=39837331c6b5d8dc	area=fae2ddee736c429f	thumb=ab0444ee951f8268	surface=2e13590dc551b7c4	proxy=07e5f92732a7feaa	layers=dbbe7d92916fdb4f
@@ -863,7 +863,7 @@ q	195	1	bounds=3,6,23,35	comp=3,6,12,17	change=3,6,12,17	to=1	occ=0	adv=0	shapel
 doc	196	flat=07adc2665e62f2b3	tiled=07adc2665e62f2b3	sub=17b58a0e55e93bf7	reduced=7605ffb734d33862	damage=adfdbb2342d5559a	area=3362955d0e7297ee	thumb=195835d30499bcf5	surface=dec0fdda61fda724	proxy=70c80aacb462027e	layers=bf3214e6d8ccb0d1
 q	196	0	bounds=0,0,38,16	comp=0,0,38,16	change=0,0,38,16	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,38,16	shape=0f36abc77f4604e5
 q	196	1	bounds=0,0,38,16	comp=0,0,38,16	change=0,0,38,16	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,38,16	fill=27ce6368aa884333	shape=9233c68797bb2125
-q	196	2	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,3,37,16	shape=9233c68797bb2125	split=9f2568fc1c819367,e8a32384977475d5
+q	196	2	bounds=5,0,38,16	comp=5,0,38,16	change=5,0,38,16	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,3,37,16	shape=9233c68797bb2125	split=9f2568fc1c819367,e8a32384977475d5
 q	196	3	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,38,16	shape=9233c68797bb2125
 q	196	4	bounds=0,0,38,16	comp=0,0,38,16	change=0,0,38,16	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,38,16	fill=d37d0161abc82233	shape=c56ef967d81b6225
 doc	197	flat=432099d02192374b	tiled=432099d02192374b	sub=b7ee06071741dc51	reduced=cc1641e7a1fe7ac7	damage=a0b61ee18c488d69	area=b69a53f26f50a3f1	thumb=93cf14bfb6215a09	surface=e4ea8a445e06c0a4	proxy=973ba4f54afd2c50	layers=96945428adbcba0f
@@ -881,7 +881,7 @@ q	199	0	bounds=-2,0,54,21	comp=0,0,38,21	change=0,0,38,21	to=1	occ=0	adv=0	shape
 q	199	1	bounds=38,19,72,36	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,38,22	shape=b3020ea8539ce865
 q	199	2	bounds=3,7,72,36	comp=3,7,38,22	change=3,7,38,22	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,38,22	shape=b3020ea8539ce865
 doc	200	flat=64de9f76333c7f16	tiled=5ec934d837cff9a4	sub=afebb2df60708773	reduced=4bd261c9eb58db0d	damage=4acc81171402e55e	area=d5036a019586fe19	thumb=2cbb8894f356cd28	surface=17349a0259fee833	proxy=8e2ea7d930f7a484	layers=3153a26e5d1776ea
-q	200	0	bounds=-1,7,20,36	comp=0,7,20,26	change=0,7,20,26	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,20,26	shape=517f55b8f4fb2a65
+q	200	0	bounds=-1,0,20,36	comp=0,0,20,26	change=0,0,20,26	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,20,26	shape=517f55b8f4fb2a65
 q	200	1	bounds=-3,0,20,33	comp=0,0,20,26	change=0,0,20,26	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=14,0,20,23	shape=0acd9d875c0e2aa0
 q	200	2	bounds=3,8,29,25	comp=3,8,20,25	change=3,8,20,25	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,20,26	shape=6b7c544b738e067b
 q	200	3	bounds=0,0,20,26	comp=0,0,20,26	change=0,0,20,26	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,20,26	fill=03773957b9629f09	shape=e32100f7517873a7
@@ -903,7 +903,7 @@ q	203	3	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	
 q	203	4	bounds=-1,-2,27,19	comp=0,0,24,9	change=0,0,24,9	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,24,9	shape=18ae092636f01c55
 doc	204	flat=d22cd8d3717bd843	tiled=d22cd8d3717bd843	sub=d0b56ebb6e28091a	reduced=1e7129379f6e607d	damage=6ed6996d3467f797	area=9d920477ad81a11b	thumb=70e75010d841daed	surface=43eb7f99ff03aef9	proxy=8c8988179a622031	layers=bf445713a24a6e79
 q	204	0	bounds=3,1,23,19	comp=3,1,23,12	change=3,1,23,12	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,24,12	shape=b366b9d61d9783ff
-q	204	1	bounds=0,0,37,16	comp=0,0,24,12	change=0,0,24,12	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=1,5,9,12	shape=97abf21d5e3c0b09
+q	204	1	bounds=0,0,37,16	comp=0,0,24,12	change=0,0,24,12	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=1,5,9,12	shape=eb1ad64d0ac7c028
 q	204	2	bounds=10,1,29,17	comp=10,1,24,12	change=10,1,24,12	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,24,12	shape=32e78de3f56f580e
 q	204	3	bounds=9,11,14,12	comp=9,11,14,12	change=9,11,14,12	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,24,12	shape=a10f5333957dd08b
 doc	205	flat=8e76ba7b7222e060	tiled=8e76ba7b7222e060	sub=8d40fa3424325277	reduced=41ba06a1a190d264	damage=786c502f1a5059a6	area=520789b763336297	thumb=72bd2527de993d0b	surface=40026c0d19ea7a48	proxy=088560366f5289f4	layers=454d419243b7f1ff
@@ -915,7 +915,7 @@ q	205	4	bounds=0,0,27,30	comp=0,0,27,30	change=0,0,27,30	to=1	occ=0	adv=0	shapel
 q	205	5	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,27,30	shape=4f6435091dbc5645
 doc	206	flat=d64d24171866144a	tiled=d64d24171866144a	sub=c9d36df58a6776b4	reduced=b74f74b8414593c6	damage=88201fb960ff6465	area=c31bf290b79a3896	thumb=b6b623bd55366e4d	surface=f323936c98053144	proxy=2613be16521d682b	layers=ab959c0c4f5825c6
 q	206	0	bounds=0,0,17,30	comp=0,0,17,30	change=0,0,17,30	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,17,30	shape=cc420a5d5ae23751
-q	206	1	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,17,30	shape=3b84d7fe55b54085	split=591ec93539012207,7112710f368f8086
+q	206	1	bounds=0,7,11,17	comp=0,7,11,17	change=0,7,11,17	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,17,30	shape=3b84d7fe55b54085	split=591ec93539012207,7112710f368f8086
 doc	207	flat=45675e626285ee52	tiled=45675e626285ee52	sub=8c8f029d016fb8fc	reduced=0646875a022023d3	damage=53cd0f033ffe820f	area=b6ef2aa4c3e07bf6	thumb=48e8d9bd71691d93	surface=e5d5ba3b861fb31f	proxy=88acdbab665aaa02	layers=2aad2e25eca047fa
 q	207	0	bounds=0,0,19,15	comp=0,0,19,15	change=0,0,19,15	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,19,15	shape=a2b7bfdd87cb18cd
 q	207	1	bounds=3,2,35,16	comp=3,2,19,15	change=3,2,19,15	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,19,15	shape=79c4af79f407fb84
@@ -929,7 +929,7 @@ doc	209	flat=ec6cf261ee2ef7f2	tiled=ec6cf261ee2ef7f2	sub=04622e071c17f54f	reduce
 q	209	0	bounds=15,0,66,21	comp=15,0,35,21	change=15,0,35,21	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=12,24,35,25	shape=e1186b34b4a1dd15
 q	209	1	bounds=0,0,35,25	comp=0,0,35,25	change=0,0,35,25	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,35,25	fill=a0f843450e1e043b	shape=e616f6b812c18388
 q	209	2	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,35,25	shape=e1186b34b4a1dd15
-doc	210	flat=0780d8a6fbe5b934	tiled=0780d8a6fbe5b934	sub=e9b2889e56cb59e7	reduced=39d222ef0b1ac7df	damage=4a8a006eefaeaaf7	area=5b5c8054a152b3e4	thumb=fc4f1b2f10a701fd	surface=1b954758aeba322c	proxy=27f3b86f68226eb5	layers=3c7601e77d017b90
+doc	210	flat=0780d8a6fbe5b934	tiled=0780d8a6fbe5b934	sub=e9b2889e56cb59e7	reduced=39d222ef0b1ac7df	damage=4a8a006eefaeaaf7	area=5b5c8054a152b3e4	thumb=fc4f1b2f10a701fd	surface=1b954758aeba322c	proxy=27f3b86f68226eb5	layers=490c523df77e3353
 q	210	0	bounds=0,-1,35,33	comp=0,0,21,23	change=0,0,21,23	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,21,23	shape=256f8e697a13e1ec
 q	210	1	bounds=1,5,21,24	comp=1,5,21,23	change=1,5,21,23	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,21,23	shape=f157f20e3649615e
 q	210	2	bounds=0,6,12,27	comp=0,6,12,23	change=0,6,12,23	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,21,23	shape=5ee66fb65462a93a
@@ -956,17 +956,17 @@ q	214	0	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=
 doc	215	flat=8a4896b6b164f537	tiled=8a4896b6b164f537	sub=f5a385f31504143c	reduced=7e3c5f2889f1ada5	damage=4d48683865f64277	area=8ba465c04ad0f576	thumb=c380341439f6c659	surface=e1a41e78bcf0ae78	proxy=4fcdcfcf1f8f65ce	layers=081f44f64ead30d8
 q	215	0	bounds=0,0,13,24	comp=0,0,13,24	change=0,0,13,24	to=1	occ=0	adv=1	shapeless=1	bg=0	frame=4,11,9,24	fill=822c5f058eca4b82	shape=ed38124644bd2c65
 doc	216	flat=1ef4721a09ef0408	tiled=1ef4721a09ef0408	sub=1c824587e39bbfd1	reduced=0fe899ef9a46f7f3	damage=a619c4b7fcf02cf1	area=9fd822a31bea8d20	thumb=bf1c6c088d0a71da	surface=dc29af7a646adc9c	proxy=dcfa420cb3f75780	layers=963cd3f2b05aae9c
-q	216	0	bounds=2,-1,29,6	comp=2,0,29,6	change=2,0,29,6	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,35,14	shape=b1ab84592e20d0c2	split=3ad760b90c216b8b,32c38b5313f60427
+q	216	0	bounds=2,-1,29,11	comp=2,0,29,11	change=2,0,29,11	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,35,14	shape=b1ab84592e20d0c2	split=3ad760b90c216b8b,32c38b5313f60427
 q	216	1	bounds=0,0,35,14	comp=0,0,35,14	change=0,0,35,14	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,35,14	fill=f448a1ffb7408048	shape=883d6683435df245
 q	216	2	bounds=2,-2,63,17	comp=2,0,35,14	change=2,0,35,14	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,35,14	shape=883d6683435df245
 doc	217	flat=ce7c9ec491ccd6c0	tiled=ce7c9ec491ccd6c0	sub=090a372778c47ce4	reduced=8d687c5c5854d099	damage=3d831d190b6cb833	area=92bc361f932529f2	thumb=91bc2fe6cdf1a3c9	surface=844231e70bd44145	proxy=83fabfca5b142040	layers=a56708b78db13c4c
 q	217	0	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,26,15	shape=15af65d12de29b05
 q	217	1	bounds=11,0,42,8	comp=11,0,26,8	change=11,0,26,8	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,26,15	shape=3ae374c481545622
-q	217	2	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,26,15	shape=85adb9d1fdafd576	split=14b7eb254ac34380,9f0bee2baa27293b
-doc	218	flat=950b26382839f5f9	tiled=950b26382839f5f9	sub=af784ceca005b646	reduced=83d9810045ce7d06	damage=414ebec5f537df10	area=41748d1116f0fe92	thumb=2dfe45b5ce4c1416	surface=5dca276d57091ddc	proxy=5ffbaa294053fc05	layers=7f1285020328fecd
+q	217	2	bounds=0,0,22,11	comp=0,0,22,11	change=0,0,22,11	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,26,15	shape=85adb9d1fdafd576	split=14b7eb254ac34380,9f0bee2baa27293b
+doc	218	flat=d0acf7dc690ab325	tiled=d0acf7dc690ab325	sub=af784ceca005b646	reduced=2f1d942bc726e22f	damage=414ebec5f537df10	area=943183e485c7fe13	thumb=2dfe45b5ce4c1416	surface=df33db9919ab9f40	proxy=5ffbaa294053fc05	layers=7f1285020328fecd
 q	218	0	bounds=0,0,20,16	comp=0,0,20,16	change=0,0,20,16	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,20,16	fill=38e03d30762df53d	shape=1d7d02c267ed0617
 q	218	1	bounds=0,0,20,16	comp=0,0,20,16	change=0,0,20,16	to=1	occ=0	adv=1	shapeless=1	bg=0	frame=0,0,20,16	shape=e75c870e0d9c9525
-q	218	2	bounds=8,0,18,15	comp=8,0,18,15	change=8,0,18,15	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=19,7,20,10	shape=97cb5abe25be8c6e
+q	218	2	bounds=8,0,18,15	comp=8,0,18,15	change=8,0,18,15	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=19,7,20,10	shape=ad02b535ba5a8284
 q	218	3	bounds=0,0,20,16	comp=0,0,20,16	change=0,0,20,16	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,20,16	fill=495c7ac828619001	shape=08ff2ace58046525
 q	218	4	bounds=5,1,27,21	comp=5,1,20,16	change=5,1,20,16	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,20,16	shape=99ed7ba4484bd32e
 doc	219	flat=ca7d32c0c2b4b3c0	tiled=ca7d32c0c2b4b3c0	sub=da4635cc1f32dd41	reduced=2a32d35988d6137a	damage=b2fa430fcd74eb51	area=1358fada9d2ebffc	thumb=58c6f7e037856332	surface=8022ce2cc7d350d9	proxy=d090aa1fa87b88b0	layers=5e69c7b5ce3692f5
@@ -987,7 +987,7 @@ doc	222	flat=58f27571aed125fb	tiled=58f27571aed125fb	sub=11bb7fc5a7d365bb	reduce
 q	222	0	bounds=0,0,12,25	comp=0,0,12,25	change=0,0,12,25	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,12,25	shape=c770993afd23dce5
 q	222	1	bounds=10,9,16,40	comp=10,9,12,25	change=10,9,12,25	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,12,25	shape=0be5007046f89d66
 doc	223	flat=807493cb198981a4	tiled=807493cb198981a4	sub=97c181aac5d7f8a2	reduced=88fbfd1ceafaed55	damage=0ae04960d13c698d	area=efdc0fd7dfdcb503	thumb=7d0fa3c760afd4a1	surface=cf6b5fa309d644ec	proxy=7ccc0e2db98e2e3e	layers=c973833e609c6ed6
-q	223	0	bounds=4,-3,41,6	comp=4,0,35,6	change=4,0,35,6	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,35,10	shape=1bbb8f0477c6becd	split=ad15f9532b018de5,8cfbec31cac05cd2
+q	223	0	bounds=4,-3,41,10	comp=4,0,35,10	change=4,0,35,10	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,35,10	shape=1bbb8f0477c6becd	split=ad15f9532b018de5,8cfbec31cac05cd2
 doc	224	flat=a690ffdab53c2d7d	tiled=a690ffdab53c2d7d	sub=12a55412cf3b3ea2	reduced=0e8bc383ec8e04a6	damage=0dc58f41c30b0851	area=8186609705308f61	thumb=e8a4d65d9cf5ec3b	surface=c5b4eaa95b1a4be4	proxy=90492150e2c262c1	layers=715482078ee1cfa4
 q	224	0	bounds=17,9,41,11	comp=17,9,37,11	change=17,9,37,11	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=14,5,33,13	shape=202d99d424e10a75
 q	224	1	bounds=-2,1,40,25	comp=0,1,37,13	change=0,1,37,13	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=32,0,37,9	shape=3f987526784449f5
@@ -1005,7 +1005,7 @@ q	227	0	bounds=9,-4,39,12	comp=9,0,21,12	change=9,0,21,12	to=1	occ=0	adv=1	shape
 q	227	1	bounds=-3,-3,33,12	comp=0,0,21,12	change=0,0,21,12	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,21,14	shape=04e76a4227a7e5c8
 q	227	2	bounds=2,0,46,24	comp=2,0,21,14	change=2,0,21,14	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,21,14	shape=cb12c9a3942ab0d6
 doc	228	flat=93d6863b8cb0ade3	tiled=93d6863b8cb0ade3	sub=29902f05b641f2e1	reduced=cbd054aa4a06be5e	damage=94f682d9d389aae2	area=95708e860e6348a3	thumb=282839dec23af2ad	surface=23981a128dd0d375	proxy=d4e4263fa9d03ba0	layers=da0dffd5fc5102c5
-q	228	0	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,31,9	shape=3fcaf7a66cfc7afb
+q	228	0	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,31,9	shape=d8fbc70580653c30
 q	228	1	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,31,9	shape=bb1216839d4f66d5
 q	228	2	bounds=3,1,29,12	comp=3,1,29,9	change=3,1,29,9	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,31,9	shape=93f3a6771ccf7edd
 q	228	3	bounds=0,-4,52,22	comp=0,0,31,9	change=0,0,31,9	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,31,9	shape=bb1216839d4f66d5
@@ -1018,14 +1018,14 @@ q	230	0	bounds=-3,2,47,22	comp=0,2,29,9	change=0,2,29,9	to=1	occ=0	adv=0	shapele
 q	230	1	bounds=0,0,55,13	comp=0,0,29,9	change=0,0,29,9	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=7,0,29,9	shape=60452880aaf25935
 q	230	2	bounds=-3,-3,31,11	comp=0,0,29,9	change=0,0,29,9	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,29,9	shape=96f819cb21a0a33e
 q	230	3	bounds=10,4,30,13	comp=10,4,29,9	change=10,4,29,9	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,29,9	shape=60452880aaf25935
-doc	231	flat=cfde19c8fde00a93	tiled=cfde19c8fde00a93	sub=004fa3399398b13a	reduced=60508e3357467446	damage=9c0b9956e772fa31	area=6dbc957396d785c9	thumb=80c3ae62fc55a526	surface=2a4fa4e1802e0770	proxy=f618472eac2a8458	layers=8888b213527f4d15
-q	231	0	bounds=0,0,37,23	comp=0,0,37,23	change=0,0,37,23	to=1	occ=0	adv=1	shapeless=1	bg=0	frame=0,0,37,23	fill=06d3deb86d90440e	shape=14f8b19f6515a826
+doc	231	flat=2d6bcbdfad621ed6	tiled=2d6bcbdfad621ed6	sub=7910f138eeabcc48	reduced=dd22ba0f16a6189f	damage=80cf006cf7bf41c1	area=605cda2337cec3f0	thumb=80c3ae62fc55a526	surface=56d424d5657d2d15	proxy=390b31c158110ee0	layers=2203919800baa44c
+q	231	0	bounds=0,0,37,23	comp=0,0,37,23	change=0,0,37,23	to=1	occ=0	adv=1	shapeless=1	bg=0	frame=0,0,37,23	fill=06d3deb86d90440e	shape=2b917f6c8823451d
 q	231	1	bounds=0,0,37,23	comp=0,0,0,0	change=none	to=1	occ=0	adv=1	shapeless=1	bg=0	frame=0,0,37,23	shape=a253389086326ac8
 q	231	2	bounds=0,0,37,23	comp=0,0,37,23	change=0,0,37,23	to=1	occ=0	adv=1	shapeless=1	bg=0	frame=0,0,37,23	shape=a253389086326ac8
 q	231	3	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,37,23	shape=37a9b9857c5bfd95
 doc	232	flat=7d53a1d4dc2c4ca3	tiled=7d53a1d4dc2c4ca3	sub=1dd7787da173678c	reduced=b0e44b81cf29ac0c	damage=5568d2833808816c	area=0b5c598f1ba4131a	thumb=2d97a15915e3e38c	surface=41131b3b2149f1d3	proxy=d4b4a74743aedbf5	layers=2debc6aee3ea4487
 q	232	0	bounds=2,18,14,51	comp=2,18,13,29	change=2,18,13,29	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,13,29	shape=3c05efdd0ea0bc58
-q	232	1	bounds=-3,6,16,35	comp=0,6,13,29	change=0,6,13,29	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,13,29	shape=3c05efdd0ea0bc58	split=0de7648c6073fa65,c57c76312c76e9c7
+q	232	1	bounds=-3,0,16,35	comp=0,0,13,29	change=0,0,13,29	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,13,29	shape=3c05efdd0ea0bc58	split=0de7648c6073fa65,c57c76312c76e9c7
 q	232	2	bounds=0,-1,22,40	comp=0,0,13,29	change=0,0,13,29	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,13,29	shape=4c2fc5da707f694e
 doc	233	flat=d38296962782f7de	tiled=d38296962782f7de	sub=74052b96dfeed048	reduced=9c66912df42c51c7	damage=38489098245f4255	area=603e301c97cff357	thumb=2fd713469ecb127b	surface=de28dbd2f3dd12c5	proxy=df20665566b6924f	layers=73d6a6a704a02dbe
 q	233	0	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,23,12	shape=f5d23d6d0375d965
@@ -1043,7 +1043,7 @@ doc	236	flat=83fec62a2ed68afd	tiled=83fec62a2ed68afd	sub=0b5f6a8b7f396532	reduce
 q	236	0	bounds=0,-1,26,15	comp=0,0,16,8	change=0,0,16,8	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,16,8	shape=9ac9f1d09455c821
 doc	237	flat=e73078e9d5a4650f	tiled=e73078e9d5a4650f	sub=0b8f39873f88e4a4	reduced=df20665566b6924f	damage=237f0b0209145436	area=6f7426e216af626c	thumb=0506df05e25d00b0	surface=402333376e2473c5	proxy=a820678eb4f663b0	layers=1e859c85a2353719
 q	237	0	bounds=-1,5,42,22	comp=0,5,38,12	change=0,5,38,12	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,38,12	shape=e3020733e7889f59
-q	237	1	bounds=3,1,48,25	comp=3,1,38,12	change=3,1,38,12	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,38,12	shape=092a07b16b5688ed	split=627db875df8b2025,3a17c36c9368f095
+q	237	1	bounds=3,0,48,25	comp=3,0,38,12	change=3,0,38,12	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,38,12	shape=092a07b16b5688ed	split=627db875df8b2025,3a17c36c9368f095
 doc	238	flat=b4b6765851dfd16a	tiled=b4b6765851dfd16a	sub=5ec250abf63babfe	reduced=2be856702e248a58	damage=2cce20b8f86e4193	area=3e97a79ac7a8f384	thumb=478af7846acc0026	surface=a9b691cd0c5d76e5	proxy=cdd038b64bfdd7d3	layers=4169a57e7b6750b5
 q	238	0	bounds=9,9,33,19	comp=9,9,29,18	change=9,9,29,18	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,29,18	shape=f1bb937faf8bf945
 q	238	1	bounds=6,2,37,34	comp=6,2,29,18	change=6,2,29,18	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=16,15,29,18	shape=ddc28bfd9611d02c
@@ -1059,19 +1059,19 @@ q	240	2	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	
 q	240	3	bounds=-2,-3,65,26	comp=0,0,34,24	change=0,0,34,24	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,34,24	shape=679cfd9c26df18e9
 doc	241	flat=05be9d83169c9406	tiled=05be9d83169c9406	sub=326c126a2c6870ef	reduced=1b49406e95629011	damage=5cc333a58cb08293	area=a73bb916c1a0e5d6	thumb=cc875f268276fc43	surface=662ad2c2c6d9efc5	proxy=f737cb4085af2c1f	layers=08424f6db519c36d
 q	241	0	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,32,19	shape=9233c68797bb2125
-q	241	1	bounds=0,0,35,34	comp=0,0,32,19	change=0,0,32,19	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=17,0,22,2	shape=300d3cb7d24b5547
+q	241	1	bounds=0,0,35,34	comp=0,0,32,19	change=0,0,32,19	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=17,0,22,2	shape=19c540c50cd7e96f
 q	241	2	bounds=-3,-3,35,28	comp=0,0,32,19	change=0,0,32,19	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=11,0,29,10	shape=9233c68797bb2125
 q	241	3	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=28,11,30,19	shape=9233c68797bb2125
-doc	242	flat=a3b739a00bba2587	tiled=a3b739a00bba2587	sub=3ca326bb1fffd6cc	reduced=13a654138c0fd6ee	damage=44b72405d129c728	area=7ed8b599077d61af	thumb=f7106438a50c64a8	surface=0e488e5464c91f43	proxy=99136310a510ca57	layers=086389143af0c23f
+doc	242	flat=56ecab7c3aa5aa5e	tiled=56ecab7c3aa5aa5e	sub=8b7579d34583af0e	reduced=b16effd97fcdadfc	damage=46074bc932d8865f	area=e71dcda221657ae5	thumb=647fdeb83be58f29	surface=fc93ebb3ef123c30	proxy=2e14e897809c472f	layers=4f31d8d1898b8bd4
 q	242	0	bounds=0,0,9,19	comp=0,0,9,19	change=0,0,9,19	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,9,19	shape=912d742e147b54b8
-q	242	1	bounds=0,0,9,19	comp=0,0,9,19	change=0,0,9,19	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,3,4,14	fill=634cc5fc24a33e2e	shape=4fdafcb294592950
+q	242	1	bounds=0,0,9,19	comp=0,0,9,19	change=0,0,9,19	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,3,4,14	fill=634cc5fc24a33e2e	shape=f76899350a1e49c4
 doc	243	flat=67eb9d888ea39644	tiled=67eb9d888ea39644	sub=7173b4bbec1ab5dc	reduced=310b63c5eab9c0a1	damage=858869a477aa99d0	area=80e82282e3d29172	thumb=31e9502780c2e1b9	surface=d7bd9aa8286202b0	proxy=5ae6f1caaa0bb1c6	layers=50de90109fc703a4
 q	243	0	bounds=0,0,23,30	comp=0,0,23,30	change=0,0,23,30	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,23,30	shape=d7c6b101a4bcf159
 q	243	1	bounds=-4,2,17,62	comp=0,2,17,30	change=0,2,17,30	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,23,30	shape=f922458f4a46ce7a
 doc	244	flat=a70617a4f25b0750	tiled=a70617a4f25b0750	sub=f0db0f0a2f276848	reduced=47b7341845ee96b0	damage=4656e669ba549a94	area=7301aedb9ae7d60f	thumb=69aa358bbe6d473c	surface=11abe61cb8cf87b2	proxy=a0eb9e6f01fca549	layers=c8d47eb1bf728895
 q	244	0	bounds=0,0,28,15	comp=0,0,28,15	change=0,0,28,15	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,28,15	shape=21d7d32d1e0f8c3d
 q	244	1	bounds=0,0,28,15	comp=0,0,28,15	change=0,0,28,15	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,28,15	fill=9bf665c37dc8e6c6	shape=ec2f525d5ad47d0d
-q	244	2	bounds=1,-4,24,8	comp=1,0,24,8	change=1,0,24,8	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,28,15	shape=27dfba924d660b58	split=2a180fde2b0e1025,3f930158e6f62956
+q	244	2	bounds=1,-4,28,15	comp=1,0,28,15	change=1,0,28,15	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,28,15	shape=27dfba924d660b58	split=2a180fde2b0e1025,3f930158e6f62956
 q	244	3	bounds=0,0,28,15	comp=0,0,28,15	change=0,0,28,15	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,28,15	fill=12b2931d374879a6	shape=6bd7374a3da29765
 q	244	4	bounds=2,5,56,27	comp=2,5,28,15	change=2,5,28,15	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,28,15	shape=26dfcaf1ebf42665
 doc	245	flat=f329bac8231fdc9e	tiled=f329bac8231fdc9e	sub=811a89ea1e4b241c	reduced=edab1f42672172dd	damage=edab1f42672172dd	area=9523708294b0bc00	thumb=6cd8d24354582da5	surface=9f115a2bb596da97	proxy=367e267804589d04	layers=999c98ac30b8cfcd
@@ -1088,8 +1088,8 @@ q	248	1	bounds=-3,2,25,26	comp=0,2,23,26	change=0,2,23,26	to=1	occ=0	adv=0	shape
 q	248	2	bounds=2,10,26,51	comp=2,10,23,26	change=2,10,23,26	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,23,26	shape=c975c66a03e4c4d4
 doc	249	flat=5ac5d710725d0268	tiled=5ac5d710725d0268	sub=70762c510d479a2a	reduced=48ca951471ba3737	damage=74db99d3321fed91	area=3d0f1801dcde7dbf	thumb=753b01a348a87399	surface=34ac5dd5bae11a27	proxy=fda27004bfdea109	layers=af7ed2fa1e03fe4a
 q	249	0	bounds=3,-4,45,11	comp=3,0,29,7	change=3,0,29,7	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,29,7	shape=af8917e9c107961c
-doc	250	flat=dbb7d7d3fcd7a9ec	tiled=dbb7d7d3fcd7a9ec	sub=07c917bb3d876fca	reduced=b0b567f074239663	damage=b4e90ee3190ef81c	area=4a873dcbd49ba877	thumb=a16363456012428e	surface=4fb55ac155a8e191	proxy=3f43bec4a6193e28	layers=1b83d2528378f98c
-q	250	0	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,16,27	shape=40afc6ef52734a25	split=988ca9561494bf25,62ea0f86a59a622c
+doc	250	flat=dbb7d7d3fcd7a9ec	tiled=dbb7d7d3fcd7a9ec	sub=07c917bb3d876fca	reduced=b0b567f074239663	damage=b4e90ee3190ef81c	area=4a873dcbd49ba877	thumb=a16363456012428e	surface=4fb55ac155a8e191	proxy=3f43bec4a6193e28	layers=3452405c208593b8
+q	250	0	bounds=3,0,13,23	comp=3,0,13,23	change=3,0,13,23	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,16,27	shape=40afc6ef52734a25	split=988ca9561494bf25,62ea0f86a59a622c
 q	250	1	bounds=0,0,16,27	comp=0,0,16,27	change=0,0,16,27	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,16,27	fill=c240795eb394debe	shape=dfc4465c7e3792a5
 q	250	2	bounds=2,21,8,27	comp=2,21,8,27	change=2,21,8,27	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=5,0,16,22	shape=b2126adc53cf8e9f
 q	250	3	bounds=1,3,18,38	comp=1,3,16,27	change=1,3,16,27	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,16,27	shape=7f6e969384102680
@@ -1109,18 +1109,18 @@ q	252	5	bounds=0,0,9,14	comp=0,0,9,14	change=0,0,9,14	to=1	occ=0	adv=1	shapeless
 doc	253	flat=d02113f799a7d03b	tiled=d02113f799a7d03b	sub=e6730222d36cb67e	reduced=78e6f763423808ee	damage=7e8b3b67bbea7616	area=a0cdbf1a5f6e033b	thumb=f9cf6ca0494d853f	surface=d3e8ec1929461c9a	proxy=da35570cdc80881f	layers=1d08296c804aa1e1
 q	253	0	bounds=0,0,19,15	comp=0,0,19,15	change=0,0,19,15	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,19,15	fill=29c9259041701a89	shape=30b04a3c9d71a8b5
 q	253	1	bounds=0,0,19,15	comp=0,0,19,15	change=0,0,19,15	to=1	occ=0	adv=1	shapeless=1	bg=0	frame=0,0,19,15	fill=a7bcd3c46e40bcae	shape=b6788147c0da72b8
-q	253	2	bounds=3,0,18,15	comp=3,0,18,15	change=3,0,18,15	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,19,15	shape=254db12bcf83d357	split=14eca1748a18aa09,cc888f091e3aa09d
+q	253	2	bounds=0,0,18,15	comp=0,0,18,15	change=0,0,18,15	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,19,15	shape=254db12bcf83d357	split=14eca1748a18aa09,cc888f091e3aa09d
 doc	254	flat=59c67639004f44e3	tiled=59c67639004f44e3	sub=206ad24b27b85a69	reduced=406d80e6d37e3504	damage=4a021707c838b217	area=ba85c3a738f5c13c	thumb=5d22630ba2152746	surface=90182fbe236d31a4	proxy=224ae074af85b3b6	layers=291c83a25d003cf4
-q	254	0	bounds=0,0,24,30	comp=0,0,24,30	change=0,0,24,30	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,24,30	shape=e15003e20e9e7c69
+q	254	0	bounds=0,0,24,30	comp=0,0,24,30	change=0,0,24,30	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,24,30	shape=d2289e504f25c06d
 doc	255	flat=c97c8c118a2e4acb	tiled=c97c8c118a2e4acb	sub=63b32aea419f785f	reduced=73d0bba2b63e9113	damage=1f6d19dee631ec23	area=90c9fb34eb9f7d66	thumb=68100d8b5dc91cc0	surface=97b205dac05ec3a3	proxy=08e32d3fae3dc537	layers=9a5295b18fc4066c
 q	255	0	bounds=0,0,38,20	comp=0,0,38,20	change=0,0,38,20	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,38,20	shape=03a7c0d0b6f42555
 q	255	1	bounds=6,0,75,32	comp=6,0,38,20	change=6,0,38,20	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=6,2,37,7	shape=6a721bd9bcbd80a5
 q	255	2	bounds=-3,-4,75,26	comp=0,0,38,20	change=0,0,38,20	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,38,20	shape=a6d598afe90160f6
 q	255	3	bounds=-2,-3,35,12	comp=0,0,35,12	change=0,0,35,12	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=6,4,18,19	shape=d3bfb43b21f7af52
 q	255	4	bounds=8,11,36,19	comp=8,11,36,19	change=8,11,36,19	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,38,20	shape=88d27338a41ed070
-doc	256	flat=cedb4033a2315c5f	tiled=cedb4033a2315c5f	sub=1a423352b589052c	reduced=b11a22f71f2e2351	damage=e7fc797e4c161b7b	area=dcce929c45ac9f3f	thumb=063d3f86e38bb33b	surface=42ff477a24e6dff9	proxy=46f67aec9a7540a6	layers=bc460170c52508a2
+doc	256	flat=63e1116a768baf3d	tiled=63e1116a768baf3d	sub=ef461dce1c94fc56	reduced=e96280aedc34c28e	damage=0eae50890bd8dfe0	area=da9b2ee792debdca	thumb=c128eb7d46dead36	surface=4718b28503aece11	proxy=59cc6e7e13b04f52	layers=bc460170c52508a2
 q	256	0	bounds=0,0,9,18	comp=0,0,9,18	change=0,0,9,18	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,9,18	fill=6bc3427b9d36007e	shape=bb5f345f6ff8f041
-q	256	1	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=5,5,9,12	shape=b9e840738c72fa3e
+q	256	1	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=5,5,9,12	shape=5b03d17b70681425
 doc	257	flat=700c8d5ff19407b7	tiled=700c8d5ff19407b7	sub=039cd554d81854fc	reduced=0ae248b0a8fab13f	damage=e25707667252ec5a	area=683f4395d16d8bd3	thumb=16cb002622149bee	surface=ef1ec442e861d742	proxy=9f1e4370f2eca129	layers=d8ed7c0d45f9b809
 q	257	0	bounds=0,0,30,10	comp=0,0,30,10	change=0,0,30,10	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,10	shape=75c08cca26ca80e5
 q	257	1	bounds=16,0,39,16	comp=16,0,30,10	change=16,0,30,10	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,10	shape=b67e70aa85dbafd7
@@ -1133,7 +1133,7 @@ q	258	1	bounds=0,0,34,25	comp=0,0,34,25	change=0,0,34,25	to=1	occ=0	adv=1	shapel
 doc	259	flat=faafab609abb8ee6	tiled=58c2b7d59a1f21f3	sub=3c65b1cf32fa7f2a	reduced=d8a06697b24eba55	damage=ef4bbab9927ea485	area=e0448e33a4e49418	thumb=df256951926d6780	surface=e138001ed22e5c6c	proxy=1d7bf2ddd9951d71	layers=548911f49938d374
 q	259	0	bounds=0,0,18,9	comp=0,0,18,9	change=0,0,18,9	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=10,0,18,9	fill=836b47970772fad2	shape=cd4d8e0278dab648
 q	259	1	bounds=8,5,13,14	comp=8,5,13,9	change=8,5,13,9	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,18,9	shape=8fb68f7fe78a244d
-q	259	2	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=8,0,15,8	shape=d6d7c0c9db5a6bc5	split=442a082201dca7b9,9b04a576992edb14
+q	259	2	bounds=5,0,18,9	comp=5,0,18,9	change=5,0,18,9	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=8,0,15,8	shape=d6d7c0c9db5a6bc5	split=442a082201dca7b9,9b04a576992edb14
 q	259	3	bounds=0,0,18,9	comp=0,0,0,0	change=none	to=1	occ=0	adv=1	shapeless=1	bg=0	frame=0,0,18,9	shape=651a5b9271f5d275
 doc	260	flat=e18ac681d885b3a9	tiled=e18ac681d885b3a9	sub=ea0ff03e02075ebd	reduced=54f9e2f31878cbdc	damage=535af9e1166e3447	area=a2454bad7a57e59f	thumb=d4899c5a9f66f545	surface=7b59f133cb5bfbd8	proxy=d17305434e5239d1	layers=97fd00327a0166fb
 q	260	0	bounds=0,-2,37,28	comp=0,0,19,19	change=0,0,19,19	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,19,19	shape=804591f4d58d459a
@@ -1152,17 +1152,17 @@ q	262	3	bounds=0,2,28,24	comp=0,2,18,17	change=0,2,18,17	to=1	occ=0	adv=0	shapel
 doc	263	flat=7ecc768939a71dd3	tiled=7ecc768939a71dd3	sub=9936e73402df4781	reduced=6e048043ed1d60f9	damage=2a79a64aefcd6cba	area=d7564a5ca79f7b64	thumb=478af7846acc0026	surface=189c31d7344fddc5	proxy=c8ce8cd410a244be	layers=f6c308cd18dfdfc5
 q	263	0	bounds=2,-2,29,13	comp=2,0,24,13	change=2,0,24,13	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,2,18,12	shape=3cfe05482570ec25
 q	263	1	bounds=5,-3,35,22	comp=5,0,24,14	change=5,0,24,14	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=5,7,19,14	shape=3cfe05482570ec25
-doc	264	flat=e91fa5f46afce559	tiled=e91fa5f46afce559	sub=98dfe577c53a749b	reduced=eceade3a8dc1d709	damage=812ec89116966ceb	area=be9d7563205fec96	thumb=8c7af89537242df9	surface=176e7916fcbeb683	proxy=005356d3c143499d	layers=0d70182cc60ffedd
+doc	264	flat=834ea450648f944d	tiled=834ea450648f944d	sub=98dfe577c53a749b	reduced=53f7d12d1f5aa41c	damage=2aa09c1e960a69d1	area=97e7fad5d10caf59	thumb=8c7af89537242df9	surface=5c0807ec07eb9347	proxy=44ff83ad3593ed06	layers=cc44ea5369965a3d
 q	264	0	bounds=0,0,32,17	comp=0,0,32,17	change=0,0,32,17	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,32,17	shape=053e94f638bfa325
 q	264	1	bounds=25,3,32,20	comp=25,3,32,17	change=25,3,32,17	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,32,17	shape=d6da78ddbbfa09af
-q	264	2	bounds=8,4,45,34	comp=8,4,32,17	change=8,4,32,17	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,32,17	shape=0f83840edef57360
+q	264	2	bounds=8,4,45,34	comp=8,4,32,17	change=8,4,32,17	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,32,17	shape=5fe8fec882d180d1
 q	264	3	bounds=5,4,8,13	comp=5,4,8,13	change=5,4,8,13	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,32,17	shape=89dd80c7b5a5bcfa
 q	264	4	bounds=0,0,32,17	comp=0,0,32,17	change=0,0,32,17	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,32,17	fill=19b20d768b96cae4	shape=262a2cb3e7b21825
 q	264	5	bounds=1,16,33,26	comp=1,16,32,17	change=1,16,32,17	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,32,17	shape=0cc7e367d5aabe8a
 doc	265	flat=bd20fd3a2b7b1ab6	tiled=8447a6d4852b6be3	sub=993ab86731f82a28	reduced=6519aae6a8b999e0	damage=2f98cec192268828	area=308460e12b866da3	thumb=60fc180a729c0dc3	surface=466cf38160f94cf7	proxy=51ac8ce8fa2b6e52	layers=08e4c1827527844b
 q	265	0	bounds=1,-1,29,45	comp=1,0,26,27	change=1,0,26,27	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,26,27	shape=2a58f2639298d2d5
 q	265	1	bounds=4,1,23,24	comp=4,1,23,24	change=4,1,23,24	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,13,26,26	shape=fd2cb423eee21980
-q	265	2	bounds=1,7,54,35	comp=1,7,26,27	change=1,7,26,27	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,26,27	shape=90e6c1c046829b38	split=ce37643269027c85,499cc89f3a607834
+q	265	2	bounds=0,0,54,35	comp=0,0,26,27	change=0,0,26,27	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,26,27	shape=90e6c1c046829b38	split=ce37643269027c85,499cc89f3a607834
 q	265	3	bounds=1,13,15,27	comp=1,13,15,27	change=1,13,15,27	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,26,27	shape=f2dbc9946525b27f
 q	265	4	bounds=4,13,42,40	comp=4,13,26,27	change=4,13,26,27	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,26,27	shape=a506cee9b7c3744d
 doc	266	flat=76700854048f5a5f	tiled=76700854048f5a5f	sub=17b69d7a8c143d53	reduced=d77fb301a7f9ee62	damage=9f6baf7193a6062a	area=2e4a834b4965619b	thumb=5d1c693371ada23e	surface=c9537c41995db385	proxy=bfc79bbb18fbc8d2	layers=45d480c1cf013f95
@@ -1180,13 +1180,13 @@ q	268	1	bounds=10,4,46,29	comp=10,4,29,20	change=10,4,29,20	to=1	occ=0	adv=1	sha
 q	268	2	bounds=0,0,29,20	comp=0,0,29,20	change=0,0,29,20	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,29,20	fill=8dca3a4b02f8005c	shape=140aa23b1334c0c5
 doc	269	flat=4ec4024b66ae3adc	tiled=4ec4024b66ae3adc	sub=b309a068f6c941bf	reduced=dd9e097c3078fddb	damage=2ea2aa23bd140c35	area=76b9eb70a992dd5b	thumb=b84bbf3e8a6a97f2	surface=66e7638c38ab40b1	proxy=315cab264f85aeca	layers=2bfef6da2d8e09c3
 q	269	0	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,17,11	shape=3d334905d0001615
-q	269	1	bounds=5,0,28,12	comp=5,0,17,11	change=5,0,17,11	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,17,11	shape=67819aa55e9dcd4c	split=cee87246492378f9,01ec70a0deb18e10
+q	269	1	bounds=0,0,28,12	comp=0,0,17,11	change=0,0,17,11	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,17,11	shape=67819aa55e9dcd4c	split=cee87246492378f9,01ec70a0deb18e10
 q	269	2	bounds=0,0,17,11	comp=0,0,17,11	change=0,0,17,11	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,17,11	fill=813e978a1b08dbb4	shape=125faa3262c8c55a
 q	269	3	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,17,11	shape=3d334905d0001615
 q	269	4	bounds=-4,-4,28,21	comp=0,0,17,11	change=0,0,17,11	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,17,11	shape=e6fe6e8bd6224c2b	split=62171e08a3effda1,312a993864b1cd99
-doc	270	flat=ab2f2ecb1d325c8b	tiled=ab2f2ecb1d325c8b	sub=875ccd2311ee7e1e	reduced=57c46cc8b7844263	damage=6d938f23097e6bd7	area=e164c91e32a0444a	thumb=c53c76551bd749b0	surface=366ef93f4fde04f7	proxy=1f0b31072491e562	layers=cabf4c8aef2f0477
+doc	270	flat=bc483fecdfd7be4e	tiled=bc483fecdfd7be4e	sub=875ccd2311ee7e1e	reduced=82f5b56f82b47746	damage=a1404dadaf2a7246	area=b3f17b17e7994b91	thumb=79e396fb7c98c2af	surface=f0f4ebf9859c24ab	proxy=d6fc8685d0526316	layers=22c18421348e8971
 q	270	0	bounds=0,0,37,10	comp=0,0,37,10	change=0,0,37,10	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,37,10	shape=4219e2d2ce73d795
-q	270	1	bounds=3,-1,78,12	comp=3,0,37,10	change=3,0,37,10	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,37,10	shape=96d83770e2506932
+q	270	1	bounds=2,-1,78,12	comp=2,0,37,10	change=2,0,37,10	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,37,10	shape=cb44048cd1428005
 doc	271	flat=57201bef586e30d9	tiled=57201bef586e30d9	sub=7d3dab24f00a3593	reduced=2cfadc670aa6d623	damage=a5e0d239db2854e2	area=5e45df24d991b443	thumb=660b0833da5fc56f	surface=d70c3da54f8e95db	proxy=604c0584b9800afc	layers=7a8fa923e7d3a78a
 q	271	0	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=22,4,29,11	shape=2e4eb1756b571175
 q	271	1	bounds=16,2,40,13	comp=16,2,29,13	change=16,2,29,13	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,29,13	shape=4cfb6c07bc87f5fc
@@ -1229,17 +1229,17 @@ q	280	0	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=
 q	280	1	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,15	shape=d34ab51bc386c5c5
 q	280	2	bounds=-2,-4,40,25	comp=0,0,30,15	change=0,0,30,15	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,15	shape=4ca5c9a0846f48f3
 q	280	3	bounds=0,0,30,15	comp=0,0,30,15	change=0,0,30,15	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,15	fill=81672a897b9f6454	shape=707eb870759042f5
-doc	281	flat=99548e6059423c80	tiled=99548e6059423c80	sub=5cf26591dd3f1207	reduced=9594d6da3c6e83bc	damage=88201fb960ff6465	area=f5872394510cd1b2	thumb=1a4981cd3e1e33f4	surface=9abdc5dff2fba418	proxy=cd954df30000c4f6	layers=e14372513c3c66b2
+doc	281	flat=d5ea6a0ba664f656	tiled=d5ea6a0ba664f656	sub=9a55eaedb5f71873	reduced=f0ff1f87d9745405	damage=88201fb960ff6465	area=aa265e35de2b30be	thumb=1a4981cd3e1e33f4	surface=571f94bf39f640d8	proxy=20d145729272edcb	layers=e14372513c3c66b2
 q	281	0	bounds=0,0,10,7	comp=0,0,10,7	change=0,0,10,7	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,10,7	shape=f978477692930ea5
 q	281	1	bounds=-4,-2,6,12	comp=0,0,6,7	change=0,0,6,7	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,10,7	shape=3c91a5f25d0124b2
 q	281	2	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=3,1,10,7	shape=09bd80efa0653705
 q	281	3	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,10,7	shape=09bd80efa0653705
 q	281	4	bounds=0,0,10,7	comp=0,0,10,7	change=0,0,10,7	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,10,7	fill=5a7f9e7462aff600	shape=0325004a2732e42d
-doc	282	flat=d33594afa3e4399d	tiled=d33594afa3e4399d	sub=0c483d9d8f57086c	reduced=57d4ef41895ba57d	damage=3047a9c44299618e	area=9fd53b1b7c802c81	thumb=438da2fff9b51edd	surface=e1b39ee9fdfd013b	proxy=b74e535f68382730	layers=1b3d18f106f65840
+doc	282	flat=2fff942f7f74d851	tiled=2fff942f7f74d851	sub=0c483d9d8f57086c	reduced=ea4ccef00314314c	damage=3047a9c44299618e	area=6ecc2de91fef8a8a	thumb=438da2fff9b51edd	surface=0bc0f52af8b8d877	proxy=a9d3e2c6277ecd61	layers=e49552fd6e0e1566
 q	282	0	bounds=-4,4,13,31	comp=0,4,13,25	change=0,4,13,25	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,14,25	shape=3b7a3ccadfe79bd5
 q	282	1	bounds=0,0,14,25	comp=0,0,14,25	change=0,0,14,25	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,14,25	fill=4c49f645f72127c1	shape=3b7a3ccadfe79bd5
 q	282	2	bounds=6,11,21,14	comp=6,11,14,14	change=6,11,14,14	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,14,25	shape=9fbffd719b2485b4
-q	282	3	bounds=-4,-1,22,21	comp=0,0,14,21	change=0,0,14,21	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,14,25	shape=6eb386b403ce430a
+q	282	3	bounds=-4,-1,22,21	comp=0,0,14,21	change=0,0,14,21	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,14,25	shape=1f18e46543591795
 doc	283	flat=7a62116a3d72c6c2	tiled=7a62116a3d72c6c2	sub=f281c22378037ed8	reduced=f3bf3d3b2fa1e462	damage=458f8d7178bc1471	area=8765dfc36e47b7fd	thumb=ab1b55f274c38f22	surface=d7677acba53fc4e4	proxy=bc914901edc87729	layers=57430aa57987fef9
 q	283	0	bounds=5,2,29,12	comp=5,2,16,7	change=5,2,16,7	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,16,7	shape=0a3646bc431f20a5
 q	283	1	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=13,4,16,7	shape=ddedd579bea76625
@@ -1253,19 +1253,19 @@ q	284	2	bounds=0,0,37,8	comp=0,0,37,8	change=0,0,37,8	to=1	occ=0	adv=0	shapeless
 q	284	3	bounds=6,-2,40,14	comp=6,0,37,8	change=6,0,37,8	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,37,8	shape=92e72602feea2765
 doc	285	flat=b99f36ca48a2d547	tiled=b99f36ca48a2d547	sub=1d191b080d9ff960	reduced=00b184c3e6844d35	damage=3ef74fc872d24255	area=b02286d35e02da02	thumb=5c79aa56fe439410	surface=b9788edb70bbb45d	proxy=56cf2ba2860da92e	layers=57d01f91527bd54b
 q	285	0	bounds=1,10,6,26	comp=1,10,6,26	change=1,10,6,26	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,9,27	shape=b75c9402b5991275
-doc	286	flat=fa7a0999b32e8785	tiled=fa7a0999b32e8785	sub=5512692c36d7cb57	reduced=26dc761390391c1f	damage=36122ec2f7ddab55	area=e83166ca79696c3e	thumb=7b3fd8d19f6ed4a3	surface=453fef5ca4ffe18a	proxy=0e889225c88d0632	layers=a785b7c0f81725a6
+doc	286	flat=e045454178a5e0cf	tiled=e045454178a5e0cf	sub=b8086befd4168bfd	reduced=c41740fa67d0ea4c	damage=14b5b659cdbd64db	area=047687e6153f794d	thumb=7b3fd8d19f6ed4a3	surface=8966d94967011721	proxy=db989760546a329e	layers=92e759e6fe5cec1a
 q	286	0	bounds=0,0,33,16	comp=0,0,33,16	change=0,0,33,16	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,33,16	shape=8d64b981b70a7505
 q	286	1	bounds=7,1,29,12	comp=7,1,29,12	change=7,1,29,12	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,33,16	shape=7dc100298a3cc0a5
 q	286	2	bounds=0,0,33,16	comp=0,0,33,16	change=0,0,33,16	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,33,16	fill=b68fb58875777a74	shape=6062fdd1b9898749
 q	286	3	bounds=0,3,51,18	comp=0,3,33,16	change=0,3,33,16	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,33,16	shape=e3f400017f3b81a5
-q	286	4	bounds=16,-4,47,24	comp=16,0,33,16	change=16,0,33,16	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,33,16	shape=786164a5761acf56
+q	286	4	bounds=16,-4,47,24	comp=16,0,33,16	change=16,0,33,16	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,33,16	shape=867869566d54187c
 doc	287	flat=d124a7dac0765243	tiled=d124a7dac0765243	sub=f51613cc14ee0038	reduced=4c281edbe0135749	damage=f0ba7955de1ff8b5	area=825d69852eae5706	thumb=319b56a0e0225e13	surface=7ee0cbe796dc3751	proxy=e8509de846cb7373	layers=39171c5ea8a2dce0
 q	287	0	bounds=3,1,39,24	comp=3,1,31,12	change=3,1,31,12	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,31,12	shape=1e405fb17d9dc879
-q	287	1	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,31,8	shape=7bdd425477e3fe3e	split=027cfc6e5dbab2eb,e9ba373aca3ca1d7
+q	287	1	bounds=0,2,31,11	comp=0,2,31,11	change=0,2,31,11	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,31,8	shape=7bdd425477e3fe3e	split=027cfc6e5dbab2eb,e9ba373aca3ca1d7
 doc	288	flat=2b711b4a61d44d30	tiled=2b711b4a61d44d30	sub=1e9ebfb3dde60bf1	reduced=9f6be9eeccaa9c70	damage=8d81f57798d16815	area=082b229da9e53cdd	thumb=f252f17533fb8f61	surface=0253024829a6e981	proxy=95e0b32b60f0708a	layers=a03698f1843d6f6e
 q	288	0	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,5,12,14	shape=ebc4e38d4d85c425
 q	288	1	bounds=-4,-1,14,22	comp=0,0,13,16	change=0,0,13,16	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,12,2,16	shape=40c3fdba790e6b72
-q	288	2	bounds=8,3,14,11	comp=8,3,13,11	change=8,3,13,11	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=10,0,13,11	shape=ed4e4144edb497ef	split=6f5e883eff552213,4ac6f28ad0176e78
+q	288	2	bounds=2,1,14,14	comp=2,1,13,14	change=2,1,13,14	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=10,0,13,11	shape=ed4e4144edb497ef	split=6f5e883eff552213,4ac6f28ad0176e78
 doc	289	flat=88fcb989c295117e	tiled=88fcb989c295117e	sub=52460c45a11088c5	reduced=9a765d1ca4c9cf49	damage=59119d4811a077df	area=a101f00ec1c05685	thumb=18587ea287005933	surface=d9a60523c39fe564	proxy=53a53968ccc049d9	layers=02ea44860a041a48
 q	289	0	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=1,4,12,14	shape=b03f07c1446afd05
 q	289	1	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=9,0,15,1	shape=b03f07c1446afd05
@@ -1294,19 +1294,19 @@ q	294	1	bounds=0,0,12,20	comp=0,0,12,20	change=0,0,12,20	to=1	occ=0	adv=0	shapel
 q	294	2	bounds=-3,0,15,36	comp=0,0,12,20	change=0,0,12,20	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,12,20	shape=d21d49ba1b0d6251
 q	294	3	bounds=0,-2,13,32	comp=0,0,12,20	change=0,0,12,20	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,1,12,20	shape=60cbe0aedb89c1c7
 doc	295	flat=29c9259041701a89	tiled=29c9259041701a89	sub=ba677de70d651dc6	reduced=e704d915b623bc7f	damage=bd04f7b9ef0d7dc0	area=1544cfd83156729f	thumb=4c5757d440729c76	surface=1fd0222f27c9c605	proxy=3b1377f065934927	layers=1cc1d64d1bbcee6d
-q	295	0	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=1,0,18,14	shape=30b04a3c9d71a8b5	split=83ee6879d0b78406,57fb2a317de5f37d
+q	295	0	bounds=0,0,19,15	comp=0,0,19,15	change=0,0,19,15	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=1,0,18,14	shape=30b04a3c9d71a8b5	split=83ee6879d0b78406,57fb2a317de5f37d
 q	295	1	bounds=4,-2,23,30	comp=4,0,19,15	change=4,0,19,15	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,19,15	shape=30b04a3c9d71a8b5
 doc	296	flat=0354993bddb1276f	tiled=0354993bddb1276f	sub=73a7787ce9b5ac83	reduced=0758988364a1a491	damage=cd74ba7b783a2f95	area=3b1377f065934927	thumb=30d8c7a92c5b5c36	surface=05b605e76e7e3ea5	proxy=cd94378d6d9ec95a	layers=65b3ac6a42331fe8
 q	296	0	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,19,9	shape=16c1610aa0534115
 doc	297	flat=c48c593104c1c0a2	tiled=c48c593104c1c0a2	sub=301fe0b949756172	reduced=a2f7c7464fd05b9b	damage=5b3f1be0db4b1e14	area=36981740b9f88d16	thumb=1082e0fa2aab8035	surface=def88668ff5bc537	proxy=ab1e3b082e10252f	layers=18c4d94690cb7c65
-q	297	0	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,10	shape=74b4429a2fdd70e5	split=d0549f149dd63a25,38ccc3227c81e67b
+q	297	0	bounds=0,0,30,10	comp=0,0,30,10	change=0,0,30,10	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,10	shape=74b4429a2fdd70e5	split=d0549f149dd63a25,38ccc3227c81e67b
 q	297	1	bounds=-4,6,23,10	comp=0,6,23,10	change=0,6,23,10	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,10	shape=35985474228417d8
 q	297	2	bounds=6,1,25,11	comp=6,1,25,10	change=6,1,25,10	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,10	shape=01531f0aa0525fe6
 q	297	3	bounds=0,0,30,10	comp=0,0,30,10	change=0,0,30,10	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,10	fill=6cd39b501ea2dd19	shape=860ce4a30552cb05
 q	297	4	bounds=0,0,30,10	comp=0,0,30,10	change=0,0,30,10	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,10	fill=96a68091edeb55b1	shape=310304764e2d631d
 doc	298	flat=d2201c9758851690	tiled=d2201c9758851690	sub=39b2862ea2ca2497	reduced=b952758c7f8694ab	damage=75422e55ce2fb52c	area=e0dd63ca65ec0ca9	thumb=7e381e4c7f2774e4	surface=ccf3419fe335dc05	proxy=41a9fb49c8a26224	layers=b92a8fe569a22c50
 q	298	0	bounds=0,0,30,27	comp=0,0,30,27	change=0,0,30,27	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,27	fill=0554895bfd9011b8	shape=28a9e5307ff6e5b5
-q	298	1	bounds=11,-4,36,50	comp=11,0,30,27	change=11,0,30,27	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=12,24,30,27	shape=afa5f2fc084264dd
+q	298	1	bounds=11,-4,36,50	comp=11,0,30,27	change=11,0,30,27	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=12,24,30,27	shape=792c5e34947d6d60
 q	298	2	bounds=-4,0,36,25	comp=0,0,30,25	change=0,0,30,25	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,27	shape=776ef169ff762c4d
 q	298	3	bounds=3,-3,39,30	comp=3,0,30,27	change=3,0,30,27	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,27	shape=28a9e5307ff6e5b5
 q	298	4	bounds=0,0,30,27	comp=0,0,30,27	change=0,0,30,27	to=1	occ=0	adv=1	shapeless=1	bg=0	frame=0,0,30,27	fill=9df3409bdb6bc940	shape=28a9e5307ff6e5b5
@@ -1316,13 +1316,13 @@ doc	300	flat=bd293e981a342e0a	tiled=bd293e981a342e0a	sub=0d5f126c6397f4c9	reduce
 q	300	0	bounds=-1,0,8,33	comp=0,0,8,28	change=0,0,8,28	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,20,28	shape=43b8c3e1834f672b
 q	300	1	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,20,28	shape=0a68d2c1a28e7225
 q	300	2	bounds=7,7,30,24	comp=7,7,20,24	change=7,7,20,24	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=18,22,20,28	shape=564ac21f3205dde5
-q	300	3	bounds=0,0,20,28	comp=0,0,20,28	change=0,0,20,28	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=8,25,9,28	fill=115adeebc020b4ed	shape=bd154bda118af04a
+q	300	3	bounds=0,0,20,28	comp=0,0,20,28	change=0,0,20,28	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=8,25,9,28	fill=115adeebc020b4ed	shape=ff4b5602d8b89755
 q	300	4	bounds=0,0,20,28	comp=0,0,20,28	change=0,0,20,28	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,20,28	fill=905848be0a85b9cd	shape=0a68d2c1a28e7225
-doc	301	flat=546d8e9242de8b51	tiled=546d8e9242de8b51	sub=5460a71c76a7d11c	reduced=9c55714e08a86534	damage=5551eb87216844a1	area=bb76c1d5747b8c83	thumb=d81c1a9783f4e4ae	surface=b2be5fc8e271ef24	proxy=274fd352cc50549f	layers=1f13dee128b49cc6
+doc	301	flat=546d8e9242de8b51	tiled=546d8e9242de8b51	sub=5460a71c76a7d11c	reduced=9c55714e08a86534	damage=5551eb87216844a1	area=bb76c1d5747b8c83	thumb=d81c1a9783f4e4ae	surface=b2be5fc8e271ef24	proxy=274fd352cc50549f	layers=f5e3b2ad2c41af0a
 q	301	0	bounds=0,0,26,14	comp=0,0,26,14	change=0,0,26,14	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,26,14	shape=6a3c886985890f65
 q	301	1	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,26,14	shape=fafe5aa2fc1e04e5
-q	301	2	bounds=-1,2,39,16	comp=0,2,26,14	change=0,2,26,14	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,26,14	shape=225d682409e12a12
-q	301	3	bounds=-3,-4,17,21	comp=0,0,17,14	change=0,0,17,14	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,26,14	shape=fafe5aa2fc1e04e5
+q	301	2	bounds=-1,2,39,16	comp=0,2,26,14	change=0,2,26,14	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,26,14	shape=6bca1228d4549a7d
+q	301	3	bounds=-3,-4,26,21	comp=0,0,26,14	change=0,0,26,14	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,26,14	shape=fafe5aa2fc1e04e5
 q	301	4	bounds=0,0,26,14	comp=0,0,26,14	change=0,0,26,14	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,26,14	fill=a743e0a315a9bfc2	shape=1adb727d105d2f75
 doc	302	flat=6b87f88f2bd2db67	tiled=6b87f88f2bd2db67	sub=1ea208290c3831b8	reduced=356f8d4a45a087d6	damage=1f2de59abea00b95	area=d353afa506bf2eef	thumb=ad12a83a78fd3704	surface=9af43ac39bf4a176	proxy=1c1f1527e9bdb611	layers=a2861694987ef0bd
 q	302	0	bounds=0,0,36,20	comp=0,0,36,20	change=0,0,36,20	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,36,20	fill=0dd09dd303e34135	shape=1d82d2bb69915fa5
@@ -1334,7 +1334,7 @@ doc	303	flat=e0dd63ca65ec0ca9	tiled=e0dd63ca65ec0ca9	sub=893bbd4ba93ce895	reduce
 q	303	0	bounds=0,0,13,17	comp=0,0,13,17	change=0,0,13,17	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,13,17	shape=4cca1985b6118b75
 q	303	1	bounds=0,0,13,17	comp=0,0,13,17	change=0,0,13,17	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,13,17	fill=e0dd63ca65ec0ca9	shape=01ced4aa4e51d4b5
 q	303	2	bounds=0,-4,18,34	comp=0,0,13,17	change=0,0,13,17	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,13,17	shape=559605bfb2050fb8
-q	303	3	bounds=1,4,24,28	comp=1,4,13,17	change=1,4,13,17	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=8,1,13,3	shape=01ced4aa4e51d4b5
+q	303	3	bounds=1,2,24,28	comp=1,2,13,17	change=1,2,13,17	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=8,1,13,3	shape=01ced4aa4e51d4b5
 q	303	4	bounds=5,12,6,19	comp=5,12,6,17	change=5,12,6,17	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,13,17	shape=0a7ef2577df17ee4
 q	303	5	bounds=-1,3,26,28	comp=0,3,13,17	change=0,3,13,17	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,13,17	shape=d134990b8a06989b
 doc	304	flat=0dbcbd231ac4edc2	tiled=0dbcbd231ac4edc2	sub=7e9fe99e2f326ebe	reduced=474fc7cda31b898d	damage=88201fb960ff6465	area=94b83d57c63e35db	thumb=7e1ef442cd317605	surface=791852e2f3045ec5	proxy=59832f33b02d9645	layers=48a4e05db93156d5
@@ -1344,14 +1344,14 @@ q	305	0	bounds=0,0,26,9	comp=0,0,26,9	change=0,0,26,9	to=1	occ=0	adv=0	shapeless
 q	305	1	bounds=-1,-2,41,15	comp=0,0,26,9	change=0,0,26,9	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,26,9	shape=aaba537ca0f8fd58
 q	305	2	bounds=12,-2,39,20	comp=12,0,26,9	change=12,0,26,9	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,26,9	shape=0302cd300be5a245
 q	305	3	bounds=10,5,21,15	comp=10,5,21,9	change=10,5,21,9	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=24,5,26,9	shape=0302cd300be5a245
-doc	306	flat=0fa6c4d7a15ec450	tiled=0fa6c4d7a15ec450	sub=ba0a7f03169a461e	reduced=d15655471cb4dabe	damage=03d4329ed7e6ac85	area=820090c06a6b906c	thumb=202c9f28d344516d	surface=11dc455490b6d6d7	proxy=1a01209d175b38a4	layers=9e2ce85e18cdf82f
+doc	306	flat=1fe16502c39529b2	tiled=1fe16502c39529b2	sub=0aaaebd3a99044e8	reduced=69d6b47e7d501772	damage=03d4329ed7e6ac85	area=540d62377087ca6b	thumb=b6e903b0eae06556	surface=ea9c9b0520b487b7	proxy=7432b3f5df196af4	layers=9e2ce85e18cdf82f
 q	306	0	bounds=0,0,35,21	comp=0,0,35,21	change=0,0,35,21	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,35,21	shape=de59ac82abd88699
 q	306	1	bounds=0,0,35,21	comp=0,0,35,21	change=0,0,35,21	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,35,21	fill=ac479b1a88581efb	shape=fa28fce1b8fc9368
 q	306	2	bounds=0,0,35,21	comp=0,0,35,21	change=0,0,35,21	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,35,21	fill=58d5d84dfdcc4af8	shape=fa28fce1b8fc9368
 q	306	3	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,35,21	shape=2e4280b8aed65d55
 q	306	4	bounds=9,6,51,23	comp=9,6,35,21	change=9,6,35,21	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,35,21	shape=fa28fce1b8fc9368
-doc	307	flat=2e487ae59a29aad5	tiled=2e487ae59a29aad5	sub=1fc543b9cf978726	reduced=1c73d525d1108356	damage=e63d5f851c52cd58	area=e490fb7b0cf2f4cc	thumb=1e7fc4249c0a9be0	surface=bccf9f255544970a	proxy=b0735f070b4495e8	layers=20a9f9f73046d495
-q	307	0	bounds=7,7,46,49	comp=7,7,35,30	change=7,7,35,30	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=14,5,22,12	shape=728b75a7713308ba
+doc	307	flat=af26bb29e10945d3	tiled=af26bb29e10945d3	sub=1fc543b9cf978726	reduced=858a1992e245f691	damage=e63d5f851c52cd58	area=fa02da31d830b63a	thumb=1e7fc4249c0a9be0	surface=80bb0fb3e2c3bc12	proxy=b0735f070b4495e8	layers=92fe64183d677b73
+q	307	0	bounds=7,7,46,49	comp=7,7,35,30	change=7,7,35,30	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=14,5,22,12	shape=ac85735925e0d4e0
 q	307	1	bounds=0,0,35,30	comp=0,0,35,30	change=0,0,35,30	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,35,30	fill=f9e8dafbd5054bb4	shape=aee64c1d785c4c79
 q	307	2	bounds=8,2,54,33	comp=8,2,35,30	change=8,2,35,30	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,35,30	shape=2d0b1e4bfb7e5b35
 doc	308	flat=5830f39cbf62dcc7	tiled=5830f39cbf62dcc7	sub=f2b8e211354e809e	reduced=73c0d4e76366bb1a	damage=8cc2cc7e52b1c8b7	area=65da47ccb201379d	thumb=02adba8090b8ffff	surface=a15e76e315bbac59	proxy=5992daa82dbdbe8b	layers=2828a40cd27936ce
@@ -1361,7 +1361,7 @@ q	308	2	bounds=0,0,15,27	comp=0,0,15,27	change=0,0,15,27	to=1	occ=0	adv=0	shapel
 q	308	3	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,15,27	shape=3db400662259b778
 doc	309	flat=c2c16297132c60b5	tiled=c2c16297132c60b5	sub=8dc7632114fa2102	reduced=1bed6e19df28cea5	damage=9eb46ead3aba9d6c	area=3086987884931d11	thumb=02ba2fceb9587868	surface=08966aa25ccf8e45	proxy=26d416cd23dfa34d	layers=37a8836066766b1f
 q	309	0	bounds=0,0,28,12	comp=0,0,28,12	change=0,0,28,12	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=15,1,28,5	fill=c2c16297132c60b5	shape=3cfe05482570ec25
-doc	310	flat=580cbef168dab821	tiled=580cbef168dab821	sub=3615bc2c5f4437e5	reduced=ec09c2fedbe8f9db	damage=0d36736a0719fe52	area=56ba7cfadd528fbf	thumb=9373852c56f9b6c7	surface=3d4ed5491f094924	proxy=fbf83419f18bf417	layers=b7bcb5d61f6f1a35
+doc	310	flat=610d7c47afcc4671	tiled=610d7c47afcc4671	sub=3615bc2c5f4437e5	reduced=10515907628d8729	damage=0d36736a0719fe52	area=2622402d56d46c07	thumb=6c7643bbbae3b5c7	surface=c50597a8d23fbbb4	proxy=48aae33890880237	layers=0e60c8fdcfc7abd8
 q	310	0	bounds=0,0,30,26	comp=0,0,30,26	change=0,0,30,26	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,26	shape=d61a94863004a455
 q	310	1	bounds=0,0,30,26	comp=0,0,30,26	change=0,0,30,26	to=1	occ=0	adv=1	shapeless=1	bg=0	frame=0,0,30,26	shape=a7c231ee5bcfb605
 q	310	2	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,30,26	shape=ac2d0b089b9fc6e5
@@ -1373,17 +1373,17 @@ q	312	0	bounds=0,0,29,22	comp=0,0,29,22	change=0,0,29,22	to=1	occ=0	adv=1	shapel
 q	312	1	bounds=0,0,29,22	comp=0,0,29,22	change=0,0,29,22	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,29,22	fill=9cd1aad94f01c2c2	shape=72a5cd273f24d831
 q	312	2	bounds=0,0,29,22	comp=0,0,29,22	change=0,0,29,22	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,29,22	fill=1ec2d9bc1e0e3b96	shape=810b17ce3535a669
 q	312	3	bounds=8,13,37,37	comp=8,13,29,22	change=8,13,29,22	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,29,22	shape=bb6d9871bd66e6b6
-doc	313	flat=c02fcd2b637942ba	tiled=c02fcd2b637942ba	sub=e29765f85c67bfdf	reduced=00a17974146f7bfe	damage=3b66177bc90df219	area=060c695104e2ab3b	thumb=f72bbf8a9c827ac2	surface=f79507e996d739cb	proxy=2e4913151bc9509f	layers=bb08b30194c0c962
+doc	313	flat=0b5b84e05ec24bbd	tiled=0b5b84e05ec24bbd	sub=854e24eb7e7e07dc	reduced=0f136ef66be77a30	damage=0bacc0f486bde34d	area=df25dddbc2ff4fd0	thumb=9b34505f1783974e	surface=d94c71dd4d496e65	proxy=608f30970b8cdf2f	layers=bb08b30194c0c962
 q	313	0	bounds=0,0,23,11	comp=0,0,23,11	change=0,0,23,11	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,23,11	shape=9fbec1ce0f79d543
 q	313	1	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,23,11	shape=18d119ab3377beb5
 q	313	2	bounds=0,0,23,11	comp=0,0,23,11	change=0,0,23,11	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,23,11	fill=f7f6f268e00c1397	shape=fffadb11ec913db8
 doc	314	flat=0d11eb12b1cc4f6b	tiled=0d11eb12b1cc4f6b	sub=13c71de84cff0eb8	reduced=d7cea85ba0788f72	damage=f71c99d00205c9ea	area=c92c309e932a7510	thumb=6626d6e38e71daec	surface=1c7814b4b3e7b1e9	proxy=a9e82f6271c17187	layers=42aeb72546336fa6
 q	314	0	bounds=0,0,30,31	comp=0,0,23,30	change=0,0,23,30	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,23,30	shape=afb6abca57a36a0b
-q	314	1	bounds=7,17,22,48	comp=7,17,22,30	change=7,17,22,30	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,19,19	shape=34eefa22a3f1b693	split=9ad807b41f48d95a,3b4fd1040019198d
+q	314	1	bounds=3,14,22,48	comp=3,14,22,30	change=3,14,22,30	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,19,19	shape=34eefa22a3f1b693	split=9ad807b41f48d95a,3b4fd1040019198d
 q	314	2	bounds=1,9,26,49	comp=1,9,23,30	change=1,9,23,30	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,23,30	shape=8f983e269cc2cc75
-doc	315	flat=71821853ce87753c	tiled=71821853ce87753c	sub=aed2a371e6ee1354	reduced=8122b5a0fc5ebc54	damage=b88688dbcbcfd52c	area=7304c6447763780a	thumb=e17448f4fa39594f	surface=e8c5aba32833629c	proxy=9370b46a165c3bd4	layers=529ae5d5956f0fae
-q	315	0	bounds=6,-2,34,19	comp=6,0,22,19	change=6,0,22,19	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,22,19	shape=f2bdc4ac2292f7df	split=0ef3294d7c1513a8,418fdef77d00f511
-q	315	1	bounds=2,1,31,23	comp=2,1,22,19	change=2,1,22,19	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,22,19	shape=5ee44e238f2f70dc	split=82d0392c656abbc5,8cbfd91daf7de78c
+doc	315	flat=71821853ce87753c	tiled=71821853ce87753c	sub=aed2a371e6ee1354	reduced=8122b5a0fc5ebc54	damage=b88688dbcbcfd52c	area=7304c6447763780a	thumb=e17448f4fa39594f	surface=e8c5aba32833629c	proxy=9370b46a165c3bd4	layers=3185b4c0db2c2378
+q	315	0	bounds=0,-2,34,19	comp=0,0,22,19	change=0,0,22,19	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,22,19	shape=f2bdc4ac2292f7df	split=0ef3294d7c1513a8,418fdef77d00f511
+q	315	1	bounds=0,0,31,23	comp=0,0,22,19	change=0,0,22,19	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,22,19	shape=5ee44e238f2f70dc	split=82d0392c656abbc5,8cbfd91daf7de78c
 q	315	2	bounds=-1,-1,39,30	comp=0,0,22,19	change=none	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,22,19	shape=1ec0e2a20a26fe9d
 q	315	3	bounds=18,-2,40,29	comp=18,0,22,19	change=18,0,22,19	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,22,19	shape=65cdf57331827cc5
 doc	316	flat=26a941be855e46be	tiled=26a941be855e46be	sub=3e91d46b49296c54	reduced=2864d8fed6b33fdc	damage=6f32ff3a734ca26d	area=fe055a67daf802ef	thumb=1ed36e858b14b56a	surface=e43af6c8a9c2a175	proxy=b5167636cd943298	layers=4d85bf2c57ed6c7b
@@ -1398,10 +1398,10 @@ q	317	0	bounds=0,0,31,22	comp=0,0,31,22	change=0,0,31,22	to=1	occ=0	adv=0	shapel
 q	317	1	bounds=0,0,31,22	comp=0,0,31,22	change=0,0,31,22	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,31,22	fill=c07aa5a21b5bf0e0	shape=b441123f61a5e119
 q	317	2	bounds=0,2,41,27	comp=0,2,31,22	change=0,2,31,22	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,31,22	shape=686f571c2e402e45
 q	317	3	bounds=-4,0,47,33	comp=0,0,31,22	change=0,0,31,22	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,31,22	shape=6c6a562e277f348c
-doc	318	flat=b091d9e96ff09629	tiled=b091d9e96ff09629	sub=d7617a9830a7c3cb	reduced=5c70d69c71ba4ecb	damage=c753aa3a3d2d91d4	area=3e97a79ac7a8f384	thumb=7e1ef442cd317605	surface=c4a024f324535825	proxy=cdd038b64bfdd7d3	layers=94030e92f65a966b
+doc	318	flat=b091d9e96ff09629	tiled=b091d9e96ff09629	sub=d7617a9830a7c3cb	reduced=5c70d69c71ba4ecb	damage=c753aa3a3d2d91d4	area=3e97a79ac7a8f384	thumb=7e1ef442cd317605	surface=c4a024f324535825	proxy=cdd038b64bfdd7d3	layers=1279868845d07dc7
 q	318	0	bounds=1,2,60,16	comp=1,2,30,16	change=1,2,30,16	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,18	shape=a2883555615e070e
 q	318	1	bounds=0,-3,38,27	comp=0,0,30,18	change=0,0,30,18	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,18	shape=8da94d41aec70949
-q	318	2	bounds=0,0,30,18	comp=0,0,30,18	change=0,0,30,18	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,18	fill=2fa998c3d136b770	shape=1a42e2b435e14859
+q	318	2	bounds=0,0,30,18	comp=0,0,30,18	change=0,0,30,18	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,18	fill=2fa998c3d136b770	shape=4fbb4759def9a5cb
 doc	319	flat=9ef77a0b283b5d2c	tiled=9ef77a0b283b5d2c	sub=d8b7cc880d45a12e	reduced=c9f6deede3057783	damage=45c1426df332fe93	area=bafd45b0f5ca8905	thumb=745e56d67782fcbf	surface=213fa23712c07305	proxy=07f0b87b17aa8938	layers=cba6013d6b16e3a5
 q	319	0	bounds=0,0,20,13	comp=0,0,20,13	change=0,0,20,13	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,20,13	fill=4eb5858d832495c0	shape=392519d0a519b465
 q	319	1	bounds=0,0,20,13	comp=0,0,20,13	change=0,0,20,13	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,20,13	fill=b2cf9d548f70966a	shape=8b9a40b777b38daf
@@ -1412,7 +1412,7 @@ doc	321	flat=3e72961dc610e57f	tiled=3e72961dc610e57f	sub=fa90764e6a33b16f	reduce
 q	321	0	bounds=0,0,9,19	comp=0,0,9,19	change=0,0,9,19	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,9,19	shape=013b70e70aa4b835
 q	321	1	bounds=0,0,9,19	comp=0,0,9,19	change=0,0,9,19	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,9,19	fill=cd26d60bd915d0f0	shape=7193840740f8c7b6
 q	321	2	bounds=-2,9,9,37	comp=0,9,9,19	change=0,9,9,19	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,9,19	shape=835b7d9c10d3b9c6
-q	321	3	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,9,19	shape=55aa86e202bcb588	split=e0998de08b22706b,e5683c31ac49868b
+q	321	3	bounds=0,1,9,19	comp=0,1,9,19	change=0,1,9,19	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,9,19	shape=55aa86e202bcb588	split=e0998de08b22706b,e5683c31ac49868b
 q	321	4	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,9,19	shape=55aa86e202bcb588
 doc	322	flat=7277bf0092f19c57	tiled=7277bf0092f19c57	sub=2e63c9593914e831	reduced=a7d4ef1033bb4848	damage=0581a2eea4ca879c	area=9016d03aa4afb3d9	thumb=80c27f557d91aca4	surface=5117be0aee2c3b35	proxy=a73bb916c1a0e5d6	layers=55424a50f3677ccd
 q	322	0	bounds=-2,0,25,49	comp=0,0,25,25	change=0,0,25,25	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,27,25	shape=47095d46a5b20722
@@ -1432,15 +1432,15 @@ q	325	2	bounds=-3,2,17,37	comp=0,2,17,24	change=0,2,17,24	to=1	occ=0	adv=0	shape
 doc	326	flat=0cbe680950d89e52	tiled=0cbe680950d89e52	sub=9a06a9c496851e43	reduced=7f0b3deee9cdeb63	damage=05ef7b72789820a2	area=734bb438e7b5c903	thumb=6b2abbbec6e320ca	surface=6d89062983030c24	proxy=41dbac8033d1ce4d	layers=80f19aff6dd78271
 q	326	0	bounds=6,9,21,13	comp=6,9,11,13	change=6,9,11,13	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,11,28	shape=180b584945590fb3
 q	326	1	bounds=-3,-1,9,27	comp=0,0,9,27	change=0,0,9,27	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=3,14,6,26	shape=b31ae3a2e0dd2365
-q	326	2	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,11,28	shape=b31ae3a2e0dd2365	split=bbe6674a841619cf,2a1898e04f3a93ce
+q	326	2	bounds=0,0,11,28	comp=0,0,11,28	change=0,0,11,28	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,11,28	shape=b31ae3a2e0dd2365	split=bbe6674a841619cf,2a1898e04f3a93ce
 doc	327	flat=fb17913cfa4d3b3d	tiled=fb17913cfa4d3b3d	sub=016409a877915659	reduced=678d3626de472449	damage=a052c215bf22d1fd	area=5a99802a6ab6beff	thumb=d5a4586a7a62935c	surface=7ec8c64250209225	proxy=29fc4ef957376296	layers=f2438cd550974125
 q	327	0	bounds=10,-2,42,46	comp=10,0,37,27	change=10,0,37,27	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,37,27	shape=f2e8b74709d13bfe
-q	327	1	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,37,27	shape=f9854f07771997d5	split=bce564dffaad62e2,b1eb0c46850245ef
-doc	328	flat=7e88da0730db30ef	tiled=7e88da0730db30ef	sub=970c02973955d0e9	reduced=84c1c4c2c8595456	damage=3db1af234e42afab	area=b30e9793f2cd6d3a	thumb=8fd337082b8a9858	surface=4c0a0aac65a6cfc6	proxy=ef117fb659fc46eb	layers=e9fbd7cc1910b722
-q	328	0	bounds=5,-1,32,15	comp=5,0,31,7	change=5,0,31,7	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,31,7	shape=e1b896020230566d
+q	327	1	bounds=9,13,34,27	comp=9,13,34,27	change=9,13,34,27	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,37,27	shape=f9854f07771997d5	split=bce564dffaad62e2,b1eb0c46850245ef
+doc	328	flat=b6ccb5705f7afb4c	tiled=b6ccb5705f7afb4c	sub=1242646fa7a18b27	reduced=c9adba45ab51eda3	damage=3db1af234e42afab	area=374b3b354c729fc5	thumb=8fd337082b8a9858	surface=152c4a9da8ca8f65	proxy=909b583ee6cd33b7	layers=b491fafeb70d1a4a
+q	328	0	bounds=5,-1,32,15	comp=5,0,31,7	change=5,0,31,7	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,31,7	shape=0e09767d850ea458
 doc	329	flat=05401c371d8d5091	tiled=05401c371d8d5091	sub=22b369639b54549d	reduced=d89fbda5313ba1db	damage=834aa668de187dd9	area=3db9b34efbfa9af3	thumb=39d249ab11539546	surface=9d6cf6919b116df1	proxy=2a5946171ad9c241	layers=226a05c43eb8681a
 q	329	0	bounds=0,0,15,10	comp=0,0,15,10	change=0,0,15,10	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,15,10	shape=3f24f0158a7f7655
-q	329	1	bounds=9,7,21,14	comp=9,7,15,10	change=9,7,15,10	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,15,10	shape=38d7dd5cd20e3d86	split=8a7961c3bb10d21f,63b94f5dea227c4f
+q	329	1	bounds=0,0,21,14	comp=0,0,15,10	change=0,0,15,10	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,15,10	shape=38d7dd5cd20e3d86	split=8a7961c3bb10d21f,63b94f5dea227c4f
 q	329	2	bounds=4,5,21,13	comp=4,5,15,10	change=4,5,15,10	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,15,10	shape=49db66b33e3c1127
 q	329	3	bounds=6,-2,29,17	comp=6,0,15,10	change=6,0,15,10	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,15,10	shape=fb45e4287ec0717e
 q	329	4	bounds=0,0,15,10	comp=0,0,15,10	change=0,0,15,10	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,15,10	fill=2fd42bd67f0fd0aa	shape=100cc5150a0ba65c
@@ -1450,7 +1450,7 @@ q	330	1	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=1	shapeless=0	bg=
 q	330	2	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,13,13	shape=317e99898140ecd8
 doc	331	flat=545789de661033cf	tiled=545789de661033cf	sub=8bad0d0c0744e560	reduced=d307a54e21ea4f08	damage=e58f41409a934070	area=1e69ff5c35464dd0	thumb=e2b58866917bd25f	surface=473a814683964ace	proxy=ab1c622c4878101d	layers=40d816047a484667
 q	331	0	bounds=0,0,21,24	comp=0,0,21,24	change=0,0,21,24	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,21,24	fill=718c5690b0e2a900	shape=ea25f7ab45a37cd0
-doc	332	flat=16f138feeede600c	tiled=16f138feeede600c	sub=c39b220eb4cab999	reduced=289a3561168136fa	damage=5f8060b9b0d4a919	area=74679b5f2536fffa	thumb=98806d78385b8275	surface=c158b56e174a54c1	proxy=1fe143fd626dc83c	layers=6d9a2f243cb73327
+doc	332	flat=2a2870a54e4501dc	tiled=2a2870a54e4501dc	sub=c39b220eb4cab999	reduced=6157ae276b383e0a	damage=5f8060b9b0d4a919	area=08e039ae9bed0e4a	thumb=98653d783844692d	surface=0298743fce37fb79	proxy=1fe143fd626dc83c	layers=6d9a2f243cb73327
 q	332	0	bounds=7,12,14,32	comp=7,12,14,14	change=7,12,14,14	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,27,14	shape=50f55a7cf60d21ca
 q	332	1	bounds=2,5,50,31	comp=2,5,27,14	change=2,5,27,14	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,27,14	shape=52656b3fe3053235
 q	332	2	bounds=12,3,44,14	comp=12,3,27,14	change=12,3,27,14	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,27,14	shape=52656b3fe3053235
@@ -1458,7 +1458,7 @@ q	332	3	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=
 doc	333	flat=e759f5887597df44	tiled=e759f5887597df44	sub=7d0b311d08319c5d	reduced=7d07b8093334ee64	damage=88201fb960ff6465	area=5ba9ea25ea85f9ae	thumb=70a697669549e985	surface=6a22d7764bfa1c55	proxy=141105f2b55c54cd	layers=4142b7cc363f4749
 q	333	0	bounds=3,-2,22,29	comp=3,0,10,26	change=3,0,10,26	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,10,26	shape=2e4d7a8261d40bd6
 q	333	1	bounds=2,2,9,43	comp=2,2,9,26	change=2,2,9,26	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,7,10,26	shape=619d0fb60dc9810e
-doc	334	flat=4e73a93397494be0	tiled=4e73a93397494be0	sub=564399af1537b7bd	reduced=f6a0050041cc5c79	damage=74eb8568069db918	area=1f9c57316da5373f	thumb=371b083904b33d70	surface=ecdf6a0aafc329e7	proxy=ccb9ad6600f8c8f1	layers=4cde424a0655fdd3
+doc	334	flat=b78329addca7de46	tiled=b78329addca7de46	sub=f0cdd951f78f641d	reduced=aeea76026d9b344e	damage=74eb8568069db918	area=2a595b4ceb156b87	thumb=fcd778d9000d6f6c	surface=ce28a008002b79c1	proxy=c3c682795c0a3bb9	layers=c7c76c2f99dd1eb9
 q	334	0	bounds=0,0,20,18	comp=0,0,20,18	change=0,0,20,18	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,20,18	shape=198d5b225b1bbf75
 q	334	1	bounds=0,0,20,18	comp=0,0,20,18	change=0,0,20,18	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,20,18	fill=7615883d46a572d3	shape=ba13130b8ea32715
 q	334	2	bounds=20,12,22,26	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,8,3	shape=78e7f76b5c14a3a5
@@ -1514,22 +1514,22 @@ doc	345	flat=03716242e2566265	tiled=03716242e2566265	sub=0750675959c1ac54	reduce
 q	345	0	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,1,8,4	shape=84f2628e45ffeab5
 q	345	1	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,27,7	shape=84f2628e45ffeab5
 q	345	2	bounds=5,0,28,8	comp=5,0,27,7	change=5,0,27,7	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=4,0,9,3	shape=642f0800899c97bd
-doc	346	flat=641671f8abe22e97	tiled=641671f8abe22e97	sub=118c8275c4422b43	reduced=3f72493ddffc31e5	damage=cef7170b95cece56	area=c43d777efd4ad04f	thumb=eeb0ab6093233e09	surface=4a239f628688d241	proxy=9fdc0a998be4107d	layers=eab3d80c3bb499d2
+doc	346	flat=1290c8735577ff54	tiled=1290c8735577ff54	sub=118c8275c4422b43	reduced=0161bfab78a1ea14	damage=7039b40324a254d6	area=07adacb937feffbb	thumb=eeb0ab6093233e09	surface=768f815aa5515c71	proxy=46b5a92c399cef52	layers=f281da4241e26210
 q	346	0	bounds=0,0,29,23	comp=0,0,29,23	change=0,0,29,23	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,29,23	shape=affc1fbeb5f88623
-q	346	1	bounds=8,0,43,22	comp=8,0,29,22	change=8,0,29,22	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,10,12,23	shape=11c14e50b9473f59
+q	346	1	bounds=8,0,43,22	comp=8,0,29,22	change=8,0,29,22	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,10,12,23	shape=03fa3b2f0205dece
 q	346	2	bounds=0,-3,19,13	comp=0,0,19,13	change=0,0,19,13	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,29,23	shape=91a4d74ba57ad3c1
 q	346	3	bounds=0,0,29,23	comp=0,0,29,23	change=0,0,29,23	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,29,23	fill=a166cee5814569f3	shape=be830f6b01e11415
 q	346	4	bounds=6,0,48,30	comp=6,0,29,23	change=6,0,29,23	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=2,6,22,19	shape=57c368239579495b	split=f2d78beffd1de8fb,b1e625f1ebb7b7d6
 doc	347	flat=4ca62dbc9bbbbd7d	tiled=4ca62dbc9bbbbd7d	sub=b84bdb1f560b2431	reduced=db61ca3c49e34e25	damage=4a70974174a9b226	area=08d472000d6cef0b	thumb=708a0f8651fe131c	surface=4bc6a33da20c4694	proxy=d1478cb10f4a1a79	layers=ca23c5d32a9365c0
-q	347	0	bounds=-1,6,12,44	comp=0,6,12,21	change=0,6,12,21	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,13,21	shape=461ca2bd304fdf7d	split=8bb6ab668aa339b8,36f6ca6ac6d6fd05
+q	347	0	bounds=-1,1,13,44	comp=0,1,13,21	change=0,1,13,21	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,13,21	shape=461ca2bd304fdf7d	split=8bb6ab668aa339b8,36f6ca6ac6d6fd05
 q	347	1	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,13,21	shape=7f579e6a759918f5
-q	347	2	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,13,21	shape=7f579e6a759918f5	split=7f579e6a759918f5,b715fb584854ea82
+q	347	2	bounds=0,11,9,21	comp=0,11,9,21	change=0,11,9,21	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,13,21	shape=7f579e6a759918f5	split=7f579e6a759918f5,b715fb584854ea82
 q	347	3	bounds=-1,5,15,35	comp=0,5,13,21	change=0,5,13,21	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,4,12,21	shape=43687f8dc8014ee1
-q	347	4	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,13,21	shape=94935698d678a727	split=9be8a1bc6b1bc1ec,609521d3f50442b6
+q	347	4	bounds=0,0,13,21	comp=0,0,13,21	change=0,0,13,21	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,13,21	shape=94935698d678a727	split=9be8a1bc6b1bc1ec,609521d3f50442b6
 doc	348	flat=a26cfe21f7bcf046	tiled=a26cfe21f7bcf046	sub=6d73ea0eb82ab918	reduced=91f6e9f63f068166	damage=6ebbe8d4c8eaf6eb	area=0b03870e4f12d813	thumb=c0eec8eea575d664	surface=15b461ae4b47f8c5	proxy=c9f6deede3057783	layers=01fccd8ef17cd47b
-q	348	0	bounds=12,-4,31,28	comp=12,0,23,20	change=12,0,23,20	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,23,20	shape=595938270054e2e5	split=8b8c4618a05e0225,3bb0a05e69e95fa8
+q	348	0	bounds=1,-4,31,28	comp=1,0,23,20	change=1,0,23,20	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,23,20	shape=595938270054e2e5	split=8b8c4618a05e0225,3bb0a05e69e95fa8
 q	348	1	bounds=0,0,23,20	comp=0,0,23,20	change=0,0,23,20	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,23,20	fill=a26cfe21f7bcf046	shape=595938270054e2e5
-q	348	2	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,23,20	shape=0233ab2b2697c405	split=8b8c4618a05e0225,318a14db3ba1a3af
+q	348	2	bounds=5,0,23,17	comp=5,0,23,17	change=5,0,23,17	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,23,20	shape=0233ab2b2697c405	split=8b8c4618a05e0225,318a14db3ba1a3af
 doc	349	flat=8947f5c94e640a36	tiled=8947f5c94e640a36	sub=653eef6f75e9f6eb	reduced=f7b5564b5fe17fc7	damage=69bbd083505c4ec2	area=f7324f8ea4de8c80	thumb=778abe8ecbc9a68a	surface=11d6897c89cbd029	proxy=36ce7095c9553b33	layers=83424d76067021e3
 q	349	0	bounds=0,0,23,19	comp=0,0,23,19	change=0,0,23,19	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,23,19	fill=9aabab14780a34b1	shape=c05ace0d10d3e035
 q	349	1	bounds=0,0,23,19	comp=0,0,23,19	change=0,0,23,19	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,23,19	fill=47c0d039e75d4bf5	shape=1a575bd10d9a6c78
@@ -1537,7 +1537,7 @@ q	349	2	bounds=-4,0,38,22	comp=0,0,23,19	change=0,0,23,19	to=1	occ=0	adv=0	shape
 doc	350	flat=9c2863a8ade7348f	tiled=9c2863a8ade7348f	sub=db47da81f97e9471	reduced=471b951eb364baca	damage=508e9aa9bbaf08b3	area=76e6a156de785257	thumb=134f432143d2cdf9	surface=773b8bf4374494bb	proxy=bb732a4ac536d7bc	layers=c67ab463bed40813
 q	350	0	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=9,4,20,10	shape=c5f85ee1a85bcf45
 q	350	1	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=9,3,19,12	shape=c5f85ee1a85bcf45
-q	350	2	bounds=21,-3,35,12	comp=21,0,27,12	change=21,0,27,12	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,27,14	shape=ba3251e9bfcf6668	split=7e4a34852e460c3d,e7be649aafd97fa6
+q	350	2	bounds=0,-3,35,14	comp=0,0,27,14	change=0,0,27,14	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,27,14	shape=ba3251e9bfcf6668	split=7e4a34852e460c3d,e7be649aafd97fa6
 q	350	3	bounds=3,-2,20,19	comp=3,0,20,14	change=3,0,20,14	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,27,14	shape=52656b3fe3053235
 q	350	4	bounds=7,1,38,22	comp=7,1,27,14	change=7,1,27,14	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,27,14	shape=d251d84161693743
 doc	351	flat=465bfbed40797ace	tiled=3fde437d5a473c7f	sub=baf31b4a725fe9d9	reduced=33cb1e68484d6979	damage=fea5b15ffd18e716	area=64da807824a992be	thumb=ffeed9d7fd15d9c5	surface=494d52f48c7e438f	proxy=e6d82d983fa5db05	layers=0b5fcfc404fe3755
@@ -1550,19 +1550,19 @@ q	352	1	bounds=0,0,30,28	comp=0,0,30,28	change=0,0,30,28	to=1	occ=0	adv=1	shapel
 q	352	2	bounds=9,9,42,32	comp=9,9,30,28	change=9,9,30,28	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,30,28	shape=48477f86ed4cdc0e
 doc	353	flat=6863c38f264bcb04	tiled=6863c38f264bcb04	sub=f9e179e39338cddb	reduced=15e70feaf5a86ee8	damage=3e987663dc81ae96	area=6b85a8cfb70fd0ec	thumb=6873f9cd50b7303a	surface=ce29b4a199f59ae8	proxy=5e937732fe310e23	layers=a9b958588d951c54
 q	353	0	bounds=5,0,22,21	comp=5,0,18,14	change=5,0,18,14	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,18,14	shape=52515da83034ae90
-doc	354	flat=07103050503f0376	tiled=07103050503f0376	sub=999573a88c74c62e	reduced=96982d10d182ed03	damage=edf5e76d4b017c53	area=b64226d3c4b88cfd	thumb=06e77cc3e3098451	surface=125630b273ac74ad	proxy=1c7efd406e08ec44	layers=af2ddbd22daf4819
+doc	354	flat=96dfe599002170dd	tiled=96dfe599002170dd	sub=4e4f3981fa7ac32e	reduced=fc2344f52a724988	damage=edf5e76d4b017c53	area=bcae0a4774b45734	thumb=99197190a931e9fa	surface=d2f0b692447bb8c0	proxy=24183fc9c21aab11	layers=c6ae90d6eaf16348
 q	354	0	bounds=0,0,33,9	comp=0,0,33,9	change=0,0,33,9	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,33,9	shape=55084d9e9ed4f46e
 q	354	1	bounds=9,6,19,10	comp=9,6,19,9	change=9,6,19,9	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,33,9	shape=2cb3f70ef671a991
-q	354	2	bounds=0,0,33,9	comp=0,0,33,9	change=0,0,33,9	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=27,1,33,7	fill=771124a24b1c2c32	shape=84a9a43415e7fb57
+q	354	2	bounds=0,0,33,9	comp=0,0,33,9	change=0,0,33,9	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=27,1,33,7	fill=771124a24b1c2c32	shape=3886cae757981a67
 q	354	3	bounds=0,0,33,9	comp=0,0,33,9	change=0,0,33,9	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,33,9	fill=96a87e42c6a8c2bd	shape=543612c46ee8c0d8
 q	354	4	bounds=4,0,38,4	comp=4,0,33,4	change=4,0,33,4	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,33,9	shape=e7c0cb15f7122015
 q	354	5	bounds=0,0,33,9	comp=0,0,33,9	change=0,0,33,9	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,33,9	fill=d75e9d692ecf0ea2	shape=8b35cb87c4765f80
-doc	355	flat=5735d4753282cb4f	tiled=5735d4753282cb4f	sub=9e69cbd269404d5c	reduced=0a668bd128d5d3d8	damage=ca00369c11e49256	area=f28d23435aead3f0	thumb=ff37776f295833d4	surface=0a24594a2f87715c	proxy=a4f18694a4cc1c30	layers=08029c0042eebc86
+doc	355	flat=5735d4753282cb4f	tiled=5735d4753282cb4f	sub=9e69cbd269404d5c	reduced=0a668bd128d5d3d8	damage=ca00369c11e49256	area=f28d23435aead3f0	thumb=ff37776f295833d4	surface=0a24594a2f87715c	proxy=a4f18694a4cc1c30	layers=53a73277353bea3f
 q	355	0	bounds=0,0,24,19	comp=0,0,24,19	change=0,0,24,19	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,24,19	shape=f8adff68f62c3d55
 q	355	1	bounds=0,10,24,17	comp=0,10,24,17	change=0,10,24,17	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,24,19	shape=1e017540d6c724e5
 q	355	2	bounds=0,0,24,19	comp=0,0,24,19	change=0,0,24,19	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=3,0,11,14	fill=6724c398cb3ef27f	shape=8444403a491130fa
 q	355	3	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,24,19	shape=6ab953eed5a401a5
-q	355	4	bounds=0,0,35,29	comp=0,0,24,19	change=0,0,24,19	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,24,19	shape=f65820a8fc2d9951
+q	355	4	bounds=0,0,35,29	comp=0,0,24,19	change=0,0,24,19	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,24,19	shape=800d1ed98ed2b684
 doc	356	flat=4daf30352dae3541	tiled=4daf30352dae3541	sub=0178a47e40086104	reduced=064637dede09674d	damage=1bd8c21099590da6	area=06c1f4e311000d1a	thumb=73023c3e9c938127	surface=f3bf3d635194b049	proxy=84829ca101b4bac2	layers=58bb5836eb87cbd1
 q	356	0	bounds=0,0,16,9	comp=0,0,16,9	change=0,0,16,9	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,16,9	fill=ed0bab8dc10e572d	shape=737d21630ac45422
 q	356	1	bounds=0,0,16,9	comp=0,0,16,9	change=0,0,16,9	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,16,9	fill=91aa33d31780edc9	shape=cd8ecf1fa4905c30
@@ -1580,11 +1580,11 @@ doc	358	flat=87fa16391a75e85f	tiled=87fa16391a75e85f	sub=ffb77338a174c285	reduce
 q	358	0	bounds=0,0,15,20	comp=0,0,15,20	change=0,0,15,20	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,15,20	shape=f11985f15c9f9185
 q	358	1	bounds=0,0,15,20	comp=0,0,15,20	change=0,0,15,20	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,15,20	fill=c87b91950a09ce99	shape=860ce4a30552cb05
 q	358	2	bounds=-4,5,15,37	comp=0,5,15,20	change=0,5,15,20	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,15,20	shape=860ce4a30552cb05
-q	358	3	bounds=-4,6,14,27	comp=0,6,14,20	change=0,6,14,20	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,9,20	shape=e95fa2f6b897f1e6	split=f205b609104edc1b,545b0ec4020a6fce
+q	358	3	bounds=-4,0,14,27	comp=0,0,14,20	change=0,0,14,20	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,9,20	shape=e95fa2f6b897f1e6	split=f205b609104edc1b,545b0ec4020a6fce
 q	358	4	bounds=-1,6,24,39	comp=0,6,15,20	change=0,6,15,20	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,15,20	shape=bd44d25a7ab55db5
 q	358	5	bounds=-1,-1,28,34	comp=0,0,15,20	change=0,0,15,20	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,15,20	shape=b1558b4f90989557	split=19a72f8ee84edfd1,d3f695298731c409
 doc	359	flat=a066ea3ed75d4103	tiled=a066ea3ed75d4103	sub=412fd86be37c6ba5	reduced=c1982561be5505e6	damage=c1982561be5505e6	area=92bc361f932529f2	thumb=f22d92a528baaf7f	surface=1366968285b4f685	proxy=83fabfca5b142040	layers=3135a971a595a82b
-q	359	0	bounds=4,-2,10,18	comp=4,0,10,15	change=4,0,10,15	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,25,15	shape=3f704df336029493
+q	359	0	bounds=4,-2,10,18	comp=4,0,10,15	change=4,0,10,15	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,25,15	shape=7533f3321ae786b0
 q	359	1	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,25,15	shape=0befb0cb1719e4d5
 q	359	2	bounds=-2,18,0,34	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=7,5,25,8	shape=0befb0cb1719e4d5
 doc	360	flat=56b72a52b3b02d85	tiled=56b72a52b3b02d85	sub=3f5c9e11046183bc	reduced=d0b845e052eff13f	damage=f0c50d3b3557e266	area=bb381d53f461d9aa	thumb=16103b70172e4b6c	surface=a1f5e822c90f5c18	proxy=7bc680247afa7da2	layers=d867f0d2636dba65
@@ -1592,7 +1592,7 @@ q	360	0	bounds=0,0,13,21	comp=0,0,13,21	change=0,0,13,21	to=1	occ=0	adv=1	shapel
 q	360	1	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,13,21	shape=7f579e6a759918f5
 doc	361	flat=b2e7323b7e3b7994	tiled=b2e7323b7e3b7994	sub=4431b72e773f9962	reduced=3311ceb76163e898	damage=5b04a7282946d00a	area=29ab7abf7cf57a67	thumb=6879b6a36de2a111	surface=575eaf17daff6ea7	proxy=428e427b734b6096	layers=52ce1299920a071d
 q	361	0	bounds=0,0,36,13	comp=0,0,36,13	change=0,0,36,13	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,36,13	shape=5cbfd7a05e7792a5
-q	361	1	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,36,13	shape=c16e28a1558d9565	split=3ab196eef37cd7a5,650996a26381c93f
+q	361	1	bounds=2,0,17,9	comp=2,0,17,9	change=2,0,17,9	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,36,13	shape=c16e28a1558d9565	split=3ab196eef37cd7a5,650996a26381c93f
 q	361	2	bounds=5,6,59,27	comp=5,6,36,13	change=5,6,36,13	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,36,13	shape=73f9700d94446f1d
 q	361	3	bounds=6,1,52,13	comp=6,1,36,13	change=6,1,36,13	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,36,13	shape=a939044688c64001
 q	361	4	bounds=4,2,71,17	comp=4,2,36,13	change=4,2,36,13	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=8,5,9,13	shape=4c5fc209d653a172
@@ -1609,14 +1609,14 @@ q	363	2	bounds=5,0,35,5	comp=5,0,32,5	change=5,0,32,5	to=1	occ=0	adv=0	shapeless
 doc	364	flat=95c6872a145f303b	tiled=95c6872a145f303b	sub=3644115ee1d172ce	reduced=b22e0232e17238f6	damage=b403bd01b9dde319	area=ed84ab7bafa629f3	thumb=0c67148ccd431a42	surface=e16f9c4664b21211	proxy=dbb0f984f5b16f30	layers=0a298a4a1fe0a5f7
 q	364	0	bounds=0,0,19,29	comp=0,0,19,29	change=0,0,19,29	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,19,29	shape=2c4a8949cf7a257e
 q	364	1	bounds=0,4,20,35	comp=0,4,19,29	change=0,4,19,29	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,19,29	shape=845613839461e6e0
-doc	365	flat=d33f5e5ec796c038	tiled=d33f5e5ec796c038	sub=80c89be1be1c1bab	reduced=ee6859ec98498eea	damage=fd4e374a7c02c0f9	area=5e591a5da251eeb6	thumb=23fbef1e1835384c	surface=4c67138a8ec96800	proxy=f1752c5b23187683	layers=1371d98df0ca58b0
+doc	365	flat=d33f5e5ec796c038	tiled=d33f5e5ec796c038	sub=80c89be1be1c1bab	reduced=ee6859ec98498eea	damage=fd4e374a7c02c0f9	area=5e591a5da251eeb6	thumb=23fbef1e1835384c	surface=4c67138a8ec96800	proxy=f1752c5b23187683	layers=dab8aa7d8bf0f38a
 q	365	0	bounds=5,5,12,28	comp=5,5,12,20	change=5,5,12,20	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,19,20	shape=cbb4d4824ffc9df3
 q	365	1	bounds=3,6,26,26	comp=3,6,19,20	change=3,6,19,20	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,19,20	shape=8d7b9a99072bdf76
-q	365	2	bounds=4,4,17,32	comp=4,4,17,20	change=4,4,17,20	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,19,20	shape=e1ce5183cec1d604	split=f7b73b3969865919,8e4287c68c92ac54
+q	365	2	bounds=4,0,19,32	comp=4,0,19,20	change=4,0,19,20	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,19,20	shape=e1ce5183cec1d604	split=f7b73b3969865919,8e4287c68c92ac54
 q	365	3	bounds=11,4,27,26	comp=11,4,19,20	change=11,4,19,20	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,19,20	shape=7a442ae5949b70cf
-doc	366	flat=bb3c859004f3d9ff	tiled=bb3c859004f3d9ff	sub=4a30402c4f4da5d1	reduced=081432c327f2bf5c	damage=60a19ceb7e32c29d	area=9b7b7297777be322	thumb=75be5ef58c7bc860	surface=ead557db5e4e29a9	proxy=aa9e14d5cf411c9e	layers=ee4c2efa0769964e
+doc	366	flat=81f18f7235708dc8	tiled=81f18f7235708dc8	sub=42865da8696c3a45	reduced=f8da07e7ba3c8c7b	damage=411529171ef6d8ff	area=524c50292a5299bb	thumb=94eb36382a32c659	surface=23654b0aa2c5c584	proxy=028119cea1e3d85e	layers=190ebada45d4de4a
 q	366	0	bounds=0,0,24,17	comp=0,0,24,17	change=0,0,24,17	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,24,17	shape=b3ff734ba3ce5385
-q	366	1	bounds=0,0,24,17	comp=0,0,24,17	change=0,0,24,17	to=1	occ=0	adv=1	shapeless=1	bg=0	frame=0,0,24,17	shape=62537fcf6551025d
+q	366	1	bounds=0,0,24,17	comp=0,0,24,17	change=0,0,24,17	to=1	occ=0	adv=1	shapeless=1	bg=0	frame=0,0,24,17	shape=fc721d608340889b
 q	366	2	bounds=6,3,21,13	comp=6,3,21,13	change=6,3,21,13	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,24,17	shape=ffe174dd37b28ca5
 q	366	3	bounds=-3,5,26,29	comp=0,5,24,17	change=0,5,24,17	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,24,17	shape=d459bdd955a2b22d
 doc	367	flat=3259a17da49632df	tiled=3259a17da49632df	sub=977202299a7d024f	reduced=704e5a223f4256a8	damage=5af3caeef11282e3	area=1bed6e19df28cea5	thumb=5869acf711e6eae9	surface=b4affb496e1dafb5	proxy=483dd7e6957bed92	layers=a54302592581a633
@@ -1665,21 +1665,21 @@ q	375	3	bounds=0,6,39,42	comp=0,6,18,26	change=0,6,18,26	to=1	occ=0	adv=0	shapel
 q	375	4	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,18,26	shape=c16e28a1558d9565
 doc	376	flat=935809d2f3cdfbde	tiled=935809d2f3cdfbde	sub=a6dac2d9186437a6	reduced=339e6784c6b3e61a	damage=db072f4e995a8a38	area=ceb6cf2bff125049	thumb=8680c0597495a49f	surface=0615029389c314dc	proxy=068a079578014e8e	layers=010b179611a344eb
 q	376	0	bounds=0,0,24,11	comp=0,0,24,11	change=0,0,24,11	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,24,11	shape=eb8d6be0afa60be5
-q	376	1	bounds=5,4,38,22	comp=5,4,24,11	change=5,4,24,11	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,24,11	shape=9f896326c7d52c95	split=a9d1b7d4a4c63424,761e8248668b610d
+q	376	1	bounds=0,0,38,22	comp=0,0,24,11	change=0,0,24,11	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,24,11	shape=9f896326c7d52c95	split=a9d1b7d4a4c63424,761e8248668b610d
 q	376	2	bounds=-1,-4,24,23	comp=0,0,24,11	change=0,0,24,11	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,24,11	shape=13574f7ea09abff8
 q	376	3	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,24,11	shape=714cc8db9fb945a5
 doc	377	flat=829e83520532c028	tiled=829e83520532c028	sub=563ac41dc039d45f	reduced=3086987884931d11	damage=23433241fc9a237e	area=13f9c3b04366a066	thumb=7168f6d670d1f988	surface=2a3d4b5bb0ef3dc5	proxy=0ae1dc3324e985ba	layers=d340f7dc3f3b2e85
-q	377	0	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,16,13	shape=3b1a546decf249d3
+q	377	0	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,16,13	shape=0d54aadbf390239e
 q	377	1	bounds=0,0,16,13	comp=0,0,16,13	change=0,0,16,13	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,16,13	fill=829e83520532c028	shape=d1306dbf72770fa5
-q	377	2	bounds=9,-1,22,16	comp=9,0,16,13	change=9,0,16,13	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=9,11,16,13	shape=c7e9f1bee0113e4c
+q	377	2	bounds=9,-1,22,16	comp=9,0,16,13	change=9,0,16,13	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=9,11,16,13	shape=56577f984cc9b544
 q	377	3	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,16,13	shape=d1306dbf72770fa5
-doc	378	flat=4bbccc123886d8ac	tiled=4bbccc123886d8ac	sub=a97dae9a017a058a	reduced=af1f02b5e38adaca	damage=d3ad383562598169	area=c73ea612dd642706	thumb=f6c5fc276761552d	surface=7baf413e0111db00	proxy=8aa7912ceee8ce6b	layers=ad3d03b6858e87be
+doc	378	flat=9ab4f46666aeb573	tiled=9ab4f46666aeb573	sub=a97dae9a017a058a	reduced=c2f3b04fdb841bd2	damage=d3ad383562598169	area=55d40b83e8fc0b78	thumb=f6c5fc276761552d	surface=7baf413e0111db00	proxy=8aa7912ceee8ce6b	layers=11a44a55188ff0f0
 q	378	0	bounds=0,0,11,15	comp=0,0,11,15	change=0,0,11,15	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,11,15	shape=50d822a228573bbe
-q	378	1	bounds=1,3,11,26	comp=1,3,11,15	change=1,3,11,15	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=6,2,11,6	shape=f21cea526b9d9b35	split=47f1cb5a98755165,30e8768e21e372bf
+q	378	1	bounds=0,0,11,26	comp=0,0,11,15	change=0,0,11,15	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=6,2,11,6	shape=f21cea526b9d9b35	split=47f1cb5a98755165,30e8768e21e372bf
 q	378	2	bounds=0,0,11,15	comp=0,0,11,15	change=0,0,11,15	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,11,15	fill=2bd8df1004d35806	shape=545f7a575ef3264a
 q	378	3	bounds=-3,3,17,22	comp=0,3,11,15	change=0,3,11,15	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,11,15	shape=609f6d3b277b1009
-q	378	4	bounds=1,4,3,15	comp=1,4,3,15	change=1,4,3,15	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=9,1,11,2	shape=b3db260661828f2d
-q	378	5	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,11,15	shape=f21cea526b9d9b35	split=47f1cb5a98755165,b32dd1d749687da7
+q	378	4	bounds=1,4,3,15	comp=1,4,3,15	change=1,4,3,15	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=9,1,11,2	shape=5648f824db180b64
+q	378	5	bounds=0,0,11,15	comp=0,0,11,15	change=0,0,11,15	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,11,15	shape=f21cea526b9d9b35	split=47f1cb5a98755165,b32dd1d749687da7
 doc	379	flat=e02ab7e4859d5552	tiled=e02ab7e4859d5552	sub=9de01b510f1bb875	reduced=c26910f87cbc6b2a	damage=43e24591de8e3532	area=8336459eb4985ed6	thumb=ab4e11a5f86d2a72	surface=34d213672bc566af	proxy=dba380b348c7e991	layers=70ee48e5caf34f9c
 q	379	0	bounds=0,-4,25,20	comp=0,0,16,15	change=0,0,16,15	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,16,15	shape=9f0b5f84652352b0	split=f341b752296f2e12,097ea50b04db3451
 q	379	1	bounds=0,0,16,15	comp=0,0,16,15	change=0,0,16,15	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=5,0,14,7	fill=9c956a403331c26a	shape=2f1b75a886f49be0
@@ -1704,8 +1704,8 @@ q	384	1	bounds=9,5,38,33	comp=9,5,22,19	change=9,5,22,19	to=1	occ=0	adv=1	shapel
 q	384	2	bounds=0,0,22,19	comp=0,0,22,19	change=0,0,22,19	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=12,12,22,15	fill=74f3116406388010	shape=1d998676bcead1d2
 q	384	3	bounds=-2,-4,22,14	comp=0,0,22,14	change=0,0,22,14	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=19,0,22,2	shape=82d0392c656abbc5
 q	384	4	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=20,0,22,12	shape=82d0392c656abbc5
-doc	385	flat=7f584b6961ef17db	tiled=7f584b6961ef17db	sub=9325417eaf7253bb	reduced=c0d7eac50e0a14dc	damage=93e5c61b8c0975cd	area=13d111502842cd10	thumb=9db9294fb73d2896	surface=dfdae5e24f7ba9f8	proxy=12b7ab812ce478e3	layers=092edbf6c5fce0c8
-q	385	0	bounds=16,13,17,20	comp=16,13,17,19	change=16,13,17,19	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=1,5,26,7	shape=f60f4a7f9cf65795
+doc	385	flat=cc79befdf64c07f5	tiled=cc79befdf64c07f5	sub=27fcecf867bc3965	reduced=e97768b4927da496	damage=93e5c61b8c0975cd	area=9222acd601ca0289	thumb=9db9294fb73d2896	surface=d43c3612492f8cd6	proxy=9d43085ac43170cd	layers=092edbf6c5fce0c8
+q	385	0	bounds=16,13,17,20	comp=16,13,17,19	change=16,13,17,19	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=1,5,26,7	shape=91e6fe436c4abf21
 q	385	1	bounds=0,0,33,19	comp=0,0,33,19	change=0,0,33,19	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,33,19	fill=ea25f19392f4fa30	shape=84e93883e301d7c8
 q	385	2	bounds=15,5,42,22	comp=15,5,33,19	change=15,5,33,19	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,33,19	shape=84e93883e301d7c8
 q	385	3	bounds=0,0,33,19	comp=0,0,33,19	change=0,0,33,19	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,33,19	fill=b865c75b590a5dbf	shape=84e93883e301d7c8
@@ -1717,7 +1717,7 @@ q	387	0	bounds=0,0,21,22	comp=0,0,21,22	change=0,0,21,22	to=1	occ=0	adv=0	shapel
 q	387	1	bounds=16,16,25,22	comp=16,16,21,22	change=16,16,21,22	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,21,22	shape=9d7d220b5c6489f7
 q	387	2	bounds=0,0,21,22	comp=0,0,21,22	change=0,0,21,22	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,21,22	fill=4d0d4f8156873f22	shape=3e7349097c67de2d
 q	387	3	bounds=9,1,15,16	comp=9,1,15,16	change=9,1,15,16	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,21,22	shape=3a188f369340b036
-q	387	4	bounds=4,2,22,40	comp=4,2,21,22	change=4,2,21,22	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=11,0,13,4	shape=0a4447d2b6ad7205	split=f66b7a7383318fe0,d9b3ba6684e6cfd0
+q	387	4	bounds=0,1,22,40	comp=0,1,21,22	change=0,1,21,22	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=11,0,13,4	shape=0a4447d2b6ad7205	split=f66b7a7383318fe0,d9b3ba6684e6cfd0
 doc	388	flat=b02869e97d57c425	tiled=b02869e97d57c425	sub=4a4884a23154dc1b	reduced=0d538b34ce719fcf	damage=670a43f5d6a1b020	area=9016d03aa4afb3d9	thumb=1ef0b67ac1873905	surface=48344bcd72817505	proxy=3a546f32be5b3055	layers=b5cc7f01dfc71395
 q	388	0	bounds=0,0,26,26	comp=0,0,26,26	change=0,0,26,26	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,26,26	fill=291777c521972fa9	shape=f3118dfbf42dc315
 q	388	1	bounds=0,0,26,26	comp=0,0,26,26	change=0,0,26,26	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,26,26	fill=68289d88c326a2ed	shape=564e581bced826a5
@@ -1751,7 +1751,7 @@ q	395	1	bounds=0,-1,16,35	comp=0,0,14,30	change=0,0,14,30	to=1	occ=0	adv=0	shape
 q	395	2	bounds=2,4,16,33	comp=2,4,14,30	change=2,4,14,30	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,14,30	shape=26dfcaf1ebf42665
 q	395	3	bounds=0,1,21,41	comp=0,1,14,30	change=0,1,14,30	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,14,30	shape=ad231377f5f15b41
 doc	396	flat=94e9487f7295e44f	tiled=94e9487f7295e44f	sub=62828d8ff8e26395	reduced=528effe113ba2762	damage=8ec3b9565e6083f1	area=cbd06eb7b570f2f3	thumb=2247848c928dc9c6	surface=213237ae8bf855c5	proxy=0b009b37d4487b80	layers=562f175cad71d243
-q	396	0	bounds=7,4,37,36	comp=7,4,18,24	change=7,4,18,24	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,18,24	shape=40afc6ef52734a25
+q	396	0	bounds=0,0,37,36	comp=0,0,18,24	change=0,0,18,24	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,18,24	shape=40afc6ef52734a25
 q	396	1	bounds=0,0,18,24	comp=0,0,18,24	change=0,0,18,24	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,18,24	fill=94e9487f7295e44f	shape=40afc6ef52734a25
 q	396	2	bounds=0,0,0,0	comp=0,0,0,0	change=none	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=7,22,18,24	shape=40afc6ef52734a25
 q	396	3	bounds=2,7,24,36	comp=2,7,18,24	change=2,7,18,24	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,6,13,24	shape=f8606f8a60e2814d
@@ -1767,7 +1767,7 @@ doc	398	flat=19500b7664c17a3d	tiled=19500b7664c17a3d	sub=a2fdaa3c71b169ae	reduce
 q	398	0	bounds=0,0,26,26	comp=0,0,26,26	change=0,0,26,26	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,26,26	shape=7baf540c0a553285
 q	398	1	bounds=10,9,31,36	comp=10,9,26,26	change=10,9,26,26	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,26,26	shape=85e6dbfb489f58c0
 doc	399	flat=a00bbc4e23e3bed7	tiled=a00bbc4e23e3bed7	sub=8c715bd4f3f62af1	reduced=1eb2610fbe393fca	damage=6e3f5b38aa72acd0	area=e89e7a65bef9fd94	thumb=12d9e11fb7b0b5ce	surface=9fe354e077c6c513	proxy=77f7cfd5983407ab	layers=7d471b572bca0b88
-q	399	0	bounds=0,0,0,0	comp=0,0,0,0	change=0,0,0,0	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,18,7	shape=52014397078ac885	split=3882fe847adf30a5,7927586967589555
+q	399	0	bounds=0,0,18,6	comp=0,0,18,6	change=0,0,18,6	to=1	occ=0	adv=1	shapeless=0	bg=0	frame=0,0,18,7	shape=52014397078ac885	split=3882fe847adf30a5,7927586967589555
 q	399	1	bounds=0,0,18,7	comp=0,0,18,7	change=0,0,18,7	to=1	occ=0	adv=1	shapeless=1	bg=0	frame=16,5,18,6	shape=b0b5720909e02d31
 q	399	2	bounds=9,4,23,7	comp=9,4,18,7	change=9,4,18,7	to=1	occ=0	adv=0	shapeless=0	bg=0	frame=0,0,18,7	shape=67489eb1c47bd6b6
 q	399	3	bounds=0,0,18,7	comp=0,0,18,7	change=0,0,18,7	to=1	occ=0	adv=1	shapeless=1	bg=0	frame=1,0,18,7	shape=d41848743fb2dd2b
@@ -1779,7 +1779,7 @@ fn	r9_fill_blend	9ff3098a20b3daa4
 fn	r9_paint_net_composite	35d442685f834803
 fn	r9_curve_map_lut	a9627e6160fe603e
 fn	r9_contour_curve_lut	3b7a5ea424f6f421
-fn	r9_apply_in_lab	2fc5e7b7af0dacf5
+fn	r9_apply_in_lab	8b6ed9170d91ed69
 fn	r9_pencil_tone_luts	a4a0e83dc9f493ed
 native	1	1540832a6a944d65	-2,-1,6,8
 native	2	none

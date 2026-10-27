@@ -67,6 +67,18 @@ void pc_vec_polys_truncate(pc_vec_polys *l, size_t from);
 /* Builds a pc_path from n subpaths (the array is taken over, also on failure). */
 void pc_vec_path_from(pc_subpath *subpaths, size_t n, pc_path *out);
 
+/* ---- mask feathering (feather.c, port of feather.rs) ---- */
+/* Gaussian sigma of a feather of `px` pixels (non-finite -> 0; capped at Photoshop's 1000 px). */
+float pc_vec_feather_sigma(float px);
+/* `r` grown by how far a feather of Gaussian `sigma` carries a mask's edge (empty stays empty). */
+pc_rect pc_vec_feather_grow(pc_rect r, float sigma);
+/* Where a feathered path mask can differ from its far-outside value: the path's control bounds
+ * (plus two pixels of anti-aliasing) grown by the feather. Empty for a path without knots. */
+pc_rect pc_vec_feather_path_area(const pc_path *path, float sigma);
+/* In-place approximate Gaussian blur of a w x h plane (three extended-box passes per axis, exact
+ * variance sigma^2, edges clamp). Bit-identical to the compositor's vector-mask feather. */
+pc_status pc_vec_feather_gaussian(float *v, size_t w, size_t h, float sigma, pc_error *err);
+
 /* Rust's f64 to_radians / to_degrees: a multiply by the folded constant. */
 static inline double pc_vec_to_radians(double x)
 {

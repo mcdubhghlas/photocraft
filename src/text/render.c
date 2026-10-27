@@ -314,6 +314,101 @@ static size_t color_in(pc_pixel_format f, const pc_color *c, float out[PC_RASTER
     return n;
 }
 
+/* Maps raw area-coverage to the opacity Photoshop's anti-alias modes imply. Exponents above 1
+ * thin the fringe (sharper); below 1 widen it (stronger smoothing). */
+static float shape_antialias_coverage(float cv, pc_antialias mode)
+{
+    if (!isfinite(cv)) {
+        return 0.0f;
+    }
+    cv = cv < 0.0f ? 0.0f : cv > 1.0f ? 1.0f : cv;
+    switch (mode) {
+    case PC_AA_NONE:
+        return cv >= 0.5f ? 1.0f : 0.0f;
+    case PC_AA_SMOOTH:
+        return cv;
+    case PC_AA_STRONG:
+        return powf(cv, 0.55f);
+    case PC_AA_CRISP:
+        return powf(cv, 1.35f);
+    case PC_AA_SHARP:
+    case PC_AA_WINDOWS:
+    case PC_AA_WINDOWS_LCD:
+    default:
+        return powf(cv, 2.2f);
+    }
+}
+
+/* Whether a glyph produces ink: its face and outline exist, and warp (if any) does not hide it. */
+static bool glyph_is_placed(const pc_text_layout *l, const pc_placed_glyph *g, const pc_text_deform *warp)
+{
+    const pc_glyph_face *face;
+    if (g->face >= l->nfaces) {
+        return false;
+    }
+    face = &l->faces[g->face];
+    if (face->font == NULL || g->id >= pc_font_num_glyphs(face->font)) {
+        return false;
+    }
+    if (warp != NULL) {
+        double m[6];
+        if (pc_text_deform_place_glyph(warp, glyph_center(l, g, face), m) == PC_PLACEMENT_HIDDEN) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/* Distinct visible colours (alpha finite and > 0) used by placed glyphs or decorations, each
+ * paired with whether any placed glyph of that colour uses faux/synthetic bold. Glyph order, then
+ * decorations (#8602). `colors`/`bold` hold at least `l->nstyles` entries; returns the count. */
+static size_t visible_color_passes(const pc_text_layout *l, const pc_text_deform *warp,
+                                    const pc_color **colors, bool *bold)
+{
+    size_t n = 0, i, k;
+    for (i = 0; i < l->nglyphs; i++) {
+        const pc_placed_glyph *g = &l->glyphs[i];
+        const pc_color *c;
+        bool b;
+        if (g->style >= l->nstyles) {
+            continue;
+        }
+        c = &l->styles[g->style].color;
+        if (!(isfinite(c->alpha) && c->alpha > 0.0f) || !glyph_is_placed(l, g, warp)) {
+            continue;
+        }
+        b = glyph_is_bold(l, g);
+        for (k = 0; k < n && !color_eq(colors[k], c); k++) {
+        }
+        if (k < n) {
+            bold[k] = bold[k] || b;
+        } else {
+            colors[n] = c;
+            bold[n] = b;
+            n++;
+        }
+    }
+    for (i = 0; i < l->ndecorations; i++) {
+        const pc_decoration_rect *d = &l->decorations[i];
+        const pc_color *c;
+        if (d->style >= l->nstyles) {
+            continue;
+        }
+        c = &l->styles[d->style].color;
+        if (!(isfinite(c->alpha) && c->alpha > 0.0f)) {
+            continue;
+        }
+        for (k = 0; k < n && !color_eq(colors[k], c); k++) {
+        }
+        if (k == n) {
+            colors[n] = c;
+            bold[n] = false;
+            n++;
+        }
+    }
+    return n;
+}
+
 pc_status pc_text_rasterize(const pc_text_layout *l, const pc_affine *transform, pc_pixel_format format,
                             pc_antialias aa, const pc_text_deform *warp, pc_rendered *out, pc_error *err)
 {
@@ -321,8 +416,9 @@ pc_status pc_text_rasterize(const pc_text_layout *l, const pc_affine *transform,
     size_t w, h, n, stride, npx, i, k, ncolors = 0, len;
     float *acc = NULL, *cov = NULL, *bc = NULL;
     const pc_color **colors = NULL;
-    bool any_bold = false;
+    bool *color_bold = NULL;
     pc_xform xf, tm, shift;
+    pc_rect whole;
     pc_status st;
     pc_surface surface;
     if (l == NULL || transform == NULL || out == NULL) {
@@ -352,41 +448,62 @@ pc_status pc_text_rasterize(const pc_text_layout *l, const pc_affine *transform,
     cov = pc_malloc_array(npx, sizeof(float));
     bc = pc_malloc_array(npx, sizeof(float));
     colors = pc_malloc_array(l->nstyles > 0 ? l->nstyles : 1, sizeof *colors);
-    if (acc == NULL || cov == NULL || bc == NULL || colors == NULL) {
+    color_bold = pc_malloc_array(l->nstyles > 0 ? l->nstyles : 1, sizeof *color_bold);
+    if (acc == NULL || cov == NULL || bc == NULL || colors == NULL || color_bold == NULL) {
         st = pc_fail(err, PC_ERR_NOMEM, "out of memory for a %zux%zu text raster", w, h);
         goto cleanup;
     }
     shift = (pc_xform){{1.0, 0.0, 0.0, 1.0, -(double)rect.x0, -(double)rect.y0}};
     memcpy(tm.m, transform->m, sizeof tm.m);
     xf = pc_xform_mul(&shift, &tm);
-    for (i = 0; i < l->nstyles; i++) {
-        bool seen = false;
-        for (k = 0; k < ncolors && !seen; k++) {
-            seen = color_eq(colors[k], &l->styles[i].color);
-        }
-        if (!seen) {
-            colors[ncolors++] = &l->styles[i].color;
-        }
-    }
-    for (i = 0; i < l->nglyphs; i++) {
-        if (glyph_is_bold(l, &l->glyphs[i])) {
-            any_bold = true;
-            break;
-        }
+    whole = pc_rect_make(0, 0, (int32_t)w, (int32_t)h);
+    /* Only the colours of placed, visible glyphs and decorations, in first-seen order, each with
+     * whether any of its glyphs is bold (#8602). An empty set renders nothing. */
+    ncolors = visible_color_passes(l, warp, colors, color_bold);
+    if (ncolors == 0) {
+        free(acc);
+        free(cov);
+        free(bc);
+        free(colors);
+        free(color_bold);
+        out->surface = surface;
+        out->rect = PC_RECT_EMPTY;
+        return PC_OK;
     }
     for (k = 0; k < ncolors; k++) {
         const pc_color *c = colors[k];
         pc_coverage cv;
         pc_line_sink sink;
+        pc_bounds bnd = {false, {0.0, 0.0, 0.0, 0.0}};
+        pc_line_sink bndsink = pc_bounds_sink(&bnd);
+        pc_rect sub;
+        pc_xform subshift, xf_sub;
+        size_t sw, sh, yy, xx;
         float comps[PC_RASTER_MAX_CHANNELS] = {0}, a;
         size_t bo;
+        /* Rasterise each colour only over its own glyphs+decorations (#8602): a running-sum
+         * coverage residual past a colour's ink would otherwise bleed to the row's right edge,
+         * so clipping to the colour's ink rect is NOT merely an optimisation. */
+        st = draw_pass(l, &xf, &bndsink, c, warp, PASS_ALL, 0, err);
+        if (st != PC_OK) {
+            goto cleanup;
+        }
+        sub = bnd.has ? pc_text_rect_from_bounds(bnd.r) : PC_RECT_EMPTY;
+        sub = pc_rect_intersect(sub, whole);
+        if (pc_rect_is_empty(sub)) {
+            continue;
+        }
+        sw = pc_rect_width(sub);
+        sh = pc_rect_height(sub);
+        subshift = (pc_xform){{1.0, 0.0, 0.0, 1.0, -(double)sub.x0, -(double)sub.y0}};
+        xf_sub = pc_xform_mul(&subshift, &xf);
         /* Non-bold glyphs and decorations. */
-        st = pc_coverage_init(&cv, w, h, err);
+        st = pc_coverage_init(&cv, sw, sh, err);
         if (st != PC_OK) {
             goto cleanup;
         }
         sink = pc_coverage_sink(&cv);
-        st = draw_pass(l, &xf, &sink, c, warp, PASS_PLAIN, 0, err);
+        st = draw_pass(l, &xf_sub, &sink, c, warp, PASS_PLAIN, 0, err);
         if (st != PC_OK) {
             pc_coverage_fini(&cv);
             goto cleanup;
@@ -394,23 +511,23 @@ pc_status pc_text_rasterize(const pc_text_layout *l, const pc_affine *transform,
         pc_coverage_finish(&cv, cov);
         pc_coverage_fini(&cv);
         /* Each faux-bold offset into its own buffer, merged into cov with max (#not-summed). */
-        if (any_bold) {
+        if (color_bold[k]) {
             for (bo = 0; bo < 8; bo++) {
                 pc_coverage bcv;
                 pc_line_sink bsink;
-                st = pc_coverage_init(&bcv, w, h, err);
+                st = pc_coverage_init(&bcv, sw, sh, err);
                 if (st != PC_OK) {
                     goto cleanup;
                 }
                 bsink = pc_coverage_sink(&bcv);
-                st = draw_pass(l, &xf, &bsink, c, warp, PASS_BOLD, bo, err);
+                st = draw_pass(l, &xf_sub, &bsink, c, warp, PASS_BOLD, bo, err);
                 if (st != PC_OK) {
                     pc_coverage_fini(&bcv);
                     goto cleanup;
                 }
                 pc_coverage_finish(&bcv, bc);
                 pc_coverage_fini(&bcv);
-                for (i = 0; i < npx; i++) {
+                for (i = 0; i < sw * sh; i++) {
                     if (bc[i] > cov[i]) {
                         cov[i] = bc[i];
                     }
@@ -425,22 +542,21 @@ pc_status pc_text_rasterize(const pc_text_layout *l, const pc_affine *transform,
         if (a > 1.0f) {
             a = 1.0f;
         }
-        for (i = 0; i < npx; i++) {
-            float cvv = cov[i], s, keep;
-            float *px = acc + i * stride;
-            size_t j;
-            if (aa == PC_AA_NONE) {
-                cvv = cvv >= 0.5f ? 1.0f : 0.0f;
+        for (yy = 0; yy < sh; yy++) {
+            for (xx = 0; xx < sw; xx++) {
+                float cvv = shape_antialias_coverage(cov[yy * sw + xx], aa), s, keep;
+                float *px = acc + (((size_t)sub.y0 + yy) * w + ((size_t)sub.x0 + xx)) * stride;
+                size_t j;
+                s = cvv * a;
+                if (s <= 0.0f) {
+                    continue;
+                }
+                keep = 1.0f - s;
+                for (j = 0; j < n; j++) {
+                    px[j] = comps[j] * s + px[j] * keep;
+                }
+                px[n] = s + px[n] * keep;
             }
-            s = cvv * a;
-            if (s <= 0.0f) {
-                continue;
-            }
-            keep = 1.0f - s;
-            for (j = 0; j < n; j++) {
-                px[j] = comps[j] * s + px[j] * keep;
-            }
-            px[n] = s + px[n] * keep;
         }
     }
     /* Unpremultiply. Float text can carry HDR and signed colours, so keep a finite straight
@@ -475,6 +591,7 @@ pc_status pc_text_rasterize(const pc_text_layout *l, const pc_affine *transform,
     free(cov);
     free(bc);
     free(colors);
+    free(color_bold);
     return PC_OK;
 cleanup:
     pc_surface_fini(&surface);
@@ -482,6 +599,7 @@ cleanup:
     free(cov);
     free(bc);
     free(colors);
+    free(color_bold);
     return st;
 }
 

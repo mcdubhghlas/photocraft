@@ -451,6 +451,36 @@ static bool is_weight_word(const char *w, size_t len)
     return false;
 }
 
+/* split_trailing_style: for a name without '-', split off a trailing face word (reference
+ * split_trailing_style). Sets *fam_len (family byte length) so the style is ps[*fam_len..]. */
+static void split_trailing_style(const char *ps, size_t len, size_t *fam_len)
+{
+    static const char *const ITALICS[] = {"Italic", "Oblique"};
+    static const char *const WEIGHTS[] = {"ExtraLight", "UltraLight", "ExtraBold", "UltraBold",
+                                          "SemiBold",   "DemiBold",   "Hairline",  "Regular",
+                                          "Medium",     "Normal",     "Heavy",     "Black",
+                                          "Light",      "Thin",       "Bold",      "Demi"};
+    size_t base = trim_end_matches(ps, len, "MT");
+    size_t family, i;
+    base = trim_end_matches(ps, base, "PS");
+    family = base;
+    for (i = 0; i < 2; i++) {
+        size_t sl = strlen(ITALICS[i]);
+        if (family > sl && pc_text_ends_with(ps, family, ITALICS[i])) {
+            family -= sl;
+            break;
+        }
+    }
+    for (i = 0; i < sizeof WEIGHTS / sizeof WEIGHTS[0]; i++) {
+        size_t sl = strlen(WEIGHTS[i]);
+        if (family > sl && pc_text_ends_with(ps, family, WEIGHTS[i])) {
+            family -= sl;
+            break;
+        }
+    }
+    *fam_len = (family < base && !pc_text_ends_with(ps, family, "MT")) ? family : len;
+}
+
 pc_status pc_text_guess_from_postscript(const char *ps, size_t len, pc_resolved_font *out, pc_error *err)
 {
     size_t famlen, stlen, plen, i = 0, nch = 0, k, start, tl;
@@ -477,9 +507,10 @@ pc_status pc_text_guess_from_postscript(const char *ps, size_t len, pc_resolved_
             sty = ps + d;
             stlen = len - d;
         } else {
-            plen = len;
-            sty = ps + len;
-            stlen = 0;
+            /* No '-': split off a trailing face word (reference split_trailing_style). */
+            split_trailing_style(ps, len, &plen);
+            sty = ps + plen;
+            stlen = len - plen;
         }
     }
     /* Keep compound style suffixes the old heuristic understood, such as Bold-It: if the final

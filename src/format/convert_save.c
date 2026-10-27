@@ -35,12 +35,12 @@
  * tests/format/test_manifest.c also round-trips a document with every field set. */
 #if UINTPTR_MAX == UINT64_MAX && UINT_MAX == 0xFFFFFFFFu && SIZE_MAX == UINT64_MAX
 #define PC_DOC_FIELDS(T, size) _Static_assert(sizeof(T) == (size), #T " changed: update the .pcraft manifest")
-PC_DOC_FIELDS(pc_document, 1064);
-PC_DOC_FIELDS(pc_layer, 1072);
+PC_DOC_FIELDS(pc_document, 1080);
+PC_DOC_FIELDS(pc_layer, 1096);
 PC_DOC_FIELDS(pc_layer_content, 520);
 PC_DOC_FIELDS(pc_group, 88);
 PC_DOC_FIELDS(pc_text_layer, 336);
-PC_DOC_FIELDS(pc_shape_layer, 488);
+PC_DOC_FIELDS(pc_shape_layer, 504);
 PC_DOC_FIELDS(pc_smart_object, 512);
 PC_DOC_FIELDS(pc_smart_source, 48);
 PC_DOC_FIELDS(pc_layer_mask, 80);
@@ -58,7 +58,7 @@ PC_DOC_FIELDS(pc_doc_psd_global_block, 16);
 PC_DOC_FIELDS(pc_named_path, 48);
 PC_DOC_FIELDS(pc_pattern, 104);
 PC_DOC_FIELDS(pc_guides, 48);
-PC_DOC_FIELDS(pc_file_encoding, 6);
+PC_DOC_FIELDS(pc_file_encoding, 8);
 PC_DOC_FIELDS(pc_doc_text_entry, 32);
 #undef PC_DOC_FIELDS
 #endif
@@ -411,6 +411,8 @@ static yyjson_mut_val *content_m(wb *w, const pc_layer_content *c, size_t depth)
         put(w, o, "path", pc_path_to_json(w->d, &s->path, NF));
         put(w, o, "stroke", OPT(s->has_stroke, pc_shape_stroke_to_json(w->d, &s->stroke, NF)));
         put(w, o, "live", OPT(s->has_live, pc_live_shape_to_json(w->d, &s->live, NF)));
+        put(w, o, "density", jf32(w, s->density));
+        put(w, o, "feather", jf32(w, s->feather));
         break;
     }
     case PC_LAYER_SMART: {
@@ -521,6 +523,9 @@ static yyjson_mut_val *layer_m(wb *w, const pc_layer *l, size_t depth)
         put(w, o, "video", vo);
     } else {
         put(w, o, "video", jnull(w));
+    }
+    if (l->has_xmp) {
+        put(w, o, "xmp", jstr(w, &l->xmp));
     }
     return ok(w) ? o : NULL;
 }
@@ -645,6 +650,7 @@ static yyjson_mut_val *doc_m(wb *w, const pc_document *d)
     }
     put(w, o, "channels", a);
     put(w, o, "guides", pc_guides_to_json(w->d, &d->guides, NF));
+    put(w, o, "ruler_origin", f64_array(w, d->ruler_origin, 2));
     put(w, o, "selection", d->has_selection ? surface_m(w, &d->selection) : jnull(w));
     put(w, o, "metadata", metadata_m(w, &d->metadata));
     put(w, o, "global_light", pc_global_light_to_json(w->d, &d->global_light, NF));

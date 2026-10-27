@@ -86,6 +86,10 @@ typedef enum pc_io_plld_warp_kind { PC_IO_PLLD_WARP_NONE, PC_IO_PLLD_WARP_SOME, 
 pc_status pc_io_parse_plld_warp(const uint8_t *data, size_t len, pc_io_plld_warp_kind *kind, pc_warp *out,
                                 pc_error *err);
 
+/* A `warp` / `quiltWarp` descriptor read as a warp (blocks::warp_of). kind: NONE (warpNone or a
+ * warp that moves nothing), SOME (in *out, caller frees with pc_warp_fini), UNREADABLE. */
+pc_status pc_io_warp_of_desc(const pc_psd_desc *w, pc_io_plld_warp_kind *kind, pc_warp *out, pc_error *err);
+
 /* The transform and projective placement of a PlLd record's corners p for a source of (w,h) warped
  * by warp (may be NULL). has_size false means the source file is unavailable: edge lengths are then
  * the size. *has_persp set for a Distort/Perspective placement (then persp is filled). */

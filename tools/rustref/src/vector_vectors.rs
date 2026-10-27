@@ -400,7 +400,7 @@ fn shape_vectors() {
     let lives = [
         LiveShape::Rect { rect: [1.0, 2.0, 30.0, 40.0], radii: [3.0, 4.0, 5.0, 6.0] },
         LiveShape::Ellipse { rect: [1.0, 2.0, 30.0, 40.0] },
-        LiveShape::Polygon { rect: [1.0, 2.0, 30.0, 40.0], sides: 5, star_ratio: 0.4 },
+        LiveShape::Polygon { rect: [1.0, 2.0, 30.0, 40.0], sides: 5, star_ratio: 0.4 , corner_radius: 0.0 },
         LiveShape::Line { from: [1.0, 2.0], to: [30.0, 40.0], weight: 3.0 },
     ];
     for (i, l) in lives.iter().enumerate() {

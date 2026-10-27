@@ -15,6 +15,7 @@
 
 typedef enum pc_kerning { PC_KERNING_METRICS, PC_KERNING_OPTICAL, PC_KERNING_OFF } pc_kerning;
 typedef enum pc_caps { PC_CAPS_NORMAL, PC_CAPS_SMALL_CAPS, PC_CAPS_ALL_CAPS } pc_caps;
+typedef enum pc_font_baseline { PC_FONT_BASELINE_NORMAL, PC_FONT_BASELINE_SUPERSCRIPT, PC_FONT_BASELINE_SUBSCRIPT } pc_font_baseline;
 
 typedef struct pc_font_feature {
     pc_str tag;
@@ -49,6 +50,7 @@ typedef struct pc_char_style {
     pc_kerning kerning;
     float kern;
     pc_caps caps;
+    pc_font_baseline baseline; /* super/subscript; #[serde(default)] = Normal */
     bool ligatures;
     bool discretionary_ligatures;
     pc_font_feature *features;

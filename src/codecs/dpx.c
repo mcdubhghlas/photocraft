@@ -1107,3 +1107,260 @@ pc_status cx_dpx_encode(const pc_cimage *img, cx_plan p, const pc_cencode_opts *
     pc_cimage_fini(&tmp);
     return w.st;
 }
+
+/* ---- Kodak Cineon (.cin): the 10-bit film-scan format DPX grew from (big-endian; shares the
+ * 10-bit packing, widening and narrowing with DPX). Decode errors keep the DPX format tag, as the
+ * reference does (shared helpers); encode errors are tagged Cineon. ---- */
+
+enum { CINEON_HEADER_LEN = 2048, CINEON_GENERIC_LEN = 1024, CINEON_CHANNEL0 = 196 };
+
+static uint32_t f32bits(float x)
+{
+    uint32_t u;
+    memcpy(&u, &x, sizeof u);
+    return u;
+}
+
+uint16_t cx_cineon_orientation(const uint8_t *b, size_t n)
+{
+    if (n <= 192) {
+        return 1;
+    }
+    switch (b[192]) {
+    case 1:
+        return 2;
+    case 2:
+        return 4;
+    case 3:
+        return 3;
+    case 4:
+        return 5;
+    case 5:
+        return 6;
+    case 6:
+        return 8;
+    case 7:
+        return 7;
+    default:
+        return 1;
+    }
+}
+
+pc_status cx_cineon_decode(const uint8_t *b, size_t n, const pc_climits *lim, pc_cimage *out, pc_error *err)
+{
+    uint32_t image_offset32;
+    uint32_t width;
+    uint32_t height;
+    size_t image_offset;
+    uint8_t channels;
+    uint8_t bits;
+    pc_clayout layout;
+    size_t nc;
+    size_t per_line;
+    size_t line_len;
+    size_t need;
+    size_t count;
+    size_t data_avail;
+    const uint8_t *data;
+    uint16_t *codes;
+    uint8_t *pixels;
+    size_t y;
+    size_t i;
+    pc_status st;
+    if (n < 4 || b[0] != 0x80 || b[1] != 0x2A || b[2] != 0x5F || b[3] != 0xD7) {
+        return cx_malformed(err, F, "missing the Cineon magic number (802A5FD7)");
+    }
+    if (!rd_u32(b, n, ORDER_BIG, 4, &image_offset32)) {
+        return cx_malformed(err, F, "the header ends before the image data offset");
+    }
+    image_offset = (size_t)image_offset32;
+    if (!rd_byte(b, n, 193, &channels)) {
+        return cx_malformed(err, F, "the header ends before the channel count");
+    }
+    if (!rd_byte(b, n, 198, &bits)) {
+        return cx_malformed(err, F, "the header ends before the bits per pixel");
+    }
+    if (bits != 10) {
+        return cx_unsupported(err, F, "%u-bit samples (Cineon frames are 10-bit)", (unsigned)bits);
+    }
+    if (channels == 1) {
+        layout = PC_CL_GRAY;
+    } else if (channels == 3) {
+        layout = PC_CL_RGB;
+    } else {
+        return cx_unsupported(err, F, "%u channels (Cineon frames have 1 or 3)", (unsigned)channels);
+    }
+    if (!rd_u32(b, n, ORDER_BIG, 200, &width)) {
+        return cx_malformed(err, F, "the header ends before the pixels per line");
+    }
+    if (!rd_u32(b, n, ORDER_BIG, 204, &height)) {
+        return cx_malformed(err, F, "the header ends before the lines per image");
+    }
+    st = pc_climits_check(lim, width, height, layout, PC_CS_U16, err);
+    if (st != PC_OK) {
+        return st;
+    }
+    nc = pc_clayout_channels(layout);
+    if (nc != 0 && (size_t)width > SIZE_MAX / nc) {
+        return cx_limit(err, "line too long");
+    }
+    per_line = (size_t)width * nc;
+    if (!line_bytes(per_line, 10, 1, &line_len)) {
+        return cx_limit(err, "line too long");
+    }
+    if (image_offset > n) {
+        return cx_malformed(err, F, "the image data offset is past the end of the file");
+    }
+    data = b + image_offset;
+    data_avail = n - image_offset;
+    if (line_len != 0 && (size_t)height > SIZE_MAX / line_len) {
+        return cx_limit(err, "image too large");
+    }
+    need = line_len * (size_t)height;
+    if (need > data_avail) {
+        return cx_malformed(err, F, "truncated image data");
+    }
+    if (per_line != 0 && (size_t)height > SIZE_MAX / per_line) {
+        return cx_limit(err, "image too large");
+    }
+    count = per_line * (size_t)height;
+    codes = malloc((count > 0 ? count : 1) * sizeof *codes);
+    if (codes == NULL) {
+        return cx_nomem(err);
+    }
+    for (y = 0; y < height; y++) {
+        size_t start = (size_t)y * line_len;
+        st = unpack_line(data + start, data_avail - start, ORDER_BIG, 10, 1, codes + y * per_line, per_line, err);
+        if (st != PC_OK) {
+            free(codes);
+            return st;
+        }
+    }
+    pixels = malloc((count > 0 ? count : 1) * 2);
+    if (pixels == NULL) {
+        free(codes);
+        return cx_nomem(err);
+    }
+    for (i = 0; i < count; i++) {
+        uint16_t v = widen(codes[i], 1023);
+        memcpy(pixels + i * 2, &v, 2);
+    }
+    free(codes);
+    return pc_cimage_from_raw(width, height, layout, PC_CS_U16, pixels, count * 2, out, err);
+}
+
+pc_status cx_cineon_encode(const pc_cimage *img, cx_plan p, pc_buf *out, pc_error *err)
+{
+    static const uint8_t DES_GRAY[] = {0};
+    static const uint8_t DES_RGB[] = {1, 2, 3};
+    pc_cimage tmp;
+    const pc_cimage *src;
+    const uint8_t *designators;
+    size_t ndes;
+    size_t count;
+    size_t per_line;
+    size_t data_len;
+    size_t line_len;
+    size_t i;
+    uint16_t *codes;
+    uint8_t h[CINEON_HEADER_LEN];
+    uint32_t total;
+    cx_w w;
+    pc_status st = pc_cimage_converted(img, p.layout, p.sample, &tmp, &src, err);
+    if (st != PC_OK) {
+        pc_cimage_fini(&tmp);
+        return st;
+    }
+    switch (src->layout) {
+    case PC_CL_GRAY:
+        designators = DES_GRAY;
+        ndes = 1;
+        break;
+    case PC_CL_RGB:
+        designators = DES_RGB;
+        ndes = 3;
+        break;
+    default:
+        pc_cimage_fini(&tmp);
+        return cx_encode(err, PC_CF_CINEON, "Cineon cannot store %s", pc_clayout_name(src->layout));
+    }
+    if (src->sample != PC_CS_U16) {
+        pc_cimage_fini(&tmp);
+        return cx_encode(err, PC_CF_CINEON, "cannot write %s samples at 10 bits", pc_csample_name(src->sample));
+    }
+    count = pc_cimage_sample_count(src);
+    if ((size_t)src->width > (ndes != 0 ? SIZE_MAX / ndes : SIZE_MAX)) {
+        pc_cimage_fini(&tmp);
+        return cx_encode(err, PC_CF_CINEON, "image too large");
+    }
+    per_line = (size_t)src->width * ndes;
+    if (per_line == 0 || count != per_line * (size_t)src->height) {
+        pc_cimage_fini(&tmp);
+        return cx_encode(err, PC_CF_CINEON, "the image has the wrong number of samples");
+    }
+    if (!line_bytes(per_line, 10, 1, &line_len) || line_len > SIZE_MAX / (size_t)src->height) {
+        pc_cimage_fini(&tmp);
+        return cx_encode(err, PC_CF_CINEON, "image too large");
+    }
+    data_len = line_len * (size_t)src->height;
+    if (data_len > (size_t)UNDEF32 - CINEON_HEADER_LEN) {
+        pc_cimage_fini(&tmp);
+        return cx_encode(err, PC_CF_CINEON, "image too large for a Cineon file (4 GiB)");
+    }
+    total = (uint32_t)(CINEON_HEADER_LEN + data_len);
+    codes = calloc(count > 0 ? count : 1, sizeof *codes);
+    if (codes == NULL) {
+        pc_cimage_fini(&tmp);
+        return cx_nomem(err);
+    }
+    for (i = 0; i < count; i++) {
+        codes[i] = narrow(cx_ne16(src->data, i), 1023);
+    }
+    memset(h, 0, sizeof h);
+    /* File information. */
+    w32(h, 0, 0x802A5FD7u);
+    w32(h, 4, CINEON_HEADER_LEN);
+    w32(h, 8, CINEON_GENERIC_LEN);
+    w32(h, 12, CINEON_HEADER_LEN - CINEON_GENERIC_LEN);
+    w32(h, 16, 0);
+    w32(h, 20, total);
+    wr_string(h, 24, 8, "V4.5", 4);
+    /* Image information: default orientation, then each channel's descriptor; the unused ones,
+     * the white point and the primaries are undefined. */
+    w8(h, 192, 0);
+    w8(h, 193, (uint8_t)ndes);
+    wundef(h, CINEON_CHANNEL0, 420);
+    for (i = 0; i < ndes; i++) {
+        size_t c = CINEON_CHANNEL0 + 28 * i;
+        w8(h, c, 0);
+        w8(h, c + 1, designators[i]);
+        w8(h, c + 2, 10);
+        w8(h, c + 3, 0);
+        w32(h, c + 4, src->width);
+        w32(h, c + 8, src->height);
+        w32(h, c + 12, f32bits(0.0f));
+        w32(h, c + 16, f32bits(0.0f));
+        w32(h, c + 20, f32bits(1023.0f));
+        w32(h, c + 24, f32bits(2.048f));
+    }
+    /* Pixel-interleaved, unsigned, positive, no line or channel padding. */
+    w8(h, 681, 5);
+    /* Image origination and film header numbers undefined; strings stay empty. */
+    wundef(h, 972, 984);
+    wundef(h, 1024, 1036);
+    wundef(h, 1068, 1076);
+
+    w.b = out;
+    w.st = PC_OK;
+    w.err = err;
+    cx_w_put(&w, h, CINEON_HEADER_LEN);
+    for (i = 0; w.st == PC_OK && i < (size_t)src->height; i++) {
+        st = pack_line(&w, codes + i * per_line, per_line, 10);
+        if (st != PC_OK) {
+            break;
+        }
+    }
+    free(codes);
+    pc_cimage_fini(&tmp);
+    return w.st;
+}

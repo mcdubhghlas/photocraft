@@ -26,6 +26,7 @@
 #include "io/psd_export_internal.h"
 #include "io/slices_map.h"
 #include "io/vector_map.h"
+#include "psd/aco.h"
 #include "psd/misc.h"
 #include "raster/pixel.h"
 #include "text/psd.h"
@@ -633,12 +634,19 @@ pc_status pc_io_global_block(const uint8_t signature[4], const uint8_t key[4], c
     return st;
 }
 
-void pc_io_block_signature(const uint8_t sig[4], pc_psd_version version, uint8_t out[4])
+void pc_io_block_signature(const uint8_t sig[4], const uint8_t key[4], pc_psd_version version,
+                           uint8_t out[4])
 {
     /* 8B64 exists only in PSB files: a PSD holding an 8B64 block (kept from a PSB source) is
-     * refused by Photoshop as "not compatible with this version" (#; measured in 27.11). */
+     * refused by Photoshop as "not compatible with this version" (measured in 27.11). The other
+     * way round, a PSB block with an 8-byte length is 8B64, as Photoshop writes it: an 8BIM lnk2,
+     * pths or cinf (kept from a PSD source, whose lengths the PSB widens) makes Photoshop read the
+     * length as 4 bytes and refuse the whole file (#7937). */
     if (version == PC_PSD_V1 && memcmp(sig, "8B64", 4) == 0) {
         memcpy(out, "8BIM", 4);
+    } else if (version == PC_PSD_V2 && memcmp(sig, "8BIM", 4) == 0 &&
+               pc_psd_uses_long_length(version, key)) {
+        memcpy(out, "8B64", 4);
     } else {
         memcpy(out, sig, 4);
     }
@@ -756,7 +764,7 @@ static pc_status global_blocks(pc_io_ex *ex, const pc_document *doc, pc_psd_bloc
                                  memcmp(fin[i].key, "Layr", 4) == 0)) {
             continue;
         }
-        pc_io_block_signature(fin[i].signature, ex->version, sig);
+        pc_io_block_signature(fin[i].signature, fin[i].key, ex->version, sig);
         st = pc_io_global_block(sig, fin[i].key, pc_blob_data(fin[i].data), pc_blob_len(fin[i].data),
                                 &blocks[n], err);
         if (st == PC_OK) {
@@ -832,6 +840,179 @@ static pc_status extra_planes(const pc_io_ex *ex, const pc_alpha_channel *const 
     return st;
 }
 
+/* ---- Duotone colour-mode data (port of crates/io duotone_map::write) ---- */
+
+#define DUOTONE_BLOCK_LEN 524
+static const uint16_t DUOTONE_CURVE_AT[13] = {0, 5, 10, 20, 30, 40, 50, 60, 70, 80, 90, 95, 100};
+
+/* A curve's 13 values: an identity curve (or none) is 0 and 100 % only; a curve whose points all
+ * lie on the 13 gray densities keeps exactly those points; any other is sampled at all 13. */
+static void duotone_curve_values(const pc_duotone_ink *ink, int16_t out[13])
+{
+    const pc_curve *curve = &ink->curve;
+    bool have = curve->len >= 2;
+    bool identity = !have;
+    for (size_t k = 0; k < 13; k++) {
+        out[k] = -1;
+    }
+    if (have) {
+        identity = true;
+        for (size_t i = 0; i < curve->len; i++) {
+            if (fabsf(curve->pts[i].input - curve->pts[i].output) >= 1e-4f) {
+                identity = false;
+                break;
+            }
+        }
+    }
+    if (identity) {
+        out[0] = 0;
+        out[12] = 1000;
+        return;
+    }
+    bool all_on_grid = true;
+    for (size_t i = 0; i < curve->len && all_on_grid; i++) {
+        bool on = false;
+        for (size_t k = 0; k < 13; k++) {
+            if (fabsf((float)DUOTONE_CURVE_AT[k] / 100.0f - curve->pts[i].input) < 1e-4f) {
+                on = true;
+                break;
+            }
+        }
+        all_on_grid = on;
+    }
+    if (all_on_grid) {
+        for (size_t i = 0; i < curve->len; i++) {
+            for (size_t k = 0; k < 13; k++) {
+                if (fabsf((float)DUOTONE_CURVE_AT[k] / 100.0f - curve->pts[i].input) < 1e-4f) {
+                    float v = curve->pts[i].output;
+                    v = v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
+                    out[k] = (int16_t)lroundf(v * 1000.0f);
+                }
+            }
+        }
+        for (size_t j = 0; j < 2; j++) {
+            size_t k = j == 0 ? 0 : 12;
+            if (out[k] < 0) {
+                float v = pc_duotone_ink_density(ink, (float)DUOTONE_CURVE_AT[k] / 100.0f);
+                v = v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
+                out[k] = (int16_t)lroundf(v * 1000.0f);
+            }
+        }
+        return;
+    }
+    for (size_t k = 0; k < 13; k++) {
+        float v = pc_duotone_ink_density(ink, (float)DUOTONE_CURVE_AT[k] / 100.0f);
+        v = v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
+        out[k] = (int16_t)lroundf(v * 1000.0f);
+    }
+}
+
+/* The Duotone block for d's first four inks (524 bytes). */
+static pc_status duotone_write(const pc_duotone *d, pc_psd_bytes *out, pc_error *err)
+{
+    uint8_t *b = pc_calloc_array(DUOTONE_BLOCK_LEN, 1);
+    size_t at = 0;
+    size_t n = d->ninks < 4 ? d->ninks : 4;
+    static const uint8_t NO_COLOR[10] = {0xFF, 0xFF, 0, 0, 0, 0, 0, 0, 0, 0};
+    if (b == NULL) {
+        return pc_io_nomem(err, "duotone block");
+    }
+    pc_store_be16(b, 1);
+    pc_store_be16(b + 2, (uint16_t)(n > 0 ? n : 1));
+    at = 4;
+    for (size_t i = 0; i < 4; i++) {
+        if (i < n) {
+            pc_psd_aco_color c;
+            uint16_t space;
+            uint16_t v[4];
+            c.kind = PC_PSD_ACO_RGB;
+            c.space = 0;
+            for (int k = 0; k < 3; k++) {
+                float cv = d->inks[i].color[k];
+                cv = cv < 0.0f ? 0.0f : cv > 1.0f ? 1.0f : cv;
+                c.v[k] = (uint16_t)lroundf(cv * 65535.0f);
+            }
+            c.v[3] = 0;
+            pc_psd_aco_to_record(c, &space, v);
+            pc_store_be16(b + at, space);
+            for (int k = 0; k < 4; k++) {
+                pc_store_be16(b + at + 2 + 2 * k, v[k]);
+            }
+        } else {
+            memcpy(b + at, NO_COLOR, 10);
+        }
+        at += 10;
+    }
+    for (size_t i = 0; i < 4; i++) {
+        if (i < n) {
+            const char *name = pc_str_c(&d->inks[i].name);
+            size_t len = d->inks[i].name.len;
+            size_t m = len < 63 ? len : 63;
+            b[at] = (uint8_t)m;
+            for (size_t k = 0; k < m; k++) {
+                unsigned char ch = (unsigned char)name[k];
+                b[at + 1 + k] = ch < 0x80 ? ch : (uint8_t)'?';
+            }
+        }
+        at += 64;
+    }
+    for (size_t i = 0; i < 4; i++) {
+        int16_t values[13];
+        if (i < n) {
+            duotone_curve_values(&d->inks[i], values);
+        } else {
+            pc_duotone_ink empty;
+            float black[3] = {0, 0, 0};
+            if (pc_duotone_ink_new("", black, &empty, err) != PC_OK) {
+                free(b);
+                return PC_ERR_NOMEM;
+            }
+            duotone_curve_values(&empty, values);
+            pc_duotone_ink_fini(&empty);
+        }
+        for (size_t k = 0; k < 13; k++) {
+            pc_store_be16(b + at + 2 * k, (uint16_t)values[k]);
+        }
+        at += 26;
+        pc_store_be16(b + at, 0);
+        at += 2;
+    }
+    pc_store_be16(b + at, 20);
+    at += 2;
+    for (int i = 0; i < 11; i++) {
+        memcpy(b + at, NO_COLOR, 10);
+        at += 10;
+    }
+    out->data = b;
+    out->len = DUOTONE_BLOCK_LEN;
+    return PC_OK;
+}
+
+/* The verbatim Duotone block to write, or {NULL,0} when the document is not an 8-bit Duotone that
+ * keeps its inks. Mirrors the reference's duotone_inks filter. */
+static pc_status duotone_block(const pc_document *doc, pc_pixel_format fmt, pc_psd_bytes *out,
+                               pc_error *err)
+{
+    out->data = NULL;
+    out->len = 0;
+    if (!doc->has_duotone || doc->duotone.ninks == 0 || doc->mode != PC_COLOR_MODE_DUOTONE ||
+        fmt.mode != PC_COLOR_MODE_GRAYSCALE || fmt.sample != PC_SAMPLE_TYPE_U8) {
+        return PC_OK;
+    }
+    if (doc->duotone.psd_raw != NULL) {
+        size_t n = pc_blob_len(doc->duotone.psd_raw);
+        uint8_t *b = pc_malloc(n > 0 ? n : 1);
+        if (b == NULL) {
+            return pc_io_nomem(err, "duotone block");
+        }
+        memcpy(b, pc_blob_data(doc->duotone.psd_raw), n);
+        out->data = b;
+        out->len = n;
+        return PC_OK;
+    }
+    return duotone_write(&doc->duotone, out, err);
+}
+
 pc_status pc_io_document_to_psd_nested(const pc_document *doc, const pc_io_psd_export_opts *opts,
                                        uint32_t depth, pc_psd_file *out, pc_io_warnings *warnings,
                                        pc_error *err)
@@ -863,11 +1044,25 @@ pc_status pc_io_document_to_psd_nested(const pc_document *doc, const pc_io_psd_e
     pc_buf comps_buf = PC_BUF_INIT;
     pc_io_slices_action slices_action = PC_IO_SLICES_KEEP;
     pc_buf slices_buf = PC_BUF_INIT;
+    pc_psd_bytes duotone = {NULL, 0};
     pc_status st;
     if (doc->mode == PC_COLOR_MODE_MULTICHANNEL) {
         return pc_io_multichannel_to_psd(doc, opts->force_psb, out, warnings, err);
     }
+    {
+        bool handled = false;
+        st = pc_io_palette_to_psd(doc, opts->force_psb, &handled, out, warnings, err);
+        if (st != PC_OK || handled) {
+            return st;
+        }
+    }
     fmt = pc_document_pixel_format(doc);
+    /* A Duotone is written as Duotone mode over its grey plate, with its ink block as the colour
+     * mode data (the block it was imported with, else one made from the inks). */
+    st = duotone_block(doc, fmt, &duotone, err);
+    if (st != PC_OK) {
+        return st;
+    }
     sample = fmt.sample;
     cc = pc_color_mode_channels(fmt.mode);
     big = doc->size.width > 30000 || doc->size.height > 30000;
@@ -882,6 +1077,7 @@ pc_status pc_io_document_to_psd_nested(const pc_document *doc, const pc_io_psd_e
         st = pc_io_ex_smart_init(&ex.smart, doc, depth, err);
     }
     if (st != PC_OK) {
+        pc_psd_bytes_fini(&duotone);
         return st;
     }
     ex.doc = doc;
@@ -898,7 +1094,7 @@ pc_status pc_io_document_to_psd_nested(const pc_document *doc, const pc_io_psd_e
     } else if (size_exceeds && !opts->force_psb) {
         st = pc_io_warn(&ex.warnings, err, "estimated encoded size exceeds 2 GB; written as PSB");
     }
-    if (st == PC_OK && fmt.mode != doc->mode) {
+    if (st == PC_OK && fmt.mode != doc->mode && duotone.data == NULL) {
         st = pc_io_warn(&ex.warnings, err, "%s document written as %s", pc_color_mode_name(doc->mode),
                         pc_color_mode_name(fmt.mode));
     }
@@ -978,7 +1174,8 @@ pc_status pc_io_document_to_psd_nested(const pc_document *doc, const pc_io_psd_e
         pc_psd_bytes enc = {NULL, 0};
         f.header = pc_psd_header_make(ex.version, doc->size.width, doc->size.height,
                                       (uint16_t)(cc + (has_alpha ? 1 : 0) + nextra), pc_io_psd_depth(sample),
-                                      fmt.mode == PC_COLOR_MODE_GRAYSCALE ? PC_PSD_MODE_GRAYSCALE
+                                      duotone.data != NULL        ? PC_PSD_MODE_DUOTONE
+                                      : fmt.mode == PC_COLOR_MODE_GRAYSCALE ? PC_PSD_MODE_GRAYSCALE
                                       : fmt.mode == PC_COLOR_MODE_CMYK    ? PC_PSD_MODE_CMYK
                                       : fmt.mode == PC_COLOR_MODE_LAB     ? PC_PSD_MODE_LAB
                                                                           : PC_PSD_MODE_RGB);
@@ -1150,8 +1347,18 @@ pc_status pc_io_document_to_psd_nested(const pc_document *doc, const pc_io_psd_e
     if (st == PC_OK) {
         bool has_layers = ex.nrecords > 0;
         if (has_layers && sample != PC_SAMPLE_TYPE_U8) {
+            /* Photoshop writes a merged-transparency marker (Mtrn/Mt16/Mt32) before the layer
+             * block, and won't open a file whose Lr32 comes first (#5068): the layer block goes
+             * right after the last kept marker, else first. */
+            size_t idx = 0;
+            for (size_t i = 0; i < ngblocks; i++) {
+                if (memcmp(gblocks[i].key, "Mtrn", 4) == 0 || memcmp(gblocks[i].key, "Mt16", 4) == 0 ||
+                    memcmp(gblocks[i].key, "Mt32", 4) == 0) {
+                    idx = i + 1;
+                }
+            }
             f.placement.where = PC_PSD_LI_GLOBAL_BLOCK;
-            f.placement.index = 0;
+            f.placement.index = idx;
             memcpy(f.placement.signature, "8BIM", 4);
             memcpy(f.placement.key, sample == PC_SAMPLE_TYPE_U16 ? "Lr16" : "Lr32", 4);
         } else {
@@ -1181,9 +1388,14 @@ pc_status pc_io_document_to_psd_nested(const pc_document *doc, const pc_io_psd_e
                 f.layer_info.padding.has = false;
             }
         }
-        /* 32-bit files carry Photoshop's HDR toning records as Color Mode Data; Photoshop will
-         * not open a 32-bit file without them (#291). */
-        if (st == PC_OK) {
+        /* A Duotone's colour mode data is its ink block; otherwise 32-bit files carry Photoshop's
+         * HDR toning records as Color Mode Data (Photoshop will not open a 32-bit file without
+         * them, #291). */
+        if (st == PC_OK && duotone.data != NULL) {
+            f.color_mode_data = duotone;
+            duotone.data = NULL;
+            duotone.len = 0;
+        } else if (st == PC_OK) {
             st = pc_psd_color_mode_data_for_depth(f.header.depth, &f.color_mode_data, err);
         }
         f.resources = res.v;
@@ -1198,6 +1410,7 @@ pc_status pc_io_document_to_psd_nested(const pc_document *doc, const pc_io_psd_e
     }
     pc_psd_resources_free(res.v, res.n);
     pc_psd_blocks_free(gblocks, ngblocks);
+    pc_psd_bytes_fini(&duotone);
     if (st == PC_OK) {
         st = pc_io_warnings_append(warnings, &ex.warnings, err);
     }

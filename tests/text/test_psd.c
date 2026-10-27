@@ -1142,19 +1142,99 @@ static void test_layer_hostile(void)
     pc_text_layer_fini(&t);
 }
 
+/* pc_txt2_build never crashes on a hostile `previous` block or adversarial object indices: the
+ * descriptor it parses is untrusted, and its template/edited/new/refit paths (fits, fits_budget,
+ * is_stub, runs_per/runs_to_length budgets) must fall back to a stub rather than crash. */
+static void test_txt2_build_hostile(void)
+{
+    pc_char_style def;
+    pc_text_layer la, lb;
+    pc_txt2_object objs[3];
+    pc_buf prev0 = PC_BUF_INIT, huge = PC_BUF_INIT, out = PC_BUF_INIT;
+    pc_ed_value parsed;
+    size_t k, cut;
+    uint64_t seed = 1234567;
+    pc_char_style_default(&def);
+    styled(&la, "Hello\nWorld", &def);
+    styled(&lb, "x", &def);
+    la.runs[0].style.kerning = PC_KERNING_OPTICAL;
+    objs[0].index = 0;
+    objs[0].layer = &la;
+    objs[1].index = 1;
+    objs[1].layer = &lb;
+    /* A valid previous to mutate: build one from the two objects. */
+    CHECK(pc_txt2_build(objs, 2, NULL, 0, false, &prev0, NULL) == PC_OK);
+    /* Adversarial indices (out of range -> skipped). */
+    objs[2].index = -1;
+    objs[2].layer = &la;
+    CHECK(pc_txt2_build(objs, 3, prev0.data, prev0.len, true, &out, NULL) == PC_OK);
+    pc_buf_truncate(&out, 0);
+    objs[2].index = INT32_MAX;
+    CHECK(pc_txt2_build(objs, 3, prev0.data, prev0.len, true, &out, NULL) == PC_OK);
+    pc_buf_truncate(&out, 0);
+    /* NULL, junk and a malformed Txt2 fixture as `previous`. */
+    CHECK(pc_txt2_build(objs, 2, NULL, 0, true, &out, NULL) == PC_OK);
+    pc_buf_truncate(&out, 0);
+    CHECK(pc_txt2_build(objs, 2, (const uint8_t *)"\0\1\2\3", 4, true, &out, NULL) == PC_OK);
+    pc_buf_truncate(&out, 0);
+    CHECK(pc_txt2_build(objs, 2, TXT2, sizeof TXT2 - 1, true, &out, NULL) == PC_OK);
+    pc_buf_truncate(&out, 0);
+    /* A huge run array in the template: the refit node/byte budget must bail out, not amplify. */
+    CHECK(pc_buf_append_str(&huge,
+                            "/98 << /0 14 >> /0 << >> /1 << /1 [ << /1 << /0 [ << /0 0 >> ] >> /0 << /0 "
+                            "(\xfe\xff\x00x\x00\r) /6 << /0 [ ",
+                            NULL) == PC_OK);
+    for (k = 0; k < 30000; k++) {
+        CHECK(pc_buf_append_str(&huge, "<< /0 << /0 << /6 << /0 0 /11 1 >> >> >> /1 1 >> ", NULL) == PC_OK);
+    }
+    CHECK(pc_buf_append_str(&huge, "] >> >> >> ] >> ", NULL) == PC_OK);
+    CHECK(pc_txt2_build(objs, 2, (const uint8_t *)huge.data, huge.len, true, &out, NULL) == PC_OK);
+    pc_buf_fini(&huge);
+    /* Truncations of the valid previous. */
+    for (cut = 0; cut <= prev0.len; cut += cut < 80 ? 1 : 29) {
+        pc_buf_truncate(&out, 0);
+        CHECK(pc_txt2_build(objs, 2, prev0.data, cut, true, &out, NULL) == PC_OK);
+    }
+    /* Random single-byte mutations of the valid previous. */
+    for (k = 0; k < 500 && prev0.len > 0; k++) {
+        uint8_t *m = malloc(prev0.len);
+        size_t pos;
+        CHECK(m != NULL);
+        if (m == NULL) {
+            break;
+        }
+        memcpy(m, prev0.data, prev0.len);
+        seed = seed * 6364136223846793005ull + 1442695040888963407ull;
+        pos = (size_t)(seed >> 33) % prev0.len;
+        m[pos] = (uint8_t)(seed >> 11);
+        pc_buf_truncate(&out, 0);
+        CHECK(pc_txt2_build(objs, 2, m, prev0.len, true, &out, NULL) == PC_OK);
+        if (pc_txt2_parse(out.data, out.len, &parsed, NULL) == PC_OK) {
+            pc_ed_fini(&parsed);
+        }
+        free(m);
+    }
+    pc_buf_fini(&out);
+    pc_buf_fini(&prev0);
+    pc_text_layer_fini(&la);
+    pc_text_layer_fini(&lb);
+}
+
 static void test_utf16_to_byte_lengths(void)
 {
     static const double lens[] = {1, 2, -1, NAN, 0.5, 1e300, 3};
     size_t out[7];
-    /* "a😀é" + U+FFFD for a stray byte: 1 + 4 + 2 bytes, then the invalid byte counts as 1. */
-    pc_text_utf16_to_byte_lengths("a\xf0\x9f\x98\x80\xc3\xa9\xff", 8, lens, 7, out);
-    CHECK(out[0] == 1 && out[1] == 4 && out[2] == 0 && out[3] == 0 && out[4] == 0 && out[5] == 3 &&
-          out[6] == 0);
-    pc_text_utf16_to_byte_lengths(NULL, 0, lens, 2, out);
-    CHECK(out[0] == 0 && out[1] == 0);
+    size_t produced;
+    /* "a😀é" + U+FFFD for a stray byte: 1 + 4 + 2 bytes, then the invalid byte counts as 1. The
+     * 1e300 run empties the text, so the trailing run past the end is not processed. */
+    produced = pc_text_utf16_to_byte_lengths("a\xf0\x9f\x98\x80\xc3\xa9\xff", 8, lens, 7, out);
+    CHECK(produced == 6 && out[0] == 1 && out[1] == 4 && out[2] == 0 && out[3] == 0 && out[4] == 0 &&
+          out[5] == 3);
+    produced = pc_text_utf16_to_byte_lengths(NULL, 0, lens, 2, out);
+    CHECK(produced == 1 && out[0] == 0);
     /* One unit of a surrogate pair takes the whole character. */
-    pc_text_utf16_to_byte_lengths("\xf0\x9f\x98\x80x", 5, lens, 1, out);
-    CHECK(out[0] == 4);
+    produced = pc_text_utf16_to_byte_lengths("\xf0\x9f\x98\x80x", 5, lens, 1, out);
+    CHECK(produced == 1 && out[0] == 4);
 }
 
 static void test_postscript_for(void)
@@ -1243,6 +1323,7 @@ int main(int argc, char **argv)
     RUN(test_psd_tysh_round_trips_orientation_and_writing_direction);
     RUN(test_tysh_hostile);
     RUN(test_layer_hostile);
+    RUN(test_txt2_build_hostile);
     RUN(test_utf16_to_byte_lengths);
     RUN(test_postscript_for);
     RUN(test_tysh_layout);

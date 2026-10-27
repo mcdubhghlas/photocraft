@@ -353,6 +353,7 @@ static const jfield stroke_fx_f[] = {
     JFV("size", pc_stroke_fx, size, pc_jt_f32),
     JFV("position", pc_stroke_fx, position, jt_stroke_position),
     JFV("paint", pc_stroke_fx, paint, jt_fx_paint),
+    JFVD("overprint", pc_stroke_fx, overprint, pc_jt_bool, JD_ZERO),
 };
 static const jstruct stroke_fx_s = {"struct StrokeFx", stroke_fx_f, JCOUNT(stroke_fx_f), NULL,
                                     sizeof(pc_stroke_fx)};
@@ -411,6 +412,7 @@ static const jfield bevel_f[] = {
     JFV("altitude", pc_bevel, altitude, pc_jt_f32),
     JFV("use_global_light", pc_bevel, use_global_light, pc_jt_bool),
     JFV("gloss_contour", pc_bevel, gloss_contour, pc_jt_contour),
+    JFVD("gloss_anti_alias", pc_bevel, gloss_anti_alias, pc_jt_bool, JD_ZERO),
     JFV("highlight", pc_bevel, highlight, pc_jt_fx_common),
     JFV("highlight_color", pc_bevel, highlight_color, pc_jt_color),
     JFV("shadow", pc_bevel, shadow, pc_jt_fx_common),

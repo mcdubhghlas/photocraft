@@ -244,6 +244,46 @@ float rx_gain_map_at(const pc_raw_gain_map *m, const float *row, double rh)
     return a + (b - a) * t;
 }
 
+float rx_gain_map_at_rv(const pc_raw_gain_map *m, double rv, size_t mp, double rh)
+{
+    size_t mpc = m->map_planes > 0 ? m->map_planes - 1 : 0;
+    double fv;
+    double fh;
+    size_t i0;
+    size_t i1;
+    size_t j0;
+    size_t j1;
+    float tv;
+    float th;
+    float top;
+    float bot;
+#define RX_GM_G(i, j)                                                                                                  \
+    ((((i) * m->points_h + (j)) * m->map_planes + mp) < m->ngains                                                      \
+         ? m->gains[(((i) * m->points_h + (j)) * m->map_planes + mp)]                                                  \
+         : 1.0f)
+    if (mp > mpc) {
+        mp = mpc;
+    }
+    fv = pc_clampd((rv - m->origin_v) / m->spacing_v, 0.0, (double)(m->points_v - 1));
+    i0 = pc_f64_to_size(floor(fv));
+    if (i0 > m->points_v - 1) {
+        i0 = m->points_v - 1;
+    }
+    i1 = i0 + 1 < m->points_v - 1 ? i0 + 1 : m->points_v - 1;
+    tv = (float)(fv - (double)i0);
+    fh = pc_clampd((rh - m->origin_h) / m->spacing_h, 0.0, (double)(m->points_h - 1));
+    j0 = pc_f64_to_size(floor(fh));
+    if (j0 > m->points_h - 1) {
+        j0 = m->points_h - 1;
+    }
+    j1 = j0 + 1 < m->points_h - 1 ? j0 + 1 : m->points_h - 1;
+    th = (float)(fh - (double)j0);
+    top = RX_GM_G(i0, j0) + (RX_GM_G(i0, j1) - RX_GM_G(i0, j0)) * th;
+    bot = RX_GM_G(i1, j0) + (RX_GM_G(i1, j1) - RX_GM_G(i1, j0)) * th;
+    return top + (bot - top) * tv;
+#undef RX_GM_G
+}
+
 bool rx_gain_map_covers(const pc_raw_gain_map *m, size_t ax, size_t ay)
 {
     return ay >= m->top && ay < m->bottom && ax >= m->left && ax < m->right && (ay - m->top) % m->row_pitch == 0 &&

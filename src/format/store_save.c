@@ -10,6 +10,8 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <sys/file.h>
+#include <time.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -651,15 +653,79 @@ static pc_status remember(pc_pcraft_writer *w, const char *path, const pc_format
     return s;
 }
 
+/* The bundle-wide lock file (store.rs SAVE_LOCK); held for a directory save so two writers cannot
+ * interleave their object writes and cleanup. Its presence in the bundle is expected. */
+#define PC_FORMAT_SAVE_LOCK "save.lock"
+/* How long a directory save waits for another save of the same bundle (store.rs SAVE_LOCK_WAIT). */
+#define PC_FORMAT_SAVE_LOCK_WAIT_MS 10000
+
+/* Holds `root`'s save.lock for a directory save (advisory OS lock, released when *out_fd is
+ * closed or the process ends, so a crash leaves no stale lock). Another save holding it is waited
+ * for up to the limit, then the save fails without writing anything. A file system without file
+ * locks saves unlocked (*out_fd = -1), as before. */
+static pc_status lock_bundle(const char *root, int *out_fd, pc_error *err)
+{
+    pc_buf path = PC_BUF_INIT;
+    int fd;
+    int waited = 0;
+    pc_status s = join(root, PC_FORMAT_SAVE_LOCK, &path, err);
+    *out_fd = -1;
+    if (s == PC_OK) {
+        s = pc_bundle_validate_file(root, pc_buf_cstr(&path), err);
+    }
+    if (s != PC_OK) {
+        pc_buf_fini(&path);
+        return s;
+    }
+    fd = open(pc_buf_cstr(&path), O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+    if (fd < 0) {
+        /* Cannot create the lock file: save unlocked rather than fail the save. */
+        pc_buf_fini(&path);
+        return PC_OK;
+    }
+    for (;;) {
+        if (flock(fd, LOCK_EX | LOCK_NB) == 0) {
+            *out_fd = fd;
+            pc_buf_fini(&path);
+            return PC_OK;
+        }
+        if (errno != EWOULDBLOCK && errno != EAGAIN) {
+            /* The file system does not support locks (some network shares): save unlocked. */
+            close(fd);
+            pc_buf_fini(&path);
+            return PC_OK;
+        }
+        if (waited >= PC_FORMAT_SAVE_LOCK_WAIT_MS) {
+            close(fd);
+            s = pc_fail(err, PC_ERR_IO, "another save of %s is in progress; nothing was written", root);
+            pc_buf_fini(&path);
+            return pc_format_io(s, err);
+        }
+        {
+            struct timespec ts = {0, 20 * 1000 * 1000}; /* 20 ms, as in the reference */
+            nanosleep(&ts, NULL);
+        }
+        waited += 20;
+    }
+}
+
 /* store.rs save_dir before prepare: the canonical bundle root (created with its folders), its
  * existing objects, and the fixed entries checked, so a hostile bundle is refused before anything
  * is written. */
-static pc_status dir_setup(const char *dir, char **root, names *existing, pc_error *err)
+static pc_status dir_setup(const char *dir, char **root, names *existing, int *lockfd, pc_error *err)
 {
     static const char *const FIXED[3] = {PC_FORMAT_MANIFEST, PC_FORMAT_THUMB, PC_FORMAT_COMPOSITE};
     pc_buf path = PC_BUF_INIT;
     pc_status s = pc_bundle_root(dir, root, err);
+    *lockfd = -1;
     if (s != PC_OK) {
+        return s;
+    }
+    /* Take the lock before listing, so another save cannot write between our list and cleanup. */
+    s = lock_bundle(*root, lockfd, err);
+    if (s != PC_OK) {
+        free(*root);
+        *root = NULL;
         return s;
     }
     s = list_objects(*root, existing, err);
@@ -674,6 +740,10 @@ static pc_status dir_setup(const char *dir, char **root, names *existing, pc_err
         names_free(existing);
         free(*root);
         *root = NULL;
+        if (*lockfd >= 0) {
+            close(*lockfd);
+            *lockfd = -1;
+        }
     }
     return s;
 }
@@ -823,10 +893,14 @@ pc_status pc_pcraft_writer_save_dir_prepared(pc_pcraft_writer *w, const pc_forma
 {
     names existing = {NULL, 0, 0};
     char *root = NULL;
-    pc_status s = dir_setup(dir, &root, &existing, err);
+    int lockfd = -1;
+    pc_status s = dir_setup(dir, &root, &existing, &lockfd, err);
     if (s == PC_OK) {
         s = dir_save(w, p, root, &existing, stats_out, err);
         names_free(&existing);
+        if (lockfd >= 0) {
+            close(lockfd); /* releases the advisory lock */
+        }
     }
     return s;
 }
@@ -854,7 +928,8 @@ pc_status pc_pcraft_writer_save_dir(pc_pcraft_writer *w, const pc_document *doc,
     pc_format_prepared p;
     names existing = {NULL, 0, 0};
     char *root = NULL;
-    pc_status s = dir_setup(dir, &root, &existing, err);
+    int lockfd = -1;
+    pc_status s = dir_setup(dir, &root, &existing, &lockfd, err);
     if (s != PC_OK) {
         return s;
     }
@@ -862,11 +937,17 @@ pc_status pc_pcraft_writer_save_dir(pc_pcraft_writer *w, const pc_document *doc,
     if (s != PC_OK) {
         free(root);
         names_free(&existing);
+        if (lockfd >= 0) {
+            close(lockfd);
+        }
         return s;
     }
     s = dir_save(w, &p, root, &existing, stats, err);
     names_free(&existing);
     pc_format_prepared_fini(&p);
+    if (lockfd >= 0) {
+        close(lockfd); /* releases the advisory lock */
+    }
     return s;
 }
 

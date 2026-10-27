@@ -737,6 +737,8 @@ static pc_shape_layer shape_layer(pc_path path)
     pc_shape_layer s;
     memset(&s, 0, sizeof s);
     s.path = path;
+    s.density = 1.0f; /* ShapeLayer::default(): a hard fill, no soft mask */
+    s.feather = 0.0f;
     return s;
 }
 

@@ -10,6 +10,7 @@
 #include "base/mem.h"
 #include "base/num.h"
 #include "base/utf8.h"
+#include "compose/filter_mask.h"
 #include "io/adjust_map.h"
 #include "io/blocks.h"
 #include "io/linked.h"
@@ -72,7 +73,7 @@ static const pc_psd_real_mask *selected_real_mask(const pc_psd_layer *rec)
 /* A channel's decoded plane; *present false when the record lacks it or it can't be decoded
  * (a warning says so). */
 static pc_status channel_plane(pc_io_imp *cx, const pc_psd_layer *rec, int16_t id, const char *name,
-                               bool *present, pc_psd_bytes *out, pc_error *err)
+                               bool detail, bool *present, pc_psd_bytes *out, pc_error *err)
 {
     pc_error e;
     pc_status st;
@@ -85,9 +86,17 @@ static pc_status channel_plane(pc_io_imp *cx, const pc_psd_layer *rec, int16_t i
         return pc_io_nomem(err, "decoding a layer channel");
     }
     if (st != PC_OK) {
+        /* The reference's mask path keeps the inner decode error in the warning; the data
+         * channels decode concurrently through a sink-less helper, so their warning names only
+         * the channel (no detail). `detail` selects which form matches the reference. */
+        if (detail) {
+            return pc_io_warn(cx->warnings, err,
+                              "layer \"%s\": channel %d could not be decoded (%s); treated as empty",
+                              name, (int)id, e.msg);
+        }
         return pc_io_warn(cx->warnings, err,
-                          "layer \"%s\": channel %d could not be decoded (%s); treated as empty", name,
-                          (int)id, e.msg);
+                          "layer \"%s\": channel %d could not be decoded; treated as empty", name,
+                          (int)id);
     }
     *present = true;
     return PC_OK;
@@ -119,7 +128,7 @@ static pc_status record_surface(pc_io_imp *cx, const pc_psd_layer *rec, const ch
     }
     for (size_t c = 0; c < ch; c++) {
         int16_t id = c < cx->cc ? (int16_t)c : (int16_t)PC_PSD_CH_TRANSPARENCY;
-        TRY(channel_plane(cx, rec, id, name, &present[c], &planes[c], err));
+        TRY(channel_plane(cx, rec, id, name, false, &present[c], &planes[c], err));
         if (!present[c] && pc_psd_layer_channel(rec, id) != NULL) {
             missing = true;
         }
@@ -208,7 +217,7 @@ static pc_status record_mask(pc_io_imp *cx, const pc_psd_layer *rec, const char 
     if (!rect_unusable(rect, &w, &h)) {
         pc_psd_bytes plane = {NULL, 0};
         bool present = false;
-        st = channel_plane(cx, rec, id, name, &present, &plane, err);
+        st = channel_plane(cx, rec, id, name, true, &present, &plane, err);
         if (st == PC_OK && present) {
             pc_io_plane in = {true, plane.data, plane.len};
             uint8_t fill[1][4];
@@ -359,6 +368,39 @@ static pc_status apply_common(pc_io_imp *cx, pc_layer *l, const pc_psd_layer *re
     pc_blend_if_fini(&l->blend_if);
     TRY(pc_io_blend_if_from_ranges(rec->blending_ranges.data, rec->blending_ranges.len, &l->blend_if, err));
     l->has_psd_id = pc_psd_layer_id(rec, &l->psd_id);
+    /* The layer's own XMP packet (shmd › cust › layerXMP) becomes the field; the rest of shmd
+     * stays in psd_blocks, where export puts the packet back. */
+    for (size_t i = 0; i < l->npsd_blocks; i++) {
+        bool found = false;
+        bool has_rest = false;
+        char *xmp = NULL;
+        pc_psd_bytes rest = {NULL, 0};
+        if (memcmp(l->psd_blocks[i].key, "shmd", 4) != 0) {
+            continue;
+        }
+        TRY(pc_psd_take_layer_xmp(pc_blob_data(l->psd_blocks[i].data), pc_blob_len(l->psd_blocks[i].data),
+                                  &found, &xmp, &has_rest, &rest, err));
+        if (found) {
+            pc_str_fini(&l->xmp);
+            l->has_xmp = false;
+            st = pc_str_set(&l->xmp, xmp, xmp != NULL ? strlen(xmp) : 0, err);
+            free(xmp);
+            l->has_xmp = st == PC_OK;
+            if (st == PC_OK && has_rest) {
+                st = pc_io_set_blob(&l->psd_blocks[i].data, rest.data, rest.len, err);
+            } else if (st == PC_OK) {
+                pc_blob_release(l->psd_blocks[i].data);
+                memmove(&l->psd_blocks[i], &l->psd_blocks[i + 1],
+                        (l->npsd_blocks - i - 1) * sizeof l->psd_blocks[0]);
+                l->npsd_blocks--;
+            }
+            pc_psd_bytes_fini(&rest);
+            if (st != PC_OK) {
+                goto fail;
+            }
+        }
+        break;
+    }
     if (l->has_mask) {
         pc_layer_mask_fini(&l->mask);
         l->has_mask = false;
@@ -467,7 +509,7 @@ static pc_status soft_shape_fill(const pc_psd_layer *rec, bool has_vector, const
      * document's patterns for fill layers), and its stored pixels may be the unclipped fill: it
      * is a pattern fill layer seen through its vector mask (matches the reference's #1907). */
     pattern = f.kind == PC_FILL_PATTERN;
-    if (soft || pattern) {
+    if (pattern) {
         *out = f;
         *found = true;
         *soft_out = soft;
@@ -493,6 +535,18 @@ static pc_io_adj_channels adj_channels(pc_color_mode m)
     }
 }
 
+/* Pixel coordinates use i32 throughout the document, so non-finite and unrepresentable affine
+ * terms are rejected (port of photocraft_text::psd::transform_is_safe, #4758). */
+static bool text_transform_is_safe(const pc_affine *t)
+{
+    for (size_t i = 0; i < 6; i++) {
+        if (!isfinite(t->m[i]) || fabs(t->m[i]) > (double)INT32_MAX) {
+            return false;
+        }
+    }
+    return true;
+}
+
 static pc_status text_content(pc_io_imp *cx, const pc_psd_layer *rec, const char *name,
                               const pc_doc_psd_block *blocks, size_t nb, pc_layer_content *c, pc_error *err)
 {
@@ -506,12 +560,30 @@ static pc_status text_content(pc_io_imp *cx, const pc_psd_layer *rec, const char
         return pc_io_nomem(err, "reading a type layer");
     }
     if (st != PC_OK) {
+        /* Only canonical type data with a safe transform can become a type layer. Data the typed
+         * reader can't decode falls back to a relaxed parse, but an unsafe (non-finite or
+         * out-of-i32) transform must never reach rendering: keep the layer as pixels instead
+         * (#4758). */
         bool found = false;
         pc_text_layer_default(&t);
         st = pc_io_parse_tysh(b->data.data, b->data.len, &found, &t.text, &t.transform, err);
         if (st != PC_OK) {
             pc_text_layer_fini(&t);
             return st;
+        }
+        /* A too-short block keeps the default (identity) transform and stays a type layer, as the
+         * relaxed reader's `unwrap_or_default` does; only a parsed, unsafe transform is rejected. */
+        if (found && !text_transform_is_safe(&t.transform)) {
+            pc_text_layer_fini(&t);
+            st = pc_io_warn(cx->warnings, err,
+                            "layer \"%s\": type data in another byte order or with unsafe type "
+                            "geometry; kept as pixels",
+                            name);
+            if (st != PC_OK) {
+                return st;
+            }
+            c->kind = PC_LAYER_RASTER;
+            return record_surface(cx, rec, name, &c->u.raster, err);
         }
     }
     if (cx->has_txt2) {
@@ -694,10 +766,15 @@ static pc_status smart_content(pc_io_imp *cx, const pc_psd_layer *rec, const cha
             placed.has_stack = false;
         }
     }
+    pc_str placed_id;
     pc_smart_object_init(&so, &src, transform, NULL);
     so.contents_id = cid;
+    memset(&placed_id, 0, sizeof placed_id);
     if (has_placed && stack.nfilters > 0) {
         st = filter_mask(cx, &placed.placed, &stack, name, &so.has_filter_mask, &so.filter_mask, err);
+        if (st == PC_OK) {
+            st = pc_str_set(&placed_id, pc_str_c(&placed.placed), placed.placed.len, err);
+        }
     }
     if (has_placed) {
         pc_io_placed_fini(&placed);
@@ -714,6 +791,41 @@ static pc_status smart_content(pc_io_imp *cx, const pc_psd_layer *rec, const cha
             so.cache = cache;
         }
     }
+    /* Photoshop stores the filtered pixels without the filter mask and mixes the unfiltered ones
+     * (FEid) back in through it; our smart objects hold the mixed result (compose/filter_mask). */
+    if (st == PC_OK && has_placed && so.has_cache && so.has_filter_mask && so.filter_mask.enabled) {
+        bool shown = so.filters_enabled;
+        bool any_visible = false;
+        for (size_t i = 0; i < so.nsmart_filters; i++) {
+            any_visible = any_visible || so.smart_filters[i].visible;
+        }
+        shown = shown && any_visible;
+        if (shown) {
+            const pc_psd_fx_item *item = NULL;
+            for (size_t i = 0; i < cx->nfx; i++) {
+                const char *id = cx->fx[i].id != NULL ? cx->fx[i].id : "";
+                if (strlen(id) == placed_id.len && memcmp(id, pc_str_c(&placed_id), placed_id.len) == 0) {
+                    item = &cx->fx[i];
+                    break;
+                }
+            }
+            if (item != NULL) {
+                pc_surface unfiltered;
+                bool has_unfiltered = false;
+                st = pc_io_unfiltered_from_item(item, cx->fmt, &has_unfiltered, &unfiltered, err);
+                if (st == PC_OK && has_unfiltered) {
+                    pc_surface mixed;
+                    st = pc_compose_filter_mask_mix(&unfiltered, &so.cache, &so.filter_mask, &mixed, err);
+                    pc_surface_fini(&unfiltered);
+                    if (st == PC_OK) {
+                        pc_surface_fini(&so.cache);
+                        so.cache = mixed;
+                    }
+                }
+            }
+        }
+    }
+    pc_str_fini(&placed_id);
     so.psd_raw = principal(blocks, nb, k);
     if (pl_has_warp) {
         so.warp = pl_warp;
@@ -736,6 +848,31 @@ static pc_status smart_content(pc_io_imp *cx, const pc_psd_layer *rec, const cha
     return PC_OK;
 }
 
+/* The shape's density and feather from its layer-mask parameters (vector_density / vector_feather).
+ * Non-finite feather and absent params fall back to the defaults (density 1, feather 0). */
+static void shape_mask_params(const pc_psd_layer *rec, float *density, float *feather)
+{
+    const pc_psd_layer_mask *m = pc_psd_layer_get_mask(rec);
+    *density = 1.0f;
+    *feather = 0.0f;
+    if (m == NULL || !m->has_params) {
+        return;
+    }
+    if (m->params.has_vector_density) {
+        *density = (float)m->params.vector_density / 255.0f;
+    }
+    if (m->params.has_vector_feather && isfinite(m->params.vector_feather)) {
+        float f = pc_f64_to_f32(m->params.vector_feather);
+        *feather = f < 0.0f ? 0.0f : (f > 1000.0f ? 1000.0f : f);
+    }
+}
+
+/* A shape whose fill edge is softened by a density below 100 % or a feather. */
+static bool shape_has_soft_mask(const pc_shape_layer *sh)
+{
+    return (isfinite(sh->density) && sh->density < 1.0f) || (isfinite(sh->feather) && sh->feather > 0.0f);
+}
+
 static pc_status shape_content(pc_io_imp *cx, const pc_psd_layer *rec, const char *name, const char *fill_key,
                                const char *vector_key, const pc_doc_psd_block *blocks, size_t nb,
                                pc_layer_content *c, pc_error *err)
@@ -755,9 +892,13 @@ static pc_status shape_content(pc_io_imp *cx, const pc_psd_layer *rec, const cha
     sh.psd_raw = vector_key != NULL ? principal(blocks, nb, vector_key) : NULL;
     TRY(pc_io_shape_from_blocks(&sh, rec_lookup, (void *)(uintptr_t)rec, cx->file->header.width,
                                 cx->file->header.height, cx->dpi, err));
+    shape_mask_params(rec, &sh.density, &sh.feather);
     /* No stored pixels (32-bit documents, files saved without layer pixels): render the shape
-     * from its path and fill, as Photoshop does when it opens the file. */
-    if (rect_unusable(rec->rect, &w, &h) && (sh.path.nsubpaths > 0 || sh.path.inverted)) {
+     * from its path and fill, as Photoshop does when it opens the file. A soft shape's stored
+     * pixels hold the shape alone, without the fill its density and feather show beyond the
+     * path: render it too. */
+    if ((shape_has_soft_mask(&sh) && sh.has_fill) ||
+        (rect_unusable(rec->rect, &w, &h) && (sh.path.nsubpaths > 0 || sh.path.inverted))) {
         pc_rect canvas =
             pc_rect_make(0, 0, pc_u32_as_i32(cx->file->header.width), pc_u32_as_i32(cx->file->header.height));
         pc_surface s;

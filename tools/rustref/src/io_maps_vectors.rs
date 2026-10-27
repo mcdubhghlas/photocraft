@@ -310,7 +310,7 @@ fn lives() -> Vec<(&'static str, LiveShape)> {
         ("ellipse", LiveShape::Ellipse { rect: [5.0, 6.0, 7.0, 8.0] }),
         ("line", LiveShape::Line { from: [0.0, 10.0], to: [20.0, 0.0], weight: 3.0 }),
         ("line-neg", LiveShape::Line { from: [-0.0, 10.5], to: [0.0, -3.25], weight: 0.5 }),
-        ("polygon", LiveShape::Polygon { rect: [0.0; 4], sides: 5, star_ratio: 1.0 }),
+        ("polygon", LiveShape::Polygon { rect: [0.0; 4], sides: 5, star_ratio: 1.0 , corner_radius: 0.0 }),
     ]
 }
 
@@ -381,7 +381,7 @@ fn shape_cases() -> Vec<(String, ShapeLayer, Vec<([u8; 4], Vec<u8>)>)> {
     v.push(("unchanged".to_string(), base.clone(), raw.clone()));
     let mut edited = base.clone();
     edited.path.subpaths.pop();
-    edited.live = Some(LiveShape::Polygon { rect: [0.0; 4], sides: 3, star_ratio: 1.0 });
+    edited.live = Some(LiveShape::Polygon { rect: [0.0; 4], sides: 3, star_ratio: 1.0 , corner_radius: 0.0 });
     v.push(("edited".to_string(), edited, raw.clone()));
     let mut nofill = base.clone();
     nofill.fill = None;

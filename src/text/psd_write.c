@@ -157,6 +157,8 @@ pc_status psd_style_sheet_data(const pc_char_style *s, size_t font, float k, pc_
     pc_ed_value d = pc_ed_dict(), values = pc_ed_array(), fill = pc_ed_dict();
     int64_t color_type = c->mode == PC_COLOR_MODE_CMYK ? 2 : c->mode == PC_COLOR_MODE_GRAYSCALE ? 0 : 1;
     int64_t caps = s->caps == PC_CAPS_SMALL_CAPS ? 1 : s->caps == PC_CAPS_ALL_CAPS ? 2 : 0;
+    int64_t baseline =
+        s->baseline == PC_FONT_BASELINE_SUPERSCRIPT ? 1 : s->baseline == PC_FONT_BASELINE_SUBSCRIPT ? 2 : 0;
     pc_status st = push_real(&values, real(c->alpha), err);
     size_t f, g;
     if (c->mode == PC_COLOR_MODE_CMYK) {
@@ -212,6 +214,9 @@ pc_status psd_style_sheet_data(const pc_char_style *s, size_t font, float k, pc_
     }
     if (st == PC_OK) {
         st = psd_set_int(&d, "FontCaps", caps, err);
+    }
+    if (st == PC_OK) {
+        st = psd_set_int(&d, "FontBaseline", baseline, err);
     }
     if (st == PC_OK) {
         st = psd_set_bool(&d, "Underline", s->underline, err);
@@ -342,14 +347,50 @@ pc_status psd_font_entry(const pc_str *name, pc_ed_value *out, pc_error *err)
     return PC_OK;
 }
 
-pc_status psd_font_set(const psd_names *fonts, pc_ed_value *out, pc_error *err)
+/* The original FontSet entry for `name` at index `i`: the entry at `i` when it has that name,
+ * else the first entry with that name, else NULL (reference `font_set`). */
+static const pc_ed_value *orig_font_entry(const pc_ed_value *orig, size_t norig, size_t i,
+                                          const pc_str *name)
+{
+    size_t j;
+    const pc_str *en;
+    if (orig == NULL) {
+        return NULL;
+    }
+    if (i < norig) {
+        en = pc_ed_as_str(pc_ed_get(&orig[i], "Name"));
+        if (en != NULL && en->len == name->len &&
+            memcmp(pc_str_c(en), pc_str_c(name), name->len) == 0) {
+            return &orig[i];
+        }
+    }
+    for (j = 0; j < norig; j++) {
+        en = pc_ed_as_str(pc_ed_get(&orig[j], "Name"));
+        if (en != NULL && en->len == name->len &&
+            memcmp(pc_str_c(en), pc_str_c(name), name->len) == 0) {
+            return &orig[j];
+        }
+    }
+    return NULL;
+}
+
+/* Keeps imported font metadata (the template's own FontSet entries) while retaining the requested
+ * font indices; new fonts get the default `psd_font_entry` (reference `font_set`). */
+pc_status psd_font_set(const psd_names *fonts, const pc_ed_value *original, pc_ed_value *out,
+                       pc_error *err)
 {
     pc_ed_value a = pc_ed_array();
     pc_status st = PC_OK;
-    size_t k;
+    size_t norig = 0, k;
+    const pc_ed_value *orig = pc_ed_as_array(original, &norig);
     for (k = 0; k < fonts->n && st == PC_OK; k++) {
         pc_ed_value e;
-        st = psd_font_entry(&fonts->v[k], &e, err);
+        const pc_ed_value *kept = orig_font_entry(orig, norig, k, &fonts->v[k]);
+        if (kept != NULL) {
+            st = pc_ed_clone(kept, &e, err);
+        } else {
+            st = psd_font_entry(&fonts->v[k], &e, err);
+        }
         if (st == PC_OK) {
             st = push_take(&a, &e, err);
         }
@@ -755,12 +796,13 @@ static pc_status fill_engine_dict(pc_ed_value *dict, const pc_text_layer *layer,
     return st;
 }
 
-/* FontSet and the default sheets of one resource dictionary. */
-static pc_status fill_resources(pc_ed_value *rd, const pc_ed_value *fontset, const pc_text_run *runs,
+/* FontSet and the default sheets of one resource dictionary. The FontSet keeps this dict's own
+ * matching entries (reference `font_set(&fonts, rd.get("FontSet"))`, recomputed per dict). */
+static pc_status fill_resources(pc_ed_value *rd, const psd_names *fonts, const pc_text_run *runs,
                                 size_t nruns, float k, pc_error *err)
 {
     pc_ed_value v;
-    pc_status st = pc_ed_clone(fontset, &v, err);
+    pc_status st = psd_font_set(fonts, pc_ed_get(rd, "FontSet"), &v, err);
     if (st == PC_OK) {
         st = set_take(rd, "FontSet", &v, err);
     }
@@ -841,7 +883,6 @@ pc_status pc_text_build_engine_data(const pc_text_layer *layer, pc_ed_value *tmp
     float k = psd_k_of(dpi);
     pc_ed_value e = pc_ed_dict();
     pc_ed_value sruns = pc_ed_array(), slens = pc_ed_array(), pruns = pc_ed_array(), plens = pc_ed_array();
-    pc_ed_value fontset = pc_ed_array();
     pc_text_run *runs = NULL;
     pc_paragraph_run *paras = NULL;
     size_t nruns = 0, nparas = 0;
@@ -889,9 +930,6 @@ pc_status pc_text_build_engine_data(const pc_text_layer *layer, pc_ed_value *tmp
         st = para_runs(&text, paras, nparas, k, &pruns, &plens, err);
     }
     if (st == PC_OK) {
-        st = psd_font_set(&fonts, &fontset, err);
-    }
-    if (st == PC_OK) {
         dict = pc_ed_get_mut(&e, "EngineDict");
         if (dict == NULL) { /* unreachable: set above */
             pc_ed_fini(&e);
@@ -901,7 +939,7 @@ pc_status pc_text_build_engine_data(const pc_text_layer *layer, pc_ed_value *tmp
             if (st == PC_OK) {
                 rd = pc_ed_get_mut(&e, "ResourceDict");
                 if (rd != NULL) {
-                    st = fill_resources(rd, &fontset, runs, nruns, k, err);
+                    st = fill_resources(rd, &fonts, runs, nruns, k, err);
                 }
             }
             if (st == PC_OK && pc_ed_get(&e, "DocumentResources") == NULL) {
@@ -913,7 +951,7 @@ pc_status pc_text_build_engine_data(const pc_text_layer *layer, pc_ed_value *tmp
             } else if (st == PC_OK) {
                 rd = pc_ed_get_mut(&e, "DocumentResources");
                 if (rd != NULL) {
-                    st = fill_resources(rd, &fontset, runs, nruns, k, err);
+                    st = fill_resources(rd, &fonts, runs, nruns, k, err);
                 }
             }
         }
@@ -922,7 +960,6 @@ pc_status pc_text_build_engine_data(const pc_text_layer *layer, pc_ed_value *tmp
     pc_ed_fini(&slens);
     pc_ed_fini(&pruns);
     pc_ed_fini(&plens);
-    pc_ed_fini(&fontset);
     pc_text_runs_free(runs, nruns);
     free(paras);
     pc_str_fini(&text);
@@ -1125,10 +1162,6 @@ static pc_status patch_text(pc_psd_desc *text, const pc_text_layer *layer, const
         if (st == PC_OK) {
             st = desc_set(text, "boundingBox", &v, err);
         }
-    }
-    if (st == PC_OK && pc_psd_desc_get(text, "TextIndex") == NULL) {
-        v = pc_psd_value_int(0);
-        st = desc_set(text, "TextIndex", &v, err);
     }
     if (st == PC_OK) {
         memset(&v, 0, sizeof v);

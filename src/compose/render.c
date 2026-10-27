@@ -66,6 +66,9 @@ pc_status pc_cmp_ctx_init_doc(pc_cmp_ctx_store *s, const pc_document *doc, const
     s->cx.light = doc->global_light;
     s->cx.mode = doc->mode;
     s->cx.depth = doc->depth;
+    /* Clip local effect maps to the render rect when the visible layers' whole-region maps would
+     * not fit the effect cache together (#8330). */
+    s->cx.fx_over_budget = pc_cmp_fx_over_budget(doc->layers, doc->nlayers, s->cx.canvas);
     s->cx.intr = intr;
     return PC_OK;
 }
@@ -209,6 +212,21 @@ static pc_status render_tiled_with(const pc_document *doc, pc_rect rect, int32_t
     }
     if (pc_rect_is_empty(rect)) {
         return pc_compose_buffer_transparent(rect, out, err);
+    }
+    /* A CMYK (resp. Lab) stack with adjustment layers the inks (resp. stored L,a,b) carry exactly
+     * composites in those values, not display RGB (#3778, native.c / native_lab.c). */
+    if (doc->mode == PC_COLOR_MODE_CMYK) {
+        bool used = false;
+        st = pc_compose_render_cmyk(doc, rect, tile, &used, out, err);
+        if (st != PC_OK || used) {
+            return st;
+        }
+    } else if (doc->mode == PC_COLOR_MODE_LAB) {
+        bool used = false;
+        st = pc_compose_render_lab(doc, rect, tile, &used, out, err);
+        if (st != PC_OK || used) {
+            return st;
+        }
     }
     pc_cmp_set_fx_clip(cx, rect);
     st = pc_cmp_rect_pixels(rect, &n, err);

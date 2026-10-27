@@ -71,6 +71,10 @@ typedef struct pc_cmp_ctx {
     pc_sample_type depth;
     pc_cmp_vmasks *vmasks;
     pc_cmp_fx_local *fx;
+    /* Ctx::fx_over_budget (#8330): the visible layers' whole-region effect maps wouldn't fit the
+     * effect cache together, so local maps are clipped to the render rect even for non-shapeless
+     * layers (see pc_cmp_effect_region). Set once per render from the document. */
+    bool fx_over_budget;
     const pc_document *doc; /* NULL for a lone layer (render_layer) */
     const pc_interrupt *intr;
 } pc_cmp_ctx;
@@ -106,6 +110,8 @@ static inline pc_cmp_scope pc_cmp_scope_pass_through(pc_cmp_scope s)
 
 /* ---- C1 internals (composite.c) ---- */
 
+/* Deterministic blue-noise-ish value in [0, 1) at a pixel (Dissolve blend / dithered opacity). */
+float pc_cmp_dissolve_noise(int32_t x, int32_t y);
 /* PC_ERR_CANCELLED once the context's interrupt fires. */
 pc_status pc_cmp_check(const pc_cmp_ctx *cx, pc_error *err);
 /* composite_stack_at: a sibling list (bottom to top) onto backdrop. */
@@ -131,6 +137,13 @@ pc_status pc_cmp_mask_vals(const pc_layer *layer, pc_rect rect, const pc_cmp_ctx
                            pc_error *err);
 /* multichannel::backdrop: the inks for Multichannel documents, else transparent. */
 pc_status pc_cmp_backdrop(const pc_document *doc, pc_rect rect, struct pc_compose_buffer *out, pc_error *err);
+/* native::render_cmyk / native_lab::render_lab: the display composite of a CMYK (resp. Lab)
+ * document whose stack has adjustment layers the inks (resp. stored L,a,b) carry exactly, worked
+ * out in ink / stored values; *used stays false (out untouched) when the RGB compositor must run. */
+pc_status pc_compose_render_cmyk(const pc_document *doc, pc_rect rect, int32_t tile, bool *used,
+                                 struct pc_compose_buffer *out, pc_error *err);
+pc_status pc_compose_render_lab(const pc_document *doc, pc_rect rect, int32_t tile, bool *used,
+                                struct pc_compose_buffer *out, pc_error *err);
 /* render_fill: a fill's content over rect laid out in frame (solid here; gradient and pattern
  * fills through gradient_fill.c / pattern.c). */
 pc_status pc_cmp_fill_content(const pc_fill *f, pc_rect rect, pc_rect frame,
@@ -157,6 +170,12 @@ pc_status pc_cmp_effect_maps(const pc_layer *layer, pc_rect rect, const pc_cmp_c
                              pc_error *err);
 /* Ctx::set_fx_clip: start rendering rect; effect maps clipped to the previous rectangle are let go. */
 void pc_cmp_set_fx_clip(const pc_cmp_ctx *cx, pc_rect rect);
+/* effects::map_count: how many region-sized arrays a layer's effect maps take (the shape, each
+ * effect's maps, a stroke's inside and outer distance fields); drives the cache estimate (#8330). */
+size_t pc_cmp_fx_map_count(const pc_layer *layer);
+/* fx_over_budget: whether the visible layers' whole-region effect maps exceed the effect cache
+ * budget together, so a render rebuilds them all every time (#8330). Set on Ctx at render start. */
+bool pc_cmp_fx_over_budget(const pc_layer *layers, size_t n, pc_rect canvas);
 /* prepare_effects: builds the maps of every visible layer with effects that can reach rect
  * before tiles render in parallel. */
 pc_status pc_cmp_prepare_effects(const pc_layer *layers, size_t n, pc_rect rect, const pc_cmp_ctx *cx,

@@ -821,7 +821,10 @@ static void use_convert(sv_conv *c, const st_node *n, const sv_cstate *st, sv_un
                 us.use_h = sv_user_length(c, n, A_HEIGHT, &us, sv_len_pct(100.0));
             }
         }
-        use_convert_children(c, n, orig, &us, true, parent);
+        /* convert_group (run by use_convert_children) re-reads and applies the <use>'s own
+         * transform attribute, so pass only the x/y translate here; folding the transform in
+         * too (orig = transform . translate) would apply the transform attribute twice. */
+        use_convert_children(c, n, nts, &us, true, parent);
     }
 }
 

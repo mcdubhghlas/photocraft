@@ -202,10 +202,54 @@ static bool wb_resize(wbuf *w, int64_t n)
     return true;
 }
 
-/* Unclamped weights of output sample o over source samples *lo .. *lo + w->n. LIMIT when one
- * sample would need more than MAX_TAPS taps (NOMEM when they can't be allocated). */
-static pc_status weights(int32_t o, double scale, pc_algo_rs_kernel kernel, const int32_t *edge, int32_t *lo,
-                         wbuf *w, wbuf *tmp, int depth)
+/* The source samples worth a weight each: the edge, or the content with one sample of slack on
+ * each side to carry the weight of everything beyond it (read as the default pixel). */
+static void keep_range(const int32_t *edge, const int32_t content[2], int64_t *ka, int64_t *kb)
+{
+    int32_t a, b;
+    if (edge != NULL) {
+        a = edge[0];
+        b = edge[1];
+    } else {
+        a = pc_i32_sat_sub(content[0], 1);
+        b = pc_i32_sat_add(content[1], 1);
+    }
+    *ka = (int64_t)a;
+    *kb = (int64_t)(b > a ? b : a);
+}
+
+/* Adds `v` spread evenly over the source samples [a, b) to `w` (length wn, holding samples from
+ * `lo`): samples beyond either end add to that end slot instead of needing a slot. */
+static void spread(double *w, size_t wn, int64_t lo, int64_t a, int64_t b, double v)
+{
+    double each;
+    int64_t end, ia, ib, slot;
+    if (wn == 0) {
+        return;
+    }
+    each = v / (double)(b - a > 1 ? b - a : 1);
+    end = lo + (int64_t)wn;
+    ia = a > lo ? a : lo;
+    ib = b < end ? b : end;
+    for (slot = ia; slot < ib; slot++) {
+        w[slot - lo] += each;
+    }
+    if (a < lo) {
+        int64_t bb = b < lo ? b : lo;
+        w[0] += each * (double)(bb - a);
+    }
+    if (b > end) {
+        int64_t aa = a > end ? a : end;
+        w[wn - 1] += each * (double)(b - aa);
+    }
+}
+
+/* Weights of output sample o over source samples *lo .. *lo + w->n, unclamped except that
+ * reductions fold what lies beyond the edge (or the content) onto its ends, so a tiny scale doesn't
+ * cost a weight per source sample it covers. LIMIT when one sample would need more than MAX_TAPS
+ * taps (NOMEM when they can't be allocated). */
+static pc_status weights(int32_t o, double scale, pc_algo_rs_kernel kernel, const int32_t *edge,
+                         const int32_t content[2], int32_t *lo, wbuf *w, wbuf *tmp, int depth)
 {
     size_t i;
     switch (kernel.kind) {
@@ -221,17 +265,21 @@ static pc_status weights(int32_t o, double scale, pc_algo_rs_kernel kernel, cons
     case PC_ALGO_KERNEL_BILINEAR:
         if (scale < 0.5) {
             int32_t a, b;
+            int64_t ka, kb, lo64, hi64, wn;
             cover(o, scale, &a, &b);
-            if ((int64_t)b - a > MAX_TAPS) {
+            keep_range(edge, content, &ka, &kb);
+            lo64 = pc_clamp_i64((int64_t)a, ka, kb);
+            hi64 = pc_clamp_i64((int64_t)b - 1, ka, kb);
+            wn = hi64 - lo64 + 1;
+            if (wn > MAX_TAPS) {
                 return PC_ERR_LIMIT;
             }
-            if (!wb_resize(w, (int64_t)b - a)) {
+            if (!wb_resize(w, wn)) {
                 return PC_ERR_NOMEM;
             }
-            for (i = 0; i < w->n; i++) {
-                w->v[i] = 1.0 / (double)((int64_t)b - a);
-            }
-            *lo = a;
+            memset(w->v, 0, w->n * sizeof *w->v);
+            spread(w->v, w->n, lo64, (int64_t)a, (int64_t)b, 1.0);
+            *lo = (int32_t)lo64;
         } else {
             double u = position(o, scale, edge), j = floor(u);
             *lo = pc_f64_to_i32(j);
@@ -256,7 +304,10 @@ static pc_status weights(int32_t o, double scale, pc_algo_rs_kernel kernel, cons
                 ie[1] = pc_f64_to_i32(ceil(((double)edge[1] + 1.0) * inner - 1e-9)) - 1;
                 iedge = ie;
             }
-            st = weights(o, 0.25, kernel, iedge, &k0, tmp, NULL, depth + 1);
+            {
+                static const int32_t wide[2] = {INT32_MIN / 4, INT32_MAX / 4};
+                st = weights(o, 0.25, kernel, iedge, wide, &k0, tmp, NULL, depth + 1);
+            }
             if (st != PC_OK) {
                 return st;
             }
@@ -279,25 +330,30 @@ static pc_status weights(int32_t o, double scale, pc_algo_rs_kernel kernel, cons
             if (!any) {
                 blo = 0, bhi = 0;
             }
-            if ((int64_t)bhi - blo > MAX_TAPS) {
-                return PC_ERR_LIMIT;
-            }
-            if (!wb_resize(w, (int64_t)bhi - blo)) {
-                return PC_ERR_NOMEM;
-            }
-            memset(w->v, 0, w->n * sizeof *w->v);
-            for (i = 0; i < nk; i++) {
-                int32_t a, b, j;
-                k = (int32_t)((int64_t)k0 + (int64_t)i);
-                if (iedge != NULL) {
-                    k = pc_clamp_i32(k, iedge[0], iedge[1] > iedge[0] ? iedge[1] : iedge[0]);
+            {
+                int64_t ka, kb, klo, khi, wn;
+                keep_range(edge, content, &ka, &kb);
+                klo = pc_clamp_i64((int64_t)blo, ka, kb);
+                khi = pc_clamp_i64((int64_t)bhi - 1, ka, kb);
+                wn = khi - klo + 1;
+                if (wn > MAX_TAPS) {
+                    return PC_ERR_LIMIT;
                 }
-                cover(k, inner, &a, &b);
-                for (j = a; j < b; j++) {
-                    w->v[j - blo] += tmp->v[i] / (double)((int64_t)b - a);
+                if (!wb_resize(w, wn)) {
+                    return PC_ERR_NOMEM;
                 }
+                memset(w->v, 0, w->n * sizeof *w->v);
+                for (i = 0; i < nk; i++) {
+                    int32_t a, b;
+                    k = (int32_t)((int64_t)k0 + (int64_t)i);
+                    if (iedge != NULL) {
+                        k = pc_clamp_i32(k, iedge[0], iedge[1] > iedge[0] ? iedge[1] : iedge[0]);
+                    }
+                    cover(k, inner, &a, &b);
+                    spread(w->v, w->n, klo, (int64_t)a, (int64_t)b, tmp->v[i]);
+                }
+                *lo = (int32_t)klo;
             }
-            *lo = blo;
         } else {
             double u = position(o, scale, edge), sum = -0.0;
             int64_t l = pc_f64_to_i32(floor(u - 2.0 * kernel.stretch));
@@ -407,7 +463,7 @@ pc_status pc_algo_taps_make(int32_t dst0, int32_t dst1, double scale, pc_algo_rs
         float outside;
         size_t i0, i1;
         t.off[k] = wlen;
-        st = weights(o, scale, kernel, edge, &lo, &wd, &tmp, 0);
+        st = weights(o, scale, kernel, edge, content, &lo, &wd, &tmp, 0);
         if (st != PC_OK) {
             st = st == PC_ERR_LIMIT
                      ? pc_fail(err, PC_ERR_LIMIT, "resampling scale %g needs too many taps", scale)

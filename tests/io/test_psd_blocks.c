@@ -677,7 +677,9 @@ static void test_gradient_map_v3_methods_and_smoothness(void)
     {
         pc_buf plain = grdm_v1(three, 4);
         pc_buf smooth = grdm_v1(three, 4);
-        size_t at = smooth.len - 2 - 16 - 2 - 4 - 2 - 2 - 4 - 2 - 2 - 2;
+        /* v1 header/name/count + colour stops + transparency stops + expansion count (from the
+         * start, so the trailing 4-byte pad does not shift it). */
+        size_t at = 48 + 4 * 20;
         float a[3];
         float b[3];
         smooth.data[at] = 0x10;
@@ -1111,10 +1113,10 @@ static void test_photo_filter_golden_blocks(void)
         pc_adjustment_fini(&a);
         pc_psd_bytes_fini(&d);
     }
-    /* Version 3: D50 XYZ scaled by 32768. The sRGB (D50) white point is white; Photoshop's
-     * Warming Filter (85) preset is sRGB #EC8A00 (D50 XYZ 15193, 12086, 1192). */
+    /* Version 3: XYZ relative to the D50 white, 1.0 = 32768. White is (32768, 32768, 32768);
+     * Photoshop's Warming Filter (85) preset is sRGB #EC8A00, stored as (15548, 12029, 0). */
     {
-        static const uint32_t cases[2][3] = {{31595, 32768, 27040}, {15193, 12086, 1192}};
+        static const uint32_t cases[2][3] = {{32768, 32768, 32768}, {15548, 12029, 0}};
         for (size_t c = 0; c < 2; c++) {
             pc_psd_bytes d = {NULL, 0};
             cat(&d, (const uint8_t[2]){0, 3}, 2);

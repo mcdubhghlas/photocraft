@@ -25,6 +25,9 @@ pc_clayout pc_io_layout_for(pc_color_mode mode, bool alpha)
     if (mode == PC_COLOR_MODE_CMYK) {
         return alpha ? PC_CL_CMYKA : PC_CL_CMYK;
     }
+    if (mode == PC_COLOR_MODE_LAB) {
+        return alpha ? PC_CL_LABA : PC_CL_LAB;
+    }
     return alpha ? PC_CL_RGBA : PC_CL_RGB;
 }
 
@@ -71,7 +74,7 @@ pc_status pc_io_try_buffer(size_t pixels, size_t bytes_per_pixel, uint8_t **out,
 }
 
 /* Whether every pixel of s over r is fully opaque (read from the tiles, no copy). */
-static bool opaque_surface(const pc_surface *s, pc_rect r)
+bool pc_io_opaque_surface(const pc_surface *s, pc_rect r)
 {
     pc_pixel_format fmt = pc_surface_format(s);
     size_t ch = pc_pixel_format_channels(fmt);
@@ -108,6 +111,17 @@ static bool opaque_surface(const pc_surface *s, pc_rect r)
         }
     }
     return true;
+}
+
+/* Whether the format can store a grayscale layout at all. */
+static bool caps_has_gray(const pc_ccaps *caps)
+{
+    for (size_t i = 0; i < caps->nlayouts; i++) {
+        if (pc_clayout_is_gray(caps->layouts[i])) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /* Remove the trailing alpha bytes of every color + alpha byte pixel, in place. */
@@ -227,7 +241,7 @@ static pc_status native_image(const pc_document *doc, const pc_surface *s, pc_ci
     uint32_t h = doc->size.height;
     size_t ch = pc_pixel_format_channels(fmt);
     size_t bps = pc_sample_type_bytes(fmt.sample);
-    bool opaque = opaque_surface(s, pc_document_bounds(doc));
+    bool opaque = pc_io_opaque_surface(s, pc_document_bounds(doc));
     pc_clayout layout = pc_io_layout_for(fmt.mode, !opaque);
     size_t keep = opaque ? (ch - 1) * bps : ch * bps;
     size_t rowb = (size_t)w * ch * bps;
@@ -321,7 +335,7 @@ static pc_status cmyk_composite_profile(const pc_document *doc, pc_meta_blob *ic
 }
 
 static pc_status composite_image(const pc_document *doc, pc_io_warnings *warnings, pc_meta_blob *icc,
-                                 bool cmyk_target, pc_cimage *out, pc_error *err)
+                                 bool cmyk_target, bool warn_flatten, pc_cimage *out, pc_error *err)
 {
     pc_pixel_format fmt = pc_document_pixel_format(doc);
     size_t count = 0;
@@ -329,11 +343,17 @@ static pc_status composite_image(const pc_document *doc, pc_io_warnings *warning
     size_t colors;
     bool cmyk = fmt.mode == PC_COLOR_MODE_CMYK && cmyk_target;
     pc_color_mode out_mode;
-    pc_status st = pc_document_layer_count(doc, &count, err);
+    pc_status st = PC_OK;
     memset(&b, 0, sizeof b);
-    if (st == PC_OK) {
-        st = pc_io_warn(warnings, err, "%zu layer(s) flattened; layers, masks and blend modes are not kept",
-                        count);
+    /* A single plain layer that only the colour model (CMYK or Lab to a target that can't store
+     * it) sends through the compositor is not "flattened": the reference warns only when there is
+     * no single layer. */
+    if (warn_flatten) {
+        st = pc_document_layer_count(doc, &count, err);
+        if (st == PC_OK) {
+            st = pc_io_warn(warnings, err, "%zu layer(s) flattened; layers, masks and blend modes are not kept",
+                            count);
+        }
     }
     if (st != PC_OK) {
         return st;
@@ -398,10 +418,13 @@ static pc_status composite_image(const pc_document *doc, pc_io_warnings *warning
 }
 
 pc_status pc_io_document_to_image_for(const pc_document *doc, pc_io_warnings *warnings, bool cmyk_target,
-                                      pc_cimage *out, pc_error *err)
+                                      bool lab_target, pc_cimage *out, pc_error *err)
 {
     pc_pixel_format fmt = pc_document_pixel_format(doc);
-    const pc_surface *native = fmt.mode != PC_COLOR_MODE_LAB ? pc_io_single_layer(doc) : NULL;
+    /* A Lab document keeps its pixels only for a format that stores Lab (TIFF); otherwise it goes
+     * through the sRGB composite, which flattens nothing when there is a single plain layer. */
+    const pc_surface *single = pc_io_single_layer(doc);
+    const pc_surface *native = (fmt.mode != PC_COLOR_MODE_LAB || lab_target) ? single : NULL;
     pc_meta_blob icc = {false, NULL, 0};
     pc_cimage img;
     pc_status st = PC_OK;
@@ -410,7 +433,7 @@ pc_status pc_io_document_to_image_for(const pc_document *doc, pc_io_warnings *wa
     }
     if (st == PC_OK) {
         st = native != NULL ? native_image(doc, native, &img, err)
-                            : composite_image(doc, warnings, &icc, cmyk_target, &img, err);
+                            : composite_image(doc, warnings, &icc, cmyk_target, single == NULL, &img, err);
     }
     if (st != PC_OK) {
         pc_meta_blob_fini(&icc);
@@ -440,7 +463,7 @@ pc_status pc_io_document_to_image_for(const pc_document *doc, pc_io_warnings *wa
 pc_status pc_io_document_to_image(const pc_document *doc, pc_io_warnings *warnings, pc_cimage *out,
                                   pc_error *err)
 {
-    return pc_io_document_to_image_for(doc, warnings, true, out, err);
+    return pc_io_document_to_image_for(doc, warnings, true, false, out, err);
 }
 
 pc_status pc_io_encode_image(const pc_cimage *img, pc_cformat format, const pc_io_export_opts *opts,
@@ -826,10 +849,14 @@ pc_status pc_io_cmyk_image_to_srgb(const pc_cimage *img, pc_cimage *out, pc_erro
 /* ---- mode-specific exports ---- */
 
 typedef struct idx_ctx {
-    const pc_color_table *table;
+    const pc_color_table *opaque;    /* the palette with the (PNG) transparent entry removed */
+    const uint8_t *opaque_indices;   /* opaque-table position -> original palette index */
+    bool has_transparent;            /* the source table has a transparent entry */
+    uint8_t transparent;             /* its original palette index */
     uint8_t *idx;
     size_t len;
     size_t at;
+    bool no_opaque;                  /* set when a colour must be matched but no opaque entry exists */
 } idx_ctx;
 
 static pc_status idx_sink(void *vctx, pc_compose_buffer *band, pc_error *err)
@@ -838,55 +865,122 @@ static pc_status idx_sink(void *vctx, pc_compose_buffer *band, pc_error *err)
     (void)err;
     for (size_t i = 0; i < band->len && c->at < c->len; i++) {
         const float *p = band->px[i];
-        if (c->table->has_transparent && p[3] < 0.5f) {
-            c->idx[c->at++] = c->table->transparent;
+        if (c->has_transparent && p[3] < 0.5f) {
+            c->idx[c->at++] = c->transparent;
+        } else if (c->opaque->ncolors == 0) {
+            c->no_opaque = true;
+            c->idx[c->at++] = 0;
         } else {
             float rgb[3] = {p[0], p[1], p[2]};
-            c->idx[c->at++] = (uint8_t)pc_color_table_nearest(c->table, rgb);
+            c->idx[c->at++] = c->opaque_indices[pc_color_table_nearest(c->opaque, rgb)];
         }
     }
     return PC_OK;
 }
 
-/* Indexed Color -> PNG-8 with its colour table; Duotone -> the inks rendered as RGB. *done
- * false when the document needs no special handling. */
+/* Indexed Color -> PNG-8 or an 8-bit palette BMP with its colour table; Duotone -> the inks
+ * rendered as RGB. *done false when the document needs no special handling. */
 static pc_status export_mode_specific(const pc_document *doc, pc_cformat format,
                                       const pc_io_export_opts *opts, bool *done, pc_io_export_result *out,
                                       pc_error *err)
 {
     *done = false;
-    if (doc->mode == PC_COLOR_MODE_INDEXED && format == PC_CF_PNG) {
+    if (doc->mode == PC_COLOR_MODE_INDEXED && (format == PC_CF_PNG || format == PC_CF_BMP)) {
         const pc_color_table *t = &doc->color_table;
         idx_ctx c;
         pc_io_export_result r;
         pc_status st;
+        /* PNG transparency belongs to a palette index, not its RGB value: keep the transparent
+         * entry out of the opaque lookup even when it duplicates an opaque colour. BMP has no
+         * transparency, so every entry stays eligible. */
+        int png_transparent = (format == PC_CF_PNG && t->has_transparent) ? (int)t->transparent : -1;
+        pc_color_table opaque;
+        uint8_t (*ocolors)[3] = NULL;
+        uint8_t *omap = NULL;
+        size_t nop = 0;
         if (!doc->has_color_table || t->ncolors == 0 || t->ncolors > 256) {
             return PC_OK;
         }
-        c.table = t;
-        c.at = 0;
+        ocolors = malloc(t->ncolors * sizeof *ocolors);
+        omap = malloc(t->ncolors > 0 ? t->ncolors : 1);
+        if (ocolors == NULL || omap == NULL) {
+            free(ocolors);
+            free(omap);
+            return pc_io_nomem(err, "indexed export palette");
+        }
+        for (size_t i = 0; i < t->ncolors; i++) {
+            if ((int)i == png_transparent) {
+                continue;
+            }
+            ocolors[nop][0] = t->colors[i][0];
+            ocolors[nop][1] = t->colors[i][1];
+            ocolors[nop][2] = t->colors[i][2];
+            omap[nop] = (uint8_t)i;
+            nop++;
+        }
+        memset(&opaque, 0, sizeof opaque);
+        opaque.colors = ocolors;
+        opaque.ncolors = nop;
+        memset(&c, 0, sizeof c);
+        c.opaque = &opaque;
+        c.opaque_indices = omap;
+        c.has_transparent = t->has_transparent;
+        c.transparent = t->transparent;
         st = pc_io_try_buffer((size_t)pc_size_area(doc->size), 1, &c.idx, &c.len, err);
         if (st != PC_OK) {
+            free(ocolors);
+            free(omap);
             return st;
         }
         st = pc_compose_render_bands(doc, pc_document_bounds(doc), 0, NULL, idx_sink, &c, err);
+        if (st == PC_OK && c.no_opaque) {
+            st = pc_io_unsupported(
+                err, "%s", "Indexed palette has no opaque entry; add an opaque colour or convert to RGB");
+        }
         memset(&r, 0, sizeof r);
-        if (st == PC_OK) {
+        if (st == PC_OK && format == PC_CF_BMP) {
             pc_buf b = PC_BUF_INIT;
-            float dpi[2] = {doc->resolution_dpi, doc->resolution_dpi};
-            st = pc_cencode_png_indexed_dpi(doc->size.width, doc->size.height, c.idx, c.at,
-                                            (const uint8_t (*)[3])t->colors, t->ncolors,
-                                            t->has_transparent ? (int)t->transparent : -1, dpi, &b, err);
+            st = pc_cencode_bmp_indexed(doc->size.width, doc->size.height, c.idx, c.at,
+                                        (const uint8_t (*)[3])t->colors, t->ncolors, &b, err);
             if (st != PC_OK) {
                 st = pc_io_err_prefix(st, err, "codec: ");
             }
             r.bytes = pc_buf_take(&b, &r.len);
             pc_buf_fini(&b);
+            if (st == PC_OK) {
+                st = pc_io_warn(&r.warnings, err, "written as an 8-bit palette BMP (%zu colours)", t->ncolors);
+            }
+            if (st == PC_OK && t->has_transparent) {
+                st = pc_io_warn(&r.warnings, err,
+                                "BMP has no transparency; transparent pixels are written in the colour of "
+                                "palette entry %u",
+                                (unsigned)t->transparent);
+            }
+        } else if (st == PC_OK) {
+            pc_buf b = PC_BUF_INIT;
+            bool md = opts->encode.embed_metadata;
+            float dpi[2] = {doc->resolution_dpi, doc->resolution_dpi};
+            st = pc_cencode_png_indexed_dpi(doc->size.width, doc->size.height, c.idx, c.at,
+                                            (const uint8_t (*)[3])t->colors, t->ncolors,
+                                            t->has_transparent ? (int)t->transparent : -1,
+                                            md ? dpi : NULL, &b, err);
+            if (st != PC_OK) {
+                st = pc_io_err_prefix(st, err, "codec: ");
+            }
+            r.bytes = pc_buf_take(&b, &r.len);
+            pc_buf_fini(&b);
+            if (st == PC_OK) {
+                st = pc_io_warn(&r.warnings, err, "written as an 8-bit palette PNG (%zu colours)", t->ncolors);
+            }
+            if (st == PC_OK && md && opts->xmp == PC_IO_XMP_ALL && doc->metadata.ntext > 0) {
+                st = pc_io_warn(&r.warnings, err,
+                                "text metadata is not supported by the palette PNG exporter; it will be "
+                                "dropped");
+            }
         }
         free(c.idx);
-        if (st == PC_OK) {
-            st = pc_io_warn(&r.warnings, err, "written as an 8-bit palette PNG (%zu colours)", t->ncolors);
-        }
+        free(ocolors);
+        free(omap);
         if (st != PC_OK) {
             pc_io_export_result_fini(&r);
             return st;
@@ -964,14 +1058,16 @@ pc_status pc_io_export_flat(const pc_document *doc, pc_cformat format, const pc_
     bool done = false;
     bool converted = false;
     bool cmyk_target = false;
+    bool lab_target = false;
     pc_status st = export_mode_specific(doc, format, opts, &done, out, err);
     if (st != PC_OK || done) {
         return st;
     }
     for (size_t i = 0; i < caps.nlayouts; i++) {
         cmyk_target = cmyk_target || pc_clayout_is_cmyk(caps.layouts[i]);
+        lab_target = lab_target || pc_clayout_is_lab(caps.layouts[i]);
     }
-    st = pc_io_document_to_image_for(doc, &warnings, cmyk_target, &img, err);
+    st = pc_io_document_to_image_for(doc, &warnings, cmyk_target, lab_target, &img, err);
     if (st != PC_OK) {
         pc_io_warnings_fini(&warnings);
         return st;
@@ -1018,9 +1114,10 @@ pc_status pc_io_export_flat(const pc_document *doc, pc_cformat format, const pc_
                 replace(&img, &next);
             }
         }
-    } else if (st == PC_OK && !caps.icc) {
+    } else if (st == PC_OK && (!caps.icc || (pc_clayout_is_gray(img.layout) && !caps_has_gray(&caps)))) {
         /* Untagged files read back as sRGB/sGray: convert to it (as Quick Export does) rather than
-         * write values that only mean something under the dropped profile. */
+         * write values that only mean something under the dropped profile. Even an ICC-capable
+         * format like WebP loses a gray profile when the codec expands gray to RGB. */
         st = convert_rgb(&img, pc_builtin_profile(PC_BUILTIN_SRGB), PC_INTENT_PERCEPTUAL, true, img.sample,
                          &converted, &next, err);
         if (st == PC_OK && converted) {

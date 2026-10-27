@@ -50,17 +50,17 @@ static void check_warnings_at(const pc_cimage *img, const pc_cwarning *want, siz
 }
 #define CHECK_WARNINGS(img, want, n, what) check_warnings_at((img), (want), (n), (what), __LINE__)
 
-static const pc_cwarning TRUNCATED = {PC_CW_TRUNCATED, false, 0, PC_CF_JPEG, 0};
+static const pc_cwarning TRUNCATED = {PC_CW_TRUNCATED, false, 0, PC_CF_JPEG, 0, 0, 0, 0, 0};
 
 static pc_cwarning more_frames(uint32_t n)
 {
-    pc_cwarning w = {PC_CW_MORE_FRAMES, true, n, 0, 0};
+    pc_cwarning w = {PC_CW_MORE_FRAMES, true, n, 0, 0, 0, 0, 0, 0};
     return w;
 }
 
 static pc_cwarning more_pages(bool has, uint32_t n)
 {
-    pc_cwarning w = {PC_CW_MORE_PAGES, has, n, 0, 0};
+    pc_cwarning w = {PC_CW_MORE_PAGES, has, n, 0, 0, 0, 0, 0, 0};
     return w;
 }
 
@@ -298,7 +298,7 @@ static void test_gif_without_a_trailer_warns_without_a_total(void)
 {
     pc_buf b = gif(3);
     pc_cimage img;
-    pc_cwarning w = {PC_CW_MORE_FRAMES, false, 0, 0, 0};
+    pc_cwarning w = {PC_CW_MORE_FRAMES, false, 0, 0, 0, 0, 0, 0, 0};
     char s[256] = "";
     CHECK(b.len > 0 && b.data[b.len - 1] == 0x3B);
     img = dec(b.data, b.len - 1);

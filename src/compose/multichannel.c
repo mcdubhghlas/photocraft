@@ -23,15 +23,13 @@ pc_status pc_compose_inks(const pc_document *doc, pc_rect rect, pc_compose_buffe
     }
     for (ch = 0; ch < doc->nchannels && st == PC_OK; ch++) {
         const pc_alpha_channel *c = &doc->channels[ch];
+        int alpha = !c->has_spot;
         float rgb[3];
         float s;
         size_t n;
         size_t total;
         size_t i;
         int j;
-        if (pc_rect_is_empty(pc_rect_intersect(pc_surface_content_bounds(&c->surface), rect))) {
-            continue;
-        }
         if (c->has_spot) {
             pc_color_to_rgb(&c->spot_color, rgb);
             s = pc_clampf(c->spot_solidity, 0.0f, 1.0f);
@@ -39,6 +37,11 @@ pc_status pc_compose_inks(const pc_document *doc, pc_rect rect, pc_compose_buffe
             /* An alpha-type channel still prints, as a transparent black ink. */
             rgb[0] = rgb[1] = rgb[2] = 0.0f;
             s = 0.0f;
+        }
+        /* An empty alpha channel (all black) is solid black ink everywhere, so it can't be
+         * skipped; only spot channels skip on an empty content region. */
+        if (!alpha && pc_rect_is_empty(pc_rect_intersect(pc_surface_content_bounds(&c->surface), rect))) {
+            continue;
         }
         n = pc_surface_channels(&c->surface);
         if (n == 0 || !pc_size_mul(buf.len, n, &total)) {
@@ -53,7 +56,8 @@ pc_status pc_compose_inks(const pc_document *doc, pc_rect rect, pc_compose_buffe
         st = pc_surface_read_region_into(&c->surface, rect, vals, total, err);
         for (i = 0; st == PC_OK && i < buf.len; i++) {
             float *p = buf.px[i];
-            float v = pc_clampf(vals[i * n], 0.0f, 1.0f);
+            /* Alpha channel stored as-is (1 = selected, white); its ink is 1 - value. */
+            float v = pc_clampf(alpha ? 1.0f - vals[i * n] : vals[i * n], 0.0f, 1.0f);
             float keep;
             if (v <= 0.0f) {
                 continue;

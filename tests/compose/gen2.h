@@ -507,6 +507,8 @@ static pc_layer stroked_shape(rng *r, int32_t w, int32_t h)
     memset(&c, 0, sizeof c);
     c.kind = PC_LAYER_SHAPE;
     sh->path = polygon(r, w, h);
+    sh->density = 1.0f; /* ShapeLayer::default() (the reference generator uses it) */
+    sh->feather = 0.0f;
     k = below(r, 4);
     if (k == 1) {
         sh->has_fill = true;

@@ -131,6 +131,7 @@ fn err_kind(e: &IoError) -> &'static str {
         IoError::Pdn(_) => "pdn",
         IoError::Ora(_) => "ora",
         IoError::Kra(_) => "kra",
+        IoError::Xcf(_) => "xcf",
     }
 }
 

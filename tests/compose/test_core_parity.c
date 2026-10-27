@@ -335,6 +335,9 @@ static pc_layer gen_layer(rng *r, pc_pixel_format doc_fmt, int32_t w, int32_t h,
         float ca;
         memset(&c, 0, sizeof c);
         c.kind = PC_LAYER_SHAPE;
+        /* ShapeLayer::default(): density 1.0, feather 0.0 (not the memset zero). */
+        c.u.shape.density = 1.0f;
+        c.u.shape.feather = 0.0f;
         for (i = 0; i < k; i++) {
             int32_t x = range(r, -2, w + 2);
             int32_t y = range(r, -2, h + 2);

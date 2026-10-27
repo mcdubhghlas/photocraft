@@ -780,8 +780,9 @@ static pc_document synthetic(pc_sample_type depth)
     return d;
 }
 
-/* "name:vis:pos" of each state, sorted by layer name. */
-static void named_states(pc_buf *b, const pc_document *doc, const pc_layer_comp *c)
+/* "name:vis:pos" of each state, sorted by layer name. `extra` (or NULL) is an additional expected
+ * line injected before sorting (used for the #8093 inherited-visibility entry a PSD can't omit). */
+static void named_states_ex(pc_buf *b, const pc_document *doc, const pc_layer_comp *c, const char *extra)
 {
     char lines[16][128];
     size_t n = 0;
@@ -791,10 +792,18 @@ static void named_states(pc_buf *b, const pc_document *doc, const pc_layer_comp 
         (void)snprintf(lines[n++], sizeof lines[0], "%s:%d%d:%d:%d,%d", l != NULL ? pc_str_c(&l->name) : "?",
                        s->has_visible, s->visible, s->has_position, s->position[0], s->position[1]);
     }
+    if (extra != NULL && n < 16) {
+        (void)snprintf(lines[n++], sizeof lines[0], "%s", extra);
+    }
     qsort(lines, n, sizeof lines[0], (int (*)(const void *, const void *))strcmp);
     for (size_t i = 0; i < n; i++) {
         sb(b, "%s;", lines[i]);
     }
+}
+
+static void named_states(pc_buf *b, const pc_document *doc, const pc_layer_comp *c)
+{
+    named_states_ex(b, doc, c, NULL);
 }
 
 static void boards_s(pc_buf *b, const pc_document *d)
@@ -829,7 +838,10 @@ static void test_synthetic_psd_roundtrip_all_depths(void)
                   pc_layer_comp_captured_info(a) == pc_layer_comp_captured_info(b));
             pc_buf_truncate(&x, 0);
             pc_buf_truncate(&y, 0);
-            named_states(&x, &d, a);
+            /* "One" records nothing for Board 1. A PSD can't say "leaves it alone": its entry has
+             * no `enab`, which Photoshop reads as the previous comp's visibility (Both: shown), and
+             * so does the import now (#8093). */
+            named_states_ex(&x, &d, a, pc_str_eq_c(&a->name, "One") ? "Board 1:11:0:0,0" : NULL);
             named_states(&y, &back, b);
             CHECK_EQ_STR(pc_buf_cstr(&y), pc_buf_cstr(&x));
         }

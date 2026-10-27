@@ -123,6 +123,10 @@ pc_status psd_arr_f(const pc_ed_value *v, double **out, size_t *n, pc_error *err
     size_t len = 0, k, m = 0;
     const pc_ed_value *a = pc_ed_as_array(v, &len);
     double *r = NULL;
+    /* Bounded like the reference's `arr_f`: at most MAX_ENGINE_RUNS entries are taken. */
+    if (len > PC_PSD_MAX_ENGINE_RUNS) {
+        len = PC_PSD_MAX_ENGINE_RUNS;
+    }
     if (a != NULL && len > 0) {
         r = pc_malloc_array(len, sizeof *r);
         if (r == NULL) {
@@ -139,23 +143,37 @@ pc_status psd_arr_f(const pc_ed_value *v, double **out, size_t *n, pc_error *err
     return PC_OK;
 }
 
-void pc_text_utf16_to_byte_lengths(const char *text, size_t len, const double *lens, size_t n, size_t *out)
+size_t pc_text_utf16_to_byte_lengths(const char *text, size_t len, const double *lens, size_t n,
+                                     size_t *out)
 {
     const uint8_t *s = (const uint8_t *)text;
-    size_t i = 0, k;
-    for (k = 0; k < n; k++) {
+    size_t i = 0, k, produced = 0;
+    bool exhausted = false;
+    /* Stop once `text` is exhausted so trailing runs past the text aren't processed, and never
+     * process more than MAX_ENGINE_RUNS runs. The run that empties the text is still emitted. */
+    for (k = 0; k < n && k < PC_PSD_MAX_ENGINE_RUNS && !exhausted; k++) {
         /* `l.max(0.0) as usize`: NaN and negatives are 0, huge values saturate. */
         size_t units = pc_f64_to_size(lens[k] > 0.0 ? lens[k] : 0.0);
         size_t bytes = 0;
-        while (units > 0 && i < len) {
+        while (units > 0) {
             size_t at = i;
-            uint32_t cp = psd_next_char(s, len, &i);
-            size_t u = psd_utf16_len(cp);
+            uint32_t cp;
+            size_t u;
+            if (i >= len) {
+                exhausted = true;
+                break;
+            }
+            cp = psd_next_char(s, len, &i);
+            u = psd_utf16_len(cp);
             units = units > u ? units - u : 0;
             bytes += i - at;
         }
-        out[k] = bytes;
+        if (i >= len) {
+            exhausted = true;
+        }
+        out[produced++] = bytes;
     }
+    return produced;
 }
 
 pc_status psd_byte_lengths(const pc_str *text, const pc_ed_value *lens_value, size_t **out, size_t *n,
@@ -174,7 +192,7 @@ pc_status psd_byte_lengths(const pc_str *text, const pc_ed_value *lens_value, si
             free(lens);
             return pc_fail(err, PC_ERR_NOMEM, "out of memory reading PSD text");
         }
-        pc_text_utf16_to_byte_lengths(pc_str_c(text), text->len, lens, nl, r);
+        nl = pc_text_utf16_to_byte_lengths(pc_str_c(text), text->len, lens, nl, r);
     }
     free(lens);
     *out = r;
@@ -217,6 +235,13 @@ pc_status pc_tysh_parse(const uint8_t *data, size_t len, pc_tysh *out, pc_error 
     }
     for (k = 0; k < 6; k++) {
         t.transform.m[k] = pc_f64_from_bits(pc_load_be64(data + 2 + 8 * k));
+    }
+    /* A type transform can reach rendering or egui; pixel coordinates use i32 throughout the
+     * document, so non-finite and unrepresentable affine terms are rejected (#4758). */
+    for (k = 0; k < 6; k++) {
+        if (!isfinite(t.transform.m[k]) || fabs(t.transform.m[k]) > (double)INT32_MAX) {
+            return pc_fail(err, PC_ERR_FORMAT, "invalid TySh block");
+        }
     }
     st = pc_psd_vdesc_parse_prefix(data + 52, len - 52, &t.text, &used, &tmp);
     if (st != PC_OK) {
@@ -393,6 +418,9 @@ bool psd_dnum(const pc_psd_value *v, double *out)
         return false;
     }
     if (v->kind == PC_PSD_V_DOUBLE || v->kind == PC_PSD_V_UNIT_FLOAT) {
+        if (!isfinite(v->d)) {
+            return false;
+        }
         *out = v->d;
         return true;
     }
@@ -484,13 +512,29 @@ static float f32_of(double v)
     return pc_f64_to_f32(v);
 }
 
+/* num(key) * k, but an f32 that a huge finite f64 overflowed to infinity is dropped (returns
+ * false) so a default is used, as the reference's `numk` does. */
+static bool numk(const pc_ed_value *run, const pc_ed_value *base, const char *key, float k, float *out)
+{
+    double v;
+    float r;
+    if (!num(run, base, key, &v)) {
+        return false;
+    }
+    r = f32_of(v) * k;
+    if (!isfinite(r)) {
+        return false;
+    }
+    *out = r;
+    return true;
+}
+
 pc_status psd_char_style(const pc_ed_value *base, const pc_ed_value *d, const psd_names *fonts, float k,
                          pc_char_style *out, pc_error *err)
 {
     pc_char_style s;
     pc_status st = PC_OK;
     int64_t i;
-    double v;
     size_t f;
     const pc_ed_value *c;
     pc_char_style_default(&s);
@@ -509,17 +553,20 @@ pc_status psd_char_style(const pc_ed_value *base, const pc_ed_value *d, const ps
             s.has_postscript_name = st == PC_OK;
         }
     }
-    if (num(d, base, "FontSize", &v)) {
-        s.size_pt = f32_of(v) * k;
+    {
+        float r;
+        if (numk(d, base, "FontSize", k, &r)) {
+            s.size_pt = r;
+        }
+        if (flag(d, base, "AutoLeading") == 0 && numk(d, base, "Leading", k, &r)) {
+            s.has_leading = true;
+            s.leading_pt = r;
+        }
+        s.tracking = numk(d, base, "Tracking", 1.0f, &r) ? r : 0.0f;
+        s.baseline_shift_pt = numk(d, base, "BaselineShift", k, &r) ? r : 0.0f;
+        s.horizontal_scale = numk(d, base, "HorizontalScale", 1.0f, &r) ? r : 1.0f;
+        s.vertical_scale = numk(d, base, "VerticalScale", 1.0f, &r) ? r : 1.0f;
     }
-    if (flag(d, base, "AutoLeading") == 0 && num(d, base, "Leading", &v)) {
-        s.has_leading = true;
-        s.leading_pt = f32_of(v) * k;
-    }
-    s.tracking = num(d, base, "Tracking", &v) ? f32_of(v) : 0.0f;
-    s.baseline_shift_pt = (num(d, base, "BaselineShift", &v) ? f32_of(v) : 0.0f) * k;
-    s.horizontal_scale = num(d, base, "HorizontalScale", &v) ? f32_of(v) : 1.0f;
-    s.vertical_scale = num(d, base, "VerticalScale", &v) ? f32_of(v) : 1.0f;
     s.faux_bold = flag(d, base, "FauxBold") == 1;
     s.faux_italic = flag(d, base, "FauxItalic") == 1;
     s.underline = flag(d, base, "Underline") == 1;
@@ -541,18 +588,40 @@ pc_status psd_char_style(const pc_ed_value *base, const pc_ed_value *d, const ps
         }
     }
     s.kerning = flag(d, base, "AutoKerning") == 0 ? PC_KERNING_OFF : PC_KERNING_METRICS;
-    s.kern = num(d, base, "Kerning", &v) && isfinite(v) ? f32_of(v) : 0.0f;
+    {
+        float r;
+        s.kern = numk(d, base, "Kerning", 1.0f, &r) ? r : 0.0f;
+    }
     s.caps = PC_CAPS_NORMAL;
     if (pc_ed_as_i64(lookup(d, base, "FontCaps"), &i)) {
         s.caps = i == 1 ? PC_CAPS_SMALL_CAPS : i == 2 ? PC_CAPS_ALL_CAPS : PC_CAPS_NORMAL;
     }
+    s.baseline = PC_FONT_BASELINE_NORMAL;
+    if (pc_ed_as_i64(lookup(d, base, "FontBaseline"), &i)) {
+        s.baseline =
+            i == 1 ? PC_FONT_BASELINE_SUPERSCRIPT : i == 2 ? PC_FONT_BASELINE_SUBSCRIPT : PC_FONT_BASELINE_NORMAL;
+    }
     c = lookup(d, base, "FillColor");
     if (c != NULL && st == PC_OK) {
         double *vals;
-        size_t nv;
+        size_t nv, n_raw = 0;
+        (void)pc_ed_as_array(pc_ed_get(c, "Values"), &n_raw);
         st = psd_arr_f(pc_ed_get(c, "Values"), &vals, &nv, err);
         if (st == PC_OK) {
-            float a = nv > 0 ? f32_of(vals[0]) : 1.0f;
+            float a;
+            size_t vi;
+            /* Positions matter (alpha, then the channels): a non-finite entry, or an entry that
+             * was not a number, voids the colour (it falls through to black). */
+            if (nv != n_raw) {
+                nv = 0;
+            }
+            for (vi = 0; vi < nv; vi++) {
+                if (!isfinite((float)vals[vi])) {
+                    nv = 0;
+                    break;
+                }
+            }
+            a = nv > 0 ? f32_of(vals[0]) : 1.0f;
             if (nv == 5) {
                 s.color.mode = PC_COLOR_MODE_CMYK;
                 s.color.c[0] = f32_of(vals[1]);
@@ -610,12 +679,15 @@ pc_paragraph_style psd_para_style(const pc_ed_value *base, const pc_ed_value *d,
             break;
         }
     }
-    p.first_line_indent_pt = (num(d, base, "FirstLineIndent", &v) ? f32_of(v) : 0.0f) * k;
-    p.start_indent_pt = (num(d, base, "StartIndent", &v) ? f32_of(v) : 0.0f) * k;
-    p.end_indent_pt = (num(d, base, "EndIndent", &v) ? f32_of(v) : 0.0f) * k;
-    p.space_before_pt = (num(d, base, "SpaceBefore", &v) ? f32_of(v) : 0.0f) * k;
-    p.space_after_pt = (num(d, base, "SpaceAfter", &v) ? f32_of(v) : 0.0f) * k;
-    p.auto_leading = num(d, base, "AutoLeading", &v) ? f32_of(v) : f32_of(1.2);
+    {
+        float r;
+        p.first_line_indent_pt = numk(d, base, "FirstLineIndent", k, &r) ? r : 0.0f;
+        p.start_indent_pt = numk(d, base, "StartIndent", k, &r) ? r : 0.0f;
+        p.end_indent_pt = numk(d, base, "EndIndent", k, &r) ? r : 0.0f;
+        p.space_before_pt = numk(d, base, "SpaceBefore", k, &r) ? r : 0.0f;
+        p.space_after_pt = numk(d, base, "SpaceAfter", k, &r) ? r : 0.0f;
+        p.auto_leading = numk(d, base, "AutoLeading", 1.0f, &r) ? r : f32_of(1.2);
+    }
     p.hyphenate = flag(d, base, "AutoHyphenate") == 1;
     return p;
 }
@@ -940,6 +1012,17 @@ static pc_status apply_engine_data(pc_text_layer *layer, const pc_ed_value *e, c
     if (st == PC_OK) {
         st = psd_byte_lengths(ed_text, pc_ed_get(prun, "RunLengthArray"), &plens, &nplens, err);
     }
+    if (st == PC_OK) {
+        /* psheets.take(max_pruns), then plens16[..psheets.len()]: a paragraph sheet without its
+         * own run length (past the text) is not a paragraph run. */
+        size_t max_pruns = nplens > 0 ? nplens : 1;
+        if (nps > max_pruns) {
+            nps = max_pruns;
+        }
+        if (nplens16 > nps) {
+            nplens16 = nps;
+        }
+    }
     if (st == PC_OK && nps > 0 && (pbases = calloc(nps, sizeof *pbases)) == NULL) {
         st = pc_fail(err, PC_ERR_NOMEM, "out of memory reading PSD text");
     }
@@ -988,6 +1071,13 @@ static pc_status apply_engine_data(pc_text_layer *layer, const pc_ed_value *e, c
     }
     if (st == PC_OK) {
         st = psd_byte_lengths(ed_text, pc_ed_get(srun, "RunLengthArray"), &slens, &nslens, err);
+    }
+    if (st == PC_OK) {
+        /* ssheets.take(max_sruns): a style sheet without its own run length is not a style run. */
+        size_t max_sruns = nslens > 0 ? nslens : 1;
+        if (nss > max_sruns) {
+            nss = max_sruns;
+        }
     }
     if (st == PC_OK && nss > 0 && (bases = calloc(nss, sizeof *bases)) == NULL) {
         st = pc_fail(err, PC_ERR_NOMEM, "out of memory reading PSD text");
@@ -1272,11 +1362,14 @@ static pc_status read_warp(const pc_psd_desc *w, pc_text_layer *layer, pc_error 
     }
     layer->has_warp = true;
     layer->warp.style = style;
-    layer->warp.value = psd_dnum(pc_psd_desc_get(w, "warpValue"), &v) ? f32_of(v) : 0.0f;
+    /* Bend and distortion are percentages in -100..100 (as `type.warpText` clamps them); clamping
+     * before the cast keeps a value beyond f32 from becoming inf. dnum already dropped non-finite. */
+    layer->warp.value =
+        (float)pc_clampd(psd_dnum(pc_psd_desc_get(w, "warpValue"), &v) ? v : 0.0, -100.0, 100.0);
     layer->warp.horizontal_distortion =
-        psd_dnum(pc_psd_desc_get(w, "warpPerspective"), &v) ? f32_of(v) : 0.0f;
+        (float)pc_clampd(psd_dnum(pc_psd_desc_get(w, "warpPerspective"), &v) ? v : 0.0, -100.0, 100.0);
     layer->warp.vertical_distortion =
-        psd_dnum(pc_psd_desc_get(w, "warpPerspectiveOther"), &v) ? f32_of(v) : 0.0f;
+        (float)pc_clampd(psd_dnum(pc_psd_desc_get(w, "warpPerspectiveOther"), &v) ? v : 0.0, -100.0, 100.0);
     layer->warp.horizontal = !enum_is(w, "warpRotate", "Vrtc");
     return PC_OK;
 }

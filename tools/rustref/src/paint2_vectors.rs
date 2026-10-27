@@ -434,10 +434,10 @@ pub fn run() {
     ];
     let states = [
         MixerState::default(),
-        MixerState { reservoir: Some([1.0, 0.0, 0.0, 1.0]), amount: 1.0, pickup: None },
-        MixerState { reservoir: Some([0.9, 0.8, 0.1, 0.5]), amount: 0.4, pickup: Some([0.0, 0.2, 1.0, 1.0]) },
-        MixerState { reservoir: None, amount: 0.7, pickup: Some([0.5, 0.5, 0.5, 0.2]) },
-        MixerState { reservoir: Some([0.3, 0.6, 0.9, 1.0]), amount: f32::NAN, pickup: None },
+        MixerState { reservoir: Some([1.0, 0.0, 0.0, 1.0]), amount: 1.0, pickup: None, color: None },
+        MixerState { reservoir: Some([0.9, 0.8, 0.1, 0.5]), amount: 0.4, pickup: Some([0.0, 0.2, 1.0, 1.0]), color: None },
+        MixerState { reservoir: None, amount: 0.7, pickup: Some([0.5, 0.5, 0.5, 0.2]), color: None },
+        MixerState { reservoir: Some([0.3, 0.6, 0.9, 1.0]), amount: f32::NAN, pickup: None, color: None },
     ];
     for fi in 0..nf {
         for (mi, m) in msets.iter().enumerate() {

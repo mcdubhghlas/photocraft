@@ -702,7 +702,7 @@ static void test_png_resolution_axes(void)
     r = imp("x.png", b.data, b.len);
     CHECK(fabsf(r.document.resolution_dpi - 300.0f) < 0.01f);
     CHECK_EQ_UINT(resolution_notes(&r, &note), 1);
-    CHECK(note != NULL && strstr(note, "150.01") != NULL && strstr(note, "300.00") != NULL);
+    CHECK(note != NULL && strstr(note, "150.00") != NULL && strstr(note, "300.00") != NULL);
     pc_io_import_result_fini(&r);
     pc_buf_fini(&b);
     png_dpi(300, 300, &b);

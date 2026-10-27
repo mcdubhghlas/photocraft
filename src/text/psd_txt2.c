@@ -263,8 +263,10 @@ pc_status pc_txt2_apply(pc_text_layer *layer, const uint8_t *tysh, size_t len, c
             lens[k] = 0.0;
         }
     }
-    pc_text_utf16_to_byte_lengths(pc_str_c(text), text->len, lens, nstyle, bytes);
-    for (k = 0; k < nstyle; k++) {
+    /* `bytes`/`segs` are non-NULL whenever the original nstyle > 0, and the produced count is at
+     * most that, so the guard only reassures the analyzer. */
+    nstyle = bytes != NULL ? pc_text_utf16_to_byte_lengths(pc_str_c(text), text->len, lens, nstyle, bytes) : 0;
+    for (k = 0; bytes != NULL && k < nstyle; k++) {
         if (bytes[k] > 0) {
             segs[nseg].len = bytes[k];
             segs[nseg].style = pc_ed_path(&styles[k], "0", "0", "6", (const char *)NULL);
@@ -539,11 +541,24 @@ pc_status pc_tysh_set_text_index(const uint8_t *tysh, size_t len, int32_t index,
         }
     }
     if (!set) {
+        /* Where Photoshop writes it: right before EngineData (else at the end). */
+        size_t at = t.text.n;
         pc_psd_value v;
+        for (k = 0; k < t.text.n; k++) {
+            if (pc_psd_id_is(&t.text.items[k].key, "EngineData")) {
+                at = k;
+                break;
+            }
+        }
         memset(&v, 0, sizeof v);
         v.kind = PC_PSD_V_INTEGER;
         v.i = index;
         st = pc_psd_desc_add(&t.text, "TextIndex", &v, err);
+        if (st == PC_OK && at + 1 < t.text.n) {
+            pc_psd_item ins = t.text.items[t.text.n - 1];
+            memmove(&t.text.items[at + 1], &t.text.items[at], (t.text.n - 1 - at) * sizeof(pc_psd_item));
+            t.text.items[at] = ins;
+        }
     }
     if (st == PC_OK) {
         st = pc_tysh_write(&t, out, err);
@@ -800,138 +815,1282 @@ static pc_status generated_run(int64_t mode, size_t len, pc_ed_value *out, pc_er
     return PC_OK;
 }
 
-/* One text object for `layer` at slot `at` (kept: the file's object there holds the same text). */
-static pc_status build_object(const pc_text_layer *layer, const pc_ed_value *prev_objects, size_t nprev,
-                              size_t at, pc_ed_value *out, pc_error *err)
+/* ---- refit budgets and shape tests (port of psd.rs fits/fits_budget/is_stub/...) ---- */
+
+/* The most values a Txt2 object may hold to serve as the template for new objects. */
+#define TXT2_TEMPLATE_NODES 4096u
+/* Cumulative node and byte budgets across all run dictionaries cloned while refitting one object. */
+#define TXT2_MAX_REFIT_RUN_NODES 16384u
+#define TXT2_MAX_REFIT_RUN_BYTES (1u << 20)
+
+/* Sets dict[key] = *v (taken over, also on failure). */
+static pc_status edset(pc_ed_value *d, const char *key, pc_ed_value *v, pc_error *err)
+{
+    pc_status st = pc_ed_set(d, key, v, err);
+    pc_ed_fini(v);
+    return st;
+}
+
+/* Appends *v to an array (taken over, also on failure). */
+static pc_status edpush(pc_ed_value *a, pc_ed_value *v, pc_error *err)
+{
+    pc_status st = pc_ed_push(a, v, err);
+    pc_ed_fini(v);
+    return st;
+}
+
+static pc_status edpush_real(pc_ed_value *a, double r, pc_error *err)
+{
+    pc_ed_value v = pc_ed_real(r);
+    return pc_ed_push(a, &v, err);
+}
+
+/* fits: whether v holds at most *budget values, counting down (stops at the first one over). */
+static bool txt2_fits(const pc_ed_value *v, size_t *budget)
+{
+    size_t k;
+    if (*budget == 0) {
+        return false;
+    }
+    (*budget)--;
+    if (v->kind == PC_ED_DICT) {
+        for (k = 0; k < v->n; k++) {
+            if (!txt2_fits(&v->entries[k].value, budget)) {
+                return false;
+            }
+        }
+    } else if (v->kind == PC_ED_ARRAY) {
+        for (k = 0; k < v->n; k++) {
+            if (!txt2_fits(&v->items[k], budget)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+/* fits_budget: whether v fits within the remaining (nodes, bytes) budget, deducting its nodes and
+ * string/key bytes as it walks. */
+static bool txt2_fits_budget(const pc_ed_value *v, size_t *nodes, size_t *bytes)
+{
+    size_t k;
+    if (*nodes == 0) {
+        return false;
+    }
+    (*nodes)--;
+    switch (v->kind) {
+    case PC_ED_DICT:
+        for (k = 0; k < v->n; k++) {
+            size_t kl = v->entries[k].key.len;
+            if (*bytes < kl) {
+                return false;
+            }
+            *bytes -= kl;
+            if (!txt2_fits_budget(&v->entries[k].value, nodes, bytes)) {
+                return false;
+            }
+        }
+        return true;
+    case PC_ED_ARRAY:
+        for (k = 0; k < v->n; k++) {
+            if (!txt2_fits_budget(&v->items[k], nodes, bytes)) {
+                return false;
+            }
+        }
+        return true;
+    case PC_ED_STRING:
+    case PC_ED_NAME: {
+        size_t sl = v->s.len;
+        if (*bytes < sl) {
+            return false;
+        }
+        *bytes -= sl;
+        return true;
+    }
+    default:
+        return true;
+    }
+}
+
+/* only(v, keys): v is a dictionary whose every key is in `keys`. */
+static bool txt2_only_keys(const pc_ed_value *v, const char *const *keys, size_t nk)
+{
+    size_t i, j;
+    if (v->kind != PC_ED_DICT) {
+        return false;
+    }
+    for (i = 0; i < v->n; i++) {
+        bool ok = false;
+        for (j = 0; j < nk && !ok; j++) {
+            ok = pc_str_eq_c(&v->entries[i].key, keys[j]);
+        }
+        if (!ok) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/* is_stub: the bare `<< /0 << /0 text /6 runs >> >>` object (no view, no paragraph runs). */
+static bool txt2_is_stub(const pc_ed_value *object)
+{
+    static const char *const k0[] = {"0"};
+    static const char *const k06[] = {"0", "6"};
+    const pc_ed_value *m;
+    if (!txt2_only_keys(object, k0, 1)) {
+        return false;
+    }
+    m = pc_ed_get(object, "0");
+    return m != NULL && txt2_only_keys(m, k06, 2);
+}
+
+/* names_one_frame: the object has a view naming one frame (`/1 /0 [ << /0 n >> ]`). */
+static bool txt2_names_one_frame(const pc_ed_value *object)
+{
+    size_t nf = 0;
+    const pc_ed_value *f = pc_ed_as_array(pc_ed_path(object, "1", "0", (const char *)NULL), &nf);
+    return f != NULL && nf == 1 && pc_ed_get(&f[0], "0") != NULL;
+}
+
+/* UTF-16 unit count of UTF-8 text s[0..len). */
+static size_t txt2_utf16_len(const char *s, size_t len)
+{
+    const uint8_t *b = (const uint8_t *)s;
+    size_t i = 0, n = 0;
+    while (i < len) {
+        size_t at = i;
+        uint32_t cp = psd_next_char(b, len, &at);
+        n += psd_utf16_len(cp);
+        i = at;
+    }
+    return n;
+}
+
+/* UTF-16 length of each paragraph of `text` (split_inclusive('\r'); each keeps its '\r'). */
+static pc_status txt2_paragraph_lens(const char *s, size_t len, size_t **out, size_t *n, pc_error *err)
+{
+    const uint8_t *b = (const uint8_t *)s;
+    size_t i = 0, cur = 0, cnt = 0, cap = 0;
+    size_t *v = NULL;
+    bool started = false;
+    while (i < len) {
+        size_t at = i;
+        uint32_t cp = psd_next_char(b, len, &at);
+        cur += psd_utf16_len(cp);
+        started = true;
+        if (cp == '\r') {
+            size_t *g = pc_grow_array(v, &cap, cnt + 1, sizeof *g);
+            if (g == NULL) {
+                free(v);
+                return pc_fail(err, PC_ERR_NOMEM, "out of memory building Txt2");
+            }
+            v = g;
+            v[cnt++] = cur;
+            cur = 0;
+            started = false;
+        }
+        i = at;
+    }
+    if (started) {
+        size_t *g = pc_grow_array(v, &cap, cnt + 1, sizeof *g);
+        if (g == NULL) {
+            free(v);
+            return pc_fail(err, PC_ERR_NOMEM, "out of memory building Txt2");
+        }
+        v = g;
+        v[cnt++] = cur;
+    }
+    *out = v;
+    *n = cnt;
+    return PC_OK;
+}
+
+/* runs_per: `runs` remade with the lengths `lens` (run i keeps content of run i, else of the last).
+ * *ok false (None) for empty runs or a cumulative nodes/bytes budget overrun. */
+static pc_status runs_per(const pc_ed_value *runs, size_t nruns, const size_t *lens, size_t nlens,
+                          const char *len_key, size_t *nodes, size_t *bytes, pc_ed_value *out, bool *ok,
+                          pc_error *err)
+{
+    pc_ed_value arr = pc_ed_array();
+    size_t i;
+    pc_status st = PC_OK;
+    *ok = false;
+    if (nruns == 0) {
+        return PC_OK; /* runs.last()? -> None */
+    }
+    for (i = 0; i < nlens; i++) {
+        const pc_ed_value *src = i < nruns ? &runs[i] : &runs[nruns - 1];
+        pc_ed_value r;
+        if (!txt2_fits_budget(src, nodes, bytes)) {
+            pc_ed_fini(&arr);
+            return PC_OK;
+        }
+        st = pc_ed_clone(src, &r, err);
+        if (st != PC_OK) {
+            pc_ed_fini(&arr);
+            return st;
+        }
+        if (lens[i] > (size_t)INT64_MAX) {
+            pc_ed_fini(&r);
+            pc_ed_fini(&arr);
+            return PC_OK;
+        }
+        st = psd_set_int(&r, len_key, (int64_t)lens[i], err);
+        if (st == PC_OK) {
+            st = edpush(&arr, &r, err);
+        } else {
+            pc_ed_fini(&r);
+        }
+        if (st != PC_OK) {
+            pc_ed_fini(&arr);
+            return st;
+        }
+    }
+    *out = arr;
+    *ok = true;
+    return PC_OK;
+}
+
+/* runs_to_length: `runs` covering `total` UTF-16 units (leading runs kept, cut where `total` ends,
+ * the last kept run extended when longer; empty runs dropped). *ok false for empty runs, a length
+ * that isn't a count, or a budget overrun. */
+static pc_status runs_to_length(const pc_ed_value *runs, size_t nruns, size_t total, const char *len_key,
+                                size_t *nodes, size_t *bytes, pc_ed_value *out, bool *ok, pc_error *err)
+{
+    pc_ed_value arr = pc_ed_array();
+    size_t *takes = NULL, tcap = 0, cnt = 0, i, left = total;
+    pc_status st = PC_OK;
+    *ok = false;
+    for (i = 0; i < nruns; i++) {
+        int64_t l;
+        size_t len, take;
+        if (!pc_ed_as_i64(pc_ed_get(&runs[i], len_key), &l) || l < 0 || (uint64_t)l > SIZE_MAX) {
+            goto none;
+        }
+        len = (size_t)l;
+        take = len < left ? len : left;
+        if (take > 0) {
+            pc_ed_value r;
+            size_t *g;
+            if (!txt2_fits_budget(&runs[i], nodes, bytes)) {
+                goto none;
+            }
+            st = pc_ed_clone(&runs[i], &r, err);
+            if (st != PC_OK) {
+                goto fail;
+            }
+            st = edpush(&arr, &r, err);
+            if (st != PC_OK) {
+                pc_ed_fini(&r);
+                goto fail;
+            }
+            g = pc_grow_array(takes, &tcap, cnt + 1, sizeof *g);
+            if (g == NULL) {
+                st = pc_fail(err, PC_ERR_NOMEM, "out of memory building Txt2");
+                goto fail;
+            }
+            takes = g;
+            takes[cnt++] = take;
+            left -= take;
+        }
+    }
+    if (left > 0) {
+        if (cnt > 0) {
+            if (takes[cnt - 1] > SIZE_MAX - left) {
+                goto none; /* checked_add -> None */
+            }
+            takes[cnt - 1] += left;
+        } else {
+            const pc_ed_value *last;
+            pc_ed_value r;
+            size_t *g;
+            if (nruns == 0) {
+                goto none;
+            }
+            last = &runs[nruns - 1];
+            if (!txt2_fits_budget(last, nodes, bytes)) {
+                goto none;
+            }
+            st = pc_ed_clone(last, &r, err);
+            if (st != PC_OK) {
+                goto fail;
+            }
+            st = edpush(&arr, &r, err);
+            if (st != PC_OK) {
+                pc_ed_fini(&r);
+                goto fail;
+            }
+            g = pc_grow_array(takes, &tcap, cnt + 1, sizeof *g);
+            if (g == NULL) {
+                st = pc_fail(err, PC_ERR_NOMEM, "out of memory building Txt2");
+                goto fail;
+            }
+            takes = g;
+            takes[cnt++] = left;
+        }
+    }
+    for (i = 0; i < cnt; i++) {
+        if (takes[i] > (size_t)INT64_MAX) {
+            goto none;
+        }
+        st = psd_set_int(&arr.items[i], len_key, (int64_t)takes[i], err);
+        if (st != PC_OK) {
+            goto fail;
+        }
+    }
+    free(takes);
+    *out = arr;
+    *ok = true;
+    return PC_OK;
+none:
+    free(takes);
+    pc_ed_fini(&arr);
+    return PC_OK;
+fail:
+    free(takes);
+    pc_ed_fini(&arr);
+    return st;
+}
+
+/* edited_object: the file's Txt2 text object refitted to `text` (its text replaced, paragraph runs
+ * `/5` one per paragraph, every other run array cut/extended to the new total; `/21` glyph pen
+ * positions dropped). *ok false (None) when the object isn't shaped as Photoshop writes it. */
+static pc_status edited_object(const pc_ed_value *object, const char *text, size_t tlen, pc_ed_value *out,
+                               bool *ok, pc_error *err)
+{
+    pc_ed_value obj;
+    pc_ed_value *model;
+    size_t total, nodes = TXT2_MAX_REFIT_RUN_NODES, bytes = TXT2_MAX_REFIT_RUN_BYTES, k, *paras = NULL,
+                  nparas = 0;
+    pc_status st;
+    *ok = false;
+    st = pc_ed_clone(object, &obj, err);
+    if (st != PC_OK) {
+        return st;
+    }
+    pc_ed_remove(&obj, "21");
+    model = pc_ed_get_mut(&obj, "0");
+    if (model == NULL || model->kind != PC_ED_DICT) {
+        pc_ed_fini(&obj);
+        return PC_OK;
+    }
+    total = txt2_utf16_len(text, tlen);
+    st = txt2_paragraph_lens(text, tlen, &paras, &nparas, err);
+    if (st != PC_OK) {
+        pc_ed_fini(&obj);
+        return st;
+    }
+    for (k = 0; k < model->n; k++) {
+        pc_ed_entry *e = &model->entries[k];
+        const pc_ed_value *runs;
+        size_t nr = 0, j;
+        bool shaped;
+        pc_ed_value fitted;
+        bool fok = false;
+        if (pc_str_eq_c(&e->key, "0")) {
+            pc_ed_value sv;
+            st = pc_ed_string(text, tlen, &sv, err);
+            if (st != PC_OK) {
+                goto fail;
+            }
+            pc_ed_fini(&e->value);
+            e->value = sv;
+            continue;
+        }
+        runs = pc_ed_as_array(pc_ed_get(&e->value, "0"), &nr);
+        shaped = runs != NULL;
+        for (j = 0; shaped && j < nr; j++) {
+            shaped = runs[j].kind == PC_ED_DICT && pc_ed_get(&runs[j], "1") != NULL;
+        }
+        if (!shaped) {
+            continue;
+        }
+        if (pc_str_eq_c(&e->key, "5")) {
+            st = runs_per(runs, nr, paras, nparas, "1", &nodes, &bytes, &fitted, &fok, err);
+        } else {
+            st = runs_to_length(runs, nr, total, "1", &nodes, &bytes, &fitted, &fok, err);
+        }
+        if (st != PC_OK) {
+            goto fail;
+        }
+        if (!fok) {
+            pc_ed_fini(&obj); /* None */
+            free(paras);
+            return PC_OK;
+        }
+        st = edset(&e->value, "0", &fitted, err);
+        if (st != PC_OK) {
+            goto fail;
+        }
+    }
+    free(paras);
+    *out = obj;
+    *ok = true;
+    return PC_OK;
+fail:
+    free(paras);
+    pc_ed_fini(&obj);
+    return st;
+}
+
+/* td_edited_object: the older-Photoshop object (`<< /Model << /Text .. /ParagraphRun .. >> >>`,
+ * runs numbered by `/Length` in UTF-16 units) refitted to `text`. *ok false when it isn't shaped
+ * as Photoshop writes it (the caller then leaves the file's own entry). */
+static pc_status td_edited_object(const pc_ed_value *object, const char *text, size_t tlen,
+                                  pc_ed_value *out, bool *ok, pc_error *err)
+{
+    pc_ed_value obj;
+    pc_ed_value *model;
+    size_t total, nodes = TXT2_MAX_REFIT_RUN_NODES, bytes = TXT2_MAX_REFIT_RUN_BYTES, k, *paras = NULL,
+                  nparas = 0;
+    bool has_text = false;
+    pc_status st;
+    *ok = false;
+    st = pc_ed_clone(object, &obj, err);
+    if (st != PC_OK) {
+        return st;
+    }
+    model = pc_ed_get_mut(&obj, "Model");
+    if (model == NULL || model->kind != PC_ED_DICT) {
+        pc_ed_fini(&obj);
+        return PC_OK;
+    }
+    for (k = 0; k < model->n; k++) {
+        if (pc_str_eq_c(&model->entries[k].key, "Text") && model->entries[k].value.kind == PC_ED_STRING) {
+            has_text = true;
+        }
+    }
+    if (!has_text) {
+        pc_ed_fini(&obj);
+        return PC_OK;
+    }
+    total = txt2_utf16_len(text, tlen);
+    st = txt2_paragraph_lens(text, tlen, &paras, &nparas, err);
+    if (st != PC_OK) {
+        pc_ed_fini(&obj);
+        return st;
+    }
+    for (k = 0; k < model->n; k++) {
+        pc_ed_entry *e = &model->entries[k];
+        const pc_ed_value *runs;
+        size_t nr = 0, j;
+        bool shaped;
+        pc_ed_value fitted;
+        bool fok = false;
+        if (pc_str_eq_c(&e->key, "Text")) {
+            pc_ed_value sv;
+            st = pc_ed_string(text, tlen, &sv, err);
+            if (st != PC_OK) {
+                goto fail;
+            }
+            pc_ed_fini(&e->value);
+            e->value = sv;
+            continue;
+        }
+        if (e->value.kind != PC_ED_DICT) {
+            continue;
+        }
+        if (pc_ed_get(&e->value, "RunArray") == NULL) {
+            continue;
+        }
+        runs = pc_ed_as_array(pc_ed_get(&e->value, "RunArray"), &nr);
+        shaped = runs != NULL;
+        for (j = 0; shaped && j < nr; j++) {
+            shaped = runs[j].kind == PC_ED_DICT && pc_ed_get(&runs[j], "Length") != NULL;
+        }
+        if (!shaped) {
+            pc_ed_fini(&obj); /* a named RunArray that is malformed -> None */
+            free(paras);
+            return PC_OK;
+        }
+        if (pc_str_eq_c(&e->key, "ParagraphRun")) {
+            st = runs_per(runs, nr, paras, nparas, "Length", &nodes, &bytes, &fitted, &fok, err);
+        } else {
+            st = runs_to_length(runs, nr, total, "Length", &nodes, &bytes, &fitted, &fok, err);
+        }
+        if (st != PC_OK) {
+            goto fail;
+        }
+        if (!fok) {
+            pc_ed_fini(&obj);
+            free(paras);
+            return PC_OK;
+        }
+        st = edset(&e->value, "RunArray", &fitted, err);
+        if (st != PC_OK) {
+            goto fail;
+        }
+    }
+    free(paras);
+    *out = obj;
+    *ok = true;
+    return PC_OK;
+fail:
+    free(paras);
+    pc_ed_fini(&obj);
+    return st;
+}
+
+/* new_object: a text object for slot `at` (the file's block has none) from `template`, refitted by
+ * edited_object with its view naming frame `at` and its view runs remade for the new paragraphs. */
+static pc_status new_object(const pc_ed_value *template_, size_t at, const char *text, size_t tlen,
+                            pc_ed_value *out, bool *ok, pc_error *err)
+{
+    pc_ed_value obj, frameval, *view, *strikes, *vruns_slot;
+    const pc_ed_value *fp;
+    bool have_frame = false;
+    size_t nparas = 0, *paras = NULL, ns = 0, s, nvr = 0;
+    const pc_ed_value *vruns;
+    pc_status st;
+    *ok = false;
+    if (at > (uint64_t)INT64_MAX) {
+        return PC_OK; /* i64::try_from(at) -> None */
+    }
+    fp = pc_ed_path(template_, "1", "0", (const char *)NULL);
+    if (pc_ed_as_array(fp, &ns) != NULL && ns > 0) {
+        const pc_ed_value *f0 = pc_ed_get(&pc_ed_as_array(fp, &ns)[0], "0");
+        if (f0 != NULL) {
+            st = pc_ed_clone(f0, &frameval, err);
+            if (st != PC_OK) {
+                return st;
+            }
+            have_frame = true;
+        }
+    }
+    st = edited_object(template_, text, tlen, &obj, ok, err);
+    if (st != PC_OK || !*ok) {
+        if (have_frame) {
+            pc_ed_fini(&frameval);
+        }
+        *ok = false;
+        return st;
+    }
+    *ok = false;
+    view = pc_ed_get_mut(&obj, "1");
+    if (view == NULL) {
+        goto none;
+    }
+    /* view.set("0", [ << /0 at >> ]) */
+    {
+        pc_ed_value arr = pc_ed_array(), d = pc_ed_dict(), iv = pc_ed_int((int64_t)at);
+        st = pc_ed_set(&d, "0", &iv, err);
+        if (st == PC_OK) {
+            st = edpush(&arr, &d, err);
+        } else {
+            pc_ed_fini(&d);
+        }
+        if (st == PC_OK) {
+            st = edset(view, "0", &arr, err);
+        } else {
+            pc_ed_fini(&arr);
+        }
+        if (st != PC_OK) {
+            goto fail;
+        }
+    }
+    /* The rendered strikes' frame strike (`/F`) names the template's frame too. */
+    strikes = pc_ed_get_mut(view, "2");
+    if (strikes != NULL && strikes->kind == PC_ED_ARRAY) {
+        for (s = 0; s < strikes->n; s++) {
+            pc_ed_value *parts = pc_ed_get_mut(&strikes->items[s], "6");
+            size_t p;
+            if (parts == NULL || parts->kind != PC_ED_ARRAY) {
+                continue;
+            }
+            for (p = 0; p < parts->n; p++) {
+                pc_ed_value *part = &parts->items[p];
+                const pc_str *tag = pc_ed_as_str(pc_ed_get(part, "99"));
+                const pc_ed_value *p10 = pc_ed_get(part, "10");
+                bool match10 = have_frame ? (p10 != NULL && pc_ed_eq(p10, &frameval)) : (p10 == NULL);
+                if (tag != NULL && pc_str_eq_c(tag, "F") && match10) {
+                    pc_ed_value iv = pc_ed_int((int64_t)at);
+                    st = pc_ed_set(part, "10", &iv, err);
+                    pc_ed_fini(&iv);
+                    if (st != PC_OK) {
+                        goto fail;
+                    }
+                }
+            }
+        }
+    }
+    vruns = pc_ed_as_array(pc_ed_path(view, "1", "0", (const char *)NULL), &nvr);
+    if (vruns != NULL) {
+        size_t nodes = TXT2_MAX_REFIT_RUN_NODES, bytes = TXT2_MAX_REFIT_RUN_BYTES;
+        pc_ed_value fitted;
+        bool fok = false;
+        st = txt2_paragraph_lens(text, tlen, &paras, &nparas, err);
+        if (st != PC_OK) {
+            goto fail;
+        }
+        st = runs_per(vruns, nvr, paras, nparas, "1", &nodes, &bytes, &fitted, &fok, err);
+        free(paras);
+        paras = NULL;
+        if (st != PC_OK) {
+            goto fail;
+        }
+        if (!fok) {
+            goto none;
+        }
+        vruns_slot = pc_ed_get_mut(view, "1");
+        if (vruns_slot == NULL) {
+            pc_ed_fini(&fitted);
+            goto none;
+        }
+        st = edset(vruns_slot, "0", &fitted, err);
+        if (st != PC_OK) {
+            goto fail;
+        }
+    }
+    if (have_frame) {
+        pc_ed_fini(&frameval);
+    }
+    *out = obj;
+    *ok = true;
+    return PC_OK;
+none:
+    if (have_frame) {
+        pc_ed_fini(&frameval);
+    }
+    pc_ed_fini(&obj);
+    free(paras);
+    return PC_OK;
+fail:
+    if (have_frame) {
+        pc_ed_fini(&frameval);
+    }
+    pc_ed_fini(&obj);
+    free(paras);
+    return st;
+}
+
+/* pad_frames: give `outer` a frame (`/0 /8 /0`) for each of its `count` text objects, filling
+ * missing ones with the small point-text frame Photoshop writes. A block without a frame list is
+ * left as it is. */
+static pc_status pad_frames(pc_ed_value *outer, size_t count, pc_error *err)
+{
+    pc_ed_value *frames =
+        pc_ed_get_mut(pc_ed_get_mut(pc_ed_get_mut(outer, "0"), "8"), "0");
+    pc_status st = PC_OK;
+    if (frames == NULL || frames->kind != PC_ED_ARRAY) {
+        return PC_OK;
+    }
+    if (count > (size_t)PC_TXT2_MAX_TEXT_INDEX + 1) {
+        count = (size_t)PC_TXT2_MAX_TEXT_INDEX + 1;
+    }
+    while (frames->n < count && st == PC_OK) {
+        /* << /0 << /2 << /6 [ -1.0 -1.0 ] /11 << /4 -1 /7 false >> >> >> >> */
+        pc_ed_value frame = pc_ed_dict(), lvl0 = pc_ed_dict(), data = pc_ed_dict(), rect = pc_ed_array(),
+                    kind = pc_ed_dict();
+        st = edpush_real(&rect, -1.0, err);
+        if (st == PC_OK) {
+            st = edpush_real(&rect, -1.0, err);
+        }
+        if (st == PC_OK) {
+            st = psd_set_int(&kind, "4", -1, err);
+        }
+        if (st == PC_OK) {
+            st = psd_set_bool(&kind, "7", false, err);
+        }
+        if (st == PC_OK) {
+            st = edset(&data, "6", &rect, err);
+        } else {
+            pc_ed_fini(&rect);
+        }
+        if (st == PC_OK) {
+            st = edset(&data, "11", &kind, err);
+        } else {
+            pc_ed_fini(&kind);
+        }
+        if (st == PC_OK) {
+            st = edset(&lvl0, "2", &data, err);
+        } else {
+            pc_ed_fini(&data);
+        }
+        if (st == PC_OK) {
+            st = edset(&frame, "0", &lvl0, err);
+        } else {
+            pc_ed_fini(&lvl0);
+        }
+        if (st == PC_OK) {
+            st = edpush(frames, &frame, err);
+        } else {
+            pc_ed_fini(&frame);
+        }
+    }
+    return st;
+}
+
+/* txt2_font: the index of the PostScript font `name` in the font list `fonts` (`/0 /1 /0`),
+ * appending it (shaped like the first entry) when missing. *found false for an empty list. */
+static pc_status txt2_font(pc_ed_value *fonts, const char *name, size_t namelen, int64_t *out, bool *found,
+                           pc_error *err)
+{
+    size_t k, newidx;
+    pc_ed_value entry, *font;
+    const pc_ed_value *kp;
+    bool have_kind = false;
+    pc_ed_value kindc;
+    pc_status st;
+    *found = false;
+    for (k = 0; k < fonts->n; k++) {
+        const pc_str *nm = pc_ed_as_str(pc_ed_path(&fonts->items[k], "0", "0", "0", (const char *)NULL));
+        if (nm != NULL && nm->len == namelen && memcmp(pc_str_c(nm), name, namelen) == 0) {
+            if (k > (size_t)INT64_MAX) {
+                return PC_OK;
+            }
+            *out = (int64_t)k;
+            *found = true;
+            return PC_OK;
+        }
+    }
+    if (fonts->n == 0) {
+        return PC_OK; /* fonts.first()? -> None */
+    }
+    st = pc_ed_clone(&fonts->items[0], &entry, err);
+    if (st != PC_OK) {
+        return st;
+    }
+    font = pc_ed_get_mut(pc_ed_get_mut(&entry, "0"), "0");
+    if (font == NULL) {
+        pc_ed_fini(&entry); /* None */
+        return PC_OK;
+    }
+    kp = pc_ed_get(font, "2");
+    if (kp != NULL) {
+        st = pc_ed_clone(kp, &kindc, err);
+        if (st != PC_OK) {
+            pc_ed_fini(&entry);
+            return st;
+        }
+        have_kind = true;
+    }
+    pc_ed_fini(font);
+    *font = pc_ed_dict();
+    {
+        pc_ed_value sv;
+        st = pc_ed_string(name, namelen, &sv, err);
+        if (st == PC_OK) {
+            st = edset(font, "0", &sv, err);
+        }
+    }
+    if (st == PC_OK && have_kind) {
+        st = edset(font, "2", &kindc, err);
+        have_kind = false;
+    }
+    if (have_kind) {
+        pc_ed_fini(&kindc);
+    }
+    if (st != PC_OK) {
+        pc_ed_fini(&entry);
+        return st;
+    }
+    newidx = fonts->n;
+    st = edpush(fonts, &entry, err);
+    if (st != PC_OK) {
+        return st;
+    }
+    if (newidx > (size_t)INT64_MAX) {
+        return PC_OK;
+    }
+    *out = (int64_t)newidx;
+    *found = true;
+    return PC_OK;
+}
+
+/* The fill colour (type + alpha-first values) a Txt2 style stores. */
+static pc_status txt2_fill(const pc_color *c, int64_t *kind, pc_ed_value *out, pc_error *err)
+{
+    pc_ed_value values = pc_ed_array();
+    size_t f;
+    pc_status st;
+    *kind = c->mode == PC_COLOR_MODE_CMYK ? 2 : c->mode == PC_COLOR_MODE_GRAYSCALE ? 0 : 1;
+    st = edpush_real(&values, (double)c->alpha, err);
+    if (c->mode == PC_COLOR_MODE_CMYK) {
+        for (f = 0; f < 4 && st == PC_OK; f++) {
+            st = edpush_real(&values, (double)c->c[f], err);
+        }
+    } else if (c->mode == PC_COLOR_MODE_GRAYSCALE) {
+        if (st == PC_OK) {
+            st = edpush_real(&values, (double)c->c[0], err);
+        }
+    } else {
+        float rgb[3];
+        pc_color_to_rgb(c, rgb);
+        for (f = 0; f < 3 && st == PC_OK; f++) {
+            st = edpush_real(&values, (double)rgb[f], err);
+        }
+    }
+    if (st != PC_OK) {
+        pc_ed_fini(&values);
+        return st;
+    }
+    *out = values;
+    return PC_OK;
+}
+
+/* Whether a style turns the OpenType feature `tag` on (*present set when the run names it). */
+static bool txt2_feature_on(const pc_char_style *s, const char *tag, bool *present)
+{
+    size_t g;
+    *present = false;
+    for (g = 0; g < s->nfeatures; g++) {
+        if (pc_str_eq_c(&s->features[g].tag, tag)) {
+            *present = true;
+            return s->features[g].value > 0;
+        }
+    }
+    return false;
+}
+
+/* txt2_style_runs: one Txt2 style run per character run, `base` (one of the file's style runs)
+ * restyled from the run's own style (font appended to `fonts`). *ok false (None) when `base` has
+ * no style dictionary or is larger than a template may be. k from the document dpi. */
+static pc_status txt2_style_runs(const pc_text_layer *layer, const pc_ed_value *base, pc_ed_value *fonts,
+                                 float dpi, pc_ed_value *out, bool *ok, pc_error *err)
+{
+    pc_ed_value arr = pc_ed_array();
+    pc_text_run *runs = NULL;
+    pc_str edtext = PC_STR_INIT;
+    pc_char_style defstyle;
+    struct {
+        size_t ri;
+        size_t n;
+    } *spans = NULL;
+    size_t nruns = 0, nspans = 0, scap = 0, budget = TXT2_TEMPLATE_NODES, ri = 0, run_end, b, i;
+    float k;
+    pc_status st;
+    *ok = false;
+    pc_char_style_default(&defstyle);
+    if (pc_ed_path(base, "0", "0", "6", (const char *)NULL) == NULL ||
+        pc_ed_path(base, "0", "0", "6", (const char *)NULL)->kind != PC_ED_DICT || !txt2_fits(base, &budget)) {
+        pc_char_style_fini(&defstyle);
+        return PC_OK;
+    }
+    k = (dpi > 0.0f && isfinite(dpi)) ? dpi / 72.0f : 1.0f;
+    st = pc_text_layer_char_runs(layer, &runs, &nruns, err);
+    if (st != PC_OK) {
+        pc_char_style_fini(&defstyle);
+        return st;
+    }
+    st = engine_text(layer, &edtext, err);
+    if (st != PC_OK) {
+        goto done;
+    }
+    run_end = nruns > 0 ? runs[0].len : 0;
+    b = 0;
+    while (b < edtext.len) {
+        size_t at = b, units;
+        uint32_t cp = psd_next_char((const uint8_t *)pc_str_c(&edtext), edtext.len, &at);
+        units = psd_utf16_len(cp);
+        while (b >= run_end && ri + 1 < nruns) {
+            ri++;
+            run_end = run_end > SIZE_MAX - runs[ri].len ? SIZE_MAX : run_end + runs[ri].len;
+        }
+        if (nspans > 0 && spans[nspans - 1].ri == ri) {
+            spans[nspans - 1].n += units;
+        } else {
+            void *g = pc_grow_array(spans, &scap, nspans + 1, sizeof *spans);
+            if (g == NULL) {
+                st = pc_fail(err, PC_ERR_NOMEM, "out of memory building Txt2");
+                goto done;
+            }
+            spans = g;
+            spans[nspans].ri = ri;
+            spans[nspans].n = units;
+            nspans++;
+        }
+        b = at;
+    }
+    for (i = 0; i < nspans && st == PC_OK; i++) {
+        const pc_char_style *s = spans[i].ri < nruns ? &runs[spans[i].ri].style : &defstyle;
+        pc_ed_value run, *style, *paint;
+        pc_str ps = PC_STR_INIT;
+        int64_t font = 0, sets = 0, kind;
+        bool found = false, bval;
+        size_t fi;
+        st = pc_ed_clone(base, &run, err);
+        if (st != PC_OK) {
+            break;
+        }
+        style = pc_ed_get_mut(pc_ed_get_mut(pc_ed_get_mut(&run, "0"), "0"), "6");
+        if (style == NULL) {
+            pc_ed_fini(&run);
+            continue;
+        }
+        st = pc_text_postscript_for(s, &ps, err);
+        if (st == PC_OK) {
+            st = txt2_font(fonts, pc_str_c(&ps), ps.len, &font, &found, err);
+        }
+        pc_str_fini(&ps);
+        if (st == PC_OK && found) {
+            st = psd_set_int(style, "0", font, err);
+        }
+        if (st == PC_OK) {
+            st = psd_set_real(style, "1", (double)(float)(s->size_pt * k), err);
+        }
+        if (st == PC_OK) {
+            st = psd_set_bool(style, "2", s->faux_bold, err);
+        }
+        if (st == PC_OK) {
+            st = psd_set_bool(style, "3", s->faux_italic, err);
+        }
+        if (st == PC_OK) {
+            st = psd_set_bool(style, "4", !s->has_leading, err);
+        }
+        if (st == PC_OK) {
+            st = psd_set_real(style, "5", (double)((s->has_leading ? s->leading_pt : 0.0f) * k), err);
+        }
+        if (st == PC_OK) {
+            st = psd_set_real(style, "6", (double)s->horizontal_scale, err);
+        }
+        if (st == PC_OK) {
+            st = psd_set_real(style, "7", (double)s->vertical_scale, err);
+        }
+        if (st == PC_OK) {
+            st = psd_set_int(style, "8", pc_f32_to_i64(roundf(s->tracking)), err);
+        }
+        paint = pc_ed_get_mut(pc_ed_get_mut(style, "53"), "0");
+        if (st == PC_OK && paint != NULL && paint->kind == PC_ED_DICT) {
+            pc_ed_value values;
+            st = txt2_fill(&s->color, &kind, &values, err);
+            if (st == PC_OK) {
+                st = psd_set_int(paint, "0", kind, err);
+            }
+            if (st == PC_OK) {
+                st = edset(paint, "1", &values, err);
+            } else {
+                pc_ed_fini(&values);
+            }
+        }
+        for (fi = 0; fi < PC_TXT2_FEATURE_COUNT && st == PC_OK; fi++) {
+            bool present;
+            bool on = txt2_feature_on(s, PC_TXT2_FEATURES[fi][1], &present);
+            bval = present ? on : (strcmp(PC_TXT2_FEATURES[fi][1], "calt") == 0);
+            st = psd_set_bool(style, PC_TXT2_FEATURES[fi][0], bval, err);
+        }
+        for (fi = 0; fi < 20; fi++) {
+            char tag[8];
+            bool present;
+            (void)snprintf(tag, sizeof tag, "ss%02u", (unsigned)(fi + 1));
+            if (txt2_feature_on(s, tag, &present) && present) {
+                sets |= (int64_t)1 << fi;
+            }
+        }
+        if (st == PC_OK) {
+            st = psd_set_int(style, PC_TXT2_STYLISTIC_SETS, sets, err);
+        }
+        if (st == PC_OK) {
+            st = psd_set_int(style, "11", txt2_mode(s), err);
+        }
+        if (st == PC_OK) {
+            st = psd_set_int(&run, "1", (int64_t)spans[i].n, err);
+        }
+        if (st == PC_OK) {
+            st = edpush(&arr, &run, err);
+        } else {
+            pc_ed_fini(&run);
+        }
+    }
+done:
+    pc_char_style_fini(&defstyle);
+    pc_text_runs_free(runs, nruns);
+    pc_str_fini(&edtext);
+    free(spans);
+    if (st != PC_OK) {
+        pc_ed_fini(&arr);
+        return st;
+    }
+    *out = arr;
+    *ok = true;
+    return PC_OK;
+}
+
+/* One text object for `layer` at slot `at`: kept (same text) keeps everything but its regenerated
+ * text and style runs; an edited object keeps the file's structure refitted; a new object takes
+ * the template's shape; otherwise a bare generated object. */
+static pc_status build_slot(const pc_text_layer *layer, const pc_ed_value *slot_raw, size_t at,
+                            const pc_ed_value *template_, bool all_stubs, pc_ed_value *fonts, float dpi,
+                            pc_ed_value *out, pc_error *err)
 {
     pc_str text = PC_STR_INIT;
     mode_run *modes = NULL;
-    size_t nmodes = 0, k;
-    const pc_ed_value *kept = NULL, *pm;
-    pc_ed_value object = pc_ed_dict(), model = pc_ed_dict(), runs = pc_ed_array(), v;
-    bool have_runs = false;
+    size_t nmodes = 0;
+    const pc_ed_value *slot = slot_raw, *kept = NULL, *pm;
+    pc_ed_value object, model, runs;
+    bool have_object = false, have_edited = false, have_fresh = false, have_runs = false, unchanged, reuse;
     pc_status st = engine_text(layer, &text, err);
     if (st == PC_OK) {
         st = txt2_mode_runs(layer, &modes, &nmodes, err);
     }
-    if (st == PC_OK && at < nprev) {
-        const pc_str *t = pc_ed_as_str(pc_ed_path(&prev_objects[at], "0", "0", (const char *)NULL));
+    if (st != PC_OK) {
+        goto cleanup;
+    }
+    /* A stub an earlier save wrote beside Photoshop's objects counts as no object (replaced like a
+     * missing one) unless every object is a stub. */
+    if (slot != NULL && txt2_is_stub(slot) && !all_stubs) {
+        slot = NULL;
+    }
+    if (slot != NULL) {
+        const pc_str *t = pc_ed_as_str(pc_ed_path(slot, "0", "0", (const char *)NULL));
         if (t != NULL && t->len == text.len && memcmp(pc_str_c(t), pc_str_c(&text), t->len) == 0) {
-            kept = &prev_objects[at];
+            kept = slot;
         }
     }
-    if (st == PC_OK && kept != NULL) {
-        pc_ed_fini(&object);
+    if (kept != NULL) {
         st = pc_ed_clone(kept, &object, err);
-    }
-    pm = pc_ed_get(&object, "0");
-    if (st == PC_OK && pm != NULL && pm->kind == PC_ED_DICT) {
-        pc_ed_fini(&model);
-        st = pc_ed_clone(pm, &model, err);
-    }
-    if (st == PC_OK && kept != NULL) {
-        size_t nfr = 0;
-        const pc_ed_value *fr = pc_ed_as_array(pc_ed_path(&model, "6", "0", (const char *)NULL), &nfr);
-        if (fr != NULL) {
-            pc_ed_fini(&runs);
-            st = with_modes(fr, nfr, modes, nmodes, &runs, &have_runs, err);
-            if (!have_runs) {
-                runs = pc_ed_array();
+        have_object = st == PC_OK;
+    } else {
+        pc_ed_value edited_v, fresh_v;
+        if (slot != NULL) {
+            st = edited_object(slot, pc_str_c(&text), text.len, &edited_v, &have_edited, err);
+        }
+        if (st == PC_OK && !have_edited && template_ != NULL) {
+            st = new_object(template_, at, pc_str_c(&text), text.len, &fresh_v, &have_fresh, err);
+        }
+        if (st == PC_OK) {
+            if (have_edited) {
+                object = edited_v;
+            } else if (have_fresh) {
+                object = fresh_v;
+            } else {
+                object = pc_ed_dict();
+            }
+            have_object = true;
+        } else {
+            if (have_edited) {
+                pc_ed_fini(&edited_v);
+            }
+            if (have_fresh) {
+                pc_ed_fini(&fresh_v);
             }
         }
     }
-    for (k = 0; st == PC_OK && !have_runs && k < nmodes; k++) {
-        st = generated_run(modes[k].mode, modes[k].len, &v, err);
-        if (st == PC_OK) {
-            st = pc_ed_push(&runs, &v, err);
+    if (st != PC_OK) {
+        goto cleanup;
+    }
+    unchanged = kept != NULL;
+    reuse = kept != NULL || have_edited;
+    pm = pc_ed_get(&object, "0");
+    if (pm != NULL && pm->kind == PC_ED_DICT) {
+        st = pc_ed_clone(pm, &model, err);
+    } else {
+        model = pc_ed_dict();
+    }
+    if (st != PC_OK) {
+        goto cleanup;
+    }
+    /* Styled runs: a new or edited object takes the layer's own per-run style, built on one of the
+     * object's own style runs. */
+    if (!unchanged && !txt2_is_stub(&object)) {
+        size_t nb = 0;
+        const pc_ed_value *arr = pc_ed_as_array(pc_ed_path(&model, "6", "0", (const char *)NULL), &nb);
+        if (arr != NULL && nb > 0) {
+            st = txt2_style_runs(layer, &arr[0], fonts, dpi, &runs, &have_runs, err);
         }
     }
+    if (st != PC_OK) {
+        pc_ed_fini(&model);
+        goto cleanup;
+    }
+    /* The file's own style runs with the auto-kern modes set. */
+    if (!have_runs && reuse) {
+        size_t nb = 0;
+        const pc_ed_value *arr = pc_ed_as_array(pc_ed_path(&model, "6", "0", (const char *)NULL), &nb);
+        if (arr != NULL) {
+            st = with_modes(arr, nb, modes, nmodes, &runs, &have_runs, err);
+        }
+    }
+    if (st != PC_OK) {
+        pc_ed_fini(&model);
+        goto cleanup;
+    }
+    if (!have_runs) {
+        size_t m;
+        runs = pc_ed_array();
+        for (m = 0; st == PC_OK && m < nmodes; m++) {
+            pc_ed_value v;
+            st = generated_run(modes[m].mode, modes[m].len, &v, err);
+            if (st == PC_OK) {
+                st = edpush(&runs, &v, err);
+            }
+        }
+        have_runs = true;
+    }
     if (st == PC_OK) {
-        st = pc_ed_string(pc_str_c(&text), text.len, &v, err);
+        pc_ed_value sv;
+        st = pc_ed_string(pc_str_c(&text), text.len, &sv, err);
         if (st == PC_OK) {
-            st = pc_ed_set(&model, "0", &v, err);
+            st = edset(&model, "0", &sv, err);
         }
     }
     if (st == PC_OK) {
         pc_ed_value *sr = pc_ed_get_mut(&model, "6");
         if (sr != NULL && sr->kind == PC_ED_DICT) {
-            st = pc_ed_set(sr, "0", &runs, err);
+            st = edset(sr, "0", &runs, err);
         } else {
             pc_ed_value d = pc_ed_dict();
             st = pc_ed_set(&d, "0", &runs, err);
+            pc_ed_fini(&runs);
             if (st == PC_OK) {
-                st = pc_ed_set(&model, "6", &d, err);
+                st = edset(&model, "6", &d, err);
+            } else {
+                pc_ed_fini(&d);
             }
-            pc_ed_fini(&d);
         }
+        have_runs = false;
+    } else {
+        pc_ed_fini(&runs);
     }
     if (st == PC_OK) {
-        st = pc_ed_set(&object, "0", &model, err);
+        st = edset(&object, "0", &model, err);
+    } else {
+        pc_ed_fini(&model);
     }
-    pc_ed_fini(&runs);
-    pc_ed_fini(&model);
-    pc_str_fini(&text);
-    free(modes);
     if (st != PC_OK) {
-        pc_ed_fini(&object);
-        return st;
+        goto cleanup;
     }
     *out = object;
-    return PC_OK;
+    have_object = false;
+cleanup:
+    if (have_object) {
+        pc_ed_fini(&object);
+    }
+    pc_str_fini(&text);
+    free(modes);
+    return st;
 }
 
 pc_status pc_txt2_build(const pc_txt2_object *objects, size_t n, const uint8_t *previous, size_t prev_len,
                         bool has_previous, pc_buf *out, pc_error *err)
 {
-    pc_ed_value prev, outer, slots = pc_ed_array();
-    bool has_prev = false;
-    const pc_ed_value *prev_objects = NULL;
-    size_t nprev = 0, i;
+    pc_ed_value prev, outer, slots = pc_ed_array(), fonts = pc_ed_array(), td = pc_ed_array();
+    bool has_prev = false, have_td = false, td_changed = false, all_stubs = true;
+    const pc_ed_value *prev_objects = NULL, *template_ = NULL;
+    size_t nprev = 0, fonts_before = 0, i;
+    const float dpi = 72.0f;
+    bool have_outer = false;
     pc_error tmp;
     pc_status st = PC_OK;
     if (has_previous) {
         st = pc_txt2_parse(previous, prev_len, &prev, &tmp);
         if (st == PC_ERR_NOMEM) {
+            pc_ed_fini(&slots);
+            pc_ed_fini(&fonts);
+            pc_ed_fini(&td);
             return forward(err, &tmp, st);
         }
         has_prev = st == PC_OK;
         st = PC_OK;
     }
     if (has_prev) {
+        size_t ntd = 0, nf = 0;
+        const pc_ed_value *tdp, *fp;
         prev_objects = pc_ed_as_array(pc_ed_path(&prev, "1", "1", (const char *)NULL), &nprev);
         if (prev_objects == NULL) {
             nprev = 0;
         }
-    }
-    for (i = 0; i < nprev && st == PC_OK; i++) {
-        pc_ed_value c;
-        st = pc_ed_clone(&prev_objects[i], &c, err);
-        if (st == PC_OK) {
-            st = pc_ed_push(&slots, &c, err);
+        for (i = 0; i < nprev && st == PC_OK; i++) {
+            pc_ed_value c;
+            st = pc_ed_clone(&prev_objects[i], &c, err);
+            if (st == PC_OK) {
+                st = edpush(&slots, &c, err);
+            } else {
+                pc_ed_fini(&c);
+            }
+        }
+        tdp = pc_ed_as_array(pc_ed_path(&prev, "DocumentObjects", "TextObjects", (const char *)NULL), &ntd);
+        if (tdp != NULL) {
+            have_td = true;
+            for (i = 0; i < ntd && st == PC_OK; i++) {
+                pc_ed_value c;
+                st = pc_ed_clone(&tdp[i], &c, err);
+                if (st == PC_OK) {
+                    st = edpush(&td, &c, err);
+                } else {
+                    pc_ed_fini(&c);
+                }
+            }
+        }
+        fp = pc_ed_as_array(pc_ed_path(&prev, "0", "1", "0", (const char *)NULL), &nf);
+        for (i = 0; i < nf && st == PC_OK; i++) {
+            pc_ed_value c;
+            st = pc_ed_clone(&fp[i], &c, err);
+            if (st == PC_OK) {
+                st = edpush(&fonts, &c, err);
+            } else {
+                pc_ed_fini(&c);
+            }
+        }
+        fonts_before = fonts.n;
+        for (i = 0; i < nprev; i++) {
+            if (!txt2_is_stub(&prev_objects[i])) {
+                all_stubs = false;
+            }
+        }
+        /* A template is copied once per new layer, so a large one is skipped. */
+        for (i = nprev; st == PC_OK && i-- > 0;) {
+            const pc_ed_value *o = &prev_objects[i];
+            size_t budget = TXT2_TEMPLATE_NODES;
+            pc_ed_value tmpobj;
+            bool feasible = false;
+            if (!txt2_names_one_frame(o) || !txt2_fits(o, &budget)) {
+                continue;
+            }
+            st = edited_object(o, "\r", 1, &tmpobj, &feasible, err);
+            if (st == PC_OK && feasible) {
+                pc_ed_fini(&tmpobj);
+                template_ = o;
+                break;
+            }
         }
     }
     for (i = 0; i < n && st == PC_OK; i++) {
         int32_t index = objects[i].index;
         size_t at;
+        const pc_ed_value *slot_raw;
         pc_ed_value object;
+        pc_str etext = PC_STR_INIT;
         if (index < 0 || index > PC_TXT2_MAX_TEXT_INDEX || objects[i].layer == NULL) {
             continue;
         }
         at = (size_t)index;
-        st = build_object(objects[i].layer, prev_objects, nprev, at, &object, err);
+        /* The older-Photoshop copy of this object, refitted when its text is stale (#6971). */
+        st = engine_text(objects[i].layer, &etext, err);
+        if (st == PC_OK && have_td && at < td.n) {
+            const pc_str *mt = pc_ed_as_str(pc_ed_path(&td.items[at], "Model", "Text", (const char *)NULL));
+            bool same = mt != NULL && mt->len == etext.len && memcmp(pc_str_c(mt), pc_str_c(&etext), mt->len) == 0;
+            if (!same) {
+                pc_ed_value fixed;
+                bool fok = false;
+                st = td_edited_object(&td.items[at], pc_str_c(&etext), etext.len, &fixed, &fok, err);
+                if (st == PC_OK && fok) {
+                    pc_ed_fini(&td.items[at]);
+                    td.items[at] = fixed;
+                    td_changed = true;
+                }
+            }
+        }
+        pc_str_fini(&etext);
+        if (st != PC_OK) {
+            break;
+        }
+        slot_raw = at < nprev ? &prev_objects[at] : NULL;
+        st = build_slot(objects[i].layer, slot_raw, at, template_, all_stubs, &fonts, dpi, &object, err);
+        if (st != PC_OK) {
+            break;
+        }
         while (st == PC_OK && slots.n <= at) {
             pc_ed_value d = pc_ed_dict();
-            st = pc_ed_push(&slots, &d, err);
+            st = edpush(&slots, &d, err);
         }
         if (st == PC_OK) {
             pc_ed_fini(&slots.items[at]);
             slots.items[at] = object;
-        } else if (st != PC_OK) {
+        } else {
             pc_ed_fini(&object);
         }
     }
-    /* The outer dictionary keeps whatever the block held (`/98` version, block extras, ...), and
-     * `/1` whatever it holds beside the text objects. */
+    /* The outer dictionary keeps whatever the block held (`/98` version, block extras, ...). */
     if (st == PC_OK) {
         if (has_prev) {
             st = pc_ed_clone(&prev, &outer, err);
@@ -940,15 +2099,28 @@ pc_status pc_txt2_build(const pc_txt2_object *objects, size_t n, const uint8_t *
             outer = pc_ed_dict();
             st = pc_ed_set(&ver, "0", &v, err);
             if (st == PC_OK) {
-                st = pc_ed_set(&outer, "98", &ver, err);
+                st = edset(&outer, "98", &ver, err);
+            } else {
+                pc_ed_fini(&ver);
             }
             if (st == PC_OK) {
-                st = pc_ed_set(&outer, "0", &z, err);
+                st = edset(&outer, "0", &z, err);
+            } else {
+                pc_ed_fini(&z);
             }
-            pc_ed_fini(&ver);
             if (st != PC_OK) {
                 pc_ed_fini(&outer);
             }
+        }
+        have_outer = st == PC_OK;
+    }
+    if (st == PC_OK) {
+        st = pad_frames(&outer, slots.n, err);
+    }
+    if (st == PC_OK && fonts.n != fonts_before) {
+        pc_ed_value *list = pc_ed_get_mut(pc_ed_get_mut(&outer, "0"), "1");
+        if (list != NULL && list->kind == PC_ED_DICT) {
+            st = pc_ed_set(list, "0", &fonts, err);
         }
     }
     if (st == PC_OK) {
@@ -959,22 +2131,31 @@ pc_status pc_txt2_build(const pc_txt2_object *objects, size_t n, const uint8_t *
             pc_ed_value d = pc_ed_dict();
             st = pc_ed_set(&d, "1", &slots, err);
             if (st == PC_OK) {
-                st = pc_ed_set(&outer, "1", &d, err);
-            }
-            pc_ed_fini(&d);
-        }
-        if (st == PC_OK) {
-            /* Nothing changed: the file's own bytes (writing them back would re-encode strings and
-             * numbers). */
-            if (has_prev && pc_ed_eq(&prev, &outer)) {
-                st = pc_buf_append(out, previous, prev_len, err);
+                st = edset(&outer, "1", &d, err);
             } else {
-                st = pc_ed_write_bare(&outer, out, err);
+                pc_ed_fini(&d);
             }
         }
+    }
+    if (st == PC_OK && td_changed && have_td) {
+        pc_ed_value *dobj = pc_ed_get_mut(&outer, "DocumentObjects");
+        if (dobj != NULL && dobj->kind == PC_ED_DICT) {
+            st = pc_ed_set(dobj, "TextObjects", &td, err);
+        }
+    }
+    if (st == PC_OK) {
+        if (has_prev && pc_ed_eq(&prev, &outer)) {
+            st = pc_buf_append(out, previous, prev_len, err);
+        } else {
+            st = pc_ed_write_bare(&outer, out, err);
+        }
+    }
+    if (have_outer) {
         pc_ed_fini(&outer);
     }
     pc_ed_fini(&slots);
+    pc_ed_fini(&fonts);
+    pc_ed_fini(&td);
     if (has_prev) {
         pc_ed_fini(&prev);
     }

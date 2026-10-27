@@ -39,7 +39,7 @@ const pc_profile *pc_builtin_profile(pc_builtin b);
 /* sRGB, sGray, coated CMYK or Lab D50 for those spaces; NULL otherwise. */
 const pc_profile *pc_builtin_default_for(uint32_t space);
 
-/* Gray with a linear tone curve ("Linear Gray (Photocraft)"): what a grayscale OpenEXR holds. Not
+/* Gray with a linear tone curve ("Linear Gray (PhotoCraft)"): what a grayscale OpenEXR holds. Not
  * a pc_builtin, as it is only assigned to such files, never offered as a working space. NULL if
  * it could not be built (out of memory). */
 const pc_profile *pc_builtin_linear_gray(void);

@@ -159,10 +159,19 @@ void pc_compose_fx_sample_gradient(const pc_gradient *g, float t, float out[4])
 /* ---- painting ---- */
 
 /* Composite colour(i) x coverage into dst (both over the same rectangle). */
+/* Dissolve on an effect (#6995): a pixel takes the effect fully or not at all, with probability
+ * `coverage`, picked by the same document-coordinate noise as a Dissolve layer. A soft glow or
+ * shadow turns into scattered speckle instead of a smooth falloff. */
 #define PAINT_LOOP(dst, m, opacity, blend, COLOR)                                                            \
     do {                                                                                                     \
         size_t i_;                                                                                           \
         size_t n_ = (dst)->len < pc_fxm_len(m) ? (dst)->len : pc_fxm_len(m);                                 \
+        size_t w_ = pc_cmp_w((dst)->rect);                                                                   \
+        int64_t x0_ = (dst)->rect.x0;                                                                        \
+        int64_t y0_ = (dst)->rect.y0;                                                                        \
+        if (w_ == 0) {                                                                                       \
+            w_ = 1;                                                                                          \
+        }                                                                                                    \
         for (i_ = 0; i_ < n_; i_++) {                                                                        \
             float a_ = (m)->v[i_] * (opacity);                                                               \
             float c_[4];                                                                                     \
@@ -170,6 +179,16 @@ void pc_compose_fx_sample_gradient(const pc_gradient *g, float t, float out[4])
                 continue;                                                                                    \
             }                                                                                                \
             COLOR(i_, c_);                                                                                   \
+            if ((blend) == PC_BLEND_DISSOLVE) {                                                              \
+                float cov_ = c_[3] * a_;                                                                     \
+                int64_t dx_ = x0_ + (int64_t)(i_ % w_);                                                      \
+                int64_t dy_ = y0_ + (int64_t)(i_ / w_);                                                      \
+                if (pc_compose_fx_hash_noise(dx_, dy_) < cov_) {                                             \
+                    c_[3] = 1.0f;                                                                            \
+                    pc_psblend_composite(PC_BLEND_NORMAL, (dst)->px[i_], c_, 1.0f, (dst)->px[i_]);           \
+                }                                                                                            \
+                continue;                                                                                    \
+            }                                                                                                \
             c_[3] *= a_;                                                                                     \
             pc_psblend_composite((blend), (dst)->px[i_], c_, 1.0f, (dst)->px[i_]);                           \
         }                                                                                                    \

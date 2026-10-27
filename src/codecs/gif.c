@@ -658,3 +658,105 @@ done:
     pc_cimage_fini(&tmp);
     return st;
 }
+
+/* The colour table the first frame uses (its Local Color Table, else the Global one) and the
+ * entry its Graphic Control Extension names transparent, read without decoding pixels. Port of
+ * gif_palette::palette: *has is false for anything that isn't a well-formed GIF up to its first
+ * image with a table. *palette is a new array the caller frees. */
+pc_status pc_cgif_palette(const uint8_t *b, size_t n, bool *has, uint8_t (**palette)[3], size_t *npal,
+                          bool *has_transparent, uint8_t *transparent, pc_error *err)
+{
+    size_t at;
+    const uint8_t *global = NULL;
+    size_t global_n = 0;
+    bool have_trans = false;
+    uint8_t trans = 0;
+    *has = false;
+    *palette = NULL;
+    *npal = 0;
+    *has_transparent = false;
+    *transparent = 0;
+    if (n < 13 || (memcmp(b, "GIF87a", 6) != 0 && memcmp(b, "GIF89a", 6) != 0)) {
+        return PC_OK;
+    }
+    at = 13;
+    if ((b[10] & 0x80) != 0) {
+        global_n = (size_t)2 << (b[10] & 0x07);
+        if (global_n * 3 > n - at) {
+            return PC_OK;
+        }
+        global = b + at;
+        at += global_n * 3;
+    }
+    for (;;) {
+        uint8_t blk;
+        if (at >= n) {
+            return PC_OK;
+        }
+        blk = b[at];
+        if (blk == 0x21) { /* extension */
+            uint8_t label;
+            if (at + 2 > n) {
+                return PC_OK;
+            }
+            label = b[at + 1];
+            at += 2;
+            if (label == 0xF9 && at < n && b[at] == 4) {
+                if (at + 5 > n) {
+                    return PC_OK;
+                }
+                if ((b[at + 1] & 0x01) != 0) {
+                    have_trans = true;
+                    trans = b[at + 4];
+                }
+            }
+            for (;;) {
+                size_t size;
+                if (at >= n) {
+                    return PC_OK;
+                }
+                size = b[at];
+                at += 1 + size;
+                if (size == 0) {
+                    break;
+                }
+            }
+        } else if (blk == 0x2C) { /* image descriptor: the first frame */
+            const uint8_t *colors;
+            size_t ncol;
+            uint8_t packed;
+            uint8_t (*out)[3];
+            if (at + 10 > n) {
+                return PC_OK;
+            }
+            packed = b[at + 9];
+            if ((packed & 0x80) != 0) {
+                ncol = (size_t)2 << (packed & 0x07);
+                if (at + 10 > n || ncol * 3 > n - (at + 10)) {
+                    return PC_OK;
+                }
+                colors = b + at + 10;
+            } else if (global != NULL) {
+                ncol = global_n;
+                colors = global;
+            } else {
+                return PC_OK;
+            }
+            out = calloc(ncol, sizeof *out);
+            if (out == NULL) {
+                return cx_nomem(err);
+            }
+            memcpy(out, colors, ncol * 3);
+            *palette = out;
+            *npal = ncol;
+            *has = true;
+            if (have_trans && (size_t)trans < ncol) {
+                *has_transparent = true;
+                *transparent = trans;
+            }
+            return PC_OK;
+        } else {
+            return PC_OK; /* trailer or anything else: no image */
+        }
+    }
+}

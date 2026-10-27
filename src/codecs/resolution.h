@@ -30,6 +30,12 @@ bool pc_exif_resolution(const uint8_t *exif, size_t n, float *x, float *y);
 pc_status pc_exif_with_resolution(const uint8_t *exif, size_t n, float x, float y, uint8_t **out,
                                   size_t *out_len, pc_error *err);
 
+/* Like pc_exif_with_resolution, but when a valid IFD0 has no (or malformed) X/Y resolution it
+ * appends a replacement IFD0 with fresh tags (existing data keeps its offsets), and an empty EXIF
+ * synthesises a minimal block. Used by CMYK JPEG, which cannot carry a JFIF density marker. */
+pc_status pc_exif_with_resolution_adding(const uint8_t *exif, size_t n, float x, float y, uint8_t **out,
+                                         size_t *out_len, pc_error *err);
+
 /* The ResolutionInfo of a Photoshop image resource block (APP13 or TIFF tag 34377). */
 bool pc_photoshop_resolution(const uint8_t *res, size_t n, float *x, float *y);
 
@@ -45,6 +51,10 @@ pc_status pc_xmp_with_resolution(const char *xmp, size_t n, float x, float y, ch
  * Orientation 1, no IFD1 thumbnail of the source, and the resolution. *out NULL when unchanged. */
 pc_status pc_export_exif(const uint8_t *exif, size_t n, const float *dpi, uint8_t **out, size_t *out_len,
                          pc_error *err);
+/* Like pc_export_exif, but adds missing output-resolution tags (and synthesises a block from an
+ * empty EXIF), for a format without its own resolution field (CMYK JPEG). */
+pc_status pc_export_exif_adding_missing(const uint8_t *exif, size_t n, const float *dpi, uint8_t **out,
+                                        size_t *out_len, pc_error *err);
 /* The XMP to write next to upright pixels at resolution dpi. *out NULL when unchanged. */
 pc_status pc_export_xmp(const char *xmp, size_t n, const float *dpi, char **out, size_t *out_len,
                         pc_error *err);

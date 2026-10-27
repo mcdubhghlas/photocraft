@@ -380,8 +380,155 @@ static void remove_entries(uint8_t *b, size_t n, const ifd *i, const bool *gone)
     free(old);
 }
 
-pc_status pc_exif_with_resolution(const uint8_t *exif, size_t n, float x, float y, uint8_t **out,
-                                  size_t *out_len, pc_error *err)
+/* One fresh IFD0 entry (12 bytes classic, 20 BigTIFF): tag, type, count 1 and either an inline
+ * SHORT (the resolution unit) or a RATIONAL's offset. Mirrors resolution_entry in the reference. */
+static void res_entry(bool le, bool big, uint16_t tag, uint64_t value, uint8_t *out)
+{
+    size_t value_at = big ? 12 : 8;
+    memset(out, 0, big ? 20 : 12);
+    put(le, out, tag, 2);
+    put(le, out + 2, tag == TAG_UNIT ? TYPE_SHORT : TYPE_RATIONAL, 2);
+    if (big) {
+        put(le, out + 4, 1, 8);
+    } else {
+        put(le, out + 4, 1, 4);
+    }
+    if (tag == TAG_UNIT) {
+        put(le, out + value_at, value, 2);
+    } else {
+        put(le, out + value_at, value, big ? 8 : 4);
+    }
+}
+
+static size_t align_up2(size_t v, size_t a)
+{
+    return v + ((a - v % a) % a);
+}
+
+typedef struct built_entry {
+    uint16_t tag;
+    uint8_t bytes[20];
+} built_entry;
+
+static int built_cmp(const void *a, const void *b)
+{
+    uint16_t ta = ((const built_entry *)a)->tag;
+    uint16_t tb = ((const built_entry *)b)->tag;
+    return ta < tb ? -1 : ta > tb ? 1 : 0;
+}
+
+/* Append a replacement IFD0 carrying fresh X/Y resolution and inch unit, keeping every other
+ * entry's original bytes (their value offsets stay valid, since the old data is not moved). *out
+ * NULL when it cannot be built (left to the caller to treat as unchanged). Port of
+ * append_resolution_ifd. */
+static pc_status append_resolution_ifd(const ifd *i, const uint8_t *body, size_t bn, float x, float y,
+                                       uint8_t **out, size_t *out_len, pc_error *err)
+{
+    bool big = i->d.big;
+    size_t eb = i->d.entry;
+    size_t count_bytes = big ? 8 : 2;
+    size_t next_bytes = big ? 8 : 4;
+    size_t alignment = big ? 8 : 2;
+    size_t value_width = big ? 8 : 4;
+    built_entry *ents;
+    size_t ne = 0;
+    size_t count;
+    size_t new_ifd;
+    size_t table_end;
+    size_t next_at;
+    size_t rational_at;
+    size_t y_rational_at;
+    size_t total;
+    size_t idx;
+    uint32_t xn;
+    uint32_t xd;
+    uint32_t yn;
+    uint32_t yd;
+    uint8_t *o;
+    size_t w;
+    *out = NULL;
+    *out_len = 0;
+    if (i->d.count > (SIZE_MAX / sizeof *ents) - 3) {
+        return PC_OK;
+    }
+    ents = calloc(i->d.count + 3, sizeof *ents);
+    if (ents == NULL) {
+        return cx_nomem(err);
+    }
+    for (idx = 0; idx < i->d.count; idx++) {
+        size_t entry;
+        uint64_t tag;
+        if (!pc_size_mul(idx, eb, &entry) || !pc_size_add(entry, i->d.first, &entry) ||
+            entry + eb > bn || !cx_tif_rd(&i->t, entry, 2, &tag)) {
+            free(ents);
+            return PC_OK;
+        }
+        if (tag == TAG_X || tag == TAG_Y || tag == TAG_UNIT) {
+            continue;
+        }
+        ents[ne].tag = (uint16_t)tag;
+        memcpy(ents[ne].bytes, body + entry, eb);
+        ne++;
+    }
+    count = ne + 3;
+    if (!big && count > 0xFFFF) {
+        free(ents);
+        return PC_OK;
+    }
+    new_ifd = align_up2(bn, alignment);
+    if (!pc_size_mul(count, eb, &table_end) || !pc_size_add(table_end, new_ifd + count_bytes, &table_end) ||
+        !pc_size_mul(i->d.count, eb, &next_at) || !pc_size_add(next_at, i->d.first, &next_at) ||
+        next_at + next_bytes > bn) {
+        free(ents);
+        return PC_OK;
+    }
+    rational_at = align_up2(table_end + next_bytes, big ? 8 : 4);
+    y_rational_at = rational_at + 8;
+    total = y_rational_at + 8;
+    if (!big && (new_ifd > UINT32_MAX || total > UINT32_MAX)) {
+        free(ents);
+        return PC_OK;
+    }
+    res_entry(i->t.le, big, TAG_X, rational_at, ents[ne].bytes);
+    ents[ne].tag = TAG_X;
+    res_entry(i->t.le, big, TAG_Y, y_rational_at, ents[ne + 1].bytes);
+    ents[ne + 1].tag = TAG_Y;
+    res_entry(i->t.le, big, TAG_UNIT, 2, ents[ne + 2].bytes);
+    ents[ne + 2].tag = TAG_UNIT;
+    qsort(ents, count, sizeof *ents, built_cmp);
+    o = calloc(total > 0 ? total : 1, 1);
+    if (o == NULL) {
+        free(ents);
+        return cx_nomem(err);
+    }
+    memcpy(o, body, bn);
+    w = new_ifd;
+    put(i->t.le, o + w, count, count_bytes);
+    w += count_bytes;
+    for (idx = 0; idx < count; idx++) {
+        memcpy(o + w, ents[idx].bytes, eb);
+        w += eb;
+    }
+    memcpy(o + w, body + next_at, next_bytes);
+    rational(x, &xn, &xd);
+    rational(y, &yn, &yd);
+    put(i->t.le, o + rational_at, xn, 4);
+    put(i->t.le, o + rational_at + 4, xd, 4);
+    put(i->t.le, o + y_rational_at, yn, 4);
+    put(i->t.le, o + y_rational_at + 4, yd, 4);
+    put(i->t.le, o + (big ? 8 : 4), new_ifd, value_width);
+    free(ents);
+    *out = o;
+    *out_len = total;
+    return PC_OK;
+}
+
+/* The minimal valid little-endian TIFF block an empty EXIF synthesises from (header + an empty
+ * IFD0 and its zero next-IFD pointer), byte-for-byte the reference's b"II*\0\x08\0\0\0\0\0\0\0\0\0\0". */
+static const uint8_t MINIMAL_TIFF[15] = {'I', 'I', 0x2A, 0, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+
+static pc_status exif_with_resolution_inner(const uint8_t *exif, size_t n, float x, float y,
+                                            bool add_missing, uint8_t **out, size_t *out_len, pc_error *err)
 {
     size_t off = cx_exif_body(exif, n);
     const uint8_t *body = exif + off;
@@ -398,10 +545,48 @@ pc_status pc_exif_with_resolution(const uint8_t *exif, size_t n, float x, float 
     if (!ppi_ok((double)x) || !ppi_ok((double)y)) {
         return PC_OK;
     }
+    if (n == 0) {
+        if (!add_missing) {
+            return PC_OK;
+        }
+        /* An image with DPI but no source EXIF still needs a valid EXIF block for a format that
+         * cannot carry resolution in its own header (CMYK JPEG has no valid JFIF marker). */
+        return exif_with_resolution_inner(MINIMAL_TIFF, sizeof MINIMAL_TIFF, x, y, true, out, out_len, err);
+    }
     if (!ifd_parse(body, bn, &i)) {
         return PC_OK;
     }
-    if (i.nf == 0 || (resolution_of(&i, &rx, &ry) && same(rx, ry, x, y))) {
+    if (resolution_of(&i, &rx, &ry) && same(rx, ry, x, y)) {
+        ifd_fini(&i);
+        return PC_OK;
+    }
+    if (add_missing) {
+        const field *fx = first_of(&i, TAG_X);
+        const field *fy = first_of(&i, TAG_Y);
+        double tmp;
+        bool missing = (fx == NULL || !f_rational(&i, fx, &tmp)) || (fy == NULL || !f_rational(&i, fy, &tmp));
+        if (missing) {
+            uint8_t *nb = NULL;
+            size_t nbn = 0;
+            pc_status st = append_resolution_ifd(&i, body, bn, x, y, &nb, &nbn, err);
+            ifd_fini(&i);
+            if (st != PC_OK || nb == NULL) {
+                return st;
+            }
+            c = malloc(off + nbn > 0 ? off + nbn : 1);
+            if (c == NULL) {
+                free(nb);
+                return cx_nomem(err);
+            }
+            memcpy(c, exif, off);
+            memcpy(c + off, nb, nbn);
+            free(nb);
+            *out = c;
+            *out_len = off + nbn;
+            return PC_OK;
+        }
+    }
+    if (i.nf == 0) {
         ifd_fini(&i);
         return PC_OK;
     }
@@ -450,6 +635,18 @@ pc_status pc_exif_with_resolution(const uint8_t *exif, size_t n, float x, float 
     *out = c;
     *out_len = n;
     return PC_OK;
+}
+
+pc_status pc_exif_with_resolution(const uint8_t *exif, size_t n, float x, float y, uint8_t **out,
+                                  size_t *out_len, pc_error *err)
+{
+    return exif_with_resolution_inner(exif, n, x, y, false, out, out_len, err);
+}
+
+pc_status pc_exif_with_resolution_adding(const uint8_t *exif, size_t n, float x, float y, uint8_t **out,
+                                         size_t *out_len, pc_error *err)
+{
+    return exif_with_resolution_inner(exif, n, x, y, true, out, out_len, err);
 }
 
 /* ---- Photoshop resources ---- */
@@ -783,8 +980,8 @@ static pc_status without_thumbnail(const uint8_t *exif, size_t n, uint8_t **out,
     return PC_OK;
 }
 
-pc_status pc_export_exif(const uint8_t *exif, size_t n, const float *dpi, uint8_t **out, size_t *out_len,
-                         pc_error *err)
+static pc_status export_exif_inner(const uint8_t *exif, size_t n, const float *dpi, bool add_missing,
+                                   uint8_t **out, size_t *out_len, pc_error *err)
 {
     uint8_t *up = NULL;
     size_t un = 0;
@@ -812,7 +1009,9 @@ pc_status pc_export_exif(const uint8_t *exif, size_t n, const float *dpi, uint8_
         cur = up;
     }
     if (dpi != NULL) {
-        if ((st = pc_exif_with_resolution(cur, cn, dpi[0], dpi[1], &res, &rn, err)) != PC_OK) {
+        st = add_missing ? pc_exif_with_resolution_adding(cur, cn, dpi[0], dpi[1], &res, &rn, err)
+                         : pc_exif_with_resolution(cur, cn, dpi[0], dpi[1], &res, &rn, err);
+        if (st != PC_OK) {
             free(up);
             return st;
         }
@@ -826,6 +1025,18 @@ pc_status pc_export_exif(const uint8_t *exif, size_t n, const float *dpi, uint8_
     *out = up;
     *out_len = up != NULL ? cn : 0;
     return PC_OK;
+}
+
+pc_status pc_export_exif(const uint8_t *exif, size_t n, const float *dpi, uint8_t **out, size_t *out_len,
+                         pc_error *err)
+{
+    return export_exif_inner(exif, n, dpi, false, out, out_len, err);
+}
+
+pc_status pc_export_exif_adding_missing(const uint8_t *exif, size_t n, const float *dpi, uint8_t **out,
+                                        size_t *out_len, pc_error *err)
+{
+    return export_exif_inner(exif, n, dpi, true, out, out_len, err);
 }
 
 pc_status pc_export_xmp(const char *xmp, size_t n, const float *dpi, char **out, size_t *out_len,

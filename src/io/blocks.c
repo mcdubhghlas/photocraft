@@ -10,6 +10,7 @@
 
 #include "base/mem.h"
 #include "base/num.h"
+#include "io/channel_map.h"
 #include "io/desc_util.h"
 #include "psd/layer.h"
 
@@ -365,6 +366,19 @@ bool pc_io_color_from_desc(const pc_psd_desc *d, pc_color *out)
         }
         *out = (pc_color){
             PC_COLOR_MODE_LAB, {l / 100.0f, (a + 128.0f) / 255.0f, (b + 128.0f) / 255.0f, 0.0f}, 1.0f};
+        return true;
+    }
+    if (class_is(d, "HSBC")) {
+        /* HSB: hue an angle in degrees, saturation / brightness 0..100. */
+        float h;
+        float s;
+        float b;
+        float rgb[3];
+        if (!gf(d, "H   ", &h) || !gf(d, "Strt", &s) || !gf(d, "Brgh", &b)) {
+            return false;
+        }
+        pc_io_hsb_to_rgb(h, s / 100.0f, b / 100.0f, rgb);
+        *out = pc_color_rgb(rgb[0], rgb[1], rgb[2]);
         return true;
     }
     /* Anything else: float RGB, or any RGB-like triple. */

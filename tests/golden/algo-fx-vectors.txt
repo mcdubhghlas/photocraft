@@ -31,7 +31,7 @@ de {"filter":"wind","method":"stagger","fromRight":true,"seed":7}	{"filter":"win
 de {"filter":"displace","horizontal":10,"vertical":10,"stretch":true,"undefined":"wrap","map":[1,2]}	{"filter":"displace","horizontal":10.0,"vertical":10.0,"stretch":true,"undefined":"wrap"} | Displace
 de {"filter":"shear","points":[[0,0],[1,0.5,3]],"undefined":"wrap"}	ERR invalid length 3, expected 2 elements in sequence
 de {"filter":"zigZag","amount":50,"ridges":4,"style":"pondRipples"}	{"filter":"zigZag","amount":50.0,"ridges":4.0,"style":"pondRipples"} | ZigZag
-de {"filter":"zigzag","amount":50,"ridges":4,"style":"pondRipples"}	ERR unknown variant `zigzag`, expected one of `gaussianBlur`, `boxBlur`, `motionBlur`, `radialBlur`, `surfaceBlur`, `unsharpMask`, `smartSharpen`, `highPass`, `addNoise`, `median`, `dustAndScratches`, `minimum`, `maximum`, `offset`, `mosaic`, `emboss`, `findEdges`, `solarize`, `invert`, `desaturate`, `twirl`, `pinch`, `spherize`, `wave`, `ripple`, `polarCoordinates`, `colorHalftone`, `crystallize`, `facet`, `fragment`, `mezzotint`, `pointillize`, `diffuse`, `extrude`, `oilPaint`, `tiles`, `traceContour`, `wind`, `displace`, `shear`, `zigZag`, `fibers`, `lensFlare`, `lightingEffects`, `relight`, `reduceNoise`, `smartBlur`, `lensBlur`, `shapeBlur`, `tiltShift`, `irisBlur`, `fieldBlur`, `spinBlur`, `pathBlur`, `custom`, `hsbHsl`, `colorToAlpha`, `deInterlace`, `ntscColors`, `filterGallery`
+de {"filter":"zigzag","amount":50,"ridges":4,"style":"pondRipples"}	ERR unknown variant `zigzag`, expected one of `gaussianBlur`, `boxBlur`, `motionBlur`, `radialBlur`, `surfaceBlur`, `unsharpMask`, `smartSharpen`, `highPass`, `addNoise`, `median`, `dustAndScratches`, `minimum`, `maximum`, `offset`, `mosaic`, `emboss`, `findEdges`, `solarize`, `invert`, `desaturate`, `twirl`, `pinch`, `spherize`, `wave`, `ripple`, `polarCoordinates`, `colorHalftone`, `crystallize`, `facet`, `fragment`, `mezzotint`, `pointillize`, `diffuse`, `extrude`, `oilPaint`, `tiles`, `traceContour`, `wind`, `displace`, `shear`, `zigZag`, `clouds`, `fibers`, `lensFlare`, `lightingEffects`, `relight`, `reduceNoise`, `smartBlur`, `lensBlur`, `shapeBlur`, `tiltShift`, `irisBlur`, `fieldBlur`, `spinBlur`, `pathBlur`, `custom`, `hsbHsl`, `colorToAlpha`, `deInterlace`, `ntscColors`, `filterGallery`
 de {"filter":"fibers","variance":16,"strength":4,"seed":8,"foreground":[0,0,0,1],"background":[1,1,1,1]}	{"filter":"fibers","variance":16.0,"strength":4.0,"seed":8,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0]} | Fibers
 de {"filter":"lensFlare","brightness":100,"centerX":0.3,"centerY":0.3,"lens":"moviePrime"}	{"filter":"lensFlare","brightness":100.0,"centerX":0.3,"centerY":0.3,"lens":"moviePrime"} | Lens Flare
 de {"filter":"lightingEffects","lights":[{"kind":"point","x":0.1}],"gloss":0,"metallic":0,"exposure":0,"ambience":10,"texture":"luminance","height":50,"whiteIsHigh":true}	{"filter":"lightingEffects","lights":[{"kind":"point","x":0.1,"y":0.2,"z":0.6,"targetX":0.5,"targetY":0.55,"angle":135.0,"elevation":45.0,"color":[1.0,1.0,1.0],"intensity":75.0,"cone":45.0,"hotspot":50.0,"radius":0.8}],"gloss":0.0,"metallic":0.0,"exposure":0.0,"ambience":10.0,"texture":"luminance","height":50.0,"whiteIsHigh":true} | Lighting Effects
@@ -152,7 +152,7 @@ fx rgba32 {"filter":"minimum","radius":1.0,"preserve":"squareness"} 0fcebee5d4fe
 fx rgb8 {"filter":"minimum","radius":1.0,"preserve":"squareness"} f933a73c7959d5d3
 fx gray8 {"filter":"minimum","radius":1.0,"preserve":"squareness"} b15c16f9341c9fa6
 fx graya16 {"filter":"minimum","radius":1.0,"preserve":"squareness"} 58d2bb4154947d3a
-fx cmyka8 {"filter":"minimum","radius":1.0,"preserve":"squareness"} b8ab0da740b3cff9
+fx cmyka8 {"filter":"minimum","radius":1.0,"preserve":"squareness"} ea7b2d6003106767
 fx laba16 {"filter":"minimum","radius":1.0,"preserve":"squareness"} 1b2ee5ba431aed2b
 fx laba32 {"filter":"minimum","radius":1.0,"preserve":"squareness"} 0fcebee5d4fef8a1
 label {"filter":"minimum","radius":1.0,"preserve":"squareness"} Minimum
@@ -163,7 +163,7 @@ fx rgba32 {"filter":"maximum","radius":1.0,"preserve":"squareness"} b30f1553771b
 fx rgb8 {"filter":"maximum","radius":1.0,"preserve":"squareness"} 53f1d60defcdeaac
 fx gray8 {"filter":"maximum","radius":1.0,"preserve":"squareness"} f619afb01eef1e0c
 fx graya16 {"filter":"maximum","radius":1.0,"preserve":"squareness"} 28159197fb37cfc3
-fx cmyka8 {"filter":"maximum","radius":1.0,"preserve":"squareness"} 0d4763540c9bceb2
+fx cmyka8 {"filter":"maximum","radius":1.0,"preserve":"squareness"} ad2b440d0277dbe7
 fx laba16 {"filter":"maximum","radius":1.0,"preserve":"squareness"} 0c0321ac70d81e2d
 fx laba32 {"filter":"maximum","radius":1.0,"preserve":"squareness"} b30f1553771b9d3d
 label {"filter":"maximum","radius":1.0,"preserve":"squareness"} Maximum
@@ -174,7 +174,7 @@ fx rgba32 {"filter":"minimum","radius":1.0,"preserve":"roundness"} 7fa0d9eb68852
 fx rgb8 {"filter":"minimum","radius":1.0,"preserve":"roundness"} 68287ce4687fd60a
 fx gray8 {"filter":"minimum","radius":1.0,"preserve":"roundness"} 9eb140ecf7b418c0
 fx graya16 {"filter":"minimum","radius":1.0,"preserve":"roundness"} f9d4ef27d1440751
-fx cmyka8 {"filter":"minimum","radius":1.0,"preserve":"roundness"} 5d5de0e50e9ea7dc
+fx cmyka8 {"filter":"minimum","radius":1.0,"preserve":"roundness"} 6d5fc7e23a172bdd
 fx laba16 {"filter":"minimum","radius":1.0,"preserve":"roundness"} af605fe26439d137
 fx laba32 {"filter":"minimum","radius":1.0,"preserve":"roundness"} 7fa0d9eb68852ea4
 label {"filter":"minimum","radius":1.0,"preserve":"roundness"} Minimum
@@ -185,7 +185,7 @@ fx rgba32 {"filter":"maximum","radius":1.0,"preserve":"roundness"} 5a91db4d23896
 fx rgb8 {"filter":"maximum","radius":1.0,"preserve":"roundness"} faac5810b819465c
 fx gray8 {"filter":"maximum","radius":1.0,"preserve":"roundness"} ad83021304a1f5c5
 fx graya16 {"filter":"maximum","radius":1.0,"preserve":"roundness"} 621a6535454c166e
-fx cmyka8 {"filter":"maximum","radius":1.0,"preserve":"roundness"} 4cd0c09c915ff651
+fx cmyka8 {"filter":"maximum","radius":1.0,"preserve":"roundness"} b383e287b8101e0a
 fx laba16 {"filter":"maximum","radius":1.0,"preserve":"roundness"} eff8f620f9b2f5e0
 fx laba32 {"filter":"maximum","radius":1.0,"preserve":"roundness"} 5a91db4d23896b50
 label {"filter":"maximum","radius":1.0,"preserve":"roundness"} Maximum
@@ -196,7 +196,7 @@ fx rgba32 {"filter":"minimum","radius":1.5,"preserve":"squareness"} 3898da45cf9a
 fx rgb8 {"filter":"minimum","radius":1.5,"preserve":"squareness"} af802240ff5e98c8
 fx gray8 {"filter":"minimum","radius":1.5,"preserve":"squareness"} decf48b80e6fe188
 fx graya16 {"filter":"minimum","radius":1.5,"preserve":"squareness"} f1a77b80a400cb44
-fx cmyka8 {"filter":"minimum","radius":1.5,"preserve":"squareness"} 4bd1594e63c70cc3
+fx cmyka8 {"filter":"minimum","radius":1.5,"preserve":"squareness"} 96290f6234c3481d
 fx laba16 {"filter":"minimum","radius":1.5,"preserve":"squareness"} 3128567cd1c2aea9
 fx laba32 {"filter":"minimum","radius":1.5,"preserve":"squareness"} 3898da45cf9ab697
 label {"filter":"minimum","radius":1.5,"preserve":"squareness"} Minimum
@@ -207,7 +207,7 @@ fx rgba32 {"filter":"maximum","radius":1.5,"preserve":"squareness"} efb1954a9a9c
 fx rgb8 {"filter":"maximum","radius":1.5,"preserve":"squareness"} 3a3fee6eac86cd4d
 fx gray8 {"filter":"maximum","radius":1.5,"preserve":"squareness"} 870881ee656e52d7
 fx graya16 {"filter":"maximum","radius":1.5,"preserve":"squareness"} db8ced8f31ddbe86
-fx cmyka8 {"filter":"maximum","radius":1.5,"preserve":"squareness"} 9d5d13b5fdf306d7
+fx cmyka8 {"filter":"maximum","radius":1.5,"preserve":"squareness"} 9bf36cf86f496589
 fx laba16 {"filter":"maximum","radius":1.5,"preserve":"squareness"} fe80f2220336d661
 fx laba32 {"filter":"maximum","radius":1.5,"preserve":"squareness"} efb1954a9a9cdeb8
 label {"filter":"maximum","radius":1.5,"preserve":"squareness"} Maximum
@@ -218,7 +218,7 @@ fx rgba32 {"filter":"minimum","radius":1.5,"preserve":"roundness"} 6a2e0fa5a4fb7
 fx rgb8 {"filter":"minimum","radius":1.5,"preserve":"roundness"} 439131acc14d717c
 fx gray8 {"filter":"minimum","radius":1.5,"preserve":"roundness"} d08d9de114199279
 fx graya16 {"filter":"minimum","radius":1.5,"preserve":"roundness"} dde6cefb79b422f1
-fx cmyka8 {"filter":"minimum","radius":1.5,"preserve":"roundness"} 20dd51de7d183cea
+fx cmyka8 {"filter":"minimum","radius":1.5,"preserve":"roundness"} 4d2906340a2ecb40
 fx laba16 {"filter":"minimum","radius":1.5,"preserve":"roundness"} 995f8659142eb0b4
 fx laba32 {"filter":"minimum","radius":1.5,"preserve":"roundness"} 6a2e0fa5a4fb7d2a
 label {"filter":"minimum","radius":1.5,"preserve":"roundness"} Minimum
@@ -229,7 +229,7 @@ fx rgba32 {"filter":"maximum","radius":1.5,"preserve":"roundness"} feb1facec2931
 fx rgb8 {"filter":"maximum","radius":1.5,"preserve":"roundness"} eb2992dd609539cb
 fx gray8 {"filter":"maximum","radius":1.5,"preserve":"roundness"} 6a06b6fa3bb5668f
 fx graya16 {"filter":"maximum","radius":1.5,"preserve":"roundness"} 33867bbc5e121100
-fx cmyka8 {"filter":"maximum","radius":1.5,"preserve":"roundness"} f527b55097d781c5
+fx cmyka8 {"filter":"maximum","radius":1.5,"preserve":"roundness"} dffd0f5c84ffaf14
 fx laba16 {"filter":"maximum","radius":1.5,"preserve":"roundness"} 3d68525e07322c46
 fx laba32 {"filter":"maximum","radius":1.5,"preserve":"roundness"} feb1facec293154e
 label {"filter":"maximum","radius":1.5,"preserve":"roundness"} Maximum
@@ -240,7 +240,7 @@ fx rgba32 {"filter":"minimum","radius":2.5,"preserve":"squareness"} 2552a165e119
 fx rgb8 {"filter":"minimum","radius":2.5,"preserve":"squareness"} 6cb9e9ecb2e8f040
 fx gray8 {"filter":"minimum","radius":2.5,"preserve":"squareness"} bf2dcc5116dbd360
 fx graya16 {"filter":"minimum","radius":2.5,"preserve":"squareness"} 9e10393ba434ea40
-fx cmyka8 {"filter":"minimum","radius":2.5,"preserve":"squareness"} 41271b395511b2b0
+fx cmyka8 {"filter":"minimum","radius":2.5,"preserve":"squareness"} ce948d98fa1b778b
 fx laba16 {"filter":"minimum","radius":2.5,"preserve":"squareness"} fba5f24bb9529701
 fx laba32 {"filter":"minimum","radius":2.5,"preserve":"squareness"} 2552a165e11993f5
 label {"filter":"minimum","radius":2.5,"preserve":"squareness"} Minimum
@@ -251,7 +251,7 @@ fx rgba32 {"filter":"maximum","radius":2.5,"preserve":"squareness"} dcf5a92b6f33
 fx rgb8 {"filter":"maximum","radius":2.5,"preserve":"squareness"} d7ced70bdc4852ca
 fx gray8 {"filter":"maximum","radius":2.5,"preserve":"squareness"} 11268692d1259ee6
 fx graya16 {"filter":"maximum","radius":2.5,"preserve":"squareness"} 9b47e767c3673a26
-fx cmyka8 {"filter":"maximum","radius":2.5,"preserve":"squareness"} 6371d058295677e5
+fx cmyka8 {"filter":"maximum","radius":2.5,"preserve":"squareness"} 207bc878efc315ed
 fx laba16 {"filter":"maximum","radius":2.5,"preserve":"squareness"} e6d60230db0c8325
 fx laba32 {"filter":"maximum","radius":2.5,"preserve":"squareness"} dcf5a92b6f3345f3
 label {"filter":"maximum","radius":2.5,"preserve":"squareness"} Maximum
@@ -262,7 +262,7 @@ fx rgba32 {"filter":"minimum","radius":2.5,"preserve":"roundness"} 60f84fd748369
 fx rgb8 {"filter":"minimum","radius":2.5,"preserve":"roundness"} b6129752b27d8a54
 fx gray8 {"filter":"minimum","radius":2.5,"preserve":"roundness"} 9e285021011e1d7a
 fx graya16 {"filter":"minimum","radius":2.5,"preserve":"roundness"} 51fcc0c7c1a0d235
-fx cmyka8 {"filter":"minimum","radius":2.5,"preserve":"roundness"} 09c6daa77af681a5
+fx cmyka8 {"filter":"minimum","radius":2.5,"preserve":"roundness"} 806f49683fa4035a
 fx laba16 {"filter":"minimum","radius":2.5,"preserve":"roundness"} 3cd3953c1ab5a164
 fx laba32 {"filter":"minimum","radius":2.5,"preserve":"roundness"} 60f84fd748369345
 label {"filter":"minimum","radius":2.5,"preserve":"roundness"} Minimum
@@ -273,7 +273,7 @@ fx rgba32 {"filter":"maximum","radius":2.5,"preserve":"roundness"} 3a27fa40c25b3
 fx rgb8 {"filter":"maximum","radius":2.5,"preserve":"roundness"} e925c38b05650958
 fx gray8 {"filter":"maximum","radius":2.5,"preserve":"roundness"} 42f49b25d1cb6bf1
 fx graya16 {"filter":"maximum","radius":2.5,"preserve":"roundness"} 4e7458b1f5a478b4
-fx cmyka8 {"filter":"maximum","radius":2.5,"preserve":"roundness"} 6b5a3dbca0efd77e
+fx cmyka8 {"filter":"maximum","radius":2.5,"preserve":"roundness"} 03ee34a8b6c9d1b4
 fx laba16 {"filter":"maximum","radius":2.5,"preserve":"roundness"} 95e8f939455e62e6
 fx laba32 {"filter":"maximum","radius":2.5,"preserve":"roundness"} 3a27fa40c25b3f6b
 label {"filter":"maximum","radius":2.5,"preserve":"roundness"} Maximum
@@ -284,7 +284,7 @@ fx rgba32 {"filter":"minimum","radius":3.0,"preserve":"squareness"} 2552a165e119
 fx rgb8 {"filter":"minimum","radius":3.0,"preserve":"squareness"} 6cb9e9ecb2e8f040
 fx gray8 {"filter":"minimum","radius":3.0,"preserve":"squareness"} bf2dcc5116dbd360
 fx graya16 {"filter":"minimum","radius":3.0,"preserve":"squareness"} 9e10393ba434ea40
-fx cmyka8 {"filter":"minimum","radius":3.0,"preserve":"squareness"} 41271b395511b2b0
+fx cmyka8 {"filter":"minimum","radius":3.0,"preserve":"squareness"} ce948d98fa1b778b
 fx laba16 {"filter":"minimum","radius":3.0,"preserve":"squareness"} fba5f24bb9529701
 fx laba32 {"filter":"minimum","radius":3.0,"preserve":"squareness"} 2552a165e11993f5
 label {"filter":"minimum","radius":3.0,"preserve":"squareness"} Minimum
@@ -295,7 +295,7 @@ fx rgba32 {"filter":"maximum","radius":3.0,"preserve":"squareness"} dcf5a92b6f33
 fx rgb8 {"filter":"maximum","radius":3.0,"preserve":"squareness"} d7ced70bdc4852ca
 fx gray8 {"filter":"maximum","radius":3.0,"preserve":"squareness"} 11268692d1259ee6
 fx graya16 {"filter":"maximum","radius":3.0,"preserve":"squareness"} 9b47e767c3673a26
-fx cmyka8 {"filter":"maximum","radius":3.0,"preserve":"squareness"} 6371d058295677e5
+fx cmyka8 {"filter":"maximum","radius":3.0,"preserve":"squareness"} 207bc878efc315ed
 fx laba16 {"filter":"maximum","radius":3.0,"preserve":"squareness"} e6d60230db0c8325
 fx laba32 {"filter":"maximum","radius":3.0,"preserve":"squareness"} dcf5a92b6f3345f3
 label {"filter":"maximum","radius":3.0,"preserve":"squareness"} Maximum
@@ -306,7 +306,7 @@ fx rgba32 {"filter":"minimum","radius":3.0,"preserve":"roundness"} e2367dc4a3774
 fx rgb8 {"filter":"minimum","radius":3.0,"preserve":"roundness"} c88c77e1acd3985b
 fx gray8 {"filter":"minimum","radius":3.0,"preserve":"roundness"} ab8b6511c72e20a1
 fx graya16 {"filter":"minimum","radius":3.0,"preserve":"roundness"} 1041807fa6f4a942
-fx cmyka8 {"filter":"minimum","radius":3.0,"preserve":"roundness"} de08bbdad5282034
+fx cmyka8 {"filter":"minimum","radius":3.0,"preserve":"roundness"} 8e33a50018bb6afb
 fx laba16 {"filter":"minimum","radius":3.0,"preserve":"roundness"} 791dcd4cc99fcc5a
 fx laba32 {"filter":"minimum","radius":3.0,"preserve":"roundness"} e2367dc4a377442a
 label {"filter":"minimum","radius":3.0,"preserve":"roundness"} Minimum
@@ -317,7 +317,7 @@ fx rgba32 {"filter":"maximum","radius":3.0,"preserve":"roundness"} 83f9682f2f117
 fx rgb8 {"filter":"maximum","radius":3.0,"preserve":"roundness"} 44a53f7cd4f42416
 fx gray8 {"filter":"maximum","radius":3.0,"preserve":"roundness"} fe39610b1b5d6a3b
 fx graya16 {"filter":"maximum","radius":3.0,"preserve":"roundness"} c64f641ae48c74eb
-fx cmyka8 {"filter":"maximum","radius":3.0,"preserve":"roundness"} b5a204e13a0837ae
+fx cmyka8 {"filter":"maximum","radius":3.0,"preserve":"roundness"} d0b536900df63478
 fx laba16 {"filter":"maximum","radius":3.0,"preserve":"roundness"} 185bc7aa27290893
 fx laba32 {"filter":"maximum","radius":3.0,"preserve":"roundness"} 83f9682f2f117030
 label {"filter":"maximum","radius":3.0,"preserve":"roundness"} Maximum
@@ -328,7 +328,7 @@ fx rgba32 {"filter":"minimum","radius":6.0,"preserve":"squareness"} 78aa592de2fc
 fx rgb8 {"filter":"minimum","radius":6.0,"preserve":"squareness"} 68173c9c7d77980a
 fx gray8 {"filter":"minimum","radius":6.0,"preserve":"squareness"} 999a37e098e48b0e
 fx graya16 {"filter":"minimum","radius":6.0,"preserve":"squareness"} 65671889a332e27b
-fx cmyka8 {"filter":"minimum","radius":6.0,"preserve":"squareness"} 3abcf403fc8390f2
+fx cmyka8 {"filter":"minimum","radius":6.0,"preserve":"squareness"} 516033df3405f458
 fx laba16 {"filter":"minimum","radius":6.0,"preserve":"squareness"} b64a4d09a03edb14
 fx laba32 {"filter":"minimum","radius":6.0,"preserve":"squareness"} 78aa592de2fc0daf
 label {"filter":"minimum","radius":6.0,"preserve":"squareness"} Minimum
@@ -339,7 +339,7 @@ fx rgba32 {"filter":"maximum","radius":6.0,"preserve":"squareness"} 095643b0fc85
 fx rgb8 {"filter":"maximum","radius":6.0,"preserve":"squareness"} 9129b8a07b94c7de
 fx gray8 {"filter":"maximum","radius":6.0,"preserve":"squareness"} 09a8314059c40188
 fx graya16 {"filter":"maximum","radius":6.0,"preserve":"squareness"} 8ae84be488bba079
-fx cmyka8 {"filter":"maximum","radius":6.0,"preserve":"squareness"} 9fd2a26e6f4b5c80
+fx cmyka8 {"filter":"maximum","radius":6.0,"preserve":"squareness"} 9990818f89e09bd9
 fx laba16 {"filter":"maximum","radius":6.0,"preserve":"squareness"} 41a1db1c3e5323c2
 fx laba32 {"filter":"maximum","radius":6.0,"preserve":"squareness"} 095643b0fc856c66
 label {"filter":"maximum","radius":6.0,"preserve":"squareness"} Maximum
@@ -350,7 +350,7 @@ fx rgba32 {"filter":"minimum","radius":6.0,"preserve":"roundness"} 93f0db09df254
 fx rgb8 {"filter":"minimum","radius":6.0,"preserve":"roundness"} 563ccee98091134c
 fx gray8 {"filter":"minimum","radius":6.0,"preserve":"roundness"} 5e996e0ce06305d6
 fx graya16 {"filter":"minimum","radius":6.0,"preserve":"roundness"} 19ea5c168296ea12
-fx cmyka8 {"filter":"minimum","radius":6.0,"preserve":"roundness"} 9e8ca73ffdb77671
+fx cmyka8 {"filter":"minimum","radius":6.0,"preserve":"roundness"} 9d47ae4753a54400
 fx laba16 {"filter":"minimum","radius":6.0,"preserve":"roundness"} 111d534d091060dd
 fx laba32 {"filter":"minimum","radius":6.0,"preserve":"roundness"} 93f0db09df254f9c
 label {"filter":"minimum","radius":6.0,"preserve":"roundness"} Minimum
@@ -361,7 +361,7 @@ fx rgba32 {"filter":"maximum","radius":6.0,"preserve":"roundness"} fbaad1bc116cc
 fx rgb8 {"filter":"maximum","radius":6.0,"preserve":"roundness"} 18288f8bd35c8a5f
 fx gray8 {"filter":"maximum","radius":6.0,"preserve":"roundness"} 431af7235328c969
 fx graya16 {"filter":"maximum","radius":6.0,"preserve":"roundness"} 8b17083da4158e42
-fx cmyka8 {"filter":"maximum","radius":6.0,"preserve":"roundness"} 15fd2d4b71188eb5
+fx cmyka8 {"filter":"maximum","radius":6.0,"preserve":"roundness"} 1248789682bffc1e
 fx laba16 {"filter":"maximum","radius":6.0,"preserve":"roundness"} c87597c33fbe8080
 fx laba32 {"filter":"maximum","radius":6.0,"preserve":"roundness"} fbaad1bc116ccb1d
 label {"filter":"maximum","radius":6.0,"preserve":"roundness"} Maximum
@@ -597,15 +597,15 @@ fx laba16 {"filter":"emboss","angle":90.0,"height":-3.0,"amount":500.0} 7e3c22d5
 fx laba32 {"filter":"emboss","angle":90.0,"height":-3.0,"amount":500.0} 2cb6b97e233060d5
 label {"filter":"emboss","angle":90.0,"height":-3.0,"amount":500.0} Emboss
 halo {"filter":"emboss","angle":90.0,"height":-3.0,"amount":500.0} r5
-fx rgba8 {"filter":"findEdges"} 29f7ef38e1743e18
-fx rgba16 {"filter":"findEdges"} 9778139273d7a914
-fx rgba32 {"filter":"findEdges"} 240d4b68563e7f9c
-fx rgb8 {"filter":"findEdges"} 0541e33a3194a67c
-fx gray8 {"filter":"findEdges"} 5128a96e7c89472d
-fx graya16 {"filter":"findEdges"} f6ff3003f92d1038
-fx cmyka8 {"filter":"findEdges"} b068ecd2d2a0f7a2
-fx laba16 {"filter":"findEdges"} 9778139273d7a914
-fx laba32 {"filter":"findEdges"} 240d4b68563e7f9c
+fx rgba8 {"filter":"findEdges"} 29ad50fc6b4ceff6
+fx rgba16 {"filter":"findEdges"} 206f3cefe2af4e87
+fx rgba32 {"filter":"findEdges"} 130be97c432908f8
+fx rgb8 {"filter":"findEdges"} 032672d49daa18fa
+fx gray8 {"filter":"findEdges"} 80a88d5e63464f4a
+fx graya16 {"filter":"findEdges"} 3a3d5da5e3968aea
+fx cmyka8 {"filter":"findEdges"} 3f5c769bff474184
+fx laba16 {"filter":"findEdges"} 206f3cefe2af4e87
+fx laba32 {"filter":"findEdges"} 130be97c432908f8
 label {"filter":"findEdges"} Find Edges
 halo {"filter":"findEdges"} r1
 fx rgba8 {"filter":"solarize"} 0a8108e7694ef39a
@@ -652,103 +652,103 @@ fx laba16 {"filter":"twirl","angle":0.0} 63c717e25bccd8d5
 fx laba32 {"filter":"twirl","angle":0.0} 5b941572ba3e2a0a
 label {"filter":"twirl","angle":0.0} Twirl
 halo {"filter":"twirl","angle":0.0} bounds
-fx rgba8 {"filter":"twirl","angle":90.0} 3e01b9afd4e82972
-fx rgba16 {"filter":"twirl","angle":90.0} 2fc2b00329f34896
-fx rgba32 {"filter":"twirl","angle":90.0} 7c6ed766793069c2
-fx rgb8 {"filter":"twirl","angle":90.0} 03c796ce55b957f8
-fx gray8 {"filter":"twirl","angle":90.0} 7046ab89787a947a
-fx graya16 {"filter":"twirl","angle":90.0} 3111eb328548d209
-fx cmyka8 {"filter":"twirl","angle":90.0} 7fcf755bad6e9944
-fx laba16 {"filter":"twirl","angle":90.0} 2fc2b00329f34896
-fx laba32 {"filter":"twirl","angle":90.0} 7c6ed766793069c2
+fx rgba8 {"filter":"twirl","angle":90.0} 3e38ee4a4f4c225e
+fx rgba16 {"filter":"twirl","angle":90.0} e70c8d2e2d09ea4e
+fx rgba32 {"filter":"twirl","angle":90.0} 8e56fa9d9a5356ca
+fx rgb8 {"filter":"twirl","angle":90.0} e1d3046188f61fab
+fx gray8 {"filter":"twirl","angle":90.0} 6d3586ce06a1c595
+fx graya16 {"filter":"twirl","angle":90.0} 7c38c9f559cf7a1b
+fx cmyka8 {"filter":"twirl","angle":90.0} d31bc65fd552c897
+fx laba16 {"filter":"twirl","angle":90.0} e70c8d2e2d09ea4e
+fx laba32 {"filter":"twirl","angle":90.0} 8e56fa9d9a5356ca
 label {"filter":"twirl","angle":90.0} Twirl
 halo {"filter":"twirl","angle":90.0} bounds
-fx rgba8 {"filter":"twirl","angle":-400.0} 03c49a106bbf5dd0
-fx rgba16 {"filter":"twirl","angle":-400.0} 96ec4e93541f604c
-fx rgba32 {"filter":"twirl","angle":-400.0} 81477cbc2bff1bb6
-fx rgb8 {"filter":"twirl","angle":-400.0} 83ea2c2c69045c5c
-fx gray8 {"filter":"twirl","angle":-400.0} 14b0afb11128e3c8
-fx graya16 {"filter":"twirl","angle":-400.0} 3b899b0434ee3383
-fx cmyka8 {"filter":"twirl","angle":-400.0} 520b4a71ccf7c241
-fx laba16 {"filter":"twirl","angle":-400.0} 96ec4e93541f604c
-fx laba32 {"filter":"twirl","angle":-400.0} 81477cbc2bff1bb6
+fx rgba8 {"filter":"twirl","angle":-400.0} 68f69d53c3d63251
+fx rgba16 {"filter":"twirl","angle":-400.0} 3012ce1672bea387
+fx rgba32 {"filter":"twirl","angle":-400.0} 345e9c25590f0484
+fx rgb8 {"filter":"twirl","angle":-400.0} f33b01389a6a80ee
+fx gray8 {"filter":"twirl","angle":-400.0} 47c37511d92774d4
+fx graya16 {"filter":"twirl","angle":-400.0} 5cdec22c1e8e1590
+fx cmyka8 {"filter":"twirl","angle":-400.0} d7bd5d612d54e467
+fx laba16 {"filter":"twirl","angle":-400.0} 3012ce1672bea387
+fx laba32 {"filter":"twirl","angle":-400.0} 345e9c25590f0484
 label {"filter":"twirl","angle":-400.0} Twirl
 halo {"filter":"twirl","angle":-400.0} bounds
-fx rgba8 {"filter":"twirl","angle":999.0} 269fcc03329f5d5e
-fx rgba16 {"filter":"twirl","angle":999.0} 77cccdb58c25cfa8
-fx rgba32 {"filter":"twirl","angle":999.0} ec36aac5d3fdf5e8
-fx rgb8 {"filter":"twirl","angle":999.0} b140ff804119f4d4
-fx gray8 {"filter":"twirl","angle":999.0} e13095b9dcda7f1f
-fx graya16 {"filter":"twirl","angle":999.0} 872d4d1099354a7f
-fx cmyka8 {"filter":"twirl","angle":999.0} 3ba384468e6670c1
-fx laba16 {"filter":"twirl","angle":999.0} 77cccdb58c25cfa8
-fx laba32 {"filter":"twirl","angle":999.0} ec36aac5d3fdf5e8
+fx rgba8 {"filter":"twirl","angle":999.0} fc9c64d198dfd59d
+fx rgba16 {"filter":"twirl","angle":999.0} b0b43ba134e8d802
+fx rgba32 {"filter":"twirl","angle":999.0} 34c2a2da395aad34
+fx rgb8 {"filter":"twirl","angle":999.0} f769f1ff4f4fb2ec
+fx gray8 {"filter":"twirl","angle":999.0} fd7a239b98fd293c
+fx graya16 {"filter":"twirl","angle":999.0} a5de51eef7942a4e
+fx cmyka8 {"filter":"twirl","angle":999.0} d3b4bce4934f9a28
+fx laba16 {"filter":"twirl","angle":999.0} b0b43ba134e8d802
+fx laba32 {"filter":"twirl","angle":999.0} 34c2a2da395aad34
 label {"filter":"twirl","angle":999.0} Twirl
 halo {"filter":"twirl","angle":999.0} bounds
-fx rgba8 {"filter":"pinch","amount":0.0} 6f48c5bcd57b974b
-fx rgba16 {"filter":"pinch","amount":0.0} 3be20e278daa24c4
-fx rgba32 {"filter":"pinch","amount":0.0} f13cc9ea5f38840f
+fx rgba8 {"filter":"pinch","amount":0.0} 0e8b8a9a68f38c23
+fx rgba16 {"filter":"pinch","amount":0.0} 63c717e25bccd8d5
+fx rgba32 {"filter":"pinch","amount":0.0} 5b941572ba3e2a0a
 fx rgb8 {"filter":"pinch","amount":0.0} ae3a836c5e3d09b9
 fx gray8 {"filter":"pinch","amount":0.0} 237e3146192dd26c
-fx graya16 {"filter":"pinch","amount":0.0} 1885a542f2f11c4f
-fx cmyka8 {"filter":"pinch","amount":0.0} 234fd44be5e282d7
-fx laba16 {"filter":"pinch","amount":0.0} 3be20e278daa24c4
-fx laba32 {"filter":"pinch","amount":0.0} f13cc9ea5f38840f
+fx graya16 {"filter":"pinch","amount":0.0} 6d05c1bb6db55db5
+fx cmyka8 {"filter":"pinch","amount":0.0} 81725c1f4aee26fd
+fx laba16 {"filter":"pinch","amount":0.0} 63c717e25bccd8d5
+fx laba32 {"filter":"pinch","amount":0.0} 5b941572ba3e2a0a
 label {"filter":"pinch","amount":0.0} Pinch
 halo {"filter":"pinch","amount":0.0} bounds
-fx rgba8 {"filter":"pinch","amount":50.0} 8281742df476a48c
-fx rgba16 {"filter":"pinch","amount":50.0} 91a516760c9b135f
-fx rgba32 {"filter":"pinch","amount":50.0} d4402d2793af0670
-fx rgb8 {"filter":"pinch","amount":50.0} 940878528f71c2ea
-fx gray8 {"filter":"pinch","amount":50.0} 3e30c66066c89d19
-fx graya16 {"filter":"pinch","amount":50.0} cf222e7156c9b5b2
-fx cmyka8 {"filter":"pinch","amount":50.0} 204f91aee85f31ec
-fx laba16 {"filter":"pinch","amount":50.0} 91a516760c9b135f
-fx laba32 {"filter":"pinch","amount":50.0} d4402d2793af0670
+fx rgba8 {"filter":"pinch","amount":50.0} e0a5bce872a90376
+fx rgba16 {"filter":"pinch","amount":50.0} b7842ebf6350083c
+fx rgba32 {"filter":"pinch","amount":50.0} 74186d31f9b7f7c3
+fx rgb8 {"filter":"pinch","amount":50.0} 4d626e19a07a9792
+fx gray8 {"filter":"pinch","amount":50.0} 0673d3374b999bbc
+fx graya16 {"filter":"pinch","amount":50.0} 09ef35abbf5c5fc5
+fx cmyka8 {"filter":"pinch","amount":50.0} b673603bea53ee10
+fx laba16 {"filter":"pinch","amount":50.0} b7842ebf6350083c
+fx laba32 {"filter":"pinch","amount":50.0} 74186d31f9b7f7c3
 label {"filter":"pinch","amount":50.0} Pinch
 halo {"filter":"pinch","amount":50.0} bounds
-fx rgba8 {"filter":"pinch","amount":-100.0} 7dcc60aa942763e6
-fx rgba16 {"filter":"pinch","amount":-100.0} f8b067e73e0eb51a
-fx rgba32 {"filter":"pinch","amount":-100.0} 17cd48bc8966bdec
-fx rgb8 {"filter":"pinch","amount":-100.0} f49674d0e0e0ee77
-fx gray8 {"filter":"pinch","amount":-100.0} 638705056f8c7911
-fx graya16 {"filter":"pinch","amount":-100.0} 0f851fe08c589199
-fx cmyka8 {"filter":"pinch","amount":-100.0} ea6baa659bdf3169
-fx laba16 {"filter":"pinch","amount":-100.0} f8b067e73e0eb51a
-fx laba32 {"filter":"pinch","amount":-100.0} 17cd48bc8966bdec
+fx rgba8 {"filter":"pinch","amount":-100.0} ea83ecb013fee564
+fx rgba16 {"filter":"pinch","amount":-100.0} 37fcab0356bc196e
+fx rgba32 {"filter":"pinch","amount":-100.0} 4ec9e99d4fc3a6d5
+fx rgb8 {"filter":"pinch","amount":-100.0} 3092ba6327c2b164
+fx gray8 {"filter":"pinch","amount":-100.0} afddd21206316658
+fx graya16 {"filter":"pinch","amount":-100.0} d7455a5376ff748c
+fx cmyka8 {"filter":"pinch","amount":-100.0} 745f248e7f2d9661
+fx laba16 {"filter":"pinch","amount":-100.0} 37fcab0356bc196e
+fx laba32 {"filter":"pinch","amount":-100.0} 4ec9e99d4fc3a6d5
 label {"filter":"pinch","amount":-100.0} Pinch
 halo {"filter":"pinch","amount":-100.0} bounds
-fx rgba8 {"filter":"pinch","amount":150.0} 393517cf96da9aa7
-fx rgba16 {"filter":"pinch","amount":150.0} 09e95dd2d08ed904
-fx rgba32 {"filter":"pinch","amount":150.0} b6e16dc0eab811c5
-fx rgb8 {"filter":"pinch","amount":150.0} 584bbd8a5dc491b8
-fx gray8 {"filter":"pinch","amount":150.0} ec93e5f9c3919aaf
-fx graya16 {"filter":"pinch","amount":150.0} 95d598994c16e427
-fx cmyka8 {"filter":"pinch","amount":150.0} c875e8d2d3b4a5bb
-fx laba16 {"filter":"pinch","amount":150.0} 09e95dd2d08ed904
-fx laba32 {"filter":"pinch","amount":150.0} b6e16dc0eab811c5
+fx rgba8 {"filter":"pinch","amount":150.0} 9bdd193402627de6
+fx rgba16 {"filter":"pinch","amount":150.0} 44a997dc1a16b4d8
+fx rgba32 {"filter":"pinch","amount":150.0} 9fedd43efd4927c4
+fx rgb8 {"filter":"pinch","amount":150.0} 16aab909202647fc
+fx gray8 {"filter":"pinch","amount":150.0} 3504278124d35389
+fx graya16 {"filter":"pinch","amount":150.0} 42fde79f2f3670db
+fx cmyka8 {"filter":"pinch","amount":150.0} 649a1707effdb5f5
+fx laba16 {"filter":"pinch","amount":150.0} 44a997dc1a16b4d8
+fx laba32 {"filter":"pinch","amount":150.0} 9fedd43efd4927c4
 label {"filter":"pinch","amount":150.0} Pinch
 halo {"filter":"pinch","amount":150.0} bounds
-fx rgba8 {"filter":"pinch","amount":-35.0} da2b4d6d8edd755f
-fx rgba16 {"filter":"pinch","amount":-35.0} 44d1aa84c25cf62f
-fx rgba32 {"filter":"pinch","amount":-35.0} 5d24511a3b45c8a1
-fx rgb8 {"filter":"pinch","amount":-35.0} 21afc5998d3c9ddc
-fx gray8 {"filter":"pinch","amount":-35.0} 407d89ca93c0dcba
-fx graya16 {"filter":"pinch","amount":-35.0} 01317eb849fb70a0
-fx cmyka8 {"filter":"pinch","amount":-35.0} bcad0ed910dacc36
-fx laba16 {"filter":"pinch","amount":-35.0} 44d1aa84c25cf62f
-fx laba32 {"filter":"pinch","amount":-35.0} 5d24511a3b45c8a1
+fx rgba8 {"filter":"pinch","amount":-35.0} ff21f2f2592660db
+fx rgba16 {"filter":"pinch","amount":-35.0} f3602fc8cccddee9
+fx rgba32 {"filter":"pinch","amount":-35.0} 65a53c033c8009d6
+fx rgb8 {"filter":"pinch","amount":-35.0} 0c44d5fc76af447f
+fx gray8 {"filter":"pinch","amount":-35.0} fa44437b6834dd84
+fx graya16 {"filter":"pinch","amount":-35.0} c61b45fd54dd7bfe
+fx cmyka8 {"filter":"pinch","amount":-35.0} 1dc1a9b117c33a47
+fx laba16 {"filter":"pinch","amount":-35.0} f3602fc8cccddee9
+fx laba32 {"filter":"pinch","amount":-35.0} 65a53c033c8009d6
 label {"filter":"pinch","amount":-35.0} Pinch
 halo {"filter":"pinch","amount":-35.0} bounds
-fx rgba8 {"filter":"spherize","amount":0.0,"mode":"normal"} 6f48c5bcd57b974b
-fx rgba16 {"filter":"spherize","amount":0.0,"mode":"normal"} 3be20e278daa24c4
-fx rgba32 {"filter":"spherize","amount":0.0,"mode":"normal"} f13cc9ea5f38840f
+fx rgba8 {"filter":"spherize","amount":0.0,"mode":"normal"} 0e8b8a9a68f38c23
+fx rgba16 {"filter":"spherize","amount":0.0,"mode":"normal"} 63c717e25bccd8d5
+fx rgba32 {"filter":"spherize","amount":0.0,"mode":"normal"} 5b941572ba3e2a0a
 fx rgb8 {"filter":"spherize","amount":0.0,"mode":"normal"} ae3a836c5e3d09b9
 fx gray8 {"filter":"spherize","amount":0.0,"mode":"normal"} 237e3146192dd26c
-fx graya16 {"filter":"spherize","amount":0.0,"mode":"normal"} 1885a542f2f11c4f
-fx cmyka8 {"filter":"spherize","amount":0.0,"mode":"normal"} 234fd44be5e282d7
-fx laba16 {"filter":"spherize","amount":0.0,"mode":"normal"} 3be20e278daa24c4
-fx laba32 {"filter":"spherize","amount":0.0,"mode":"normal"} f13cc9ea5f38840f
+fx graya16 {"filter":"spherize","amount":0.0,"mode":"normal"} 6d05c1bb6db55db5
+fx cmyka8 {"filter":"spherize","amount":0.0,"mode":"normal"} 81725c1f4aee26fd
+fx laba16 {"filter":"spherize","amount":0.0,"mode":"normal"} 63c717e25bccd8d5
+fx laba32 {"filter":"spherize","amount":0.0,"mode":"normal"} 5b941572ba3e2a0a
 label {"filter":"spherize","amount":0.0,"mode":"normal"} Spherize
 halo {"filter":"spherize","amount":0.0,"mode":"normal"} bounds
 fx rgba8 {"filter":"spherize","amount":0.0,"mode":"horizontalOnly"} 0e8b8a9a68f38c23
@@ -773,15 +773,15 @@ fx laba16 {"filter":"spherize","amount":0.0,"mode":"verticalOnly"} 63c717e25bccd
 fx laba32 {"filter":"spherize","amount":0.0,"mode":"verticalOnly"} 5b941572ba3e2a0a
 label {"filter":"spherize","amount":0.0,"mode":"verticalOnly"} Spherize
 halo {"filter":"spherize","amount":0.0,"mode":"verticalOnly"} bounds
-fx rgba8 {"filter":"spherize","amount":60.0,"mode":"normal"} 9e85c6bce049d443
-fx rgba16 {"filter":"spherize","amount":60.0,"mode":"normal"} 0a0f0aefae5eaf48
-fx rgba32 {"filter":"spherize","amount":60.0,"mode":"normal"} b2ac9f3de658d6dc
-fx rgb8 {"filter":"spherize","amount":60.0,"mode":"normal"} fc3bb9f821e6ca2f
-fx gray8 {"filter":"spherize","amount":60.0,"mode":"normal"} 5ea8605353ae5036
-fx graya16 {"filter":"spherize","amount":60.0,"mode":"normal"} 444cb1a1600e3e0b
-fx cmyka8 {"filter":"spherize","amount":60.0,"mode":"normal"} 35b98dd33c9414d7
-fx laba16 {"filter":"spherize","amount":60.0,"mode":"normal"} 0a0f0aefae5eaf48
-fx laba32 {"filter":"spherize","amount":60.0,"mode":"normal"} b2ac9f3de658d6dc
+fx rgba8 {"filter":"spherize","amount":60.0,"mode":"normal"} 0a5e76870f32b021
+fx rgba16 {"filter":"spherize","amount":60.0,"mode":"normal"} 13cd578e30751247
+fx rgba32 {"filter":"spherize","amount":60.0,"mode":"normal"} 06da490903c4d020
+fx rgb8 {"filter":"spherize","amount":60.0,"mode":"normal"} 53ff2f03efbbb12a
+fx gray8 {"filter":"spherize","amount":60.0,"mode":"normal"} 4df966628a5607f7
+fx graya16 {"filter":"spherize","amount":60.0,"mode":"normal"} 98cc9847e978adf2
+fx cmyka8 {"filter":"spherize","amount":60.0,"mode":"normal"} ad5a09b521292542
+fx laba16 {"filter":"spherize","amount":60.0,"mode":"normal"} 13cd578e30751247
+fx laba32 {"filter":"spherize","amount":60.0,"mode":"normal"} 06da490903c4d020
 label {"filter":"spherize","amount":60.0,"mode":"normal"} Spherize
 halo {"filter":"spherize","amount":60.0,"mode":"normal"} bounds
 fx rgba8 {"filter":"spherize","amount":60.0,"mode":"horizontalOnly"} 4747689e20b1a24d
@@ -806,15 +806,15 @@ fx laba16 {"filter":"spherize","amount":60.0,"mode":"verticalOnly"} c0b083008215
 fx laba32 {"filter":"spherize","amount":60.0,"mode":"verticalOnly"} 3c7eff13b15301df
 label {"filter":"spherize","amount":60.0,"mode":"verticalOnly"} Spherize
 halo {"filter":"spherize","amount":60.0,"mode":"verticalOnly"} bounds
-fx rgba8 {"filter":"spherize","amount":-60.0,"mode":"normal"} eb35e2eac75ff8fa
-fx rgba16 {"filter":"spherize","amount":-60.0,"mode":"normal"} 1eb7a1e0efce9458
-fx rgba32 {"filter":"spherize","amount":-60.0,"mode":"normal"} 88ab99f80b50b425
-fx rgb8 {"filter":"spherize","amount":-60.0,"mode":"normal"} cda08da70b0f30c2
-fx gray8 {"filter":"spherize","amount":-60.0,"mode":"normal"} db884ca30610a5f8
-fx graya16 {"filter":"spherize","amount":-60.0,"mode":"normal"} 609dea4e2c807228
-fx cmyka8 {"filter":"spherize","amount":-60.0,"mode":"normal"} acd89c4dc0d66375
-fx laba16 {"filter":"spherize","amount":-60.0,"mode":"normal"} 1eb7a1e0efce9458
-fx laba32 {"filter":"spherize","amount":-60.0,"mode":"normal"} 88ab99f80b50b425
+fx rgba8 {"filter":"spherize","amount":-60.0,"mode":"normal"} 40eec8902d5ce782
+fx rgba16 {"filter":"spherize","amount":-60.0,"mode":"normal"} 3d63b5e65e1ef49c
+fx rgba32 {"filter":"spherize","amount":-60.0,"mode":"normal"} 0697661954c1b82a
+fx rgb8 {"filter":"spherize","amount":-60.0,"mode":"normal"} 53a0db4dd605ee8a
+fx gray8 {"filter":"spherize","amount":-60.0,"mode":"normal"} e7f814efdf0d1b07
+fx graya16 {"filter":"spherize","amount":-60.0,"mode":"normal"} dcf3a7f86aa69696
+fx cmyka8 {"filter":"spherize","amount":-60.0,"mode":"normal"} d5d3e3cde52b9726
+fx laba16 {"filter":"spherize","amount":-60.0,"mode":"normal"} 3d63b5e65e1ef49c
+fx laba32 {"filter":"spherize","amount":-60.0,"mode":"normal"} 0697661954c1b82a
 label {"filter":"spherize","amount":-60.0,"mode":"normal"} Spherize
 halo {"filter":"spherize","amount":-60.0,"mode":"normal"} bounds
 fx rgba8 {"filter":"spherize","amount":-60.0,"mode":"horizontalOnly"} 5c6c0213854ddea2
@@ -839,15 +839,15 @@ fx laba16 {"filter":"spherize","amount":-60.0,"mode":"verticalOnly"} 24f8b9d341b
 fx laba32 {"filter":"spherize","amount":-60.0,"mode":"verticalOnly"} 28b2a04d2716e9b7
 label {"filter":"spherize","amount":-60.0,"mode":"verticalOnly"} Spherize
 halo {"filter":"spherize","amount":-60.0,"mode":"verticalOnly"} bounds
-fx rgba8 {"filter":"spherize","amount":100.0,"mode":"normal"} 30e35a6aa2eaa92c
-fx rgba16 {"filter":"spherize","amount":100.0,"mode":"normal"} 9f9295f96df8c879
-fx rgba32 {"filter":"spherize","amount":100.0,"mode":"normal"} abb6f7239c1b99a7
-fx rgb8 {"filter":"spherize","amount":100.0,"mode":"normal"} aa5d1767ccfade97
-fx gray8 {"filter":"spherize","amount":100.0,"mode":"normal"} e7bb4fb6ff1221e2
-fx graya16 {"filter":"spherize","amount":100.0,"mode":"normal"} 40f6c649c994846a
-fx cmyka8 {"filter":"spherize","amount":100.0,"mode":"normal"} 55b53bedd03a548b
-fx laba16 {"filter":"spherize","amount":100.0,"mode":"normal"} 9f9295f96df8c879
-fx laba32 {"filter":"spherize","amount":100.0,"mode":"normal"} abb6f7239c1b99a7
+fx rgba8 {"filter":"spherize","amount":100.0,"mode":"normal"} 037e27d1f9739965
+fx rgba16 {"filter":"spherize","amount":100.0,"mode":"normal"} 60a48d2a32f679f8
+fx rgba32 {"filter":"spherize","amount":100.0,"mode":"normal"} 2404f464f2e12b84
+fx rgb8 {"filter":"spherize","amount":100.0,"mode":"normal"} 50856a91ba14d03e
+fx gray8 {"filter":"spherize","amount":100.0,"mode":"normal"} ae47120acb11ae60
+fx graya16 {"filter":"spherize","amount":100.0,"mode":"normal"} 0b82de1d62fa1637
+fx cmyka8 {"filter":"spherize","amount":100.0,"mode":"normal"} cee416ec3626d9bf
+fx laba16 {"filter":"spherize","amount":100.0,"mode":"normal"} 60a48d2a32f679f8
+fx laba32 {"filter":"spherize","amount":100.0,"mode":"normal"} 2404f464f2e12b84
 label {"filter":"spherize","amount":100.0,"mode":"normal"} Spherize
 halo {"filter":"spherize","amount":100.0,"mode":"normal"} bounds
 fx rgba8 {"filter":"spherize","amount":100.0,"mode":"horizontalOnly"} efeb86c06996a67e
@@ -872,15 +872,15 @@ fx laba16 {"filter":"spherize","amount":100.0,"mode":"verticalOnly"} 01ab0dbf9f4
 fx laba32 {"filter":"spherize","amount":100.0,"mode":"verticalOnly"} a92241a616b78a2c
 label {"filter":"spherize","amount":100.0,"mode":"verticalOnly"} Spherize
 halo {"filter":"spherize","amount":100.0,"mode":"verticalOnly"} bounds
-fx rgba8 {"filter":"spherize","amount":-100.0,"mode":"normal"} 843a1457bde1a254
-fx rgba16 {"filter":"spherize","amount":-100.0,"mode":"normal"} 0b0a9c34d69599ad
-fx rgba32 {"filter":"spherize","amount":-100.0,"mode":"normal"} 58ba576fe53cc373
-fx rgb8 {"filter":"spherize","amount":-100.0,"mode":"normal"} 112fa34be5ca7e3a
-fx gray8 {"filter":"spherize","amount":-100.0,"mode":"normal"} 8338bc9c10e4210d
-fx graya16 {"filter":"spherize","amount":-100.0,"mode":"normal"} 89fc24025995fc9f
-fx cmyka8 {"filter":"spherize","amount":-100.0,"mode":"normal"} 8bc1ac279c46d3da
-fx laba16 {"filter":"spherize","amount":-100.0,"mode":"normal"} 0b0a9c34d69599ad
-fx laba32 {"filter":"spherize","amount":-100.0,"mode":"normal"} 58ba576fe53cc373
+fx rgba8 {"filter":"spherize","amount":-100.0,"mode":"normal"} 5be656a9a0cc953d
+fx rgba16 {"filter":"spherize","amount":-100.0,"mode":"normal"} ee89a759f56a3afc
+fx rgba32 {"filter":"spherize","amount":-100.0,"mode":"normal"} f63e9e9212c8ad62
+fx rgb8 {"filter":"spherize","amount":-100.0,"mode":"normal"} 856e22b907dbfb1b
+fx gray8 {"filter":"spherize","amount":-100.0,"mode":"normal"} cfd67c6a21a38e5a
+fx graya16 {"filter":"spherize","amount":-100.0,"mode":"normal"} e587fef776faf33c
+fx cmyka8 {"filter":"spherize","amount":-100.0,"mode":"normal"} 53951adda54c7f73
+fx laba16 {"filter":"spherize","amount":-100.0,"mode":"normal"} ee89a759f56a3afc
+fx laba32 {"filter":"spherize","amount":-100.0,"mode":"normal"} f63e9e9212c8ad62
 label {"filter":"spherize","amount":-100.0,"mode":"normal"} Spherize
 halo {"filter":"spherize","amount":-100.0,"mode":"normal"} bounds
 fx rgba8 {"filter":"spherize","amount":-100.0,"mode":"horizontalOnly"} bc556a7ea623e2aa
@@ -1015,26 +1015,26 @@ fx laba16 {"filter":"ripple","amount":999.0,"size":"large"} 5756dc8537170544
 fx laba32 {"filter":"ripple","amount":999.0,"size":"large"} 592ac8dc0c578059
 label {"filter":"ripple","amount":999.0,"size":"large"} Ripple
 halo {"filter":"ripple","amount":999.0,"size":"large"} bounds
-fx rgba8 {"filter":"polarCoordinates","mode":"rectangularToPolar"} 7388659fba752ec6
-fx rgba16 {"filter":"polarCoordinates","mode":"rectangularToPolar"} 63e05c937df006cf
-fx rgba32 {"filter":"polarCoordinates","mode":"rectangularToPolar"} 1426b253f331178a
-fx rgb8 {"filter":"polarCoordinates","mode":"rectangularToPolar"} 1903a9c19a7bad7b
-fx gray8 {"filter":"polarCoordinates","mode":"rectangularToPolar"} 181a2d381f3ac86c
-fx graya16 {"filter":"polarCoordinates","mode":"rectangularToPolar"} a5a46529a9cf316e
-fx cmyka8 {"filter":"polarCoordinates","mode":"rectangularToPolar"} 26dbb05432e5a842
-fx laba16 {"filter":"polarCoordinates","mode":"rectangularToPolar"} 63e05c937df006cf
-fx laba32 {"filter":"polarCoordinates","mode":"rectangularToPolar"} 1426b253f331178a
+fx rgba8 {"filter":"polarCoordinates","mode":"rectangularToPolar"} 38b875acdb36d743
+fx rgba16 {"filter":"polarCoordinates","mode":"rectangularToPolar"} 6b6aa2c941517f5d
+fx rgba32 {"filter":"polarCoordinates","mode":"rectangularToPolar"} 00f5b505ff05fd66
+fx rgb8 {"filter":"polarCoordinates","mode":"rectangularToPolar"} e69f8945e4ab9263
+fx gray8 {"filter":"polarCoordinates","mode":"rectangularToPolar"} a9693c87ae088a67
+fx graya16 {"filter":"polarCoordinates","mode":"rectangularToPolar"} 49d84a0f02b30e84
+fx cmyka8 {"filter":"polarCoordinates","mode":"rectangularToPolar"} 2436f92b2e3324c2
+fx laba16 {"filter":"polarCoordinates","mode":"rectangularToPolar"} 6b6aa2c941517f5d
+fx laba32 {"filter":"polarCoordinates","mode":"rectangularToPolar"} 00f5b505ff05fd66
 label {"filter":"polarCoordinates","mode":"rectangularToPolar"} Polar Coordinates
 halo {"filter":"polarCoordinates","mode":"rectangularToPolar"} bounds
-fx rgba8 {"filter":"polarCoordinates","mode":"polarToRectangular"} d1fd086652b395cb
-fx rgba16 {"filter":"polarCoordinates","mode":"polarToRectangular"} 5f804cae6f1c863c
-fx rgba32 {"filter":"polarCoordinates","mode":"polarToRectangular"} 36e4fdb1e9888e42
-fx rgb8 {"filter":"polarCoordinates","mode":"polarToRectangular"} c601a0945f753b73
-fx gray8 {"filter":"polarCoordinates","mode":"polarToRectangular"} fb62690e4b3e4b40
-fx graya16 {"filter":"polarCoordinates","mode":"polarToRectangular"} aeeebf05d0c865e0
-fx cmyka8 {"filter":"polarCoordinates","mode":"polarToRectangular"} c8b938df6df6d147
-fx laba16 {"filter":"polarCoordinates","mode":"polarToRectangular"} 5f804cae6f1c863c
-fx laba32 {"filter":"polarCoordinates","mode":"polarToRectangular"} 36e4fdb1e9888e42
+fx rgba8 {"filter":"polarCoordinates","mode":"polarToRectangular"} 205c9bbc54521d66
+fx rgba16 {"filter":"polarCoordinates","mode":"polarToRectangular"} 1fb73c5a72186510
+fx rgba32 {"filter":"polarCoordinates","mode":"polarToRectangular"} b20691bc7d7805d0
+fx rgb8 {"filter":"polarCoordinates","mode":"polarToRectangular"} 5979354d9fe86900
+fx gray8 {"filter":"polarCoordinates","mode":"polarToRectangular"} 455ec896100cf624
+fx graya16 {"filter":"polarCoordinates","mode":"polarToRectangular"} 409f507f94694650
+fx cmyka8 {"filter":"polarCoordinates","mode":"polarToRectangular"} b54e97520481f7b5
+fx laba16 {"filter":"polarCoordinates","mode":"polarToRectangular"} 1fb73c5a72186510
+fx laba32 {"filter":"polarCoordinates","mode":"polarToRectangular"} b20691bc7d7805d0
 label {"filter":"polarCoordinates","mode":"polarToRectangular"} Polar Coordinates
 halo {"filter":"polarCoordinates","mode":"polarToRectangular"} bounds
 fx rgba8 {"filter":"colorHalftone","maxRadius":4.0,"angles":[108.0,162.0,90.0,45.0]} 2b3437f6d7507e1c
@@ -1785,103 +1785,103 @@ fx laba16 {"filter":"zigZag","amount":300.0,"ridges":25.0,"style":"pondRipples"}
 fx laba32 {"filter":"zigZag","amount":300.0,"ridges":25.0,"style":"pondRipples"} 963514d9c728af25
 label {"filter":"zigZag","amount":300.0,"ridges":25.0,"style":"pondRipples"} ZigZag
 halo {"filter":"zigZag","amount":300.0,"ridges":25.0,"style":"pondRipples"} bounds
-fx rgba8 {"filter":"fibers","variance":16.0,"strength":4.0,"seed":8,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} e29919010d6c4cbf
-fx rgba16 {"filter":"fibers","variance":16.0,"strength":4.0,"seed":8,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 9a1e80f27e29cd11
-fx rgba32 {"filter":"fibers","variance":16.0,"strength":4.0,"seed":8,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 6c7606a653b4844b
-fx rgb8 {"filter":"fibers","variance":16.0,"strength":4.0,"seed":8,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 2082d445d0ed342b
-fx gray8 {"filter":"fibers","variance":16.0,"strength":4.0,"seed":8,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} cabd53e5fb4f79c5
-fx graya16 {"filter":"fibers","variance":16.0,"strength":4.0,"seed":8,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 205ae5d7a1625862
-fx cmyka8 {"filter":"fibers","variance":16.0,"strength":4.0,"seed":8,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} b4e3914693b367c9
-fx laba16 {"filter":"fibers","variance":16.0,"strength":4.0,"seed":8,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 35117cf0aeea3829
-fx laba32 {"filter":"fibers","variance":16.0,"strength":4.0,"seed":8,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} fca1c94e8f3570f8
+fx rgba8 {"filter":"fibers","variance":16.0,"strength":4.0,"seed":8,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} cddcec1a4052ba2c
+fx rgba16 {"filter":"fibers","variance":16.0,"strength":4.0,"seed":8,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 9b5d79fd9618ccc6
+fx rgba32 {"filter":"fibers","variance":16.0,"strength":4.0,"seed":8,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 267d499115239784
+fx rgb8 {"filter":"fibers","variance":16.0,"strength":4.0,"seed":8,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 42c1e371ce4796bf
+fx gray8 {"filter":"fibers","variance":16.0,"strength":4.0,"seed":8,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 52e172c7a5ea448d
+fx graya16 {"filter":"fibers","variance":16.0,"strength":4.0,"seed":8,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} fb0eb12ef677735e
+fx cmyka8 {"filter":"fibers","variance":16.0,"strength":4.0,"seed":8,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} c79491f30948023d
+fx laba16 {"filter":"fibers","variance":16.0,"strength":4.0,"seed":8,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 128bd5bbf646faa3
+fx laba32 {"filter":"fibers","variance":16.0,"strength":4.0,"seed":8,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} adfa7d58dea703e5
 label {"filter":"fibers","variance":16.0,"strength":4.0,"seed":8,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} Fibers
 halo {"filter":"fibers","variance":16.0,"strength":4.0,"seed":8,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} r0
-fx rgba8 {"filter":"fibers","variance":1.0,"strength":64.0,"seed":1,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} b5d7a8e79c63a51e
-fx rgba16 {"filter":"fibers","variance":1.0,"strength":64.0,"seed":1,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} bd95a979a92bbd50
-fx rgba32 {"filter":"fibers","variance":1.0,"strength":64.0,"seed":1,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 3694cc56b7b19b50
-fx rgb8 {"filter":"fibers","variance":1.0,"strength":64.0,"seed":1,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} c8343f03f92649e1
-fx gray8 {"filter":"fibers","variance":1.0,"strength":64.0,"seed":1,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} e45172af383befdc
-fx graya16 {"filter":"fibers","variance":1.0,"strength":64.0,"seed":1,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 5bd7b8626a6f8462
-fx cmyka8 {"filter":"fibers","variance":1.0,"strength":64.0,"seed":1,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 76804cf0af2e99e8
-fx laba16 {"filter":"fibers","variance":1.0,"strength":64.0,"seed":1,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} e5e5283d8535a9f5
-fx laba32 {"filter":"fibers","variance":1.0,"strength":64.0,"seed":1,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} bfd2d32a4f960f6a
+fx rgba8 {"filter":"fibers","variance":1.0,"strength":64.0,"seed":1,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 4710e248b43c91ad
+fx rgba16 {"filter":"fibers","variance":1.0,"strength":64.0,"seed":1,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 6085a3d88e148956
+fx rgba32 {"filter":"fibers","variance":1.0,"strength":64.0,"seed":1,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} fe1bc499df01abfe
+fx rgb8 {"filter":"fibers","variance":1.0,"strength":64.0,"seed":1,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 6d49b4ba20482b09
+fx gray8 {"filter":"fibers","variance":1.0,"strength":64.0,"seed":1,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} a0abe9e08dfff80c
+fx graya16 {"filter":"fibers","variance":1.0,"strength":64.0,"seed":1,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} f3c9a200a2f3a87b
+fx cmyka8 {"filter":"fibers","variance":1.0,"strength":64.0,"seed":1,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} fe2f7bd54bfd88e2
+fx laba16 {"filter":"fibers","variance":1.0,"strength":64.0,"seed":1,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} cf3c5d8861db1c6a
+fx laba32 {"filter":"fibers","variance":1.0,"strength":64.0,"seed":1,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 1bb2d3a58198536e
 label {"filter":"fibers","variance":1.0,"strength":64.0,"seed":1,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} Fibers
 halo {"filter":"fibers","variance":1.0,"strength":64.0,"seed":1,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} r0
-fx rgba8 {"filter":"fibers","variance":64.0,"strength":1.0,"seed":2,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} dc609c28b1ce58e1
-fx rgba16 {"filter":"fibers","variance":64.0,"strength":1.0,"seed":2,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} b04b1e077a48f193
-fx rgba32 {"filter":"fibers","variance":64.0,"strength":1.0,"seed":2,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 217eccffde6fba80
-fx rgb8 {"filter":"fibers","variance":64.0,"strength":1.0,"seed":2,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} c3b94df603b111d0
-fx gray8 {"filter":"fibers","variance":64.0,"strength":1.0,"seed":2,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 561498717a88873e
-fx graya16 {"filter":"fibers","variance":64.0,"strength":1.0,"seed":2,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} f4920f3a4f0c2d98
-fx cmyka8 {"filter":"fibers","variance":64.0,"strength":1.0,"seed":2,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 5f4714a424f115d5
-fx laba16 {"filter":"fibers","variance":64.0,"strength":1.0,"seed":2,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 990405e54e087bde
-fx laba32 {"filter":"fibers","variance":64.0,"strength":1.0,"seed":2,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 8e6954f6bcf39819
+fx rgba8 {"filter":"fibers","variance":64.0,"strength":1.0,"seed":2,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} b493182e0bb7cf91
+fx rgba16 {"filter":"fibers","variance":64.0,"strength":1.0,"seed":2,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} caf7e2833480cabc
+fx rgba32 {"filter":"fibers","variance":64.0,"strength":1.0,"seed":2,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 2a5543b6567c073d
+fx rgb8 {"filter":"fibers","variance":64.0,"strength":1.0,"seed":2,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 597e3fcffeedec35
+fx gray8 {"filter":"fibers","variance":64.0,"strength":1.0,"seed":2,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} d7204c3333f3f583
+fx graya16 {"filter":"fibers","variance":64.0,"strength":1.0,"seed":2,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} f10efd4e72489038
+fx cmyka8 {"filter":"fibers","variance":64.0,"strength":1.0,"seed":2,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 1afa0779064e635b
+fx laba16 {"filter":"fibers","variance":64.0,"strength":1.0,"seed":2,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 9e1c5810f8d5e26a
+fx laba32 {"filter":"fibers","variance":64.0,"strength":1.0,"seed":2,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 72a26e1677e7cd24
 label {"filter":"fibers","variance":64.0,"strength":1.0,"seed":2,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} Fibers
 halo {"filter":"fibers","variance":64.0,"strength":1.0,"seed":2,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} r0
-fx rgba8 {"filter":"fibers","variance":0.0,"strength":100.0,"seed":3,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 3ef2355524036bf6
-fx rgba16 {"filter":"fibers","variance":0.0,"strength":100.0,"seed":3,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 0e652d808a14525c
-fx rgba32 {"filter":"fibers","variance":0.0,"strength":100.0,"seed":3,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 4421017a47828c04
-fx rgb8 {"filter":"fibers","variance":0.0,"strength":100.0,"seed":3,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} b36f65ca768dee80
-fx gray8 {"filter":"fibers","variance":0.0,"strength":100.0,"seed":3,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} d9394d7c86782bc1
-fx graya16 {"filter":"fibers","variance":0.0,"strength":100.0,"seed":3,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 6e14ba2fa56f18e6
-fx cmyka8 {"filter":"fibers","variance":0.0,"strength":100.0,"seed":3,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} bedfeaa0acf1eb84
-fx laba16 {"filter":"fibers","variance":0.0,"strength":100.0,"seed":3,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 3759c4d5ea0dac1d
-fx laba32 {"filter":"fibers","variance":0.0,"strength":100.0,"seed":3,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} f3fc16f0ac11d476
+fx rgba8 {"filter":"fibers","variance":0.0,"strength":100.0,"seed":3,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} bc361f3cd02f7a53
+fx rgba16 {"filter":"fibers","variance":0.0,"strength":100.0,"seed":3,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 470d92c17e0c062b
+fx rgba32 {"filter":"fibers","variance":0.0,"strength":100.0,"seed":3,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} b88255e7a7d2ed9a
+fx rgb8 {"filter":"fibers","variance":0.0,"strength":100.0,"seed":3,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 24cfd6eadb096321
+fx gray8 {"filter":"fibers","variance":0.0,"strength":100.0,"seed":3,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 81cb05df25a412b4
+fx graya16 {"filter":"fibers","variance":0.0,"strength":100.0,"seed":3,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 56b752d6deb69718
+fx cmyka8 {"filter":"fibers","variance":0.0,"strength":100.0,"seed":3,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 89eff271c989419d
+fx laba16 {"filter":"fibers","variance":0.0,"strength":100.0,"seed":3,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 976b1f1a04e176e3
+fx laba32 {"filter":"fibers","variance":0.0,"strength":100.0,"seed":3,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} 0710633de742ae98
 label {"filter":"fibers","variance":0.0,"strength":100.0,"seed":3,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} Fibers
 halo {"filter":"fibers","variance":0.0,"strength":100.0,"seed":3,"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,0.8,0.2,1.0]} r0
 fx rgba8 {"filter":"lensFlare","brightness":100.0,"centerX":0.3,"centerY":0.3,"lens":"zoom"} b44af3f09837900e
-fx rgba16 {"filter":"lensFlare","brightness":100.0,"centerX":0.3,"centerY":0.3,"lens":"zoom"} aaa21aa99fda98e1
-fx rgba32 {"filter":"lensFlare","brightness":100.0,"centerX":0.3,"centerY":0.3,"lens":"zoom"} 3fa8c91b7690a495
+fx rgba16 {"filter":"lensFlare","brightness":100.0,"centerX":0.3,"centerY":0.3,"lens":"zoom"} ba2018613c831b8f
+fx rgba32 {"filter":"lensFlare","brightness":100.0,"centerX":0.3,"centerY":0.3,"lens":"zoom"} 4b0c37ad6a411b23
 fx rgb8 {"filter":"lensFlare","brightness":100.0,"centerX":0.3,"centerY":0.3,"lens":"zoom"} 9f1971c025089268
 fx gray8 {"filter":"lensFlare","brightness":100.0,"centerX":0.3,"centerY":0.3,"lens":"zoom"} 50045f1e8974fcd1
-fx graya16 {"filter":"lensFlare","brightness":100.0,"centerX":0.3,"centerY":0.3,"lens":"zoom"} 842c9104e02ed6cf
+fx graya16 {"filter":"lensFlare","brightness":100.0,"centerX":0.3,"centerY":0.3,"lens":"zoom"} f3fda9dac4b5be82
 fx cmyka8 {"filter":"lensFlare","brightness":100.0,"centerX":0.3,"centerY":0.3,"lens":"zoom"} 5e844eb7538c5d83
-fx laba16 {"filter":"lensFlare","brightness":100.0,"centerX":0.3,"centerY":0.3,"lens":"zoom"} 234ba3cd3d09b0d6
-fx laba32 {"filter":"lensFlare","brightness":100.0,"centerX":0.3,"centerY":0.3,"lens":"zoom"} 5e36fdd325fc0a0f
+fx laba16 {"filter":"lensFlare","brightness":100.0,"centerX":0.3,"centerY":0.3,"lens":"zoom"} 7c22366354677863
+fx laba32 {"filter":"lensFlare","brightness":100.0,"centerX":0.3,"centerY":0.3,"lens":"zoom"} 0767041b60509372
 label {"filter":"lensFlare","brightness":100.0,"centerX":0.3,"centerY":0.3,"lens":"zoom"} Lens Flare
 halo {"filter":"lensFlare","brightness":100.0,"centerX":0.3,"centerY":0.3,"lens":"zoom"} r0
 fx rgba8 {"filter":"lensFlare","brightness":150.0,"centerX":0.25,"centerY":0.5,"lens":"prime105"} 57d7dff34f867f54
-fx rgba16 {"filter":"lensFlare","brightness":150.0,"centerX":0.25,"centerY":0.5,"lens":"prime105"} cc9576df06921243
-fx rgba32 {"filter":"lensFlare","brightness":150.0,"centerX":0.25,"centerY":0.5,"lens":"prime105"} c9025ec692683cbc
+fx rgba16 {"filter":"lensFlare","brightness":150.0,"centerX":0.25,"centerY":0.5,"lens":"prime105"} 9d4b0f0619a15a6f
+fx rgba32 {"filter":"lensFlare","brightness":150.0,"centerX":0.25,"centerY":0.5,"lens":"prime105"} 7a04701d812cfcc3
 fx rgb8 {"filter":"lensFlare","brightness":150.0,"centerX":0.25,"centerY":0.5,"lens":"prime105"} da4b2b2054730955
 fx gray8 {"filter":"lensFlare","brightness":150.0,"centerX":0.25,"centerY":0.5,"lens":"prime105"} d84105eed2830845
-fx graya16 {"filter":"lensFlare","brightness":150.0,"centerX":0.25,"centerY":0.5,"lens":"prime105"} e63ccd58dddb6cb6
-fx cmyka8 {"filter":"lensFlare","brightness":150.0,"centerX":0.25,"centerY":0.5,"lens":"prime105"} 1b1da97f3c1f209b
-fx laba16 {"filter":"lensFlare","brightness":150.0,"centerX":0.25,"centerY":0.5,"lens":"prime105"} 172e356d54be8c0b
-fx laba32 {"filter":"lensFlare","brightness":150.0,"centerX":0.25,"centerY":0.5,"lens":"prime105"} 8bee6f053e98a029
+fx graya16 {"filter":"lensFlare","brightness":150.0,"centerX":0.25,"centerY":0.5,"lens":"prime105"} 80ee7807433b04b0
+fx cmyka8 {"filter":"lensFlare","brightness":150.0,"centerX":0.25,"centerY":0.5,"lens":"prime105"} e50493e5a509a217
+fx laba16 {"filter":"lensFlare","brightness":150.0,"centerX":0.25,"centerY":0.5,"lens":"prime105"} e0d9f9bf7bc0afba
+fx laba32 {"filter":"lensFlare","brightness":150.0,"centerX":0.25,"centerY":0.5,"lens":"prime105"} fe51051a673929a6
 label {"filter":"lensFlare","brightness":150.0,"centerX":0.25,"centerY":0.5,"lens":"prime105"} Lens Flare
 halo {"filter":"lensFlare","brightness":150.0,"centerX":0.25,"centerY":0.5,"lens":"prime105"} r0
 fx rgba8 {"filter":"lensFlare","brightness":300.0,"centerX":0.8,"centerY":0.1,"lens":"prime35"} 3607c0d8ea9d0e07
-fx rgba16 {"filter":"lensFlare","brightness":300.0,"centerX":0.8,"centerY":0.1,"lens":"prime35"} 6fce034f142e4978
-fx rgba32 {"filter":"lensFlare","brightness":300.0,"centerX":0.8,"centerY":0.1,"lens":"prime35"} fce327b92b594e70
+fx rgba16 {"filter":"lensFlare","brightness":300.0,"centerX":0.8,"centerY":0.1,"lens":"prime35"} 8ee14e73ee3f7af8
+fx rgba32 {"filter":"lensFlare","brightness":300.0,"centerX":0.8,"centerY":0.1,"lens":"prime35"} 0eeb3138b9b9306e
 fx rgb8 {"filter":"lensFlare","brightness":300.0,"centerX":0.8,"centerY":0.1,"lens":"prime35"} 12a3d6a2f1427481
 fx gray8 {"filter":"lensFlare","brightness":300.0,"centerX":0.8,"centerY":0.1,"lens":"prime35"} 47ff3e551d369b73
-fx graya16 {"filter":"lensFlare","brightness":300.0,"centerX":0.8,"centerY":0.1,"lens":"prime35"} a582092095af95a0
+fx graya16 {"filter":"lensFlare","brightness":300.0,"centerX":0.8,"centerY":0.1,"lens":"prime35"} d5baadf1f108c32f
 fx cmyka8 {"filter":"lensFlare","brightness":300.0,"centerX":0.8,"centerY":0.1,"lens":"prime35"} 1b775cb21549dccd
-fx laba16 {"filter":"lensFlare","brightness":300.0,"centerX":0.8,"centerY":0.1,"lens":"prime35"} e95c8d4ead34d916
-fx laba32 {"filter":"lensFlare","brightness":300.0,"centerX":0.8,"centerY":0.1,"lens":"prime35"} 6bab9a2633430397
+fx laba16 {"filter":"lensFlare","brightness":300.0,"centerX":0.8,"centerY":0.1,"lens":"prime35"} d884d9169120e233
+fx laba32 {"filter":"lensFlare","brightness":300.0,"centerX":0.8,"centerY":0.1,"lens":"prime35"} 41c722931225ffab
 label {"filter":"lensFlare","brightness":300.0,"centerX":0.8,"centerY":0.1,"lens":"prime35"} Lens Flare
 halo {"filter":"lensFlare","brightness":300.0,"centerX":0.8,"centerY":0.1,"lens":"prime35"} r0
 fx rgba8 {"filter":"lensFlare","brightness":10.0,"centerX":0.5,"centerY":0.5,"lens":"moviePrime"} ff068d50297a31ec
-fx rgba16 {"filter":"lensFlare","brightness":10.0,"centerX":0.5,"centerY":0.5,"lens":"moviePrime"} d66783bbe0d2262c
-fx rgba32 {"filter":"lensFlare","brightness":10.0,"centerX":0.5,"centerY":0.5,"lens":"moviePrime"} fc73d2820f0e585c
+fx rgba16 {"filter":"lensFlare","brightness":10.0,"centerX":0.5,"centerY":0.5,"lens":"moviePrime"} f4288dfb527cadc7
+fx rgba32 {"filter":"lensFlare","brightness":10.0,"centerX":0.5,"centerY":0.5,"lens":"moviePrime"} 201f56a874d3a05d
 fx rgb8 {"filter":"lensFlare","brightness":10.0,"centerX":0.5,"centerY":0.5,"lens":"moviePrime"} a50dec1107a2cf2f
 fx gray8 {"filter":"lensFlare","brightness":10.0,"centerX":0.5,"centerY":0.5,"lens":"moviePrime"} f0dbf2988d1736ef
-fx graya16 {"filter":"lensFlare","brightness":10.0,"centerX":0.5,"centerY":0.5,"lens":"moviePrime"} 38b2201139708ede
+fx graya16 {"filter":"lensFlare","brightness":10.0,"centerX":0.5,"centerY":0.5,"lens":"moviePrime"} 1cdc6962a8c63456
 fx cmyka8 {"filter":"lensFlare","brightness":10.0,"centerX":0.5,"centerY":0.5,"lens":"moviePrime"} c11226234f795a06
-fx laba16 {"filter":"lensFlare","brightness":10.0,"centerX":0.5,"centerY":0.5,"lens":"moviePrime"} ce9d4cd83d977b2d
-fx laba32 {"filter":"lensFlare","brightness":10.0,"centerX":0.5,"centerY":0.5,"lens":"moviePrime"} 2f9c5dfb0d75f599
+fx laba16 {"filter":"lensFlare","brightness":10.0,"centerX":0.5,"centerY":0.5,"lens":"moviePrime"} ab002259d32f2452
+fx laba32 {"filter":"lensFlare","brightness":10.0,"centerX":0.5,"centerY":0.5,"lens":"moviePrime"} c0fd00f7c4420f5e
 label {"filter":"lensFlare","brightness":10.0,"centerX":0.5,"centerY":0.5,"lens":"moviePrime"} Lens Flare
 halo {"filter":"lensFlare","brightness":10.0,"centerX":0.5,"centerY":0.5,"lens":"moviePrime"} r0
 fx rgba8 {"filter":"lensFlare","brightness":100.0,"centerX":-0.5,"centerY":1.5,"lens":"prime35"} 98b4590b972b7fe9
-fx rgba16 {"filter":"lensFlare","brightness":100.0,"centerX":-0.5,"centerY":1.5,"lens":"prime35"} 2b23548666ea55e7
-fx rgba32 {"filter":"lensFlare","brightness":100.0,"centerX":-0.5,"centerY":1.5,"lens":"prime35"} 0b08bc97f3b87f77
+fx rgba16 {"filter":"lensFlare","brightness":100.0,"centerX":-0.5,"centerY":1.5,"lens":"prime35"} 84141f3f57adcd4b
+fx rgba32 {"filter":"lensFlare","brightness":100.0,"centerX":-0.5,"centerY":1.5,"lens":"prime35"} 4298f5ecf654a7b2
 fx rgb8 {"filter":"lensFlare","brightness":100.0,"centerX":-0.5,"centerY":1.5,"lens":"prime35"} 35bda49bda6c2816
 fx gray8 {"filter":"lensFlare","brightness":100.0,"centerX":-0.5,"centerY":1.5,"lens":"prime35"} ce41ac7a8013e6eb
-fx graya16 {"filter":"lensFlare","brightness":100.0,"centerX":-0.5,"centerY":1.5,"lens":"prime35"} ca964c452f2cb4b8
+fx graya16 {"filter":"lensFlare","brightness":100.0,"centerX":-0.5,"centerY":1.5,"lens":"prime35"} f0b91c704c1e560f
 fx cmyka8 {"filter":"lensFlare","brightness":100.0,"centerX":-0.5,"centerY":1.5,"lens":"prime35"} 90f4f91a74b7907c
-fx laba16 {"filter":"lensFlare","brightness":100.0,"centerX":-0.5,"centerY":1.5,"lens":"prime35"} b411270cff3d7cb5
-fx laba32 {"filter":"lensFlare","brightness":100.0,"centerX":-0.5,"centerY":1.5,"lens":"prime35"} 736a7df97ebd71af
+fx laba16 {"filter":"lensFlare","brightness":100.0,"centerX":-0.5,"centerY":1.5,"lens":"prime35"} 807b356890649695
+fx laba32 {"filter":"lensFlare","brightness":100.0,"centerX":-0.5,"centerY":1.5,"lens":"prime35"} c789b6cdf8865228
 label {"filter":"lensFlare","brightness":100.0,"centerX":-0.5,"centerY":1.5,"lens":"prime35"} Lens Flare
 halo {"filter":"lensFlare","brightness":100.0,"centerX":-0.5,"centerY":1.5,"lens":"prime35"} r0
 fx rgba8 {"filter":"lightingEffects","lights":[{"kind":"spot","x":0.25,"y":0.2,"z":0.6,"targetX":0.5,"targetY":0.55,"angle":135.0,"elevation":45.0,"color":[1.0,1.0,1.0],"intensity":75.0,"cone":45.0,"hotspot":50.0,"radius":0.8}],"gloss":0.0,"metallic":0.0,"exposure":0.0,"ambience":10.0,"texture":"luminance","height":50.0,"whiteIsHigh":true} d49816a54b3f97b1
@@ -2209,7 +2209,7 @@ fx rgba32 {"filter":"custom","kernel":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0
 fx rgb8 {"filter":"custom","kernel":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"scale":1.0,"offset":51.0} 4e750ec35d9ea2ab
 fx gray8 {"filter":"custom","kernel":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"scale":1.0,"offset":51.0} 3f95bab3926456fc
 fx graya16 {"filter":"custom","kernel":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"scale":1.0,"offset":51.0} ca4e31e1e1d38a05
-fx cmyka8 {"filter":"custom","kernel":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"scale":1.0,"offset":51.0} 6f84834026b63370
+fx cmyka8 {"filter":"custom","kernel":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"scale":1.0,"offset":51.0} ed12fc1744921d81
 fx laba16 {"filter":"custom","kernel":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"scale":1.0,"offset":51.0} 9530d5fd5fc1f2eb
 fx laba32 {"filter":"custom","kernel":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"scale":1.0,"offset":51.0} 43166fc90f7c2988
 label {"filter":"custom","kernel":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,1.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"scale":1.0,"offset":51.0} Custom
@@ -2220,7 +2220,7 @@ fx rgba32 {"filter":"custom","kernel":[1.0,2.0,3.0],"scale":0.0,"offset":-20.0} 
 fx rgb8 {"filter":"custom","kernel":[1.0,2.0,3.0],"scale":0.0,"offset":-20.0} 6af8afeff3b20681
 fx gray8 {"filter":"custom","kernel":[1.0,2.0,3.0],"scale":0.0,"offset":-20.0} 401567f42110b5ba
 fx graya16 {"filter":"custom","kernel":[1.0,2.0,3.0],"scale":0.0,"offset":-20.0} e8e5b9f816366fd3
-fx cmyka8 {"filter":"custom","kernel":[1.0,2.0,3.0],"scale":0.0,"offset":-20.0} b307eafc27030bac
+fx cmyka8 {"filter":"custom","kernel":[1.0,2.0,3.0],"scale":0.0,"offset":-20.0} a59497a8620ef7de
 fx laba16 {"filter":"custom","kernel":[1.0,2.0,3.0],"scale":0.0,"offset":-20.0} 7bbc0d80768c333d
 fx laba32 {"filter":"custom","kernel":[1.0,2.0,3.0],"scale":0.0,"offset":-20.0} d1811fd36a50ec51
 label {"filter":"custom","kernel":[1.0,2.0,3.0],"scale":0.0,"offset":-20.0} Custom
@@ -2231,7 +2231,7 @@ fx rgba32 {"filter":"custom","kernel":[-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2
 fx rgb8 {"filter":"custom","kernel":[-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0],"scale":4.0,"offset":10.0} 1b6c6cd66680bd1f
 fx gray8 {"filter":"custom","kernel":[-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0],"scale":4.0,"offset":10.0} 138831e33740b5ad
 fx graya16 {"filter":"custom","kernel":[-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0],"scale":4.0,"offset":10.0} 516334125aa42feb
-fx cmyka8 {"filter":"custom","kernel":[-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0],"scale":4.0,"offset":10.0} 50894a432f408cb6
+fx cmyka8 {"filter":"custom","kernel":[-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0],"scale":4.0,"offset":10.0} 7e3abac49f908215
 fx laba16 {"filter":"custom","kernel":[-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0],"scale":4.0,"offset":10.0} eb9b3fe26d29266c
 fx laba32 {"filter":"custom","kernel":[-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0],"scale":4.0,"offset":10.0} 00e3b9fe01d41bea
 label {"filter":"custom","kernel":[-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0,-2.0,-1.0,0.0,1.0,2.0],"scale":4.0,"offset":10.0} Custom
@@ -2462,34 +2462,34 @@ fxk rgba8 radius nan {"filter":"maximum","preserve":"roundness","radius":1.0} 2c
 fxk cmyka8 radius nan {"filter":"maximum","preserve":"roundness","radius":1.0} 7ee038c4b9632821
 fxk rgba8 cellSize nan {"cellSize":1.0,"filter":"mosaic"} 95c5574f6a68e82e
 fxk cmyka8 cellSize nan {"cellSize":1.0,"filter":"mosaic"} 491c23e32dac241e
-fxk rgba8 cellSize inf {"cellSize":1.0,"filter":"mosaic"} 881d31e11537e39a
-fxk cmyka8 cellSize inf {"cellSize":1.0,"filter":"mosaic"} a78ff39df4709e61
+fxk rgba8 cellSize inf {"cellSize":1.0,"filter":"mosaic"} bae19afc7961c63c
+fxk cmyka8 cellSize inf {"cellSize":1.0,"filter":"mosaic"} 269d1ccba4593c25
 fxk rgba8 angle nan {"amount":100.0,"angle":1.0,"filter":"emboss","height":2.0} 68d24ae286b568fe
 fxk cmyka8 angle nan {"amount":100.0,"angle":1.0,"filter":"emboss","height":2.0} 4ec7263ee767a698
 fxk rgba8 height nan {"amount":100.0,"angle":10.0,"filter":"emboss","height":1.0} 3cf87481e07ae2c5
 fxk cmyka8 height nan {"amount":100.0,"angle":10.0,"filter":"emboss","height":1.0} 063f44af2d7cbe98
-fxk rgba8 angle nan {"angle":1.0,"filter":"twirl"} fd55b80ee4ee916c
-fxk cmyka8 angle nan {"angle":1.0,"filter":"twirl"} 059984f9c63a0270
-fxk rgba8 angle inf {"angle":1.0,"filter":"twirl"} fd55b80ee4ee916c
-fxk cmyka8 angle inf {"angle":1.0,"filter":"twirl"} 059984f9c63a0270
-fxk rgba8 amount nan {"amount":1.0,"filter":"pinch"} fd55b80ee4ee916c
-fxk cmyka8 amount nan {"amount":1.0,"filter":"pinch"} 059984f9c63a0270
+fxk rgba8 angle nan {"angle":1.0,"filter":"twirl"} 2f4c05d2d1c9b1ac
+fxk cmyka8 angle nan {"angle":1.0,"filter":"twirl"} 781ad152ced8a794
+fxk rgba8 angle inf {"angle":1.0,"filter":"twirl"} 2f4c05d2d1c9b1ac
+fxk cmyka8 angle inf {"angle":1.0,"filter":"twirl"} 781ad152ced8a794
+fxk rgba8 amount nan {"amount":1.0,"filter":"pinch"} 2f4c05d2d1c9b1ac
+fxk cmyka8 amount nan {"amount":1.0,"filter":"pinch"} 781ad152ced8a794
 fxk rgba8 amount nan {"amount":1.0,"filter":"spherize","mode":"horizontalOnly"} 2f1daf7a080e7a89
 fxk cmyka8 amount nan {"amount":1.0,"filter":"spherize","mode":"horizontalOnly"} a0d83ae9a4e0b437
 fxk rgba8 amount inf {"amount":1.0,"filter":"ripple","size":"small"} 016e094fb0da1e6d
 fxk cmyka8 amount inf {"amount":1.0,"filter":"ripple","size":"small"} 0bdabe1842db1eab
 fxk rgba8 maxRadius nan {"angles":[0.0,10.0,20.0,30.0],"filter":"colorHalftone","maxRadius":1.0} 87d5a0461db2b905
 fxk cmyka8 maxRadius nan {"angles":[0.0,10.0,20.0,30.0],"filter":"colorHalftone","maxRadius":1.0} ce9d35820290e0f6
-fxk rgba8 maxRadius inf {"angles":[0.0,10.0,20.0,30.0],"filter":"colorHalftone","maxRadius":1.0} 881d31e11537e39a
-fxk cmyka8 maxRadius inf {"angles":[0.0,10.0,20.0,30.0],"filter":"colorHalftone","maxRadius":1.0} a78ff39df4709e61
+fxk rgba8 maxRadius inf {"angles":[0.0,10.0,20.0,30.0],"filter":"colorHalftone","maxRadius":1.0} bae19afc7961c63c
+fxk cmyka8 maxRadius inf {"angles":[0.0,10.0,20.0,30.0],"filter":"colorHalftone","maxRadius":1.0} 269d1ccba4593c25
 fxk rgba8 cellSize nan {"cellSize":1.0,"filter":"crystallize","seed":1} d2f04ae7ca697c28
 fxk cmyka8 cellSize nan {"cellSize":1.0,"filter":"crystallize","seed":1} d73640db1b82fb53
-fxk rgba8 cellSize inf {"cellSize":1.0,"filter":"crystallize","seed":1} 881d31e11537e39a
-fxk cmyka8 cellSize inf {"cellSize":1.0,"filter":"crystallize","seed":1} a78ff39df4709e61
+fxk rgba8 cellSize inf {"cellSize":1.0,"filter":"crystallize","seed":1} bae19afc7961c63c
+fxk cmyka8 cellSize inf {"cellSize":1.0,"filter":"crystallize","seed":1} 269d1ccba4593c25
 fxk rgba8 cellSize nan {"background":[1.0,1.0,1.0,1.0],"cellSize":1.0,"filter":"pointillize","seed":1} 7996135cc52309f5
 fxk cmyka8 cellSize nan {"background":[1.0,1.0,1.0,1.0],"cellSize":1.0,"filter":"pointillize","seed":1} c57b165181541bd1
-fxk rgba8 cellSize inf {"background":[1.0,1.0,1.0,1.0],"cellSize":1.0,"filter":"pointillize","seed":1} 6d69eb87e03a06a9
-fxk cmyka8 cellSize inf {"background":[1.0,1.0,1.0,1.0],"cellSize":1.0,"filter":"pointillize","seed":1} 290238bfeca43f4f
+fxk rgba8 cellSize inf {"background":[1.0,1.0,1.0,1.0],"cellSize":1.0,"filter":"pointillize","seed":1} bae19afc7961c63c
+fxk cmyka8 cellSize inf {"background":[1.0,1.0,1.0,1.0],"cellSize":1.0,"filter":"pointillize","seed":1} 269d1ccba4593c25
 fxk rgba8 depth nan {"depth":1.0,"filter":"extrude","kind":"blocks","levelBased":false,"maskIncomplete":false,"seed":5,"size":6.0,"solidFront":false} 1f36fd545e9a1d00
 fxk cmyka8 depth nan {"depth":1.0,"filter":"extrude","kind":"blocks","levelBased":false,"maskIncomplete":false,"seed":5,"size":6.0,"solidFront":false} 7c2342fcc9751c8f
 fxk rgba8 maxOffset nan {"background":[1.0,1.0,1.0,1.0],"count":4,"fill":"background","filter":"tiles","foreground":[0.0,0.0,0.0,0.0],"maxOffset":1.0,"seed":6} 074e11450e33e44d
@@ -2498,8 +2498,8 @@ fxk rgba8 level nan {"filter":"traceContour","level":1.0,"upper":true} 4a88b4cc4
 fxk cmyka8 level nan {"filter":"traceContour","level":1.0,"upper":true} a116a4d05d71db78
 fxk rgba8 ridges nan {"amount":50.0,"filter":"zigZag","ridges":1.0,"style":"pondRipples"} 32987211e22e4fe7
 fxk cmyka8 ridges nan {"amount":50.0,"filter":"zigZag","ridges":1.0,"style":"pondRipples"} 2ecc24f62ec7def1
-fxk rgba8 variance nan {"background":[1.0,1.0,1.0,1.0],"filter":"fibers","foreground":[0.0,0.0,0.0,0.0],"seed":8,"strength":4.0,"variance":1.0} cfd9729296e91004
-fxk cmyka8 variance nan {"background":[1.0,1.0,1.0,1.0],"filter":"fibers","foreground":[0.0,0.0,0.0,0.0],"seed":8,"strength":4.0,"variance":1.0} ce7f64f94c3e403b
+fxk rgba8 variance nan {"background":[1.0,1.0,1.0,1.0],"filter":"fibers","foreground":[0.0,0.0,0.0,0.0],"seed":8,"strength":4.0,"variance":1.0} 883901b650fbf5bd
+fxk cmyka8 variance nan {"background":[1.0,1.0,1.0,1.0],"filter":"fibers","foreground":[0.0,0.0,0.0,0.0],"seed":8,"strength":4.0,"variance":1.0} 4aaed0bd17a08286
 fxk rgba8 centerX nan {"brightness":100.0,"centerX":1.0,"centerY":0.30000001192092896,"filter":"lensFlare","lens":"zoom"} 529cf74fa606934f
 fxk cmyka8 centerX nan {"brightness":100.0,"centerX":1.0,"centerY":0.30000001192092896,"filter":"lensFlare","lens":"zoom"} 8572e539766b302a
 fxk rgba8 angle nan {"angle":1.0,"blur":6.0,"centerX":0.5,"centerY":0.5,"filter":"tiltShift","focus":0.10000000149011612,"transition":0.20000000298023224} 6d218e7618bde2c3
@@ -2956,11 +2956,11 @@ fx rgba32 {"filter":"filterGallery","effects":[{"filter":"graphicPen","values":{
 fx cmyka8 {"filter":"filterGallery","effects":[{"filter":"graphicPen","values":{"lightDarkBalance":50.0,"strokeDirection":0.0,"strokeLength":15.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} 263d2a55bb909c83
 fx laba16 {"filter":"filterGallery","effects":[{"filter":"graphicPen","values":{"lightDarkBalance":50.0,"strokeDirection":0.0,"strokeLength":15.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} edae225695ce2369
 label {"filter":"filterGallery","effects":[{"filter":"graphicPen","values":{"lightDarkBalance":50.0,"strokeDirection":0.0,"strokeLength":15.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} Graphic Pen
-fx rgba8 {"filter":"filterGallery","effects":[{"filter":"halftonePattern","values":{"contrast":5.0,"patternType":0.0,"size":1.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} f8c2accca3aef610
-fx rgb8 {"filter":"filterGallery","effects":[{"filter":"halftonePattern","values":{"contrast":5.0,"patternType":0.0,"size":1.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} c5e9ab9695886798
-fx rgba32 {"filter":"filterGallery","effects":[{"filter":"halftonePattern","values":{"contrast":5.0,"patternType":0.0,"size":1.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} 6d8af2f67aa9ef3e
-fx cmyka8 {"filter":"filterGallery","effects":[{"filter":"halftonePattern","values":{"contrast":5.0,"patternType":0.0,"size":1.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} 83bf80bf980a89a5
-fx laba16 {"filter":"filterGallery","effects":[{"filter":"halftonePattern","values":{"contrast":5.0,"patternType":0.0,"size":1.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} 357bfb2063d9180b
+fx rgba8 {"filter":"filterGallery","effects":[{"filter":"halftonePattern","values":{"contrast":5.0,"patternType":0.0,"size":1.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} 311bfed7d643cdf5
+fx rgb8 {"filter":"filterGallery","effects":[{"filter":"halftonePattern","values":{"contrast":5.0,"patternType":0.0,"size":1.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} ae7e8bd8be2cd043
+fx rgba32 {"filter":"filterGallery","effects":[{"filter":"halftonePattern","values":{"contrast":5.0,"patternType":0.0,"size":1.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} faabc5c16a5381df
+fx cmyka8 {"filter":"filterGallery","effects":[{"filter":"halftonePattern","values":{"contrast":5.0,"patternType":0.0,"size":1.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} de96c00cf1469241
+fx laba16 {"filter":"filterGallery","effects":[{"filter":"halftonePattern","values":{"contrast":5.0,"patternType":0.0,"size":1.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} 6ce0952a2a11a837
 label {"filter":"filterGallery","effects":[{"filter":"halftonePattern","values":{"contrast":5.0,"patternType":0.0,"size":1.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} Halftone Pattern
 fx rgba8 {"filter":"filterGallery","effects":[{"filter":"notePaper","values":{"graininess":10.0,"imageBalance":25.0,"relief":11.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} 69a5560d2f61b96f
 fx rgb8 {"filter":"filterGallery","effects":[{"filter":"notePaper","values":{"graininess":10.0,"imageBalance":25.0,"relief":11.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} f0a4e37a1b61d909
@@ -3385,15 +3385,15 @@ fxg {"filter":"filterGallery","effects":[{"filter":"graphicPen","values":{"light
 fxg {"filter":"filterGallery","effects":[{"filter":"graphicPen","values":{"lightDarkBalance":50.0,"strokeDirection":1.0,"strokeLength":15.0},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} 625f190b0ce40a71
 fxg {"filter":"filterGallery","effects":[{"filter":"graphicPen","values":{"lightDarkBalance":50.0,"strokeDirection":2.0,"strokeLength":15.0},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} 6e34824d5c4b6b31
 fxg {"filter":"filterGallery","effects":[{"filter":"graphicPen","values":{"lightDarkBalance":50.0,"strokeDirection":3.0,"strokeLength":15.0},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} d3277c4959d3d492
-fxg {"filter":"filterGallery","effects":[{"filter":"halftonePattern","values":{"contrast":5.0,"patternType":0.0,"size":1.0},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} f98d7db2bc36e0a8
-fxg {"filter":"filterGallery","effects":[{"filter":"halftonePattern","values":{"contrast":5.0,"patternType":0.0,"size":12.0},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} 09e664ffd6482d5e
-fxg {"filter":"filterGallery","effects":[{"filter":"halftonePattern","values":{"contrast":5.0,"patternType":0.0,"size":6.8},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} 2a7b54e4f742b5da
-fxg {"filter":"filterGallery","effects":[{"filter":"halftonePattern","values":{"contrast":0.0,"patternType":0.0,"size":1.0},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} 3a3679cfa0dc8397
-fxg {"filter":"filterGallery","effects":[{"filter":"halftonePattern","values":{"contrast":50.0,"patternType":0.0,"size":1.0},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} 9963fc72211e9ea5
-fxg {"filter":"filterGallery","effects":[{"filter":"halftonePattern","values":{"contrast":25.3,"patternType":0.0,"size":1.0},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} 4fe8b27b21df6731
-fxg {"filter":"filterGallery","effects":[{"filter":"halftonePattern","values":{"contrast":5.0,"patternType":0.0,"size":1.0},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} f98d7db2bc36e0a8
-fxg {"filter":"filterGallery","effects":[{"filter":"halftonePattern","values":{"contrast":5.0,"patternType":1.0,"size":1.0},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} 099f65f00b769136
-fxg {"filter":"filterGallery","effects":[{"filter":"halftonePattern","values":{"contrast":5.0,"patternType":2.0,"size":1.0},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} 04024a56487df0f6
+fxg {"filter":"filterGallery","effects":[{"filter":"halftonePattern","values":{"contrast":5.0,"patternType":0.0,"size":1.0},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} 761d815e5bbf2837
+fxg {"filter":"filterGallery","effects":[{"filter":"halftonePattern","values":{"contrast":5.0,"patternType":0.0,"size":12.0},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} 0d6fa787691e20b8
+fxg {"filter":"filterGallery","effects":[{"filter":"halftonePattern","values":{"contrast":5.0,"patternType":0.0,"size":6.8},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} 52612794bc00dce6
+fxg {"filter":"filterGallery","effects":[{"filter":"halftonePattern","values":{"contrast":0.0,"patternType":0.0,"size":1.0},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} 1f9e7d687f51db2f
+fxg {"filter":"filterGallery","effects":[{"filter":"halftonePattern","values":{"contrast":50.0,"patternType":0.0,"size":1.0},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} e28521a4581ddc8c
+fxg {"filter":"filterGallery","effects":[{"filter":"halftonePattern","values":{"contrast":25.3,"patternType":0.0,"size":1.0},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} 0260ce2e7286dc24
+fxg {"filter":"filterGallery","effects":[{"filter":"halftonePattern","values":{"contrast":5.0,"patternType":0.0,"size":1.0},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} 761d815e5bbf2837
+fxg {"filter":"filterGallery","effects":[{"filter":"halftonePattern","values":{"contrast":5.0,"patternType":1.0,"size":1.0},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} 7073d78a202af36d
+fxg {"filter":"filterGallery","effects":[{"filter":"halftonePattern","values":{"contrast":5.0,"patternType":2.0,"size":1.0},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} 7a4fd3c3a2a2a5dd
 fxg {"filter":"filterGallery","effects":[{"filter":"notePaper","values":{"graininess":10.0,"imageBalance":0.0,"relief":11.0},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} 4b7e9cb16fd7696e
 fxg {"filter":"filterGallery","effects":[{"filter":"notePaper","values":{"graininess":10.0,"imageBalance":50.0,"relief":11.0},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} c76f1e5bab5ecbca
 fxg {"filter":"filterGallery","effects":[{"filter":"notePaper","values":{"graininess":10.0,"imageBalance":25.3,"relief":11.0},"foreground":[0.9,0.2,0.1,1.0],"background":[0.1,0.3,0.8,1.0],"color":[0.2,1.0,0.4,1.0]}]} e9d485f89491eb54
@@ -3577,8 +3577,8 @@ fx rgba8 {"filter":"filterGallery","effects":[{"filter":"craquelure","values":{"
 fx graya16 {"filter":"filterGallery","effects":[{"filter":"craquelure","values":{"crackBrightness":9.0,"crackDepth":6.0,"crackSpacing":0.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} 4e3502ac70faca19
 halo {"filter":"filterGallery","effects":[{"filter":"craquelure","values":{"crackBrightness":9.0,"crackDepth":6.0,"crackSpacing":0.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} r0
 label {"filter":"filterGallery","effects":[{"filter":"craquelure","values":{"crackBrightness":9.0,"crackDepth":6.0,"crackSpacing":0.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} Craquelure
-fx rgba8 {"filter":"filterGallery","effects":[{"filter":"patchwork","values":{"relief":8.0,"squareSize":-5.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} 81424330042d7845
-fx graya16 {"filter":"filterGallery","effects":[{"filter":"patchwork","values":{"relief":8.0,"squareSize":-5.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} 5dad65385f283008
+fx rgba8 {"filter":"filterGallery","effects":[{"filter":"patchwork","values":{"relief":8.0,"squareSize":-5.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} 8f3db448f3016616
+fx graya16 {"filter":"filterGallery","effects":[{"filter":"patchwork","values":{"relief":8.0,"squareSize":-5.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} 5d9a1415ca8d67e8
 halo {"filter":"filterGallery","effects":[{"filter":"patchwork","values":{"relief":8.0,"squareSize":-5.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} r-2
 label {"filter":"filterGallery","effects":[{"filter":"patchwork","values":{"relief":8.0,"squareSize":-5.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} Patchwork
 fx rgba8 {"filter":"filterGallery","effects":[{"filter":"stainedGlass","values":{"borderThickness":4.0,"cellSize":0.0,"lightIntensity":3.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} 34e15c9120015802
@@ -3593,8 +3593,8 @@ fx rgba8 {"filter":"filterGallery","effects":[{"filter":"grain","values":{"contr
 fx graya16 {"filter":"filterGallery","effects":[{"filter":"grain","values":{"contrast":50.0,"grainType":50.0,"intensity":40.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} d38e6c0bbeba4914
 halo {"filter":"filterGallery","effects":[{"filter":"grain","values":{"contrast":50.0,"grainType":50.0,"intensity":40.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} r0
 label {"filter":"filterGallery","effects":[{"filter":"grain","values":{"contrast":50.0,"grainType":50.0,"intensity":40.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} Grain
-fx rgba8 {"filter":"filterGallery","effects":[{"filter":"halftonePattern","values":{"contrast":5.0,"patternType":0.0,"size":0.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} 24062969deb8d05d
-fx graya16 {"filter":"filterGallery","effects":[{"filter":"halftonePattern","values":{"contrast":5.0,"patternType":0.0,"size":0.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} af0c1c58bd44400d
+fx rgba8 {"filter":"filterGallery","effects":[{"filter":"halftonePattern","values":{"contrast":5.0,"patternType":0.0,"size":0.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} 311bfed7d643cdf5
+fx graya16 {"filter":"filterGallery","effects":[{"filter":"halftonePattern","values":{"contrast":5.0,"patternType":0.0,"size":0.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} 4268d6206e8f8d75
 halo {"filter":"filterGallery","effects":[{"filter":"halftonePattern","values":{"contrast":5.0,"patternType":0.0,"size":0.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} r2
 label {"filter":"filterGallery","effects":[{"filter":"halftonePattern","values":{"contrast":5.0,"patternType":0.0,"size":0.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} Halftone Pattern
 fx rgba8 {"filter":"filterGallery","effects":[{"filter":"cutout","values":{"edgeFidelity":2.0,"edgeSimplicity":4.0,"numberOfLevels":1.0},"foreground":[0.0,0.0,0.0,1.0],"background":[1.0,1.0,1.0,1.0],"color":[0.0,0.62,1.0,1.0]}]} 1f4df1a2e52c5c26
@@ -3870,7 +3870,7 @@ warp frac rgba8 bilinear adf58f4e2c75ddcc
 warp frac rgba8 bicubic 393d3d9dd58c7e38
 warp frac rgb8 nearest 799c8e5cb4c12133
 warp frac rgb8 bilinear 8b2575f67ab89b92
-warp frac rgb8 bicubic c5e5b4815e8fce4e
+warp frac rgb8 bicubic f6c56e469978ab68
 warp frac rgba32 nearest 800fb340765b6235
 warp frac rgba32 bilinear 22ad770e4725ff8d
 warp frac rgba32 bicubic 300dd602541b9123
@@ -3882,73 +3882,73 @@ warp rotate rgba8 bilinear 3352a23aa4f8a457
 warp rotate rgba8 bicubic 9c076ec321264f93
 warp rotate rgb8 nearest 22076af3d78056e4
 warp rotate rgb8 bilinear cc2fc3db13321eb1
-warp rotate rgb8 bicubic 290926b85753ce3f
+warp rotate rgb8 bicubic 597d8200b5ad78a6
 warp rotate rgba32 nearest 91e8223dbdb6e346
-warp rotate rgba32 bilinear 07032168bc725a5e
+warp rotate rgba32 bilinear 8e7d64be67da7e48
 warp rotate rgba32 bicubic a7c4d56993705de3
 warp rotate graya16 nearest b94bd37ccf9f1637
 warp rotate graya16 bilinear b2a75af3fd62b242
 warp rotate graya16 bicubic ea809f4a1b26011c
-warp scale rgba8 nearest 8cfa59d559edcd4b
+warp scale rgba8 nearest 0e578459156d546d
 warp scale rgba8 bilinear b529a1f153d63e98
 warp scale rgba8 bicubic b529a1f153d63e98
-warp scale rgb8 nearest e077034b343eb80d
+warp scale rgb8 nearest b5279139bbda8910
 warp scale rgb8 bilinear 7c26b89258ca24bf
 warp scale rgb8 bicubic 7c26b89258ca24bf
-warp scale rgba32 nearest ff1fd1244f9475f4
+warp scale rgba32 nearest d331af7d60c6d0c3
 warp scale rgba32 bilinear a2295364c7ada37b
 warp scale rgba32 bicubic a2295364c7ada37b
-warp scale graya16 nearest 13232e4847cdae83
+warp scale graya16 nearest a9b45290bf23e8aa
 warp scale graya16 bilinear a8b459d990afb7b7
 warp scale graya16 bicubic a8b459d990afb7b7
-warp fold rgba8 nearest dfaa393e7e9ce56b
-warp fold rgba8 bilinear d657f0df8506f580
-warp fold rgba8 bicubic 760a8ecb04aceea4
-warp fold rgb8 nearest aa2a2317c72bebc1
-warp fold rgb8 bilinear fae716a6124d212b
-warp fold rgb8 bicubic 08b10f72c723d2d2
-warp fold rgba32 nearest 98f520a327617b3a
-warp fold rgba32 bilinear 0f2f492e9a5f39e6
-warp fold rgba32 bicubic 631f858f5ea6cd01
-warp fold graya16 nearest 16c863fe6a24bb0e
-warp fold graya16 bilinear 9aac030b4a55f170
-warp fold graya16 bicubic 03e4e0aa800bf350
-warp arc rgba8 nearest e092e8a797927beb
-warp arc rgba8 bilinear 3e8d14a49a80eb0e
-warp arc rgba8 bicubic 3d4fb36ac1c5b3e1
-warp arc rgb8 nearest 1e3bec6992a49db8
-warp arc rgb8 bilinear 6e2d0f3d2993c656
-warp arc rgb8 bicubic 0bc4bc8b8a5a25d0
-warp arc rgba32 nearest 55004d8b226e212d
-warp arc rgba32 bilinear d1049d86d0550742
-warp arc rgba32 bicubic a0ebc739076eebf2
-warp arc graya16 nearest 9a9b2684f68c0ba9
-warp arc graya16 bilinear 67113e22dc8b8ba2
-warp arc graya16 bicubic 7bd7e06cb09d7151
-warp twist rgba8 nearest 6f0ef90f21d43ed9
-warp twist rgba8 bilinear ee472a03e17ba372
-warp twist rgba8 bicubic 32d686436197df41
-warp twist rgb8 nearest 3a4f054898362e7e
-warp twist rgb8 bilinear 22f287df5661a627
-warp twist rgb8 bicubic d71b92dff5a2f023
-warp twist rgba32 nearest be02dc3b2d139673
-warp twist rgba32 bilinear e558c64a564e336a
-warp twist rgba32 bicubic e709e95ad1c859f3
-warp twist graya16 nearest dc46db6bd1e73029
-warp twist graya16 bilinear 654807a637c24658
-warp twist graya16 bicubic 7457916885fdf443
-warp fisheye rgba8 nearest cc5f0b96b64f96a2
-warp fisheye rgba8 bilinear d7ed8c23e52b9923
-warp fisheye rgba8 bicubic 212c81226f7a58c5
-warp fisheye rgb8 nearest ede85056ff203328
-warp fisheye rgb8 bilinear 4c9b23f326f1a127
-warp fisheye rgb8 bicubic 3d8d2454f4387109
-warp fisheye rgba32 nearest 37b632a5a31b8c2d
-warp fisheye rgba32 bilinear 107f35886fc668ad
-warp fisheye rgba32 bicubic 3ded624244c57bf5
-warp fisheye graya16 nearest cc09617afa5347c3
-warp fisheye graya16 bilinear c796b5039e0cb5f1
-warp fisheye graya16 bicubic 7a65c57119f22a85
+warp fold rgba8 nearest 51e267ddd25abafd
+warp fold rgba8 bilinear 1c5938d656832a42
+warp fold rgba8 bicubic b2616920768adf76
+warp fold rgb8 nearest 2f1a61423162ea28
+warp fold rgb8 bilinear a3370f6e9b9fd187
+warp fold rgb8 bicubic 0eeaf4e0d8ef27d9
+warp fold rgba32 nearest 9f32dec2e444678d
+warp fold rgba32 bilinear 6e26fb0f6d1f6ac5
+warp fold rgba32 bicubic 6cb52122495edd59
+warp fold graya16 nearest 0159358afe3330d0
+warp fold graya16 bilinear bfcd09f810c01b6f
+warp fold graya16 bicubic 9a48647c8528f4a7
+warp arc rgba8 nearest 4f4db271081f6e78
+warp arc rgba8 bilinear 5b1689e73e36280f
+warp arc rgba8 bicubic 9babea4f8e7ac324
+warp arc rgb8 nearest ac4b791d734c49ae
+warp arc rgb8 bilinear 03886817f118fc74
+warp arc rgb8 bicubic 7f0cc5bc616bb1eb
+warp arc rgba32 nearest da947f4c76403c5f
+warp arc rgba32 bilinear e8381418bf1a967a
+warp arc rgba32 bicubic 2e71ce2b7fcaf039
+warp arc graya16 nearest 81a77b8a6f636437
+warp arc graya16 bilinear f2b31e127f794b35
+warp arc graya16 bicubic a5fb24f94c2ef019
+warp twist rgba8 nearest 5c2f758599224226
+warp twist rgba8 bilinear e74c3af11e61f60f
+warp twist rgba8 bicubic 1c97ede0e5a71fd4
+warp twist rgb8 nearest 6054c3d282951d02
+warp twist rgb8 bilinear 247cccbd74caf756
+warp twist rgb8 bicubic 7ce845ac2deb32ec
+warp twist rgba32 nearest a4c7f080d35183a8
+warp twist rgba32 bilinear 0e0d699207bd58e2
+warp twist rgba32 bicubic 1186f21d75ec9047
+warp twist graya16 nearest de32e2eed1fb2098
+warp twist graya16 bilinear 862114df9fdabe23
+warp twist graya16 bicubic ec1ef32ef5470eab
+warp fisheye rgba8 nearest 7885b7edd37eb516
+warp fisheye rgba8 bilinear d2dfbdf346578210
+warp fisheye rgba8 bicubic 6aee4ae33b133e4b
+warp fisheye rgb8 nearest 4c42185cb48b95dc
+warp fisheye rgb8 bilinear 597e1fbc87b09c21
+warp fisheye rgb8 bicubic 4dfbd25e537235bd
+warp fisheye rgba32 nearest ce4fc9931365d030
+warp fisheye rgba32 bilinear ae9f181bcc0bd216
+warp fisheye rgba32 bicubic 186e02be0c1ca19c
+warp fisheye graya16 nearest 94ceaf9824c1d2da
+warp fisheye graya16 bilinear 2d2a98cfa2d81388
+warp fisheye graya16 bicubic 9c930bec077adef3
 warp flat rgba8 nearest b52b3f1c8e59bc78
 warp flat rgba8 bilinear b52b3f1c8e59bc78
 warp flat rgba8 bicubic b52b3f1c8e59bc78
@@ -3988,16 +3988,16 @@ warp far graya16 bicubic 17f5791ca2b62b0a
 warp_empty b52b3f1c8e59bc78
 tris rgba8 nearest 2620603c9b47fb99
 tris rgba8 bilinear 219c928cdc68de33
-tris rgba8 bicubic ca6afb9f90c11a4d
+tris rgba8 bicubic d98826e5faad813b
 tris rgb8 nearest 6bd79b4ac1702270
 tris rgb8 bilinear 10c66a5d1a98875c
-tris rgb8 bicubic b638c9f29319c00b
+tris rgb8 bicubic 6d15293713edfffa
 tris rgba32 nearest e66a8257b38d3fb6
 tris rgba32 bilinear cfe50c04da4cb2c0
-tris rgba32 bicubic 24de8c632b7da2c9
+tris rgba32 bicubic 9f59b4ed3b7bb266
 tris graya16 nearest 091db1542707ed9c
 tris graya16 bilinear ba4211d1f7d4a393
-tris graya16 bicubic 2b2ba50922615990
+tris graya16 bicubic 9f6f35e85fcabbdb
 wgray gray8 identity nearest 81a84be02a625a25
 wgray gray8 identity bilinear 81a84be02a625a25
 wgray gray8 identity bicubic 81a84be02a625a25
@@ -4006,22 +4006,22 @@ wgray gray8 shift bilinear 830a3f0014180209
 wgray gray8 shift bicubic 830a3f0014180209
 wgray gray8 frac nearest 68d093cc37e30565
 wgray gray8 frac bilinear 7257104f41103739
-wgray gray8 frac bicubic 2f9431c0b03d7730
+wgray gray8 frac bicubic 663f438176f3ce8a
 wgray gray8 rotate nearest c252ef7f5ebdaf7f
 wgray gray8 rotate bilinear 612e8183084eb0a7
-wgray gray8 rotate bicubic 9ae63a6df696b3f2
+wgray gray8 rotate bicubic bddaf99649491a39
 wgray gray8 scale nearest ba5206772a30da3e
 wgray gray8 scale bilinear fc532d17ae46f795
 wgray gray8 scale bicubic fc532d17ae46f795
 wgray gray8 fold nearest b5626fe7109ec5b2
 wgray gray8 fold bilinear 7e5b313ac4c3526b
-wgray gray8 fold bicubic 9fa5b5251407b298
-wgray gray8 arc nearest 30060446782d8439
-wgray gray8 arc bilinear 4818d67d2ee168e3
-wgray gray8 arc bicubic 1ffd46026849b64b
+wgray gray8 fold bicubic 85c7e61889899ab9
+wgray gray8 arc nearest b57b74e750f7c1cd
+wgray gray8 arc bilinear 86fc39a122fb17c9
+wgray gray8 arc bicubic 2b3d2df35379e7f4
 wgray gray8 twist nearest ed17c6d09e41918a
 wgray gray8 twist bilinear fec1c31b8f4f8dc7
-wgray gray8 twist bicubic 1e4025c0e8261ee6
+wgray gray8 twist bicubic 5acf1e14515da730
 wgray gray8 fisheye nearest 15c58b55f5d321e0
 wgray gray8 fisheye bilinear 49426e9d71777120
 wgray gray8 fisheye bicubic 19dd7f5bb2e7a13f
@@ -4043,25 +4043,25 @@ wgray grayf shift bilinear e980ee081f341154
 wgray grayf shift bicubic e980ee081f341154
 wgray grayf frac nearest f3b098a0508b7ab0
 wgray grayf frac bilinear adde293dc4a7d35b
-wgray grayf frac bicubic f4fdb722b60e6d4c
+wgray grayf frac bicubic 5e216212e1cf7761
 wgray grayf rotate nearest 3cdafdc835c4f665
 wgray grayf rotate bilinear fdd13689115188b3
-wgray grayf rotate bicubic b5d7f29cb39b0bfc
+wgray grayf rotate bicubic f6a2405c96c571bb
 wgray grayf scale nearest b1a88d772548def9
 wgray grayf scale bilinear 931a2c1633c7506c
 wgray grayf scale bicubic 931a2c1633c7506c
 wgray grayf fold nearest 812e66e06c927ab7
 wgray grayf fold bilinear d961551aa6e4092e
-wgray grayf fold bicubic d694290eb921edbc
-wgray grayf arc nearest 1646a1e3745ef4e7
-wgray grayf arc bilinear 8514f525813d345f
-wgray grayf arc bicubic fd01eea9d9314c4d
+wgray grayf fold bicubic eca5ddc500863154
+wgray grayf arc nearest 7174ecb31f0466ec
+wgray grayf arc bilinear c160b0f8746fe539
+wgray grayf arc bicubic e9bd76ecf031e5e8
 wgray grayf twist nearest 94f60dff43e1060d
 wgray grayf twist bilinear 33ae52c3a37c9d1d
-wgray grayf twist bicubic 8682b5cb78943018
+wgray grayf twist bicubic a9c515568f8f1f5f
 wgray grayf fisheye nearest 0bb8f14c7eb8b06f
 wgray grayf fisheye bilinear 76e926a9304751e3
-wgray grayf fisheye bicubic 1c603ff579c5b66c
+wgray grayf fisheye bicubic 8c3b410e41efc34b
 wgray grayf flat nearest 672a2a8f5dc6fc90
 wgray grayf flat bilinear 672a2a8f5dc6fc90
 wgray grayf flat bicubic 672a2a8f5dc6fc90
@@ -4074,57 +4074,57 @@ wgray grayf far bicubic 672a2a8f5dc6fc90
 wgray_empty grayf 672a2a8f5dc6fc90
 place rgba8 ident none 22cd882f892a3e4d
 place rgba8 ident identity 22cd882f892a3e4d
-place rgba8 ident bulge 25cb79d463d493bb
-place rgba8 ident mesh 4892b5235e886269
+place rgba8 ident bulge 6f1de9710545538c
+place rgba8 ident mesh 41991f66c1db7167
 place rgba8 intshift none 0a6cc8879c9dd762
 place rgba8 intshift identity 0a6cc8879c9dd762
-place rgba8 intshift bulge 77519322a507d993
-place rgba8 intshift mesh 564b81f89b9a56c6
-place rgba8 fracshift none 007bfecda4de0dc6
-place rgba8 fracshift identity 007bfecda4de0dc6
-place rgba8 fracshift bulge e38287adb383ec1d
-place rgba8 fracshift mesh b43ef3697be69c51
-place rgba8 scale none 761c6c6a9af8694c
-place rgba8 scale identity 761c6c6a9af8694c
-place rgba8 scale bulge f5aa90746c9c6af4
+place rgba8 intshift bulge 8e3e672db0dfdec4
+place rgba8 intshift mesh 2cfe7f588aaf803c
+place rgba8 fracshift none e9adb3dae76739fc
+place rgba8 fracshift identity e9adb3dae76739fc
+place rgba8 fracshift bulge e8bc155572e8c3cd
+place rgba8 fracshift mesh 9c8b3898b85e1342
+place rgba8 scale none d2d1854b5a1639d2
+place rgba8 scale identity d2d1854b5a1639d2
+place rgba8 scale bulge 2fdc34395692efe8
 place rgba8 scale mesh 515f96b7ba9856b7
-place rgba8 rot none 62d426f9b3276d9b
-place rgba8 rot identity 62d426f9b3276d9b
-place rgba8 rot bulge 5baf255d6baf4dfa
-place rgba8 rot mesh 402276af41770a11
+place rgba8 rot none 30166cf2d9fa3489
+place rgba8 rot identity 30166cf2d9fa3489
+place rgba8 rot bulge a84716a38bd40ddf
+place rgba8 rot mesh 632261af4fd709ba
 placep rgba8 ident none 1424ab14ede0348c
 placep rgba8 ident identity 1424ab14ede0348c
-placep rgba8 ident bulge 25cb79d463d493bb
-placep rgba8 ident mesh 4892b5235e886269
-placep rgba8 persp none 3308a759a008d42e
-placep rgba8 persp identity 3308a759a008d42e
-placep rgba8 persp bulge 864584e202868f1a
-placep rgba8 persp mesh 4cad6cc372a0864c
+placep rgba8 ident bulge 6f1de9710545538c
+placep rgba8 ident mesh 41991f66c1db7167
+placep rgba8 persp none b7af27fa8bbbc8ad
+placep rgba8 persp identity b7af27fa8bbbc8ad
+placep rgba8 persp bulge 4fa5a61fc90e647f
+placep rgba8 persp mesh 542a3d98c51ed386
 place rgba32 ident none a3ec4b5a6deb1b11
 place rgba32 ident identity a3ec4b5a6deb1b11
-place rgba32 ident bulge ae2caee274f09f11
-place rgba32 ident mesh 39b6712cbdbe4d4e
+place rgba32 ident bulge 5f4de9175c461e5d
+place rgba32 ident mesh a8d9f230f920c272
 place rgba32 intshift none a53c3b7159558f1e
 place rgba32 intshift identity a53c3b7159558f1e
-place rgba32 intshift bulge e4bea0c860394bb9
-place rgba32 intshift mesh cb4a7286519587ed
-place rgba32 fracshift none 991084baa070b7e6
-place rgba32 fracshift identity 991084baa070b7e6
-place rgba32 fracshift bulge b926b6ec18812bf5
-place rgba32 fracshift mesh 79ceb35b0a2894a4
-place rgba32 scale none 77b8e7d93ab6bc4f
-place rgba32 scale identity 77b8e7d93ab6bc4f
-place rgba32 scale bulge fb2f32016bb6675b
-place rgba32 scale mesh a5edf6afbd826c02
-place rgba32 rot none ea4e77557dd5b6fc
-place rgba32 rot identity ea4e77557dd5b6fc
-place rgba32 rot bulge 7b0bd8db2b9f5acf
-place rgba32 rot mesh 9c8f0abcc0bb2543
+place rgba32 intshift bulge b7be1b3634974ea5
+place rgba32 intshift mesh 0c74d5edcbda4a21
+place rgba32 fracshift none e28b85cb31d9491b
+place rgba32 fracshift identity e28b85cb31d9491b
+place rgba32 fracshift bulge cd654e76ae7eb2e6
+place rgba32 fracshift mesh a0af496db2b8ddc7
+place rgba32 scale none a0f42ed33f5a7604
+place rgba32 scale identity a0f42ed33f5a7604
+place rgba32 scale bulge 0548e3b24b4917a5
+place rgba32 scale mesh b36a7bfe1833d1ef
+place rgba32 rot none 90342ee2a8b4fb6e
+place rgba32 rot identity 90342ee2a8b4fb6e
+place rgba32 rot bulge 3268c9356dfea032
+place rgba32 rot mesh 8fc5bb061b1eedf4
 placep rgba32 ident none 79edfb8631854570
 placep rgba32 ident identity 79edfb8631854570
-placep rgba32 ident bulge ae2caee274f09f11
-placep rgba32 ident mesh 39b6712cbdbe4d4e
-placep rgba32 persp none 32974a2e6c5c7604
-placep rgba32 persp identity 32974a2e6c5c7604
-placep rgba32 persp bulge f248f71e005da37b
-placep rgba32 persp mesh 26f30d2321a547b9
+placep rgba32 ident bulge 5f4de9175c461e5d
+placep rgba32 ident mesh a8d9f230f920c272
+placep rgba32 persp none 637e485ba1b9780c
+placep rgba32 persp identity 637e485ba1b9780c
+placep rgba32 persp bulge 06e23644a9ab2e51
+placep rgba32 persp mesh 769cbeb500552686

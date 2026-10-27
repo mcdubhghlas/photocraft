@@ -25,7 +25,7 @@ CFLAGS ?= -O2 -g
 ARFLAGS = rcs
 
 # Modules in layer order (REWRITE_PLAN.md §3). Each chunk appends its module here.
-MODULES = base geom cms color raster psd codecs raw affinity doc ops paint algo vector text compose gpu format io plugins engine automation ui app
+MODULES = base geom cms color raster psd codecs raw affinity ipp doc ops paint algo vector text compose gpu format io plugins engine automation ui app
 # pkg-config packages the current modules need.
 PKGS = zlib libzstd libblake3 libpng16 libjpeg libwebp libwebpmux libwebpdemux freetype2 harfbuzz fribidi libunibreak
 # Vendored third-party C (REWRITE_PLAN.md D17), compiled without our strict warnings: it isn't

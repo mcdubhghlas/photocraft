@@ -36,6 +36,7 @@ typedef struct exr_hdr {
     size_t nattrs;
     int compression; /* 0 none, 1 rle, 2 zips, 3 zip, 4 piz, ... */
     int32_t dw[4];   /* data window: xmin, ymin, xmax, ymax */
+    int32_t disp[4]; /* display window: xmin, ymin, xmax, ymax (valid when has_disp) */
     uint64_t w;      /* data window size */
     uint64_t h;
     bool tiled;

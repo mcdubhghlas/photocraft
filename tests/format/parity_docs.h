@@ -260,6 +260,8 @@ static inline void pd_shapes(pc_document *d)
         t_vector_path(&c.u.shape.path);
         c.u.shape.has_live = true;
         c.u.shape.live = lives[i];
+        c.u.shape.density = 1.0f;
+        c.u.shape.feather = 0.0f;
         t_layer(&l, name, &c);
         t_push_layer(d, &l);
     }

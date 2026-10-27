@@ -191,33 +191,65 @@ bool pc_raw_embedded_preview(const uint8_t *bytes, size_t n, pc_raw_preview *out
     return true;
 }
 
-bool pc_raw_embedded_preview_color_space(const uint8_t *bytes, size_t n, pc_raw_preview_color_space *out)
+/* The colour space the EXIF IFD gives (see pc_raw_embedded_preview_color_space): sRGB for
+ * ColorSpace 1, Adobe RGB for Uncalibrated (0xFFFF) with InteropIndex "R03"; false when the EXIF
+ * does not decide (no tag, or any other value). */
+static bool exif_color_space(const rx_tiff *t, const rx_ifd *ifd0, pc_raw_preview_color_space *out)
 {
-    rx_tiff t;
-    rx_ifd ifd0;
     rx_ifd exif;
     rx_ifd interop;
     rx_entry e;
     uint32_t v;
     const uint8_t *r;
     size_t rl;
-    if (!rx_tiff_new(bytes, n, &t) || !rx_ifd_at(&t, t.first_ifd, 0, &ifd0) ||
-        rx_ifd_has(&t, &ifd0, RX_DNG_VERSION)) {
-        return false;
-    }
-    if (!rx_tag_uint(&t, &ifd0, RX_EXIF_IFD, &v) || !rx_ifd_at(&t, v, 0, &exif) ||
-        !rx_tag_uint(&t, &exif, RX_COLOR_SPACE, &v)) {
+    if (!rx_tag_uint(t, ifd0, RX_EXIF_IFD, &v) || !rx_ifd_at(t, v, 0, &exif) ||
+        !rx_tag_uint(t, &exif, RX_COLOR_SPACE, &v)) {
         return false;
     }
     if (v == 1) {
         *out = PC_RAW_PREVIEW_SRGB;
         return true;
     }
-    if (v != 0xFFFF || !rx_tag_uint(&t, &exif, RX_INTEROP_IFD, &v) || !rx_ifd_at(&t, v, 0, &interop) ||
-        !rx_ifd_get(&t, &interop, RX_INTEROP_INDEX, &e) || (r = rx_raw(&t, &e, &rl)) == NULL || rl < 3 ||
+    if (v != 0xFFFF || !rx_tag_uint(t, &exif, RX_INTEROP_IFD, &v) || !rx_ifd_at(t, v, 0, &interop) ||
+        !rx_ifd_get(t, &interop, RX_INTEROP_INDEX, &e) || (r = rx_raw(t, &e, &rl)) == NULL || rl < 3 ||
         memcmp(r, "R03", 3) != 0) {
         return false;
     }
     *out = PC_RAW_PREVIEW_ADOBE_RGB;
     return true;
+}
+
+/* The colour space a Nikon maker note gives (tag 0x001E: 1 sRGB, 2 Adobe RGB). Nikon bodies write
+ * no EXIF ColorSpace and state Adobe RGB only here. false when absent or any other value. */
+static bool nikon_color_space(const rx_tiff *t, pc_raw_preview_color_space *out)
+{
+    rx_ifd ifds[RX_MAX_IFDS];
+    size_t nifd = rx_all_ifds(t, ifds);
+    rx_tiff note_t;
+    rx_ifd note;
+    uint32_t v;
+    if (!rx_nikon_maker_note(t, ifds, nifd, &note_t, &note) || !rx_tag_uint(&note_t, &note, RX_NIKON_COLOR_SPACE, &v)) {
+        return false;
+    }
+    if (v == 1) {
+        *out = PC_RAW_PREVIEW_SRGB;
+        return true;
+    }
+    if (v == 2) {
+        *out = PC_RAW_PREVIEW_ADOBE_RGB;
+        return true;
+    }
+    return false;
+}
+
+bool pc_raw_embedded_preview_color_space(const uint8_t *bytes, size_t n, pc_raw_preview_color_space *out)
+{
+    rx_tiff t;
+    rx_ifd ifd0;
+    if (!rx_tiff_new(bytes, n, &t) || !rx_ifd_at(&t, t.first_ifd, 0, &ifd0) ||
+        rx_ifd_has(&t, &ifd0, RX_DNG_VERSION)) {
+        return false;
+    }
+    /* The EXIF decides; where it doesn't, a Nikon maker note's ColorSpace does. */
+    return exif_color_space(&t, &ifd0, out) || nikon_color_space(&t, out);
 }

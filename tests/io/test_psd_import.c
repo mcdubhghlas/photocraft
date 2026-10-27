@@ -830,6 +830,9 @@ static void test_guides_and_alpha_names_roundtrip(void)
 
 static void test_resolution_in_cm_converted(void)
 {
+    /* The Fixed 16.16 hRes/vRes are pixels per inch whatever the display unit (1 = px/in,
+     * 2 = px/cm): the unit does not convert the density, so a 100 ppi value with a cm unit
+     * still reads as 100 ppi (matches the reference ResolutionInfo::h_res). */
     pc_psd_file f = tg_small(PC_PSD_V1, PC_PSD_RAW);
     pc_psd_resolution ri = pc_psd_resolution_from_dpi(100.0);
     uint8_t b[16];
@@ -840,7 +843,7 @@ static void test_resolution_in_cm_converted(void)
     must(pc_psd_bytes_set(&f.resources[0].data, b, 16, NULL));
     f.resources[0].id = 1005;
     d = to_doc(&f, &w);
-    CHECK(fabsf(d.resolution_dpi - 254.0f) < 1e-3f);
+    CHECK(fabsf(d.resolution_dpi - 100.0f) < 1e-3f);
     pc_document_fini(&d);
     pc_io_warnings_fini(&w);
     pc_psd_file_fini(&f);

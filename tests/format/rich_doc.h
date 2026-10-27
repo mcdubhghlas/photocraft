@@ -366,6 +366,8 @@ static inline void t_rich_doc(pc_color_mode mode, pc_sample_type depth, pc_docum
     c.u.shape.has_cache = true;
     t_surface_clone(&cache, &c.u.shape.cache);
     c.u.shape.psd_raw = t_blob(10, 30);
+    c.u.shape.density = 1.0f;
+    c.u.shape.feather = 0.0f;
     t_layer(&shape, "Shape", &c);
     shape.label = PC_LABEL_GREEN;
 

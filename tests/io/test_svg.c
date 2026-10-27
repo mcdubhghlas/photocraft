@@ -266,6 +266,66 @@ static void test_embedded_images(void)
     free(url);
 }
 
+/* Images placed away from the origin keep their position, and several images are all kept: the
+ * bounding box is the intrinsic image placed by its transform, not the target rect transformed a
+ * second time by that same scale (which pushed every image but one at the origin off-canvas). */
+static void test_embedded_image_placement(void)
+{
+    char *url = png_data_url(RGBW);
+    char svg[4096];
+    pc_io_import_result r;
+    float p[4];
+    (void)snprintf(svg, sizeof svg,
+                   "<svg " NS " width=\"64\" height=\"48\">"
+                   "<image x=\"2\" y=\"2\" width=\"20\" height=\"20\" href=\"%s\" "
+                   "style=\"image-rendering:pixelated\"/>"
+                   "<image x=\"40\" y=\"2\" width=\"20\" height=\"20\" href=\"%s\" "
+                   "style=\"image-rendering:pixelated\"/></svg>",
+                   url, url);
+    r = open_svg(svg);
+    CHECK_EQ_UINT(r.document.nlayers, 2u);
+    /* The first image's red top-left pixel sits at its own (2,2), not scaled off elsewhere. */
+    px(&r.document, 4, 4, p);
+    CHECK(close4(p, 1, 0, 0, 1));
+    /* The second image is drawn at x=40, not dropped as "outside the canvas". */
+    px(&r.document, 42, 4, p);
+    CHECK(close4(p, 1, 0, 0, 1));
+    /* Nothing is drawn in the gap between them. */
+    px(&r.document, 30, 4, p);
+    CHECK(p[3] < 0.01f);
+    pc_io_import_result_fini(&r);
+    free(url);
+}
+
+/* A <use> with a transform attribute applies that transform exactly once: the referenced rect at
+ * the origin lands at translate(20,0), not translate(40,0) from a doubled transform. */
+static void test_use_transform(void)
+{
+    pc_io_import_result r =
+        open_svg("<svg " NS " width=\"60\" height=\"20\">"
+                 "<defs><rect id=\"r\" width=\"10\" height=\"10\" fill=\"#ff0000\"/></defs>"
+                 "<use href=\"#r\" transform=\"translate(20 0)\"/></svg>");
+    const pc_document *d = &r.document;
+    float p[4];
+    CHECK_EQ_UINT(d->nlayers, 1u);
+    if (d->nlayers == 1 && d->layers[0].content.kind == PC_LAYER_SHAPE) {
+        const pc_subpath *s = &d->layers[0].content.u.shape.path.subpaths[0];
+        double xmin = 1e9;
+        double xmax = -1e9;
+        size_t i;
+        for (i = 0; i < s->nknots; i++) {
+            xmin = fmin(xmin, s->knots[i].anchor.x);
+            xmax = fmax(xmax, s->knots[i].anchor.x);
+        }
+        CHECK(xmin == 20.0 && xmax == 30.0);
+    }
+    px(d, 25, 5, p);
+    CHECK(close4(p, 1, 0, 0, 1));
+    px(d, 5, 5, p);
+    CHECK(p[3] < 0.01f);
+    pc_io_import_result_fini(&r);
+}
+
 /* ---------------------------------------------------------------- text (I5b) */
 
 /* Imports without asserting success (hostile text must never crash; it may fail cleanly). */
@@ -316,6 +376,49 @@ static void test_text(void)
         px(&r.document, 10, 30, p);
         CHECK(p[3] > 0.9f);
         px(&r.document, 100, 5, p);
+        CHECK(p[3] < 0.1f);
+    }
+    pc_io_import_result_fini(&r);
+    /* Text referenced through <use x/y>: the use translate must reach the flattened glyph
+     * outlines (resvg #4806). Before the fix the outlines kept the text element's local origin, so
+     * a glyph whose baseline is at y=20 landed near y=0 (off-canvas) and drew nothing. The <use>
+     * becomes a group holding the glyph shape; the shape's anchors must be shifted by (5, 20). */
+    r = open_svg("<svg " NS " width=\"64\" height=\"64\">"
+                 "<defs><text id=\"ut\" font-family=\"DejaVu Sans\" font-size=\"10\">I</text></defs>"
+                 "<use href=\"#ut\" x=\"5\" y=\"20\"/></svg>");
+    CHECK_EQ_UINT(r.document.nlayers, 1u);
+    if (r.document.nlayers == 1u && r.document.layers[0].content.kind == PC_LAYER_GROUP) {
+        const pc_group *g = &r.document.layers[0].content.u.group;
+        float p[4];
+        CHECK(g->nchildren >= 1u);
+        if (g->nchildren >= 1u && g->children[0].content.kind == PC_LAYER_SHAPE) {
+            const pc_shape_layer *sl = &g->children[0].content.u.shape;
+            double xmin = 1e9;
+            double xmax = -1e9;
+            double ymin = 1e9;
+            double ymax = -1e9;
+            size_t sp;
+            for (sp = 0; sp < sl->path.nsubpaths; sp++) {
+                const pc_subpath *s = &sl->path.subpaths[sp];
+                size_t i;
+                for (i = 0; i < s->nknots; i++) {
+                    xmin = fmin(xmin, s->knots[i].anchor.x);
+                    xmax = fmax(xmax, s->knots[i].anchor.x);
+                    ymin = fmin(ymin, s->knots[i].anchor.y);
+                    ymax = fmax(ymax, s->knots[i].anchor.y);
+                }
+            }
+            /* glyph 'I' at font-size 10 placed by use(5,20): x sits a few units past 5, the
+             * baseline (y=20) is the bottom and the cap top is a few units above it. With the bug
+             * dropped the translate, ymax would be near 0 and xmin near 0. */
+            CHECK(xmin > 4.0 && xmin < 9.0);
+            CHECK(ymax > 18.0 && ymax < 21.0);
+            CHECK(ymin > 10.0 && ymin < 16.0);
+        }
+        /* and a pixel inside the shifted glyph is painted, while the local-origin spot is empty */
+        px(&r.document, 6, 16, p);
+        CHECK(p[3] > 0.5f);
+        px(&r.document, 6, 2, p);
         CHECK(p[3] < 0.1f);
     }
     pc_io_import_result_fini(&r);
@@ -1485,6 +1588,8 @@ int main(int argc, char **argv)
     RUN(test_gradients);
     RUN(test_rasterised_fallbacks);
     RUN(test_embedded_images);
+    RUN(test_embedded_image_placement);
+    RUN(test_use_transform);
     RUN(test_text);
     RUN(test_text_hostile);
     RUN(test_text_threads);

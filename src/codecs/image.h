@@ -16,8 +16,19 @@
 
 #include "base/status.h"
 
-typedef enum pc_clayout { PC_CL_GRAY, PC_CL_GRAYA, PC_CL_RGB, PC_CL_RGBA, PC_CL_CMYK, PC_CL_CMYKA } pc_clayout;
-#define PC_CL_COUNT 6
+/* CIE L*a*b* (D50), as PhotoCraft's Lab documents hold it: L* 0..100 as 0..1, a* and b*
+ * −128..127 as (v + 128) / 255 (Photoshop's unsigned encoding). */
+typedef enum pc_clayout {
+    PC_CL_GRAY,
+    PC_CL_GRAYA,
+    PC_CL_RGB,
+    PC_CL_RGBA,
+    PC_CL_CMYK,
+    PC_CL_CMYKA,
+    PC_CL_LAB,
+    PC_CL_LABA
+} pc_clayout;
+#define PC_CL_COUNT 8
 
 size_t pc_clayout_channels(pc_clayout l);       /* including alpha */
 size_t pc_clayout_color_channels(pc_clayout l); /* without alpha */
@@ -25,6 +36,7 @@ bool pc_clayout_has_alpha(pc_clayout l);
 bool pc_clayout_is_gray(pc_clayout l);
 bool pc_clayout_is_rgb(pc_clayout l);
 bool pc_clayout_is_cmyk(pc_clayout l);
+bool pc_clayout_is_lab(pc_clayout l);
 pc_clayout pc_clayout_with_alpha(pc_clayout l);
 pc_clayout pc_clayout_without_alpha(pc_clayout l);
 bool pc_clayout_same_model(pc_clayout a, pc_clayout b); /* ignoring alpha */
@@ -84,6 +96,7 @@ typedef enum pc_cwarning_kind {
     PC_CW_MORE_FRAMES,    /* only the first frame of an animation was decoded */
     PC_CW_MORE_PAGES,     /* only the first page of a multi-page file was decoded */
     PC_CW_MORE_PARTS,     /* only one part of a multi-part (EXR) file was decoded */
+    PC_CW_DISPLAY_WINDOW_STAGE, /* opened on the full EXR display-window stage; data at an origin */
     PC_CW_TRUNCATED,      /* the image data ends early; the decoder filled in the rest */
     PC_CW_DEEP_FLATTENED, /* deep data was composited into the flat image */
     PC_CW_MORE_ELEMENTS,  /* only the first image element of a DPX file was decoded */
@@ -97,6 +110,10 @@ typedef struct pc_cwarning {
                                   * (DPX_ENCODING) transfer | colorimetric << 8 (see pc_cwarning_dpx) */
     int format;                  /* TRUNCATED / DEEP_FLATTENED: a pc_cformat */
     uint32_t max_samples;        /* DEEP_FLATTENED */
+    uint32_t stage_w;            /* DISPLAY_WINDOW_STAGE: full display-window size */
+    uint32_t stage_h;
+    int32_t origin_x;            /* DISPLAY_WINDOW_STAGE: data region's offset on the stage */
+    int32_t origin_y;
 } pc_cwarning;
 
 /* A DPX_ENCODING warning from its transfer / colorimetric codes (255 = undefined). */
@@ -108,6 +125,10 @@ static inline pc_cwarning pc_cwarning_dpx(uint8_t transfer, uint8_t colorimetric
     w.total = (uint32_t)transfer | ((uint32_t)colorimetric << 8);
     w.format = 0;
     w.max_samples = 0;
+    w.stage_w = 0;
+    w.stage_h = 0;
+    w.origin_x = 0;
+    w.origin_y = 0;
     return w;
 }
 
@@ -191,6 +212,14 @@ typedef struct pc_cdeep {
     size_t nchannels;
     uint64_t *counts;
     size_t ncounts;
+    /* When the file declares a display window that plausibly holds the data region, the flat
+     * image opens on that full stage with the data region at (origin_x, origin_y); a
+     * DisplayWindowStage warning records it. has_stage false means open on the data window. */
+    bool has_stage;
+    uint32_t stage_w;
+    uint32_t stage_h;
+    int32_t origin_x;
+    int32_t origin_y;
 } pc_cdeep;
 
 void pc_cdeep_fini(pc_cdeep *d);

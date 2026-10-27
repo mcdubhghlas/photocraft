@@ -1219,7 +1219,12 @@ pc_status cx_fits_encode(const pc_cimage *src, cx_plan pl, const pc_cencode_opts
                     v[1] = (uint8_t)u;
                 } else {
                     uint32_t bits;
-                    memcpy(&bits, img->data + 4 * i, 4);
+                    float f;
+                    memcpy(&f, img->data + 4 * i, 4);
+                    /* FITS floats are 0..1 (a value above 2 would be read as ADU scaled by
+                     * 65535); NaN is written as 0. */
+                    f = isnan(f) ? 0.0f : f < 0.0f ? 0.0f : f > 1.0f ? 1.0f : f;
+                    memcpy(&bits, &f, 4);
                     v[0] = (uint8_t)(bits >> 24);
                     v[1] = (uint8_t)(bits >> 16);
                     v[2] = (uint8_t)(bits >> 8);

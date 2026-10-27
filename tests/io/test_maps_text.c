@@ -9,11 +9,14 @@
 #include <float.h>
 #include <strings.h>
 
+#include "../psd/testgen.h"
 #include "base/num.h"
 #include "compose/compose.h"
 #include "io/maps_desc.h"
 #include "maps.h"
 #include "psd/file.h"
+#include "psd/layer.h"
+#include "psd/tagged.h"
 #include "text/engine.h"
 #include "text/engine_data.h"
 
@@ -1341,6 +1344,22 @@ static void test_postscript_font_names_resolve_to_the_installed_family_on_import
     pc_psd_bytes_fini(&data);
 }
 
+/* A `tg_small` file with one extra layer carrying `data` as its only TySh block (no pixels). */
+static void push_tysh_layer(pc_psd_file *f, const char *name, const pc_psd_bytes *data)
+{
+    pc_psd_layer l;
+    pc_psd_block b;
+    pc_psd_layer_init(&l);
+    must(pc_psd_bytes_set(&l.name, name, strlen(name), NULL));
+    must(pc_psd_block_make_unicode_name(name, &b, NULL));
+    must(pc_psd_layer_push_block(&l, &b, NULL));
+    pc_psd_block_fini(&b);
+    must(pc_psd_block_init(&b, "TySh", data->data, data->len, NULL));
+    must(pc_psd_layer_push_block(&l, &b, NULL));
+    pc_psd_block_fini(&b);
+    must(pc_psd_layer_info_push(&f->layer_info, &l, NULL));
+}
+
 static void test_hostile_type_sizes_without_pixels_import_without_a_huge_render(void)
 {
     static const struct {
@@ -1355,6 +1374,30 @@ static void test_hostile_type_sizes_without_pixels_import_without_a_huge_render(
             tysh_font("M", &r, 1, NULL, scaled(hs[i].scale, 10.0, 10.0), ink, "Inter-Regular");
         pc_document back;
         const pc_text_layer *bt;
+        pc_text_layer probe;
+        pc_status pst = pc_text_layer_from_tysh(data.data, data.len, 72.0f, &probe, NULL);
+        if (pst != PC_OK) {
+            /* Unsafe affine data is rejected at the boundary (#4758). Exercise the actual file
+             * import too: with no saved pixels the layer must stay empty pixels, with a warning. */
+            pc_psd_file f = tg_small(PC_PSD_V1, PC_PSD_RAW);
+            pc_io_import_result imp;
+            pc_psd_bytes bytes = {NULL, 0};
+            const pc_layer *lst;
+            push_tysh_layer(&f, "hostile", &data);
+            must(pc_psd_file_to_bytes(&f, &bytes, NULL));
+            must(pc_io_import("t.psd", bytes.data, bytes.len, &imp, NULL));
+            CHECK(pc_io_warnings_any(&imp.warnings, "unsafe type geometry"));
+            CHECK(imp.document.nlayers > 0);
+            lst = &imp.document.layers[imp.document.nlayers - 1];
+            CHECK(lst->content.kind == PC_LAYER_RASTER &&
+                  pc_rect_is_empty(pc_surface_content_bounds(&lst->content.u.raster)));
+            pc_io_import_result_fini(&imp);
+            pc_psd_bytes_fini(&bytes);
+            pc_psd_file_fini(&f);
+            pc_psd_bytes_fini(&data);
+            continue;
+        }
+        pc_text_layer_fini(&probe);
         if (hs[i].big) {
             /* Precondition: the renderer's own guard (256 Mpx) would have drawn this one. */
             pc_text_layer t;

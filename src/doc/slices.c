@@ -473,8 +473,8 @@ cleanup:
 /* ---- resolve and naming ---- */
 
 typedef struct slice_item {
-    bool has_id;
-    uint32_t id;
+    bool has_index;
+    size_t index; /* index into doc->slices.list; valid only when has_index */
     pc_rect rect;
     size_t order; /* position before sorting: makes qsort stable like sort_by_key */
 } slice_item;
@@ -490,6 +490,19 @@ static int cmp_item(const void *pa, const void *pb)
         return a->rect.x0 < b->rect.x0 ? -1 : 1;
     }
     return (a->order > b->order) - (a->order < b->order);
+}
+
+static pc_status push_item(slice_item **v, size_t *len, size_t *cap, slice_item it, pc_error *err)
+{
+    if (*len == *cap) {
+        slice_item *g = pc_grow_array(*v, cap, *len + 1, sizeof **v);
+        if (g == NULL) {
+            return pc_fail(err, PC_ERR_NOMEM, "out of memory");
+        }
+        *v = g;
+    }
+    (*v)[(*len)++] = it;
+    return PC_OK;
 }
 
 pc_status pc_slices_base_name(const pc_document *doc, pc_str *out, pc_error *err)
@@ -549,73 +562,113 @@ pc_status pc_slices_resolve(const pc_document *doc, pc_resolved_slice **out, siz
 {
     pc_rect canvas = pc_document_bounds(doc);
     pc_str base = PC_STR_INIT;
-    pc_rect *rects = NULL;
-    uint32_t *ids = NULL;
+    pc_rect *clip = NULL;      /* every slice's rect clipped to the canvas, one per list entry */
+    pc_rect *piece_rects = NULL; /* rects of all visible pieces, for the gap-filling auto pass */
+    slice_item *items = NULL;  /* visible pieces (indexed) + auto slices (no index) */
+    size_t nitems = 0;
+    size_t items_cap = 0;
     size_t nstored = 0;
     pc_rect *autos = NULL;
     size_t nauto = 0;
-    slice_item *items = NULL;
-    size_t nitems = 0;
+    bool *named = NULL;        /* whether each slice's name has already been taken */
     pc_resolved_slice *res = NULL;
     size_t i;
+    size_t order = 0;
     pc_status st;
 
     st = pc_slices_base_name(doc, &base, err);
     if (st != PC_OK) {
         return st;
     }
-    /* The visible part of every stored slice, clipped to the canvas. */
+    /* The visible part of every stored slice (later slices cover earlier ones, as in Photoshop):
+     * a covered slice is cut into the rectangles that stay visible, each paired with its index. */
     if (doc->slices.len > 0) {
-        rects = pc_malloc_array(doc->slices.len, sizeof *rects);
-        ids = pc_malloc_array(doc->slices.len, sizeof *ids);
-        if (rects == NULL || ids == NULL) {
+        clip = pc_malloc_array(doc->slices.len, sizeof *clip);
+        named = pc_calloc_array(doc->slices.len, sizeof *named);
+        if (clip == NULL || named == NULL) {
             st = pc_fail(err, PC_ERR_NOMEM, "out of memory");
             goto cleanup;
         }
     }
     for (i = 0; i < doc->slices.len; i++) {
-        pc_rect r = pc_rect_intersect(doc->slices.list[i].rect, canvas);
-        if (!pc_rect_is_empty(r)) {
-            ids[nstored] = doc->slices.list[i].id;
-            rects[nstored++] = r;
+        clip[i] = pc_rect_intersect(doc->slices.list[i].rect, canvas);
+    }
+    for (i = 0; i < doc->slices.len; i++) {
+        pc_rect *pieces = NULL;
+        size_t np = 0;
+        size_t k;
+        /* Parts of slice i not covered by any later slice. */
+        st = pc_auto_slices(clip[i], &clip[i + 1], doc->slices.len - i - 1, &pieces, &np, err);
+        if (st != PC_OK) {
+            free(pieces);
+            goto cleanup;
         }
-    }
-    st = pc_auto_slices(canvas, rects, nstored, &autos, &nauto, err);
-    if (st != PC_OK) {
-        goto cleanup;
-    }
-    if (!pc_size_add(nstored, nauto, &nitems)) {
-        st = pc_fail(err, PC_ERR_LIMIT, "too many slices");
-        goto cleanup;
-    }
-    if (nitems > 0) {
-        items = pc_malloc_array(nitems, sizeof *items);
-        res = pc_calloc_array(nitems, sizeof *res);
-        if (items == NULL || res == NULL) {
-            st = pc_fail(err, PC_ERR_NOMEM, "out of memory");
+        for (k = 0; k < np && st == PC_OK; k++) {
+            slice_item it = {true, i, pieces[k], order++};
+            st = push_item(&items, &nitems, &items_cap, it, err);
+        }
+        free(pieces);
+        if (st != PC_OK) {
             goto cleanup;
         }
     }
-    for (i = 0; i < nstored; i++) {
-        items[i] = (slice_item){true, ids[i], rects[i], i};
+    nstored = nitems;
+    /* Auto slices fill the canvas minus every visible piece. */
+    if (nstored > 0) {
+        piece_rects = pc_malloc_array(nstored, sizeof *piece_rects);
+        if (piece_rects == NULL) {
+            st = pc_fail(err, PC_ERR_NOMEM, "out of memory");
+            goto cleanup;
+        }
+        for (i = 0; i < nstored; i++) {
+            piece_rects[i] = items[i].rect;
+        }
     }
-    for (i = 0; i < nauto; i++) {
-        items[nstored + i] = (slice_item){false, 0, autos[i], nstored + i};
+    st = pc_auto_slices(canvas, piece_rects, nstored, &autos, &nauto, err);
+    if (st != PC_OK) {
+        goto cleanup;
+    }
+    for (i = 0; i < nauto && st == PC_OK; i++) {
+        slice_item it = {false, 0, autos[i], order++};
+        st = push_item(&items, &nitems, &items_cap, it, err);
+    }
+    if (st != PC_OK) {
+        goto cleanup;
+    }
+    if (nitems > 0) {
+        res = pc_calloc_array(nitems, sizeof *res);
+        if (res == NULL) {
+            st = pc_fail(err, PC_ERR_NOMEM, "out of memory");
+            goto cleanup;
+        }
     }
     if (nitems > 1) {
         qsort(items, nitems, sizeof *items, cmp_item);
     }
     for (i = 0; i < nitems; i++) {
-        const pc_slice *s = items[i].has_id ? pc_slices_get(&doc->slices, items[i].id) : NULL;
+        const pc_slice *s = items[i].has_index ? &doc->slices.list[items[i].index] : NULL;
         pc_resolved_slice *r = &res[i];
+        bool first = true;
+        if (items[i].has_index && named != NULL) {
+            first = !named[items[i].index];
+            named[items[i].index] = true;
+        }
         r->number = i + 1;
-        r->has_id = items[i].has_id;
-        r->id = items[i].id;
+        r->has_id = items[i].has_index;
+        r->id = s != NULL ? s->id : 0;
         r->origin = s != NULL ? s->origin : PC_SLICE_AUTO;
         r->rect = items[i].rect;
         r->kind = s != NULL ? s->kind : PC_SLICE_IMAGE;
-        if (s != NULL && s->name.len > 0) {
+        if (s != NULL && s->name.len > 0 && first) {
             st = pc_str_clone(&s->name, &r->name, err);
+        } else if (s != NULL && s->name.len > 0) {
+            /* Later visible pieces of a named slice: `<name>-NN`. */
+            char num[32];
+            int len = snprintf(num, sizeof num, "-%02zu", r->number);
+            st = pc_str_clone(&s->name, &r->name, err);
+            if (st == PC_OK && len > 0) {
+                st = pc_str_append(&r->name, num, (size_t)len, err);
+            }
         } else if (nitems == 1) {
             st = pc_str_clone(&base, &r->name, err);
         } else {
@@ -638,8 +691,9 @@ cleanup:
     pc_resolved_slices_free(res, nitems);
     free(items);
     free(autos);
-    free(rects);
-    free(ids);
+    free(clip);
+    free(piece_rects);
+    free(named);
     pc_str_fini(&base);
     return st;
 }

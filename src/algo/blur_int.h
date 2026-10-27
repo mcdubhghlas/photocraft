@@ -180,6 +180,9 @@ pc_status pc_algo_shape_blur_run(const pc_algo_spans *spans, const pc_algo_image
 
 pc_status pc_algo_unsharp_k(const pc_algo_image *src, pc_rect out, const pc_algo_ctx *ctx,
                             const pc_algo_unsharp_params *p, float *dst, pc_error *err);
+/* Whether Unsharp Mask's exact path accepts these params and geometry; when false the reference
+ * yields an empty result (sharpen::exact::valid_params + valid_area). */
+bool pc_algo_unsharp_valid(float amount, float radius, float threshold, pc_rect out, pc_rect src_rect);
 pc_status pc_algo_smart_sharpen_k(const pc_algo_image *src, pc_rect out, const pc_algo_ctx *ctx,
                                   const pc_algo_smart_sharpen_params *p, float *dst, pc_error *err);
 pc_status pc_algo_high_pass_k(const pc_algo_image *src, pc_rect out, const pc_algo_ctx *ctx, float radius,

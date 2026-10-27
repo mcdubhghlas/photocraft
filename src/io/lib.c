@@ -203,7 +203,11 @@ static pc_status import_psd(const char *name, const uint8_t *bytes, size_t len, 
 {
     pc_psd_file file;
     pc_io_import_result r;
-    pc_status st = pc_psd_file_parse(bytes, len, &file, err);
+    /* A merged image damaged after the layer stack parsed cleanly need not block opening the
+     * layers (reference import_psd): pc_io_psd_can_recover_layers opts in for the layered colour
+     * modes, and psd_to_document reports the damage as a warning. A decode bomb (PC_ERR_LIMIT) or
+     * any earlier error stays fatal. The strict pc_psd_file_parse still drives psd-info. */
+    pc_status st = pc_psd_file_parse_recovering(bytes, len, pc_io_psd_can_recover_layers, &file, err);
     if (st != PC_OK) {
         return pc_io_err_prefix(st, err, "PSD: ");
     }
@@ -636,8 +640,15 @@ pc_status pc_io_merged_composite(const pc_psd_file *file, float (**px)[4], size_
     } else if (doc.nlayers == 0 || pc_layer_surface(&doc.layers[0]) == NULL) {
         st = pc_io_unsupported(err, "no merged image");
     } else {
+        /* CMYK reads through the file's own profile, as the compositor reads its layers, so a
+         * tagged file's merged image and its composite are compared in the same colours (the
+         * reference wraps surface_to_buffer in with_cmyk_space(cmyk_space(&doc))). */
+        pc_cmyk_space *cmyk = pc_compose_cmyk_space(&doc);
+        pc_cmyk_space *prev = pc_cmyk_space_enter(cmyk);
         st = pc_compose_surface_to_buffer(pc_layer_surface(&doc.layers[0]), pc_document_bounds(&doc), &buf,
                                           err);
+        pc_cmyk_space_leave(prev);
+        pc_cmyk_space_release(cmyk);
     }
     pc_document_fini(&doc);
     if (st != PC_OK) {

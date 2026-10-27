@@ -436,7 +436,7 @@ static pc_status rewrite_resources(pc_ed_value *rd, const pc_text_styles *styles
         st = psd_set_int(rd, "TheNormalParagraphSheet", 0, err);
     }
     if (st == PC_OK) {
-        st = psd_font_set(&fonts, &fontset, err);
+        st = psd_font_set(&fonts, pc_ed_get(rd, "FontSet"), &fontset, err);
     }
     if (st == PC_OK) {
         st = pc_ed_set(rd, "FontSet", &fontset, err);

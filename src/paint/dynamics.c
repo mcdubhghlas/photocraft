@@ -64,6 +64,37 @@ static pc_paint_point lerp_pt(const pc_paint_point *a, const pc_paint_point *b, 
 
 /* ---- smoothing ---- */
 
+/* The smoothed brush moved `f` of the way from `brush` towards the pointer `p`. Its pose
+ * (pressure, tilt, rotation, wheel) moves with it, so the lagging brush paints with the pose the
+ * pen had along the way, not the pointer's newest one (#5713). Time is the pointer's. */
+static pc_paint_point pull(const pc_paint_point *brush, const pc_paint_point *p, double f)
+{
+    float ff = pc_f64_to_f32(f);
+    /* Barrel rotation takes the shorter way round. */
+    float dr = rem_euclid_f(p->rotation - brush->rotation + 540.0f, 360.0f) - 180.0f;
+    pc_paint_point n;
+    n.x = brush->x + (p->x - brush->x) * f;
+    n.y = brush->y + (p->y - brush->y) * f;
+    n.pressure = brush->pressure + (p->pressure - brush->pressure) * ff;
+    n.tilt_x = brush->tilt_x + (p->tilt_x - brush->tilt_x) * ff;
+    n.tilt_y = brush->tilt_y + (p->tilt_y - brush->tilt_y) * ff;
+    n.rotation = rem_euclid_f(brush->rotation + dr * ff, 360.0f);
+    n.wheel = brush->wheel + (p->wheel - brush->wheel) * ff;
+    n.time = p->time;
+    return n;
+}
+
+/* Does the brush's pose (pressure, tilt, rotation, wheel) differ from `p`'s by more than `eps`?
+ * pull() moves the pose with the position, so a pen that only changes pressure or tilt in place
+ * leaves the brush behind too (#7747). */
+static bool pose_differs(const pc_paint_point *brush, const pc_paint_point *p, float eps)
+{
+    float dr = rem_euclid_f(p->rotation - brush->rotation + 540.0f, 360.0f) - 180.0f;
+    return fabsf(p->pressure - brush->pressure) > eps || fabsf(p->tilt_x - brush->tilt_x) > eps ||
+           fabsf(p->tilt_y - brush->tilt_y) > eps || fabsf(dr) > eps ||
+           fabsf(p->wheel - brush->wheel) > eps;
+}
+
 void pc_paint_smoother_init(pc_paint_smoother *s, const pc_paint_smoothing *cfg, float zoom)
 {
     memset(s, 0, sizeof *s);
@@ -102,9 +133,7 @@ pc_status pc_paint_smoother_push(pc_paint_smoother *s, pc_paint_point p, pc_pain
         d = sqrt(dx * dx + dy * dy);
         if (d > len) {
             double k = (d - len) / d;
-            pc_paint_point np = p;
-            np.x = s->pos.x + dx * k;
-            np.y = s->pos.y + dy * k;
+            pc_paint_point np = pull(&s->pos, &p, k);
             s->pos = np;
             return pc_paint_point_vec_push(out, &np, err);
         }
@@ -129,10 +158,7 @@ pc_status pc_paint_smoother_push(pc_paint_smoother *s, pc_paint_point p, pc_pain
     }
     cur = s->pos;
     for (size_t i = 0; i < iters; i++) {
-        pc_paint_point n = p;
-        n.x = cur.x + (p.x - cur.x) * step;
-        n.y = cur.y + (p.y - cur.y) * step;
-        cur = n;
+        cur = pull(&cur, &p, step);
         if (pc_paint_point_vec_push(out, &cur, err) != PC_OK) {
             return PC_ERR_NOMEM;
         }
@@ -146,7 +172,8 @@ bool pc_paint_smoother_lagging(const pc_paint_smoother *s)
     if (!(smoother_active(s) && s->cfg.catch_up && !s->cfg.pulled_string) || !s->has_pos || !s->has_last) {
         return false;
     }
-    return fabs(s->pos.x - s->last_input.x) + fabs(s->pos.y - s->last_input.y) > 0.01;
+    return fabs(s->pos.x - s->last_input.x) + fabs(s->pos.y - s->last_input.y) > 0.01 ||
+           pose_differs(&s->pos, &s->last_input, 1e-3f);
 }
 
 bool pc_paint_smoother_string(const pc_paint_smoother *s, double brush[2], double pointer[2])
@@ -167,7 +194,9 @@ pc_status pc_paint_smoother_finish(pc_paint_smoother *s, pc_paint_point_vec *out
     if (!smoother_active(s) || !s->cfg.catch_up_on_end) {
         return PC_OK;
     }
-    if (s->has_pos && s->has_last && (s->pos.x != s->last_input.x || s->pos.y != s->last_input.y)) {
+    if (s->has_pos && s->has_last &&
+        (s->pos.x != s->last_input.x || s->pos.y != s->last_input.y ||
+         pose_differs(&s->pos, &s->last_input, 0.0f))) {
         s->pos = s->last_input;
         return pc_paint_point_vec_push(out, &s->last_input, err);
     }
@@ -233,31 +262,56 @@ static pc_status walker_emit(pc_paint_walker *w, const pc_paint_point *point, pc
         }                                                                                                    \
     } while (0)
 
+/* The dab centre of the pixel-grid cell holding `v`: the pixel's centre for `offset` 0.5, the
+ * nearest pixel corner for 0. A value within rounding noise of a cell boundary counts as on it,
+ * so snapping and line stepping agree. */
 static double grid_cell(double v, double offset)
 {
-    return offset > 0.0 ? floor(v) : round(v);
+    double w = v - offset + 0.5;
+    double r = round(w);
+    if (fabs(w - r) < 1e-7) {
+        w = r;
+    }
+    return floor(w) + offset;
 }
 
 /* Emits the pixel steps from a to p (see pc_paint_walker_pixel_grid). *done = false, emitting
- * nothing, when the span is not finite or implausibly long: distance spacing takes over. */
+ * nothing, when the span is not finite or implausibly long: distance spacing takes over. The dabs
+ * march along the major axis, one per cell, snapping the minor axis to the line's crossing so a
+ * small aliased tip draws a clean 8-connected run (Bresenham-like). */
 static pc_status grid_steps(pc_paint_walker *w, const pc_paint_point *a, const pc_paint_point *p,
                             pc_paint_step_fn emit, void *ctx, bool *done, pc_error *err)
 {
-    double off = w->grid, x0 = grid_cell(a->x, off), y0 = grid_cell(a->y, off);
-    double dx = grid_cell(p->x, off) - x0, dy = grid_cell(p->y, off) - y0;
-    double n = pc_rs_max(fabs(dx), fabs(dy));
+    double off = w->grid;
+    /* The pieces of a 45-degree line differ in rounding noise: keep them all on one major axis. */
+    bool steep = fabs(p->y - a->y) > fabs(p->x - a->x) * (1.0 + 1e-9);
+    double am = steep ? a->y : a->x, an = steep ? a->x : a->y;
+    double pm = steep ? p->y : p->x, pn = steep ? p->x : p->y;
+    double m0 = grid_cell(am, off), m1 = grid_cell(pm, off);
+    double dm = pm - am, dn = pn - an;
+    double n = fabs(m1 - m0), dir;
     uint64_t steps;
     *done = false;
-    if (!isfinite(n) || n > MAX_GRID_STEPS) {
+    if (!(isfinite(n) && isfinite(dn)) || n > MAX_GRID_STEPS || dm == 0.0) {
         return PC_OK;
     }
     *done = true;
-    steps = (uint64_t)n;
+    dir = m1 > m0 ? 1.0 : -1.0;
+    steps = pc_f64_to_u64(n);
     for (uint64_t i = 1; i <= steps; i++) {
-        double fi = (double)i;
-        pc_paint_point q = lerp_pt(a, p, fi / n);
-        q.x = x0 + round(dx * fi / n) + off;
-        q.y = y0 + round(dy * fi / n) + off;
+        double c = m0 + dir * (double)i;
+        /* The last cell's centre can sit up to half a pixel past p: the line goes on to it, so the
+         * next piece of a straight line picks up where this one left off. */
+        double t = (c - am) / dm;
+        pc_paint_point q = lerp_pt(a, p, pc_clampd(t, 0.0, 1.0));
+        double cn = grid_cell(an + dn * t, off);
+        if (steep) {
+            q.x = cn;
+            q.y = c;
+        } else {
+            q.x = c;
+            q.y = cn;
+        }
         TRY(walker_emit(w, &q, emit, ctx, err));
     }
     return PC_OK;
@@ -412,6 +466,23 @@ float pc_paint_control_angle(pc_paint_control c, uint32_t fade_steps, const pc_p
     }
 }
 
+/* A dynamic's control value passed through its own response curve. Controls with no 0..1 input
+ * (Off, the direction controls) read 1 and skip the curve. */
+static float dynamic_value(const pc_paint_dynamic *d, const pc_paint_step *s)
+{
+    float v = pc_paint_control_value(d->control, d->fade_steps, s);
+    switch (d->control) {
+    case PC_PAINT_CONTROL_FADE:
+    case PC_PAINT_CONTROL_PEN_PRESSURE:
+    case PC_PAINT_CONTROL_PEN_TILT:
+    case PC_PAINT_CONTROL_STYLUS_WHEEL:
+    case PC_PAINT_CONTROL_ROTATION:
+        return pc_paint_response_curve_eval(&d->curve, v);
+    default: /* Off, InitialDirection, Direction */
+        return v;
+    }
+}
+
 /* A 0..1 multiplier from a dynamic: control lerps from `minimum` to 1, jitter reduces randomly,
  * never below `minimum`. */
 static float scalar(const pc_paint_dynamic *d, const pc_paint_step *s, float r)
@@ -421,7 +492,7 @@ static float scalar(const pc_paint_dynamic *d, const pc_paint_step *s, float r)
         return 1.0f;
     }
     min = pc_clampf(d->minimum, 0.0f, 1.0f);
-    cv = pc_paint_control_value(d->control, d->fade_steps, s);
+    cv = dynamic_value(d, s);
     v = (min + (1.0f - min) * cv) * (1.0f - pc_clampf(d->jitter, 0.0f, 1.0f) * r);
     return pc_rs_maxf(v, min);
 }
@@ -477,9 +548,7 @@ void pc_paint_dynamic_color(const pc_paint_brush *b, const pc_paint_step *s, uin
 {
     const pc_paint_color_dynamics *cd = &b->color_dynamics;
     const float *fg = b->color, *bg = b->background;
-    float base = cd->fg_bg.control != PC_PAINT_CONTROL_OFF
-                     ? 1.0f - pc_paint_control_value(cd->fg_bg.control, cd->fg_bg.fade_steps, s)
-                     : 0.0f;
+    float base = cd->fg_bg.control != PC_PAINT_CONTROL_OFF ? 1.0f - dynamic_value(&cd->fg_bg, s) : 0.0f;
     float t = pc_clampf(base + (1.0f - base) * pc_clampf(cd->fg_bg.jitter, 0.0f, 1.0f) *
                                    pc_paint_rand01(seed, index, PC_PAINT_STREAM_FG_BG),
                         0.0f, 1.0f);
@@ -511,7 +580,7 @@ float pc_paint_base_diameter(const pc_paint_brush *b, const pc_paint_step *s)
     float f = 1.0f;
     if (sd->enabled && sd->size.control != PC_PAINT_CONTROL_OFF) {
         float min = pc_clampf(sd->size.minimum, 0.0f, 1.0f);
-        f = min + (1.0f - min) * pc_paint_control_value(sd->size.control, sd->size.fade_steps, s);
+        f = min + (1.0f - min) * dynamic_value(&sd->size, s);
     } else if (b->pressure_size) {
         f = pc_clampf(s->point.pressure, 0.0f, 1.0f);
     }
@@ -522,8 +591,10 @@ pc_paint_point pc_paint_apply_pose(const pc_paint_brush *b, pc_paint_point p)
 {
     const pc_paint_pose *pose = &b->pose;
     if (pose->enabled) {
-        if (pose->override_tilt) {
+        if (pose->override_tilt_x) {
             p.tilt_x = pose->tilt_x;
+        }
+        if (pose->override_tilt_y) {
             p.tilt_y = pose->tilt_y;
         }
         if (pose->override_rotation) {
@@ -618,7 +689,7 @@ pc_status pc_paint_dab_builder_build(pc_paint_dab_builder *bld, const pc_paint_b
         /* Scatter. */
         c = pc_point_make(s->point.x, s->point.y);
         if (sc->enabled && sc->scatter.jitter > 0.0f) {
-            float cv = pc_paint_control_value(sc->scatter.control, sc->scatter.fade_steps, s);
+            float cv = dynamic_value(&sc->scatter, s);
             double amt = (double)(sc->scatter.jitter * cv * radius);
             double ox = (double)pc_paint_rand_signed(seed, i, PC_PAINT_STREAM_SCATTER_X) * amt;
             double oy = (double)pc_paint_rand_signed(seed, i, PC_PAINT_STREAM_SCATTER_Y) * amt;

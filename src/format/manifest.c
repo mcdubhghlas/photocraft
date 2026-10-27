@@ -20,8 +20,11 @@
 #include "base/json.h"
 #include "base/mem.h"
 #include "base/num.h"
+#include "doc/json.h"
 #include "doc/json_util.h"
 #include "format/bridge.h"
+#include "format/finite.h"
+#include "format/format.h"
 
 /* Reader mode bit: the layer list this value holds was taken out (decoded separately). Doc's
  * readers only look at JR_CONTENT, so the bit passes through them unnoticed. */
@@ -288,6 +291,11 @@ static const jfield content_text_f[] = {
     JFFN("antialias", C, antialias, jt_pc_antialias, antialias_default),
     JFO("warp", C, text_warp, has_text_warp, jt_pc_text_warp, JD_ZERO),
 };
+static void shape_density_default(void *slot)
+{
+    float d = 1.0f;
+    memcpy(slot, &d, sizeof d);
+}
 static const jfield content_shape_f[] = {
     JFO("fill", C, fill, has_fill, pc_jt_fill, JD_REQ),
     JFO("cache", C, cache, has_cache, jt_surface, JD_REQ),
@@ -295,6 +303,8 @@ static const jfield content_shape_f[] = {
     JFVD("path", C, path, pc_jt_path, JD_ZERO),
     JFO("stroke", C, stroke, has_stroke, jt_pc_shape_stroke, JD_ZERO),
     JFO("live", C, live, has_live, jt_pc_live_shape, JD_ZERO),
+    JFFN("density", C, density, pc_jt_f32, shape_density_default),
+    JFVD("feather", C, feather, pc_jt_f32, JD_ZERO),
 };
 static const jfield content_smart_f[] = {
     JFO("contents_id", C, contents_id, has_contents_id, pc_jt_u64, JD_ZERO),
@@ -395,6 +405,7 @@ static const jfield layer_f[] = {
     JFVD("blend_if", L, blend_if, jt_pc_blend_if, JD_ZERO),
     JFFN("advanced", L, advanced, jt_pc_advanced_blending, advanced_default),
     JFO("video", L, video, has_video, jt_video, JD_ZERO),
+    JFOSKIP("xmp", L, xmp, has_xmp, pc_jt_str, JD_ZERO),
 };
 #undef L
 static const jstruct layer_s = {"struct LayerM", layer_f, JCOUNT(layer_f), NULL, sizeof(pc_mf_layer)};
@@ -563,6 +574,7 @@ static const jfield doc_f[] = {
     JFO("clipping_path", D, clipping_path, has_clipping_path, jt_pc_clipping_path, JD_ZERO),
     JFO("quick_mask", D, quick_mask, has_quick_mask, jt_channel, JD_ZERO),
     JFVSKIP("quick_mask_unselected", D, quick_mask_unselected, pc_jt_bool, JD_ZERO, NULL),
+    JFVD("ruler_origin", D, ruler_origin, jt_f64x2, JD_ZERO),
     JFVECD("patterns", D, patterns, npatterns, jt_pattern, JD_ZERO),
     JFO("color_table", D, color_table, has_color_table, jt_pc_color_table, JD_ZERO),
     JFO("duotone", D, duotone, has_duotone, jt_pc_duotone, JD_ZERO),
@@ -592,6 +604,35 @@ static const jfield manifest_f[] = {
 #undef M
 static const jstruct manifest_s = {"struct Manifest", manifest_f, JCOUNT(manifest_f), NULL,
                                    sizeof(pc_format_manifest)};
+static const jtype jt_manifest = JT_STRUCT(pc_format_manifest, manifest_s);
+
+/* A number past f32's range decodes as infinity, which no save could write back (#6862). The
+ * reference rejects such a manifest at load; mirror it by serialising the decoded manifest and
+ * reusing the save-time finite walk, reporting the offending path as "out of range". */
+pc_status pc_format_manifest_check_finite(const pc_format_manifest *m, pc_error *err)
+{
+    yyjson_mut_doc *doc = yyjson_mut_doc_new(NULL);
+    yyjson_mut_val *root;
+    pc_buf path = PC_BUF_INIT;
+    pc_status st;
+    if (doc == NULL) {
+        return pc_fail(err, PC_ERR_NOMEM, "out of memory");
+    }
+    /* Keep NaN/inf as real numbers (not null) so the finite walk can see and name them. */
+    root = pc_jt_struct_write(&jt_manifest, doc, m, PC_DOC_JSON_NONFINITE);
+    if (root == NULL) {
+        yyjson_mut_doc_free(doc);
+        return pc_fail(err, PC_ERR_NOMEM, "out of memory");
+    }
+    yyjson_mut_doc_set_root(doc, root);
+    st = pc_format_check_finite(root, &path, NULL);
+    if (st != PC_OK) {
+        st = pc_format_corrupt(err, "`%.*s` is out of range", (int)path.len, (const char *)path.data);
+    }
+    pc_buf_fini(&path);
+    yyjson_mut_doc_free(doc);
+    return st;
+}
 
 /* ---- decoding ---- */
 

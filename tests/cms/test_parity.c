@@ -150,14 +150,14 @@ static void test_builtin_bytes(void)
     static const char *const want[PC_BUILTIN_COUNT] = {
         "6b86846d783ee11c7932e9628c696fadc3d07f8550a48834d693ad139026a2c1",
         "04e0b689fd784aceb657638bcc1d320eb7bd1c4d3a4c6b05aabaaf27aa2d0c21",
-        "857716b1182b32fae1f69de944e87e07dc6fb65008a4e649936dc6ef019223fc",
-        "4121e975bc3508693770d2cf3d00f882c4a443fcc70b815d32f32341f59f48a3",
-        "d55514a2164a301c32a6b5a7a26f05312b6b5e92ca8e4de60a439191322f2b54",
-        "143a8b348d25f9a6e03c72111524863985c9f5156fe395b93155d300405e11e1",
-        "6959484daefb448b4c48f7644c3d58b466663116cba2d0046e5d56806d671973",
-        "c763f17cf887e41970f893a8d7e6fde6ab5439e7c669d903e1739ac262fde2b2",
-        "9018919d2c0496d3dcb34d1d63c4e61dc0ba91d3e39c705e74032ff48c375bfb",
-        "419ca84f4cec00a92dfa99cad4f7f51a8a4bb9c038c8d8f6150a8fdec0faed1a",
+        "3b25dc7af2160d8fe585f163bd388d52d8c81aa2d1721cd64fa7e3c6f068a3f2",
+        "58bbaf35eaec63c905d9c835bfb8255dd379cb870fb525028ca03a032e96c15e",
+        "5b025ac4d4d68af0df913deb4fe071fe80495ccb7535febead5ccd61308fb488",
+        "e386eded7e18b926e7e73c3fce31e23c85e9627fe74a27c275511a00a067c3bb",
+        "f39b1b77526aa3cb9e536789a40fdaf980c4562de72d168a4284cd41900d7cf2",
+        "1515446d5e7f73f87c9705a53bdcafc4fbee7a7ef9e97e4886021b9a0b724925",
+        "9bfa7d352937d4f6f841ad5fbc8e49dffccb30369823213124a482f1023ec165",
+        "cb7a677a9889f9d1362764ff8b4328f96c730b33bd4c9c65718075db44b01c5c",
     };
     int b;
     for (b = 0; b < PC_BUILTIN_COUNT; b++) {
@@ -203,7 +203,7 @@ static void test_transforms(void)
             }
         }
     }
-    CHECK_EQ_UINT(ht, 0x813b9aa7ef975315u);
+    CHECK_EQ_UINT(ht, 0xa9b5608f6d21ae81u);
     for (sim = 0; sim < 2; sim++) {
         for (intent = 0; intent < 4; intent++) {
             pc_transform *t = NULL;
@@ -216,7 +216,7 @@ static void test_transforms(void)
             }
         }
     }
-    CHECK_EQ_UINT(hp, 0x062d04601dbafe48u);
+    CHECK_EQ_UINT(hp, 0xb07e08995244acc8u);
 }
 
 static void test_curves(void)
@@ -375,7 +375,7 @@ static void test_profiles(void)
     CHECK_EQ_INT(pc_profile_to_bytes(&v2, &bytes, NULL), PC_OK);
     fnv(&hb, bytes.data, bytes.len);
     h_byte(&hb, pc_profile_same_colors(&v2, bp(PC_BUILTIN_SRGB)));
-    CHECK_EQ_UINT(hb, 0xbe5b6da7ea3838eeu);
+    CHECK_EQ_UINT(hb, 0xfc7418d29588380eu);
     pc_profile_fini(&v2);
     pc_buf_fini(&bytes);
 }
@@ -499,7 +499,7 @@ static void test_synth(void)
     CHECK_EQ_UINT(hs, 0x905c6c4c02383504u);
     CHECK_EQ_INT(pc_synth_cmyk_profile(&p, &prof, NULL), PC_OK);
     blake3_hex_of(&prof, hex);
-    CHECK_EQ_STR(hex, "954967cf6c196f24abc1e95553078d62a99361f6d985e358942eb3facd903623");
+    CHECK_EQ_STR(hex, "8664025f34b6b8d08ffefc121c8f0b17cc91d39276069b34b1d1c0dbf3bf456b");
     pc_profile_fini(&prof);
 }
 

@@ -40,7 +40,7 @@
 /* Bytes of float filter results held at once by the tiled driver. */
 #define PC_ALGO_RESULT_BUDGET ((size_t)256 << 20)
 /* Number of FilterParams variants in the reference. */
-#define PC_ALGO_FILTER_VARIANTS 60
+#define PC_ALGO_FILTER_VARIANTS 61
 
 /* How far outside an output tile a filter reads: a margin of `radius` pixels, or (bounds) the
  * whole reference bounds (distortions, radial blur). */
@@ -124,6 +124,9 @@ struct pc_algo_filter_def {
      * is initialised with the result; PC_ERR_CANCELLED when ctl cancels. */
     pc_status (*apply)(const pc_algo_apply_args *a, pc_surface *out, bool *handled, pc_error *err);
     unsigned flags;
+    /* Optional: when it returns true for these params/out/src, the reference kernel yields an empty
+     * result (e.g. Unsharp Mask with non-finite params); pc_algo_kernel then returns len 0. */
+    bool (*empty)(const void *params, pc_rect out, const pc_algo_image *src);
 };
 
 /* ---- the variant table ---- */

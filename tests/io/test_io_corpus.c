@@ -1037,11 +1037,14 @@ static void test_corpus_round_trips_through_layered_tiff(void)
             continue;
         }
         pc_buf_fini(&bytes);
-        /* Only modes a TIFF holds; Multichannel documents have no layers at all. */
+        /* Only modes a TIFF holds; Multichannel documents have no layers at all, and TIFF has no
+         * Duotone layout, so a Duotone document is written as plain Grayscale (its ink simulation
+         * is lost by design, as the reference's tiff_layers converts it) and cannot round-trip. */
         fmt = pc_document_pixel_format(&imp.document);
         if (!(fmt.mode == PC_COLOR_MODE_GRAYSCALE || fmt.mode == PC_COLOR_MODE_RGB ||
               fmt.mode == PC_COLOR_MODE_CMYK) ||
             imp.document.mode == PC_COLOR_MODE_MULTICHANNEL ||
+            imp.document.mode == PC_COLOR_MODE_DUOTONE ||
             (imp.document.size.width > imp.document.size.height ? imp.document.size.width
                                                                 : imp.document.size.height) > 4096) {
             pc_io_import_result_fini(&imp);

@@ -54,6 +54,7 @@ const char *const pc_algo_filter_tags[PC_ALGO_FILTER_VARIANTS] = {
     "displace",
     "shear",
     "zigZag",
+    "clouds",
     "fibers",
     "lensFlare",
     "lightingEffects",
@@ -117,6 +118,7 @@ const char *const pc_algo_filter_labels[PC_ALGO_FILTER_VARIANTS] = {
     "Displace",
     "Shear",
     "ZigZag",
+    "Clouds",
     "Fibers",
     "Lens Flare",
     "Lighting Effects",
@@ -170,7 +172,7 @@ const pc_algo_filter_def *pc_algo_filter_def_find(const char *tag)
 
 pc_algo_halo pc_algo_halo_reach(float v)
 {
-    return pc_algo_halo_radius(pc_i32_wrapping_add(pc_f32_to_i32(ceilf(pc_rs_maxf_k(v, 0.0f))), 1));
+    return pc_algo_halo_radius(pc_i32_sat_add(pc_f32_to_i32(ceilf(pc_rs_maxf_k(v, 0.0f))), 1));
 }
 
 /* ---- filter objects ---- */
@@ -443,6 +445,13 @@ pc_status pc_algo_kernel(const pc_algo_filter *f, const pc_algo_image *src, pc_r
     if (pc_rect_is_empty(out)) {
         out = PC_RECT_EMPTY;
     }
+    /* A filter that rejects its params/geometry yields an empty result (as the reference's kernel
+     * returns an empty Vec), not a filled buffer. */
+    if (f->def->empty != NULL && f->def->empty(f->params, out, src)) {
+        *data = NULL;
+        *len = 0;
+        return PC_OK;
+    }
     if (!pc_algo_float_count(out, src->ch, &n)) {
         return pc_fail(err, PC_ERR_LIMIT, "filter output of %ux%u is too large", pc_rect_width(out),
                        pc_rect_height(out));
@@ -475,12 +484,22 @@ pc_status pc_algo_kernel(const pc_algo_filter *f, const pc_algo_image *src, pc_r
     return PC_OK;
 }
 
+/* Whether the filter renders new pixels without reading the layer's own (Fibers, Clouds): it
+ * fills the reference bounds even where the layer is transparent, as Photoshop does. */
+static bool renders_from_nothing(const pc_algo_filter *f)
+{
+    const char *t = f->def->tag;
+    return strcmp(t, "fibers") == 0 || strcmp(t, "clouds") == 0;
+}
+
 pc_rect pc_algo_output_area(const pc_algo_filter *f, pc_rect content, pc_rect bounds,
                             const pc_rect *selection_bounds)
 {
     pc_algo_halo h = pc_algo_filter_halo_for(f, bounds);
     pc_rect area;
     if (h.bounds) {
+        area = bounds;
+    } else if (renders_from_nothing(f)) {
         area = bounds;
     } else if (pc_rect_is_empty(content)) {
         area = PC_RECT_EMPTY;
@@ -496,14 +515,17 @@ pc_rect pc_algo_output_area(const pc_algo_filter *f, pc_rect content, pc_rect bo
 int32_t pc_algo_auto_tile(const pc_algo_filter *f, pc_rect bounds)
 {
     pc_algo_halo h = pc_algo_filter_halo_for(f, bounds);
+    int64_t halo;
     int32_t t;
     if (h.bounds) {
         return PC_ALGO_TILE;
     }
-    /* TILE.max((2 * r + 63) / 64 * 64).min(2048), wrapping like the reference's release build. */
-    t = pc_i32_wrapping_mul(pc_i32_wrapping_add(pc_i32_wrapping_mul(2, h.radius), 63) / 64, 64);
-    if (t < PC_ALGO_TILE) {
-        t = PC_ALGO_TILE;
+    /* The radius is input-derived: widen to i64 and cap, so an i32::MAX radius cannot overflow and
+     * cannot make a tile bigger than the hard cap (131072 = 2048 * 64, one tile row). */
+    halo = (2 * (int64_t)h.radius + 63) / 64 * 64;
+    if (halo > 131072) {
+        halo = 131072;
     }
+    t = halo > PC_ALGO_TILE ? (int32_t)halo : PC_ALGO_TILE;
     return t > 2048 ? 2048 : t;
 }

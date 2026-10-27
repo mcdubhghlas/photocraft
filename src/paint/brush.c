@@ -14,17 +14,23 @@
 
 pc_paint_dynamic pc_paint_dynamic_default(void)
 {
-    return (pc_paint_dynamic){0.0f, PC_PAINT_CONTROL_OFF, 25, 0.0f};
+    pc_paint_dynamic d = {0.0f, PC_PAINT_CONTROL_OFF, 25, 0.0f, {0, {0}, {0}, {0}}};
+    d.curve = pc_paint_response_curve_linear();
+    return d;
 }
 
 pc_paint_dynamic pc_paint_dynamic_controlled(pc_paint_control c)
 {
-    return (pc_paint_dynamic){0.0f, c, 25, 0.0f};
+    pc_paint_dynamic d = pc_paint_dynamic_default();
+    d.control = c;
+    return d;
 }
 
 pc_paint_dynamic pc_paint_dynamic_jitter(float jitter)
 {
-    return (pc_paint_dynamic){jitter, PC_PAINT_CONTROL_OFF, 25, 0.0f};
+    pc_paint_dynamic d = pc_paint_dynamic_default();
+    d.jitter = jitter;
+    return d;
 }
 
 bool pc_paint_dynamic_is_active(const pc_paint_dynamic *d)
@@ -128,6 +134,8 @@ void pc_paint_mixer_default(pc_paint_mixer_settings *m)
     m->mix = 0.5f;
     m->flow = 1.0f;
     m->sample_all_layers = false;
+    m->load_after_stroke = true;
+    m->clean_after_stroke = true;
 }
 
 void pc_paint_brush_default(pc_paint_brush *b)
@@ -332,7 +340,7 @@ static bool f4_eq(const float a[4], const float b[4])
 bool pc_paint_dynamic_eq(const pc_paint_dynamic *a, const pc_paint_dynamic *b)
 {
     return a->jitter == b->jitter && a->control == b->control && a->fade_steps == b->fade_steps &&
-           a->minimum == b->minimum;
+           a->minimum == b->minimum && pc_paint_response_curve_eq(&a->curve, &b->curve);
 }
 
 bool pc_paint_tip_eq(const pc_paint_tip *a, const pc_paint_tip *b)
@@ -418,7 +426,8 @@ bool pc_paint_section_locks_eq(const pc_paint_section_locks *a, const pc_paint_s
 bool pc_paint_pose_eq(const pc_paint_pose *a, const pc_paint_pose *b)
 {
     return a->enabled == b->enabled && a->tilt_x == b->tilt_x && a->tilt_y == b->tilt_y &&
-           a->rotation == b->rotation && a->pressure == b->pressure && a->override_tilt == b->override_tilt &&
+           a->rotation == b->rotation && a->pressure == b->pressure &&
+           a->override_tilt_x == b->override_tilt_x && a->override_tilt_y == b->override_tilt_y &&
            a->override_rotation == b->override_rotation && a->override_pressure == b->override_pressure;
 }
 
@@ -432,7 +441,8 @@ bool pc_paint_smoothing_eq(const pc_paint_smoothing *a, const pc_paint_smoothing
 bool pc_paint_mixer_eq(const pc_paint_mixer_settings *a, const pc_paint_mixer_settings *b)
 {
     return a->wet == b->wet && a->load == b->load && a->mix == b->mix && a->flow == b->flow &&
-           a->sample_all_layers == b->sample_all_layers;
+           a->sample_all_layers == b->sample_all_layers && a->load_after_stroke == b->load_after_stroke &&
+           a->clean_after_stroke == b->clean_after_stroke;
 }
 
 bool pc_paint_brush_eq(const pc_paint_brush *a, const pc_paint_brush *b)

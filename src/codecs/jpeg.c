@@ -491,6 +491,33 @@ bool cx_jpeg_exif_segment(const uint8_t *exif, size_t n, const float *dpi, pc_bu
     return ok;
 }
 
+/* The EXIF APP1 segment a CMYK JPEG carries: like cx_jpeg_exif_segment, but it adds output
+ * resolution tags when they are missing (and synthesises a block from an empty EXIF), since a
+ * CMYK JPEG cannot use a JFIF density marker (#1691). `exif`/`n` may be empty. */
+static bool cx_jpeg_exif_segment_adding(const uint8_t *exif, size_t n, const float *dpi, pc_buf *seg)
+{
+    uint8_t *up = NULL;
+    size_t un = 0;
+    const uint8_t *d = exif;
+    bool ok;
+    if (pc_export_exif_adding_missing(exif, n, dpi, &up, &un, NULL) != PC_OK) {
+        return false;
+    }
+    if (up != NULL) {
+        d = up;
+        n = un;
+    }
+    if (n == 0) {
+        free(up);
+        return false;
+    }
+    pc_buf_truncate(seg, 0);
+    ok = EXIF_HEADER_LEN + n <= MAX_SEGMENT && pc_buf_append(seg, EXIF_HEADER, EXIF_HEADER_LEN, NULL) == PC_OK &&
+         pc_buf_append(seg, d, n, NULL) == PC_OK;
+    free(up);
+    return ok;
+}
+
 static bool name_char(char c)
 {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-' ||
@@ -705,8 +732,8 @@ static void run_encode(enc_job *j)
     }
     c.optimize_coding = j->optimize ? TRUE : FALSE;
     if (j->has_density) {
-        /* libjpeg writes JFIF only for gray and YCbCr; the reference's encoder writes it (and so
-         * the resolution) for CMYK too, next to the Adobe marker. */
+        /* Only gray and RGB set the density: JFIF APP0 is valid for one or three components, and
+         * a CMYK JPEG carries its resolution in EXIF instead (cx_jpeg_encode). */
         c.write_JFIF_header = TRUE;
         c.density_unit = 1;
         c.X_density = j->dx;
@@ -789,13 +816,26 @@ pc_status cx_jpeg_encode(const pc_cimage *src, cx_plan p, const pc_cencode_opts 
     j.subsample = o->jpeg_chroma_subsampling;
     j.out = out;
     if (o->embed_metadata) {
-        if (img->meta.has_dpi && img->meta.dpi_x >= 1.0f && img->meta.dpi_y >= 1.0f) {
+        bool cmyk = img->layout == PC_CL_CMYK;
+        /* JFIF APP0 density is valid for one or three components only; a four-component CMYK JPEG
+         * carries its resolution in EXIF instead (see below). */
+        if (!cmyk && img->meta.has_dpi && img->meta.dpi_x >= 1.0f && img->meta.dpi_y >= 1.0f) {
             j.has_density = true;
             j.dx = pc_f32_to_u16(pc_rs_minf_k(roundf(img->meta.dpi_x), 65535.0f));
             j.dy = pc_f32_to_u16(pc_rs_minf_k(roundf(img->meta.dpi_y), 65535.0f));
         }
         /* Metadata too large for its one segment is left out (the fidelity warnings say so). */
-        if (img->meta.exif.has && cx_jpeg_exif_segment(img->meta.exif.data, img->meta.exif.len, dpi, &exif)) {
+        if (cmyk) {
+            bool usable = dpi != NULL && dpi[0] >= 1.0f && dpi[1] >= 1.0f;
+            if (img->meta.exif.has) {
+                if (cx_jpeg_exif_segment_adding(img->meta.exif.data, img->meta.exif.len, dpi, &exif)) {
+                    j.app1[0] = &exif;
+                }
+            } else if (usable && cx_jpeg_exif_segment_adding(NULL, 0, dpi, &exif)) {
+                j.app1[0] = &exif;
+            }
+        } else if (img->meta.exif.has &&
+                   cx_jpeg_exif_segment(img->meta.exif.data, img->meta.exif.len, dpi, &exif)) {
             j.app1[0] = &exif;
         }
         if (img->meta.xmp.has && cx_jpeg_xmp_segment(img->meta.xmp.data, img->meta.xmp.len, dpi, &xmp)) {

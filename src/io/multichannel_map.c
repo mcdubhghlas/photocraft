@@ -113,6 +113,34 @@ pc_status pc_io_multichannel_import(const pc_psd_file *file, const uint8_t *all,
     } else if ((r = pc_psd_file_resource(file, PC_IO_DISPLAY_INFO_OLD)) != NULL) {
         pc_io_apply_display_info(r->data.data, r->data.len, false, 0, doc->channels, doc->nchannels);
     }
+    /* Alpha-type planes are stored as-is, not as ink: undo the inversion for them. */
+    for (size_t k = 0; k < doc->nchannels; k++) {
+        pc_alpha_channel *ac = &doc->channels[k];
+        float *v = NULL;
+        size_t len = 0;
+        pc_surface s;
+        pc_status st2;
+        if (ac->has_spot) {
+            continue;
+        }
+        st2 = pc_surface_read_region(&ac->surface, canvas, &v, &len, err);
+        if (st2 != PC_OK) {
+            return st2;
+        }
+        for (size_t i = 0; i < len; i++) {
+            v[i] = 1.0f - v[i];
+        }
+        pc_surface_init(&s, fmt);
+        st2 = pc_surface_write_region(&s, canvas, v, len, err);
+        free(v);
+        if (st2 != PC_OK) {
+            pc_surface_fini(&s);
+            return st2;
+        }
+        pc_surface_prune(&s);
+        pc_surface_fini(&ac->surface);
+        ac->surface = s;
+    }
     return PC_OK;
 }
 
@@ -125,6 +153,15 @@ pc_status pc_io_multichannel_import(const pc_psd_file *file, const uint8_t *all,
 static bool layer_only_resource(uint16_t id)
 {
     return id == PC_PSD_RES_LAYER_STATE || id == PC_PSD_RES_LAYER_GROUP_INFO || id == 1069 || id == 1072;
+}
+
+/* Multichannel's imported-resource filter: the alpha identifiers (one u32 per channel) only while
+ * they still match the channel count. */
+static bool mc_keep(void *ctx, uint16_t id, const uint8_t *data, size_t len)
+{
+    size_t nch = *(const size_t *)ctx;
+    (void)data;
+    return id != PC_IO_MC_ALPHA_IDENTIFIERS || len == nch * 4;
 }
 
 pc_status pc_io_multichannel_to_psd(const pc_document *doc, bool force_psb, pc_psd_file *out,
@@ -142,12 +179,6 @@ pc_status pc_io_multichannel_to_psd(const pc_document *doc, bool force_psb, pc_p
     bool size_exceeds = false;
     pc_psd_file f;
     pc_io_res_list res = {NULL, 0, 0};
-    pc_doc_psd_global_block *pat = NULL;
-    size_t npat = 0;
-    pc_doc_psd_global_block *ann = NULL;
-    size_t nann = 0;
-    pc_psd_block *gblocks = NULL;
-    size_t ngblocks = 0;
     pc_buf tmp = PC_BUF_INIT;
     pc_status st = PC_OK;
     pc_psd_file_init(&f);
@@ -181,11 +212,13 @@ pc_status pc_io_multichannel_to_psd(const pc_document *doc, bool force_psb, pc_p
     for (size_t k = 0; k < nch && st == PC_OK; k++) {
         const pc_surface *s = &doc->channels[k].surface;
         size_t sch = pc_surface_channels(s);
+        /* Inks are stored as tone (0 = solid ink); alpha-type channels are stored as-is. */
+        bool ink = doc->channels[k].has_spot;
         float *v = NULL;
         size_t len = 0;
         st = pc_surface_read_region(s, canvas, &v, &len, err);
         for (size_t i = 0; st == PC_OK && sch > 0 && i + sch <= len && at + bps <= total; i += sch) {
-            at += pc_io_encode_be(1.0f - v[i], sample, planes + at);
+            at += pc_io_encode_be(ink ? 1.0f - v[i] : v[i], sample, planes + at);
         }
         free(v);
     }
@@ -270,9 +303,51 @@ pc_status pc_io_multichannel_to_psd(const pc_document *doc, bool force_psb, pc_p
         free(chs);
         free(names);
     }
-    if (st == PC_OK) {
-        st = pc_io_path_resources(&res, doc, warnings, err);
+    pc_buf_fini(&tmp);
+    free(planes);
+    planes = NULL;
+    {
+        /* Multichannel has no palette/duotone colour-mode data (depth-only). */
+        pc_psd_bytes cmd = {NULL, 0};
+        if (st == PC_OK) {
+            st = pc_psd_color_mode_data_for_depth(f.header.depth, &cmd, err);
+        }
+        if (st == PC_OK) {
+            pc_psd_bytes img = f.image_data;
+            f.image_data.data = NULL;
+            f.image_data.len = 0;
+            /* Consumes res, img and cmd. */
+            st = pc_io_layerless_file(doc, f.header, img, f.image_compression, &cmd, &res, mc_keep, &nch,
+                                      warnings, out, err);
+            res.v = NULL;
+            res.n = res.cap = 0;
+        } else {
+            pc_psd_bytes_fini(&cmd);
+        }
     }
+    if (st != PC_OK) {
+        pc_psd_resources_free(res.v, res.n);
+    }
+    pc_psd_file_fini(&f);
+    return st;
+}
+
+pc_status pc_io_layerless_file(const pc_document *doc, pc_psd_header header, pc_psd_bytes image_data,
+                               uint16_t image_compression, pc_psd_bytes *color_mode_data,
+                               pc_io_res_list *res, pc_io_res_keep_fn keep, void *keep_ctx,
+                               pc_io_warnings *warnings, pc_psd_file *out, pc_error *err)
+{
+    pc_doc_psd_global_block *pat = NULL;
+    size_t npat = 0;
+    pc_doc_psd_global_block *ann = NULL;
+    size_t nann = 0;
+    pc_psd_block *gblocks = NULL;
+    size_t ngblocks = 0;
+    pc_buf tmp = PC_BUF_INIT;
+    pc_psd_file f;
+    pc_status st;
+    pc_psd_file_init(&f);
+    st = pc_io_path_resources(res, doc, warnings, err);
     /* The XMP and EXIF resolution follow the ResolutionInfo resource, so no copy contradicts it. */
     {
         float ppi[2] = {doc->resolution_dpi, doc->resolution_dpi};
@@ -282,8 +357,8 @@ pc_status pc_io_multichannel_to_psd(const pc_document *doc, bool force_psb, pc_p
             size_t xl = 0;
             st = pc_export_xmp(pc_str_c(&doc->metadata.xmp), doc->metadata.xmp.len, ppi_ptr, &x, &xl, err);
             if (st == PC_OK) {
-                st = x != NULL ? pc_io_res_add(&res, PC_PSD_RES_XMP, x, xl, err)
-                               : pc_io_res_add(&res, PC_PSD_RES_XMP, pc_str_c(&doc->metadata.xmp),
+                st = x != NULL ? pc_io_res_add(res, PC_PSD_RES_XMP, x, xl, err)
+                               : pc_io_res_add(res, PC_PSD_RES_XMP, pc_str_c(&doc->metadata.xmp),
                                                doc->metadata.xmp.len, err);
             }
             free(x);
@@ -294,48 +369,45 @@ pc_status pc_io_multichannel_to_psd(const pc_document *doc, bool force_psb, pc_p
             st = pc_export_exif(pc_blob_data(doc->metadata.exif), pc_blob_len(doc->metadata.exif), ppi_ptr,
                                 &x, &xl, err);
             if (st == PC_OK) {
-                st = x != NULL ? pc_io_res_add(&res, PC_PSD_RES_EXIF, x, xl, err)
-                               : pc_io_res_add(&res, PC_PSD_RES_EXIF, pc_blob_data(doc->metadata.exif),
+                st = x != NULL ? pc_io_res_add(res, PC_PSD_RES_EXIF, x, xl, err)
+                               : pc_io_res_add(res, PC_PSD_RES_EXIF, pc_blob_data(doc->metadata.exif),
                                                pc_blob_len(doc->metadata.exif), err);
             }
             free(x);
         }
     }
     /* Every other imported resource (print settings, IPTC, the layer-id seed, ...), except the
-     * ones that only describe layers and any already written above. */
+     * ones that only describe layers, any already written above, and any the caller's keep drops. */
     for (size_t i = 0; i < doc->metadata.npsd_resources && st == PC_OK; i++) {
         const pc_doc_psd_resource *r = &doc->metadata.psd_resources[i];
         bool written = false;
-        for (size_t j = 0; j < res.n && !written; j++) {
-            written = res.v[j].id == r->id;
+        for (size_t j = 0; j < res->n && !written; j++) {
+            written = res->v[j].id == r->id;
         }
         if (layer_only_resource(r->id) || written ||
-            !pc_io_keep_imported_resource(doc, r->id, pc_blob_data(r->data), pc_blob_len(r->data))) {
+            !pc_io_keep_imported_resource(doc, r->id, pc_blob_data(r->data), pc_blob_len(r->data)) ||
+            (keep != NULL && !keep(keep_ctx, r->id, pc_blob_data(r->data), pc_blob_len(r->data)))) {
             continue;
         }
-        /* Alpha identifiers: one u32 per channel, only while they still match the channels. */
-        if (r->id == PC_IO_MC_ALPHA_IDENTIFIERS && pc_blob_len(r->data) != nch * 4) {
-            continue;
-        }
-        st = pc_io_res_add_named(&res, r->id, &r->name, pc_blob_data(r->data), pc_blob_len(r->data), err);
+        st = pc_io_res_add_named(res, r->id, &r->name, pc_blob_data(r->data), pc_blob_len(r->data), err);
     }
     if (st == PC_OK) {
         bool has = false;
         pc_buf_truncate(&tmp, 0);
         st = pc_io_fresh_scale_resource(doc, &has, &tmp, err);
         if (st == PC_OK && has) {
-            st = pc_io_res_add(&res, PC_IO_MEASUREMENT_SCALE, tmp.data, tmp.len, err);
+            st = pc_io_res_add(res, PC_IO_MEASUREMENT_SCALE, tmp.data, tmp.len, err);
         }
     }
     if (st == PC_OK) {
-        pc_psd_resource *v = pc_grow_array(res.v, &res.cap, res.n + 1, sizeof *v);
+        pc_psd_resource *v = pc_grow_array(res->v, &res->cap, res->n + 1, sizeof *v);
         if (v == NULL) {
             st = pc_io_nomem(err, "adding a resource");
         } else {
-            res.v = v;
-            st = pc_psd_version_info_resource(true, &res.v[res.n], err);
+            res->v = v;
+            st = pc_psd_version_info_resource(true, &res->v[res->n], err);
             if (st == PC_OK) {
-                res.n++;
+                res->n++;
             }
         }
     }
@@ -368,24 +440,31 @@ pc_status pc_io_multichannel_to_psd(const pc_document *doc, bool force_psb, pc_p
         pc_blob_release(ann[i].data);
     }
     free(ann);
-    if (st == PC_OK) {
-        st = pc_psd_color_mode_data_for_depth(f.header.depth, &f.color_mode_data, err);
-    }
     pc_buf_fini(&tmp);
-    free(planes);
     if (st != PC_OK) {
-        pc_psd_resources_free(res.v, res.n);
+        pc_psd_resources_free(res->v, res->n);
+        res->v = NULL;
+        res->n = res->cap = 0;
         pc_psd_blocks_free(gblocks, ngblocks);
-        pc_psd_file_fini(&f);
+        pc_psd_bytes_fini(&image_data);
+        pc_psd_bytes_fini(color_mode_data);
         return st;
     }
-    f.resources = res.v;
-    f.nresources = res.n;
+    f.header = header;
+    f.color_mode_data = *color_mode_data;
+    color_mode_data->data = NULL;
+    color_mode_data->len = 0;
+    f.resources = res->v;
+    f.nresources = res->n;
+    res->v = NULL;
+    res->n = res->cap = 0;
     f.has_layer_info = false;
     f.placement.where = PC_PSD_LI_SECTION;
     f.has_global_mask = ngblocks > 0;
     f.global_blocks = gblocks;
     f.nglobal = ngblocks;
+    f.image_compression = image_compression;
+    f.image_data = image_data;
     *out = f;
     return PC_OK;
 }

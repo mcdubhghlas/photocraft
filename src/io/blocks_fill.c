@@ -230,6 +230,9 @@ const uint8_t *pc_io_desc_gradient_method(const pc_psd_desc *d, size_t *len)
     return m != NULL ? m : pc_io_desc_enum(d, "gs99", len);
 }
 
+static pc_status smoothed_opacity_stops(const pc_psd_desc *grad, const uint8_t *method, size_t method_len,
+                                        pc_opacity_stop **out, size_t *n, pc_error *err);
+
 pc_status pc_io_gradient_stops_with(const pc_psd_desc *grad, const uint8_t *method, size_t method_len,
                                     pc_color_stop **stops, size_t *nstops, pc_opacity_stop **opacity,
                                     size_t *nopacity, pc_error *err)
@@ -252,9 +255,15 @@ pc_status pc_io_gradient_stops_with(const pc_psd_desc *grad, const uint8_t *meth
         free(r.stops);
         r.stops = NULL;
     }
-    if (r.nopacity == 0) {
-        free(r.opacity);
-        r.opacity = NULL;
+    /* Opacity stops baked with the gradient's smoothness, midpoints and interpolation method
+     * (baked_opacity_stops), not the raw stops. */
+    free(r.opacity);
+    r.opacity = NULL;
+    r.nopacity = 0;
+    st = smoothed_opacity_stops(grad, method, method_len, &r.opacity, &r.nopacity, err);
+    if (st != PC_OK) {
+        free(r.stops);
+        return st;
     }
     *stops = r.stops;
     *nstops = r.nstops;
@@ -305,38 +314,44 @@ static pc_status gradient_stops_editable(const pc_psd_desc *grad, const uint8_t 
     return PC_OK;
 }
 
-/* blocks::smoothed_opacity_stops: opacity stops with smoothness and midpoints applied (Classic). */
-static pc_status smoothed_opacity_stops(const pc_psd_desc *grad, pc_opacity_stop **out, size_t *n,
+/* blocks::baked_opacity_stops: opacity stops with the gradient's smoothness, opacity midpoints and
+ * interpolation method applied (raw when the interpolation is plain Classic). */
+static pc_status smoothed_opacity_stops(const pc_psd_desc *grad, const uint8_t *method,
+                                        size_t method_len, pc_opacity_stop **out, size_t *n,
                                         pc_error *err)
 {
     const pc_psd_value *trns = list_of(grad, "Trns");
     size_t nt = trns != NULL ? trns->nlist : 0;
-    pc_color_stop *stops = pc_malloc_array(nt > 0 ? nt : 1, sizeof *stops);
+    pc_io_opacity_stop *stops = pc_malloc_array(nt > 0 ? nt : 1, sizeof *stops);
+    pc_color_stop *cstops = pc_malloc_array(nt > 0 ? nt : 1, sizeof *cstops);
     float *mids_raw = pc_malloc_array(nt > 0 ? nt : 1, sizeof *mids_raw);
     float *mids = pc_malloc_array(nt > 0 ? nt : 1, sizeof *mids);
     size_t *order = NULL;
     size_t ns = 0;
     size_t nm = 0;
     float smooth = 0.0f;
+    pc_io_opacity_stop *baked = NULL;
+    size_t nbaked = 0;
     pc_opacity_stop *res;
     pc_status st = PC_OK;
-    if (stops == NULL || mids_raw == NULL || mids == NULL) {
+    if (stops == NULL || cstops == NULL || mids_raw == NULL || mids == NULL) {
         st = pc_io_nomem(err, "reading gradient opacity");
         goto fail;
     }
     for (size_t i = 0; i < nt; i++) {
         const pc_psd_value *it = &trns->list[i];
-        float a;
         if (it->kind != PC_PSD_V_DESCRIPTOR) {
             continue;
         }
-        a = num_or(it->desc, "Opct", 100.0) / 100.0f;
-        stops[ns].pos = num_or(it->desc, "Lctn", 0.0) / 4096.0f;
-        stops[ns].color = pc_color_rgba(a, a, a, 1.0f);
+        stops[ns].at = num_or(it->desc, "Lctn", 0.0) / 4096.0f;
+        stops[ns].opacity = num_or(it->desc, "Opct", 100.0) / 100.0f;
+        /* Only to compute the midpoint ordering by position (as baked_opacity_stops does). */
+        cstops[ns].pos = stops[ns].at;
+        cstops[ns].color = pc_color_rgba(0.0f, 0.0f, 0.0f, 1.0f);
         mids_raw[ns] = num_or(it->desc, "Mdpn", 50.0) / 100.0f;
         ns++;
     }
-    TRY(sorted_order(stops, ns, &order, err));
+    TRY(sorted_order(cstops, ns, &order, err));
     for (size_t k = 1; k < ns; k++) {
         mids[nm++] = mids_raw[order[k]];
     }
@@ -344,32 +359,33 @@ static pc_status smoothed_opacity_stops(const pc_psd_desc *grad, pc_opacity_stop
         double v;
         smooth = pc_io_desc_num(pc_psd_desc_get(grad, "Intr"), &v) ? pc_f64_to_f32(v / 4096.0) : 0.0f;
     }
-    if (ns >= 2) {
-        TRY(bake(&stops, &ns, mids, nm, smooth, PC_IO_BAKE_CLASSIC, err));
-    }
-    res = pc_malloc_array(ns > 0 ? ns : 1, sizeof *res);
+    TRY(pc_io_gradient_bake_opacity(stops, ns, mids, nm, smooth,
+                                    pc_io_bake_method_from_code(method, method_len), &baked, &nbaked, err));
+    res = pc_malloc_array(nbaked > 0 ? nbaked : 1, sizeof *res);
     if (res == NULL) {
         st = pc_io_nomem(err, "reading gradient opacity");
         goto fail;
     }
-    for (size_t i = 0; i < ns; i++) {
-        float rgb[3];
-        pc_color_to_rgb(&stops[i].color, rgb);
-        res[i].pos = stops[i].pos;
-        res[i].opacity = rgb[0];
+    for (size_t i = 0; i < nbaked; i++) {
+        res[i].pos = baked[i].at;
+        res[i].opacity = baked[i].opacity;
     }
     free(stops);
+    free(cstops);
     free(mids_raw);
     free(mids);
     free(order);
+    free(baked);
     *out = res;
-    *n = ns;
+    *n = nbaked;
     return PC_OK;
 fail:
     free(stops);
+    free(cstops);
     free(mids_raw);
     free(mids);
     free(order);
+    free(baked);
     return st;
 }
 
@@ -597,6 +613,43 @@ static float pct0(const pc_psd_desc *o, const char *k)
     return pc_io_desc_num(pc_psd_desc_get(o, k), &v) ? pc_f64_to_f32(v) / 100.0f : 0.0f;
 }
 
+/* The exact, constant-RGB subset of Photoshop noise gradients (blocks::constant_rgb_noise_color):
+ * when every RGB component has the same minimum and maximum, the generated field is constant
+ * regardless of seed or roughness. Other models, transparency and varying ranges are not
+ * approximated. Returns true and sets *out when it is such a gradient. */
+static bool constant_rgb_noise_color(const pc_psd_desc *grad, pc_color *out)
+{
+    size_t gn = 0;
+    size_t cn = 0;
+    const uint8_t *gf = pc_io_desc_enum(grad, "GrdF", &gn);
+    const uint8_t *cs = pc_io_desc_enum(grad, "ClrS", &cn);
+    const pc_psd_value *mn;
+    const pc_psd_value *mx;
+    float c[3];
+    if (!enum_is(gf, gn, "ClNs") || !enum_is(cs, cn, "RGBC") || pc_io_desc_bool(grad, "ShTr")) {
+        return false;
+    }
+    mn = pc_psd_desc_get(grad, "Mnm ");
+    mx = pc_psd_desc_get(grad, "Mxm ");
+    if (mn == NULL || mx == NULL || mn->kind != PC_PSD_V_LIST || mx->kind != PC_PSD_V_LIST ||
+        mn->nlist != 4 || mx->nlist != 4) {
+        return false;
+    }
+    for (size_t i = 0; i < 3; i++) {
+        double a;
+        double b;
+        if (!pc_io_desc_num(&mn->list[i], &a) || !pc_io_desc_num(&mx->list[i], &b)) {
+            return false;
+        }
+        if (!isfinite(a) || a < 0.0 || a > 100.0 || a != b) {
+            return false;
+        }
+        c[i] = (float)(a / 100.0);
+    }
+    *out = pc_color_rgb(c[0], c[1], c[2]);
+    return true;
+}
+
 static pc_status gradient_fill_from_desc(const pc_psd_desc *d, pc_fill *out, pc_error *err)
 {
     pc_fill f;
@@ -620,7 +673,7 @@ static pc_status gradient_fill_from_desc(const pc_psd_desc *d, pc_fill *out, pc_
         st = gradient_stops_editable(grad, m, n, &raw, err);
         /* Opacity stops with Photoshop's smoothness and opacity midpoints applied; none when
          * fully opaque. */
-        st = st != PC_OK ? st : smoothed_opacity_stops(grad, &op, &nop, err);
+        st = st != PC_OK ? st : smoothed_opacity_stops(grad, m, n, &op, &nop, err);
         if (st != PC_OK) {
             raw_stops_fini(&raw);
             return st;
@@ -637,14 +690,20 @@ static pc_status gradient_fill_from_desc(const pc_psd_desc *d, pc_fill *out, pc_
         nop = 0;
     }
     if (raw.nstops == 0) {
+        /* A provably constant-RGB noise gradient renders one exact colour. Any other noise
+         * gradient (variable ranges, transparency, other models) has no stops to read: keep the
+         * black/white placeholder so the layer stays a fill layer, its stored pixels ride along
+         * as fill_cache, and the raw GdFl block survives the round trip (#6272). */
+        pc_color col;
+        bool constant = grad != NULL && constant_rgb_noise_color(grad, &col);
         pc_color_stop *s = pc_malloc_array(2, sizeof *s);
         if (s == NULL) {
             free(op);
             raw_stops_fini(&raw);
             return pc_io_nomem(err, "reading a gradient fill");
         }
-        s[0] = (pc_color_stop){0.0f, PC_COLOR_BLACK};
-        s[1] = (pc_color_stop){1.0f, PC_COLOR_WHITE};
+        s[0] = (pc_color_stop){0.0f, constant ? col : PC_COLOR_BLACK};
+        s[1] = (pc_color_stop){1.0f, constant ? col : PC_COLOR_WHITE};
         free(raw.stops);
         raw.stops = s;
         raw.nstops = 2;
@@ -1110,7 +1169,102 @@ static const pc_psd_value *unit_floats(const pc_psd_desc *body, const char *key)
     return v != NULL && v->kind == PC_PSD_V_UNIT_FLOATS ? v : NULL;
 }
 
-/* The custom envelope mesh (16 points); *ok false when absent or invalid. */
+/* The most patches a quiltWarp is read with along each side (blocks::QUILT_MAX_PATCHES). */
+#define PC_IO_QUILT_MAX_PATCHES 64
+
+/* deformNumCols / deformNumRows: an integer in 4..3*QUILT_MAX_PATCHES+1. False when absent or
+ * out of range. */
+static bool quilt_count(const pc_psd_desc *w, const char *key, size_t *out)
+{
+    double n;
+    if (!pc_io_desc_num(pc_psd_desc_get(w, key), &n)) {
+        return false;
+    }
+    if (!(isfinite(n) && n >= 4.0 && n <= (double)(3 * PC_IO_QUILT_MAX_PATCHES + 1) && n == floor(n))) {
+        return false;
+    }
+    *out = (size_t)n;
+    return true;
+}
+
+/* The patch-boundary knots of key (quiltSliceX / quiltSliceY) in env: patches+1 strictly
+ * increasing slices mapped onto 0..=1 with the ends at 0 and 1. *out is malloc'd on success
+ * (caller frees). False (out untouched) for anything inconsistent. */
+static bool quilt_knots(const pc_psd_desc *env, const char *key, size_t patches, double **out, size_t *nout)
+{
+    const pc_psd_value *v = pc_psd_desc_get(env, key);
+    const double *src = NULL;
+    double *tmp = NULL;
+    size_t ns = 0;
+    bool owned = false;
+    double first;
+    double last;
+    double span;
+    double *res;
+    if (v != NULL && v->kind == PC_PSD_V_OBJECT_ARRAY && v->desc != NULL) {
+        const pc_psd_value *inner = pc_psd_desc_get(v->desc, key);
+        if (inner == NULL) {
+            return false;
+        }
+        if (inner->kind == PC_PSD_V_UNIT_FLOATS) {
+            src = inner->floats;
+            ns = inner->nfloats;
+        } else {
+            v = inner; /* fall through to the list case */
+        }
+    }
+    if (src == NULL) {
+        if (v == NULL || v->kind != PC_PSD_V_LIST) {
+            return false;
+        }
+        ns = v->nlist;
+        tmp = pc_malloc_array(ns > 0 ? ns : 1, sizeof *tmp);
+        if (tmp == NULL) {
+            return false;
+        }
+        owned = true;
+        for (size_t i = 0; i < ns; i++) {
+            if (!pc_io_desc_num(&v->list[i], &tmp[i])) {
+                free(tmp);
+                return false;
+            }
+        }
+        src = tmp;
+    }
+    if (ns != patches + 1 || ns < 2) {
+        free(tmp);
+        return false;
+    }
+    first = src[0];
+    last = src[ns - 1];
+    span = last - first;
+    if (!(isfinite(span) && span > 0.0)) {
+        free(tmp);
+        return false;
+    }
+    for (size_t i = 1; i < ns; i++) {
+        if (!(src[i] > src[i - 1])) {
+            free(tmp);
+            return false;
+        }
+    }
+    res = pc_malloc_array(ns, sizeof *res);
+    if (res == NULL) {
+        free(tmp);
+        return false;
+    }
+    for (size_t i = 0; i < ns; i++) {
+        res[i] = i == 0 ? 0.0 : i == ns - 1 ? 1.0 : (src[i] - first) / span;
+    }
+    (void)owned;
+    free(tmp);
+    *out = res;
+    *nout = ns;
+    return true;
+}
+
+/* The custom envelope mesh: one 4x4 patch, or the multi-patch grid of a quiltWarp. *ok false
+ * when absent or invalid. */
 static pc_status custom_mesh(const pc_psd_desc *w, bool *ok, pc_mesh *out, pc_error *err)
 {
     const pc_psd_desc *env = pc_io_desc_get(w, "customEnvelopeWarp");
@@ -1118,33 +1272,55 @@ static pc_status custom_mesh(const pc_psd_desc *w, bool *ok, pc_mesh *out, pc_er
     const pc_psd_value *xs;
     const pc_psd_value *ys;
     pc_mesh m;
+    size_t np;
+    bool one_patch;
     *ok = false;
     if (arr == NULL || arr->kind != PC_PSD_V_OBJECT_ARRAY || arr->desc == NULL) {
         return PC_OK;
     }
     xs = unit_floats(arr->desc, "Hrzn");
     ys = unit_floats(arr->desc, "Vrtc");
-    if (xs == NULL || ys == NULL || xs->nfloats != 16 || ys->nfloats != 16) {
+    if (xs == NULL || ys == NULL || xs->nfloats != ys->nfloats || xs->nfloats == 0) {
         return PC_OK;
     }
+    np = xs->nfloats;
     memset(&m, 0, sizeof m);
-    m.us = pc_malloc_array(2, sizeof *m.us);
-    m.vs = pc_malloc_array(2, sizeof *m.vs);
-    m.points = pc_malloc_array(16, sizeof *m.points);
-    if (m.us == NULL || m.vs == NULL || m.points == NULL) {
-        pc_mesh_fini(&m);
+    m.points = pc_malloc_array(np, sizeof *m.points);
+    if (m.points == NULL) {
         return pc_io_nomem(err, "reading a placed-layer warp");
     }
-    m.us[0] = 0.0;
-    m.us[1] = 1.0;
-    m.vs[0] = 0.0;
-    m.vs[1] = 1.0;
-    m.nus = 2;
-    m.nvs = 2;
-    for (size_t i = 0; i < 16; i++) {
+    for (size_t i = 0; i < np; i++) {
         m.points[i] = (pc_point){xs->floats[i], ys->floats[i]};
     }
-    m.npoints = 16;
+    m.npoints = np;
+    one_patch = np == 16 && pc_psd_desc_get(env, "quiltSliceX") == NULL;
+    if (one_patch) {
+        m.us = pc_malloc_array(2, sizeof *m.us);
+        m.vs = pc_malloc_array(2, sizeof *m.vs);
+        if (m.us == NULL || m.vs == NULL) {
+            pc_mesh_fini(&m);
+            return pc_io_nomem(err, "reading a placed-layer warp");
+        }
+        m.us[0] = 0.0;
+        m.us[1] = 1.0;
+        m.vs[0] = 0.0;
+        m.vs[1] = 1.0;
+        m.nus = 2;
+        m.nvs = 2;
+    } else {
+        size_t cols;
+        size_t rows;
+        if (!quilt_count(w, "deformNumCols", &cols) || !quilt_count(w, "deformNumRows", &rows) ||
+            (cols - 1) % 3 != 0 || (rows - 1) % 3 != 0 || np != cols * rows) {
+            pc_mesh_fini(&m);
+            return PC_OK;
+        }
+        if (!quilt_knots(env, "quiltSliceX", (cols - 1) / 3, &m.us, &m.nus) ||
+            !quilt_knots(env, "quiltSliceY", (rows - 1) / 3, &m.vs, &m.nvs)) {
+            pc_mesh_fini(&m);
+            return PC_OK;
+        }
+    }
     if (!pc_mesh_is_valid(&m)) {
         pc_mesh_fini(&m);
         return PC_OK;
@@ -1219,18 +1395,29 @@ static pc_status warp_of_desc(const pc_psd_desc *w, pc_io_plld_warp_kind *kind, 
     return PC_OK;
 }
 
+pc_status pc_io_warp_of_desc(const pc_psd_desc *w, pc_io_plld_warp_kind *kind, pc_warp *out, pc_error *err)
+{
+    return warp_of_desc(w, kind, out, err);
+}
+
 pc_status pc_io_parse_placed_warp(const uint8_t key[4], const uint8_t *data, size_t len, bool *found,
                                   pc_warp *out, pc_error *err)
 {
     pc_psd_desc d;
     bool ok = false;
+    const pc_psd_desc *w;
     pc_io_plld_warp_kind kind;
     pc_status st = sold_desc(key, data, len, &ok, &d, err);
     *found = false;
     if (st != PC_OK || !ok) {
         return st;
     }
-    st = warp_of_desc(pc_io_desc_get(&d, "warp"), &kind, out, err);
+    /* A split (quilt) warp is stored under quiltWarp; `warp` then holds no usable mesh. */
+    w = pc_io_desc_get(&d, "quiltWarp");
+    if (w == NULL) {
+        w = pc_io_desc_get(&d, "warp");
+    }
+    st = warp_of_desc(w, &kind, out, err);
     pc_psd_desc_fini(&d);
     *found = st == PC_OK && kind == PC_IO_PLLD_WARP_SOME;
     return st;

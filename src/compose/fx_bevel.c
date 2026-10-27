@@ -235,7 +235,13 @@ static pc_status shade_into(const shade_ctx *c, float depth, int region_kind, co
             float region = region_kind == 0
                                ? shape->v[i]
                                : ((shape->v[i] < 1.0f - PC_FX_INSIDE_EPS && on_bevel(c, x, y)) ? 1.0f : 0.0f);
-            float k = shade - c->se;
+            /* The gloss contour remaps the shading `n . light` before it splits into highlight
+             * (above what it maps a flat face's sin(altitude) to) and shadow. Applied to the
+             * highlight and shadow amounts instead, a contour that starts high lit every pixel the
+             * light missed (#7360). The Linear contour (gloss == NULL) changes nothing either way. */
+            float k = gloss != NULL ? pc_compose_fx_lut_at(gloss, PC_COMPOSE_FX_LUT_SIZE, shade) -
+                                          pc_compose_fx_lut_at(gloss, PC_COMPOSE_FX_LUT_SIZE, c->se)
+                                    : shade - c->se;
             if (k > 0.0f) {
                 hi.v[i] = pc_clampf(k / pc_rs_maxf_k(1.0f - c->se, 1e-3f), 0.0f, 1.0f) * region;
             } else {
@@ -243,8 +249,6 @@ static pc_status shade_into(const shade_ctx *c, float depth, int region_kind, co
             }
         }
     }
-    pc_fxm_apply_lut(&hi, gloss, PC_COMPOSE_FX_LUT_SIZE);
-    pc_fxm_apply_lut(&sh, gloss, PC_COMPOSE_FX_LUT_SIZE);
     *hi_out = hi;
     *sh_out = sh;
     return PC_OK;

@@ -95,6 +95,11 @@ void pc_blend_rgb_hdr(pc_blend_mode m, const float cb[3], const float cs[3], flo
 
 /* Straight-alpha source over straight-alpha backdrop with mode and opacity (W3C/PDF general
  * formula). Dissolve must be resolved by the caller first. `out` may alias either input. */
+/* [`pc_blend_composite`] with the backdrop's alpha kept (Lock Transparent Pixels): "source atop",
+ * Co = (1-as)*Cb + as*B(Cb,Cs), ao = ab. A half-transparent backdrop takes the new colour by `as`
+ * alone, unlike source-over then restoring alpha. */
+void pc_blend_composite_atop(pc_blend_mode m, const float backdrop[4], const float source[4],
+                             float opacity, float out[4]);
 void pc_blend_composite(pc_blend_mode m, const float backdrop[4], const float source[4], float opacity,
                         float out[4]);
 

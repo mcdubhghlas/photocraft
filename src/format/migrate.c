@@ -161,6 +161,13 @@ pc_status pc_format_manifest_parse(const uint8_t *json, size_t len, pc_format_ma
         if (st == PC_ERR_INVALID) {
             st = pc_format_json(st, err); /* serde's from_value errors are FormatError::Json */
         }
+        if (st == PC_OK) {
+            st = pc_format_manifest_check_finite(*out, err);
+            if (st != PC_OK) {
+                pc_format_manifest_free(*out);
+                *out = NULL;
+            }
+        }
     }
     yyjson_doc_free(doc);
     return st;

@@ -415,13 +415,14 @@ static void test_warps_are_written_and_read_back(void)
     m.points[15] = pc_point_make(67.0, 30.0);
     pc_warp_custom(&c, &m, bounds);
     must(pc_mesh_identity(bounds, 2, 2, &m, NULL));
+    m.points[m.npoints - 1] = pc_point_make(67.0, 33.0); /* non-identity: a real split warp */
     pc_warp_custom(&multi, &m, bounds);
     warps[0] = &arc;
     back[0] = &arc;
     warps[1] = &c;
     back[1] = &c;
     warps[2] = &multi;
-    back[2] = NULL;
+    back[2] = &multi; /* a split (multi-patch) warp round-trips through quiltWarp */
     warps[3] = NULL;
     back[3] = NULL;
     for (size_t i = 0; i < 4; i++) {

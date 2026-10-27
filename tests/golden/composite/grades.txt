@@ -560,7 +560,7 @@ psd/psd-tools/blend-modes/difference.psd	exact
 psd/psd-tools/blend-modes/dissolve.psd	exact	
 psd/psd-tools/blend-modes/divide.psd	exact	
 psd/psd-tools/blend-modes/exclusion.psd	exact	
-psd/psd-tools/blend-modes/group-divider-blend-mode.psd	error	
+psd/psd-tools/blend-modes/group-divider-blend-mode.psd	exact
 psd/psd-tools/blend-modes/hard-light.psd	exact	
 psd/psd-tools/blend-modes/hard-mix.psd	exact	
 psd/psd-tools/blend-modes/hue.psd	exact	
@@ -718,7 +718,7 @@ psd-tools/blend-modes/dissolve.psd	exact
 psd-tools/blend-modes/divide.psd	exact	
 psd-tools/blend-modes/exclusion.psd	exact	
 psd-tools/blend-modes/gray-blend-modes.psd	exact	
-psd-tools/blend-modes/group-divider-blend-mode.psd	error	
+psd-tools/blend-modes/group-divider-blend-mode.psd	exact
 psd-tools/blend-modes/hard-light.psd	exact	
 psd-tools/blend-modes/hard-mix.psd	exact	
 psd-tools/blend-modes/hue.psd	exact	

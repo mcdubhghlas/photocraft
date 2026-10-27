@@ -30,6 +30,12 @@ static void set_file_encoding(const uint8_t *bytes, size_t len, pc_file_encoding
             e->has_jpeg_quality = true;
             e->jpeg_quality = q;
         }
+    } else if (f == PC_CF_PNG) {
+        uint8_t mode;
+        if (pc_cpng_stereo(bytes, len, &mode)) {
+            e->has_png_stereo = true;
+            e->png_stereo = mode;
+        }
     } else if (f == PC_CF_WEBP && pc_webp_encoding_of(bytes, len, &w)) {
         if (w.kind == PC_WEBP_LOSSLESS) {
             e->has_webp_lossless = true;
@@ -143,16 +149,27 @@ pc_status pc_io_import_flat(const char *name, const uint8_t *bytes, size_t len, 
     if (st != PC_OK) {
         return st;
     }
-    /* A palette BMP opens in Indexed Color mode with its colour table, as in Photoshop (#3802). */
-    if (known && f == PC_CF_BMP && r.document.mode == PC_COLOR_MODE_RGB) {
+    /* A palette BMP, PNG or GIF opens in Indexed Color mode with its colour table, as in
+     * Photoshop (#3802, #4804, #7886). A GIF is always palette-based: the first frame's table. */
+    if (known && (f == PC_CF_BMP || f == PC_CF_PNG || f == PC_CF_GIF) &&
+        r.document.mode == PC_COLOR_MODE_RGB) {
         bool has = false;
         uint8_t (*palette)[3] = NULL;
         size_t npal = 0;
-        st = pc_cbmp_palette(bytes, len, &has, &palette, &npal, err);
+        bool has_transparent = false;
+        uint8_t transparent = 0;
+        if (f == PC_CF_BMP) {
+            st = pc_cbmp_palette(bytes, len, &has, &palette, &npal, err);
+        } else if (f == PC_CF_PNG) {
+            st = pc_cpng_palette(bytes, len, &has, &palette, &npal, &has_transparent, &transparent, err);
+        } else {
+            st = pc_cgif_palette(bytes, len, &has, &palette, &npal, &has_transparent, &transparent, err);
+        }
         if (st == PC_OK && has && npal > 0) {
             r.document.color_table.colors = palette;
             r.document.color_table.ncolors = npal;
-            r.document.color_table.has_transparent = false;
+            r.document.color_table.has_transparent = has_transparent;
+            r.document.color_table.transparent = transparent;
             r.document.has_color_table = true;
             r.document.mode = PC_COLOR_MODE_INDEXED;
             palette = NULL;
@@ -296,6 +313,8 @@ pc_status pc_io_image_surface(const pc_cimage *img, pc_clayout target, pc_csampl
         mode = PC_COLOR_MODE_GRAYSCALE;
     } else if (target == PC_CL_CMYK || target == PC_CL_CMYKA) {
         mode = PC_COLOR_MODE_CMYK;
+    } else if (pc_clayout_is_lab(target)) {
+        mode = PC_COLOR_MODE_LAB;
     }
     pc_surface_init(&s, (pc_pixel_format){mode, depth, true});
     st = fill_surface(img, target, cs, &s, err);
@@ -332,6 +351,9 @@ pc_status pc_io_image_to_document(const char *name, const pc_cimage *img, pc_io_
     } else if (pc_clayout_is_rgb(img->layout)) {
         mode = PC_COLOR_MODE_RGB;
         target = PC_CL_RGBA;
+    } else if (pc_clayout_is_lab(img->layout)) {
+        mode = PC_COLOR_MODE_LAB;
+        target = PC_CL_LABA;
     } else {
         mode = PC_COLOR_MODE_CMYK;
         target = PC_CL_CMYKA;

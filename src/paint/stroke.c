@@ -930,9 +930,10 @@ static pc_status composite_maps(const pc_paint_context *ctx, cov_map *cov, bool 
                     float d4[4], s4[4], o[4], enc[PC_RASTER_MAX_CHANNELS] = {0};
                     pc_to_rgba(fmt, px, n, d4);
                     pc_to_rgba(fmt, src, n, s4);
-                    pc_blend_composite(b->mode, d4, s4, kk, o);
                     if (lock) {
-                        o[3] = d4[3];
+                        pc_blend_composite_atop(b->mode, d4, s4, kk, o);
+                    } else {
+                        pc_blend_composite(b->mode, d4, s4, kk, o);
                     }
                     (void)pc_from_rgba(fmt, o, enc);
                     memcpy(px, enc, n * sizeof(float));

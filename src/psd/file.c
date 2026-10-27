@@ -165,7 +165,8 @@ const pc_psd_block *pc_psd_file_unreadable_layer_block(const pc_psd_file *f, pc_
     return NULL;
 }
 
-pc_status pc_psd_file_parse(const uint8_t *data, size_t len, pc_psd_file *out, pc_error *err)
+static pc_status psd_file_parse_impl(const uint8_t *data, size_t len, bool (*recover)(const pc_psd_file *f),
+                                     pc_psd_file *out, pc_error *err)
 {
     psd_rd r = psd_rd_make(data, len);
     pc_psd_file f;
@@ -241,13 +242,43 @@ pc_status pc_psd_file_parse(const uint8_t *data, size_t len, pc_psd_file *out, p
     }
     CK(psd_u16(&r, &f.image_compression, err));
     layout = pc_psd_image_layout(&f.header);
-    CK(pc_psd_validate_planes(f.image_compression, psd_rest(&r), psd_remaining(&r), &layout, err));
+    {
+        /* The whole layer and mask section is parsed; only the trailing merged image is left.
+         * Damage confined to it (a short RAW/RLE/ZIP plane) need not reject the file when a
+         * caller opts in via `recover` and can rebuild from the layers. A decode bomb
+         * (PC_ERR_LIMIT) or allocation failure stays fatal, as in the strict path. Mirrors
+         * from_bytes_and_merged_recovering. */
+        pc_error merr;
+        st = pc_psd_validate_planes(f.image_compression, psd_rest(&r), psd_remaining(&r), &layout, &merr);
+        if (st != PC_OK) {
+            if (st == PC_ERR_LIMIT || st == PC_ERR_NOMEM || recover == NULL || !recover(&f)) {
+                if (err != NULL) {
+                    *err = merr;
+                }
+                goto fail;
+            }
+            f.image_damaged = true;
+            f.image_error = merr;
+            /* st stays the (recovered) validate error here; the CK below reassigns it. */
+        }
+    }
     CK(pc_psd_bytes_set(&f.image_data, psd_rest(&r), psd_remaining(&r), err));
     *out = f;
     return PC_OK;
 fail:
     pc_psd_file_fini(&f);
     return st;
+}
+
+pc_status pc_psd_file_parse(const uint8_t *data, size_t len, pc_psd_file *out, pc_error *err)
+{
+    return psd_file_parse_impl(data, len, NULL, out, err);
+}
+
+pc_status pc_psd_file_parse_recovering(const uint8_t *data, size_t len, bool (*recover)(const pc_psd_file *f),
+                                       pc_psd_file *out, pc_error *err)
+{
+    return psd_file_parse_impl(data, len, recover, out, err);
 }
 
 pc_status pc_psd_file_to_bytes(const pc_psd_file *f, pc_psd_bytes *out, pc_error *err)
@@ -409,13 +440,83 @@ bool pc_psd_file_has_real_merged_data(const pc_psd_file *f, bool *out)
     return true;
 }
 
+/* True when the alpha channel names (resource 1045, else 1006) hold exactly `extra` names and the
+ * first is "Transparency", Photoshop's name for the merged transparency (port of
+ * PsdFile::names_merged_transparency). */
+static bool names_merged_transparency(const pc_psd_file *f, uint16_t extra)
+{
+    static const char NAME[] = "Transparency";
+    const pc_psd_resource *r = pc_psd_file_resource(f, 1045);
+    size_t count = 0;
+    bool first_is_name = false;
+    bool have_first = false;
+    if (r != NULL) {
+        const uint8_t *d = r->data.data;
+        size_t len = r->data.len;
+        size_t at = 0;
+        while (at + 4 <= len) {
+            uint32_t n = pc_load_be32(d + at);
+            size_t units;
+            at += 4;
+            if (n > (len - at) / 2) {
+                break;
+            }
+            units = (size_t)n;
+            if (!have_first) {
+                /* Compare against "Transparency" (ASCII), dropping a trailing NUL unit. */
+                size_t m = units;
+                while (m > 0 && pc_load_be16(d + at + (m - 1) * 2) == 0) {
+                    m--;
+                }
+                first_is_name = m == sizeof NAME - 1;
+                for (size_t i = 0; first_is_name && i < m; i++) {
+                    first_is_name = pc_load_be16(d + at + i * 2) == (uint16_t)(uint8_t)NAME[i];
+                }
+                have_first = true;
+            }
+            at += units * 2;
+            count++;
+        }
+    } else if ((r = pc_psd_file_resource(f, 1006)) != NULL) {
+        const uint8_t *d = r->data.data;
+        size_t len = r->data.len;
+        size_t at = 0;
+        while (at < len) {
+            uint8_t n = d[at];
+            if (at + 1 + n > len) {
+                break;
+            }
+            if (!have_first) {
+                first_is_name = n == sizeof NAME - 1 && memcmp(d + at + 1, NAME, n) == 0;
+                have_first = true;
+            }
+            at += 1 + (size_t)n;
+            count++;
+        }
+    }
+    return count == (size_t)extra && first_is_name;
+}
+
 bool pc_psd_file_merged_has_alpha(const pc_psd_file *f)
 {
     uint16_t color = pc_psd_mode_color_channels(f->header.color_mode);
+    bool marked;
     if (color == 0 || f->header.channels <= color) {
         return false;
     }
-    return f->has_layer_info ? f->layer_info.merged_alpha : true;
+    if (!f->has_layer_info) {
+        return true;
+    }
+    /* A "Saving Merged Transparency" global block (Mtrn/Mt16/Mt32) marks the merged alpha even
+     * when the layer-info flag does not; so does the merged-transparency name when the layers sit
+     * in a global Lr16/Lr32 block (#4654). */
+    marked = pc_psd_file_global_block(f, "Mtrn") != NULL || pc_psd_file_global_block(f, "Mt16") != NULL ||
+             pc_psd_file_global_block(f, "Mt32") != NULL;
+    if (f->layer_info.merged_alpha || marked) {
+        return true;
+    }
+    return f->placement.where == PC_PSD_LI_GLOBAL_BLOCK &&
+           names_merged_transparency(f, (uint16_t)(f->header.channels - color));
 }
 
 bool pc_psd_global_mask_be16(const pc_psd_file *f, size_t at, uint16_t *out)

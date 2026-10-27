@@ -35,6 +35,9 @@ void pc_io_apply_display_info(const uint8_t *data, size_t len, bool versioned, s
                               pc_alpha_channel *channels, size_t n);
 /* A Photoshop colour structure (space + four u16 components) as an RGB colour. */
 pc_color pc_io_decode_color(uint16_t space, const uint16_t c[4]);
+
+/* HSB -> RGB: hue in degrees, saturation and brightness 0..1; out is RGB in 0..1. */
+void pc_io_hsb_to_rgb(float h, float s, float v, float out[3]);
 /* A colour structure in a known space (0 RGB, 1 HSB, 2 CMYK, 7 Lab, 8 Gray) as RGB, written to
  * *out; false (out untouched) for any other space id. */
 bool pc_io_decode_known_color(uint16_t space, const uint16_t c[4], pc_color *out);

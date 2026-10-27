@@ -207,11 +207,14 @@ pc_status pc_algo_edge_brush_new(const pc_algo_edge_stroke *strokes, size_t n, p
         target = s->add ? 1.0f : -1.0f;
         for (y = sb.y0; y < sb.y1; y++) {
             for (x = sb.x0; x < sb.x1; x++) {
-                float c = cov[(size_t)(y - sb.y0) * sw + (size_t)(x - sb.x0)], cur;
+                float c = cov[(size_t)(y - sb.y0) * sw + (size_t)(x - sb.x0)], cur, cq;
                 int8_t *slot;
-                if (c <= 0.0f) {
+                /* Coverage is quantised to 0..255 per the tiled selection before it is blended. */
+                cq = roundf(pc_clampf(c, 0.0f, 1.0f) * 255.0f);
+                if (cq <= 0.0f) {
                     continue;
                 }
+                c = cq / 255.0f;
                 slot = &v[(size_t)(y - bbox.y0) * bw + (size_t)(x - bbox.x0)];
                 cur = (float)*slot / 127.0f;
                 *slot = (int8_t)pc_f32_to_i32(

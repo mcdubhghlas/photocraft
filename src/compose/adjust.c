@@ -3,6 +3,7 @@
  * Formulas are documented approximations of Photoshop behaviour, matched against
  * Photoshop-rendered composites. Expression order follows the reference exactly (float results
  * are compared bit for bit with it). Tone curves are in adjust_tone.c. */
+#include <float.h>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -123,6 +124,53 @@ void pc_compose_hsl_to_rgb(float h, float s, float l, float out[3])
     out[2] = hsl_channel(p, q, h - 1.0f / 3.0f);
 }
 
+/* HSL-to-RGB with the low (`p`) and high (`q`) explicit: the 32-bit Hue/Saturation path builds a
+ * colour from a chroma around its lightness directly, without the `2 - max - min` divisor that is
+ * zero at lightness 1 and negative above it. */
+static void hue_rgb(float h, float p, float q, float out[3])
+{
+    out[0] = hsl_channel(p, q, h + 1.0f / 3.0f);
+    out[1] = hsl_channel(p, q, h);
+    out[2] = hsl_channel(p, q, h - 1.0f / 3.0f);
+}
+
+/* The factor 32-bit Hue/Saturation scales chroma by for saturation `s` (-1..1), as Photoshop
+ * computes it (b526378de): lowering cuts `s` to 1/256 steps, raising cuts it to 254 steps out of
+ * 255, takes 255 / (255 - steps) to 1/256 and stops at 32767/256, so +25 % gives 340/256 and
+ * +100 % 127.996 (finite at L = 1). */
+float pc_compose_hdr_saturation_factor(float s)
+{
+    uint32_t steps;
+    uint32_t denom;
+    uint32_t v;
+    /* The 1e-4 keeps a master-plus-range sum on its step: -0.46 + 0.96 is 0.49999997 in f32. */
+    s = pc_clampf(s, -1.0f, 1.0f);
+    if (s <= 0.0f) {
+        return 1.0f - floorf(-s * 256.0f + 1e-4f) / 256.0f;
+    }
+    steps = (uint32_t)pc_f32_to_i32(floorf(s * 254.0f + 1e-4f));
+    denom = 255u - (steps < 255u ? steps : 255u);
+    if (denom < 1u) {
+        denom = 1u;
+    }
+    v = 65280u / denom;
+    if (v > 32767u) {
+        v = 32767u;
+    }
+    return (float)v / 256.0f;
+}
+
+/* Hue/Saturation's saturation `s` (-1..1) as taken in a document of the given depth: a 32-bit
+ * Colorize builds its colour with the saturation times `1 - |lightness|`; 8 and 16 bits keep the
+ * full saturation. */
+float pc_compose_colorize_saturation(float s, float lightness, bool colorize, bool hdr)
+{
+    if (colorize && hdr) {
+        return pc_clampf(s, -1.0f, 1.0f) * (1.0f - pc_rs_minf_k(fabsf(lightness), 1.0f));
+    }
+    return s;
+}
+
 void pc_compose_hue_range_tables(const pc_hue_range ranges[6], float *out)
 {
     size_t k;
@@ -153,6 +201,16 @@ static float lighten(float v, float l)
 
 void pc_compose_hue_saturation(const float c[3], float hue, float s, float l, bool colorize, float out[3])
 {
+    pc_compose_hue_saturation_in(c, hue, s, l, colorize, false, out);
+}
+
+/* [`pc_compose_hue_saturation`] in a document of the given depth. At 32 bits (`hdr`) Photoshop
+ * doesn't clip the raised saturation, so saturated colours leave 0..1, and it scales each colour's
+ * chroma around its lightness by [`pc_compose_hdr_saturation_factor`], so colours at or above
+ * lightness 1 keep their hue too. */
+void pc_compose_hue_saturation_in(const float c[3], float hue, float s, float l, bool colorize, bool hdr,
+                                  float out[3])
+{
     float hh;
     float ss;
     float ll;
@@ -174,6 +232,15 @@ void pc_compose_hue_saturation(const float c[3], float hue, float s, float l, bo
     }
     pc_compose_rgb_to_hsl(lc, &hh, &ss, &ll);
     hh = rem_euclid(hh + hue / 360.0f, 1.0f);
+    if (hdr) {
+        /* The chroma, not the HSL saturation, whose `2 - max - min` divisor is 0 at lightness 1 and
+         * negative above it: (2, 0, 0) with Hue +40 becomes (2, 1.333, 0) in Photoshop. */
+        float mx = pc_rs_maxf(pc_rs_maxf(lc[0], lc[1]), lc[2]);
+        float mn = pc_rs_minf(pc_rs_minf(lc[0], lc[1]), lc[2]);
+        float d = (mx - mn) * pc_compose_hdr_saturation_factor(s);
+        hue_rgb(hh, ll - d / 2.0f, ll + d / 2.0f, out);
+        return;
+    }
     ss = pc_clampf(s > 0.0f ? ss / pc_rs_maxf_k(1.0f - s, 1.0f / 512.0f) : ss * (1.0f + s), 0.0f, 1.0f);
     pc_compose_hsl_to_rgb(hh, ss, ll, out);
 }
@@ -490,20 +557,97 @@ void pc_compose_vibrance_px(const float c[3], float v, float s, pc_compose_trans
     }
 }
 
-float pc_compose_modern_brightness(float v, float brightness)
-{
-    /* A line of slope 1.375^(b/50) from the origin, rolled off to (1, 1) by a v^P white-anchor
-     * term; pins black and white. Fit to Photoshop ground truth. */
+/* Modern Brightness curve constants for one slider value. Raised, it is a line of slope s from
+ * the origin up to the knee at output 126/255, then a monotone roll-off to (1, 1): a cubic Hermite
+ * whose end slope is e, or a power roll-off when the Hermite would overshoot. Lowered is its
+ * inverse. */
+#define BRIGHTNESS_KNEE (126.0f / 255.0f)
+
+typedef struct brightness_curve {
+    bool raise;
     float s;
-    float p;
-    float x;
-    if (brightness == 0.0f) {
+    float e;
+    float x0;
+    float alpha;
+    bool hermite;
+} brightness_curve;
+
+static brightness_curve brightness_new(float brightness)
+{
+    brightness_curve c;
+    float b = fabsf(brightness);
+    float secant;
+    float beta;
+    c.s = powf(1.375f, b / 50.0f);
+    c.e = 1.0f / (1.0f + 0.084f * b);
+    c.x0 = pc_rs_minf_k(BRIGHTNESS_KNEE / c.s, 1.0f);
+    secant = (1.0f - BRIGHTNESS_KNEE) / pc_rs_maxf_k(1.0f - c.x0, 1e-6f);
+    c.alpha = c.s / secant;
+    beta = c.e / secant;
+    c.raise = brightness > 0.0f;
+    c.hermite = c.alpha * c.alpha + beta * beta <= 9.0f;
+    return c;
+}
+
+/* The curve raised: the line, then a monotone roll-off to (1, 1). */
+static float brightness_raised(const brightness_curve *c, float x)
+{
+    float y0 = BRIGHTNESS_KNEE;
+    float h;
+    float t;
+    float t2;
+    float t3;
+    float y;
+    if (x <= c->x0) {
+        return pc_rs_minf(y0, c->s * x);
+    }
+    h = pc_rs_maxf_k(1.0f - c->x0, 1e-6f);
+    t = pc_clampf((x - c->x0) / h, 0.0f, 1.0f);
+    if (c->hermite) {
+        t2 = t * t;
+        t3 = t * t * t;
+        y = (2.0f * t3 - 3.0f * t2 + 1.0f) * y0 + (t3 - 2.0f * t2 + t) * h * c->s +
+            (-2.0f * t3 + 3.0f * t2) + (t3 - t2) * h * c->e;
+    } else {
+        y = 1.0f - (1.0f - y0) * powf(1.0f - t, c->alpha);
+    }
+    return pc_clampf(y, 0.0f, 1.0f);
+}
+
+static float brightness_eval(const brightness_curve *c, float v)
+{
+    float lo;
+    float hi;
+    int i;
+    v = pc_clampf(v, 0.0f, 1.0f);
+    if (c->raise) {
+        return brightness_raised(c, v);
+    }
+    if (v <= 0.0f || v >= 1.0f) {
         return v;
     }
-    s = powf(1.375f, brightness / 50.0f);
-    p = brightness >= 0.0f ? pc_rs_maxf_k(4.5f - 0.013f * brightness, 2.0f) : 5.0f - 0.072f * brightness;
-    x = pc_clampf(v, 0.0f, 1.0f);
-    return pc_clampf(s * x + (1.0f - s) * powf(x, p), 0.0f, 1.0f);
+    /* The inverse of the raised curve (monotone on [0, 1]), by bisection. */
+    lo = 0.0f;
+    hi = 1.0f;
+    for (i = 0; i < 32; i++) {
+        float mid = 0.5f * (lo + hi);
+        if (brightness_raised(c, mid) < v) {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    return 0.5f * (lo + hi);
+}
+
+float pc_compose_modern_brightness(float v, float brightness)
+{
+    brightness_curve c;
+    if (brightness == 0.0f || !isfinite(brightness)) {
+        return v;
+    }
+    c = brightness_new(brightness);
+    return brightness_eval(&c, v);
 }
 
 /* Cubic Hermite on [0, 0.5]: (0, 0) with slope end, (0.5, 0.5) with slope mid; t in [0, 1]. */
@@ -529,6 +673,53 @@ float pc_compose_modern_contrast(float v, float contrast)
     return 1.0f - contrast_half(1.0f - k, 1.0f + k, (1.0f - x) / 0.5f);
 }
 
+/* Modern Brightness/Contrast as one channel's lookup table (LUT samples over 0..1): brightness
+ * (raised directly, lowered inverted through a finer sampling in one monotone pass) then contrast,
+ * as Photoshop applies them. Fills out[LUT]. */
+pc_status pc_cmp_modern_lut(float brightness, float contrast, float *out, pc_error *err)
+{
+    size_t k;
+    if (brightness == 0.0f || !isfinite(brightness)) {
+        for (k = 0; k < LUT; k++) {
+            out[k] = (float)k / (float)(LUT - 1);
+        }
+    } else if (brightness > 0.0f) {
+        brightness_curve c = brightness_new(brightness);
+        for (k = 0; k < LUT; k++) {
+            out[k] = brightness_raised(&c, (float)k / (float)(LUT - 1));
+        }
+    } else {
+        brightness_curve c = brightness_new(-brightness);
+        size_t fine = 4 * LUT;
+        size_t j = 0;
+        float *ys = pc_malloc_array(fine, sizeof *ys);
+        if (ys == NULL) {
+            return nomem(err);
+        }
+        for (k = 0; k < fine; k++) {
+            ys[k] = brightness_raised(&c, (float)k / (float)(fine - 1));
+        }
+        for (k = 0; k < LUT; k++) {
+            float y = (float)k / (float)(LUT - 1);
+            float y0;
+            float y1;
+            float f;
+            while (j + 2 < fine && ys[j + 1] < y) {
+                j++;
+            }
+            y0 = ys[j];
+            y1 = ys[j + 1];
+            f = y1 > y0 ? pc_clampf((y - y0) / (y1 - y0), 0.0f, 1.0f) : 0.0f;
+            out[k] = pc_clampf((float)j / (float)(fine - 1) + f / (float)(fine - 1), 0.0f, 1.0f);
+        }
+        free(ys);
+    }
+    for (k = 0; k < LUT; k++) {
+        out[k] = pc_clampf(pc_compose_modern_contrast(out[k], contrast), 0.0f, 1.0f);
+    }
+    return PC_OK;
+}
+
 float pc_compose_posterize(float v, uint32_t levels)
 {
     /* n equal input bins over 0..=255, output levels floor(k * 255 / (n - 1)). */
@@ -536,6 +727,26 @@ float pc_compose_posterize(float v, uint32_t levels)
     float x = roundf(pc_clampf(v, 0.0f, 1.0f) * 255.0f);
     float bin = pc_rs_minf(floorf(x * n / 256.0f), n - 1.0f);
     return floorf(bin * 255.0f / (n - 1.0f)) / 255.0f;
+}
+
+float pc_compose_posterize_in(float v, uint32_t levels, bool u16)
+{
+    double n;
+    double x;
+    double bin;
+    double step;
+    if (!u16) {
+        return pc_compose_posterize(v, levels);
+    }
+    /* 16 bits: bin the 16-bit sample and land on 8-bit levels through a 16-bit step, so 127.5
+     * comes out as 128 but 42.5 as 42 (psd-tools posterize_16bits). */
+    n = (double)(levels < 2 ? 2 : (levels > 255 ? 255 : levels));
+    x = round((double)pc_clampf(v, 0.0f, 1.0f) * 32768.0);
+    /* .min(n - 1.0): Rust's min returns the non-NaN operand, so a NaN sample lands on the top
+     * bin rather than propagating (matches the U8 path's pc_rs_minf). */
+    bin = pc_rs_min(floor(x * n / 32768.0), n - 1.0);
+    step = floor(bin * 32768.0 / (n - 1.0));
+    return (float)(floor((step * 255.0 + 16384.0) / 32768.0) / 255.0);
 }
 
 /* ---- applying ---- */
@@ -566,20 +777,43 @@ static void f_invert(void *ctx, const float c[3], float out[3])
     out[2] = 1.0f - c[2];
 }
 
+/* threshold_white depth cases: 0 = None/U8, 1 = U16, 2 = F32. */
+typedef struct threshold_ctx {
+    float t; /* round(level * 255) */
+    int depth;
+} threshold_ctx;
+
+/* threshold_white (#5263): Photoshop splits on the luminosity 0.30 R + 0.59 G + 0.11 B of the
+ * document's WHOLE sample values, not the Rec. 601 grey, depth by depth. */
 static void f_threshold(void *ctx, const float c[3], float out[3])
 {
-    /* Compared on the 8-bit grid like Photoshop (avoids float ties). */
-    float t = *(const float *)ctx;
-    float v = roundf(pc_rgb_to_gray(c) * 255.0f) >= t ? 1.0f : 0.0f;
-    out[0] = out[1] = out[2] = v;
+    const threshold_ctx *x = ctx;
+    float t = x->t;
+    bool white;
+    if (x->depth == 2) {
+        white = (0.3f * c[0] + 0.59f * c[1] + 0.11f * c[2]) * 255.0f >= t;
+    } else {
+        float q = x->depth == 1 ? 32768.0f : 255.0f;
+        float r = roundf(pc_clampf(c[0], 0.0f, 1.0f) * q);
+        float g = roundf(pc_clampf(c[1], 0.0f, 1.0f) * q);
+        float b = roundf(pc_clampf(c[2], 0.0f, 1.0f) * q);
+        float sum = 30.0f * r + 59.0f * g + 11.0f * b;
+        white = x->depth == 1 ? (sum >= 100.0f * roundf(t * 32768.0f / 255.0f)) : (sum > 100.0f * t - 50.0f);
+    }
+    out[0] = out[1] = out[2] = white ? 1.0f : 0.0f;
 }
+
+typedef struct posterize_ctx {
+    uint32_t n;
+    bool u16;
+} posterize_ctx;
 
 static void f_posterize(void *ctx, const float c[3], float out[3])
 {
-    uint32_t n = *(const uint32_t *)ctx;
+    const posterize_ctx *x = ctx;
     int i;
     for (i = 0; i < 3; i++) {
-        out[i] = pc_compose_posterize(c[i], n);
+        out[i] = pc_compose_posterize_in(c[i], x->n, x->u16);
     }
 }
 
@@ -587,6 +821,7 @@ typedef struct bc_ctx {
     float b;
     float c; /* modern */
     pc_cmp_legacy_bc legacy;
+    const float *modern; /* LUT entries for the modern curve */
 } bc_ctx;
 
 pc_cmp_legacy_bc pc_cmp_legacy_bc_new(float brightness, float contrast)
@@ -618,13 +853,27 @@ static void f_legacy_bc(void *ctx, const float c[3], float out[3])
     }
 }
 
+/* Legacy Brightness/Contrast in a 32-bit document: contrast pivots at 127/255 (not 128/255) and
+ * the result is NOT clamped, so negative and over-white values survive (photoshop corpus rgb32 /
+ * gray32 brightness-contrast-legacy.psd). k/pre/post are pivot-independent, so the shared struct
+ * serves both. */
+#define PC_COMPOSE_LEGACY_PIVOT_HDR (127.0f / 255.0f)
+static void f_legacy_bc_hdr(void *ctx, const float c[3], float out[3])
+{
+    const bc_ctx *x = ctx;
+    const pc_cmp_legacy_bc *l = &x->legacy;
+    int i;
+    for (i = 0; i < 3; i++) {
+        out[i] = (c[i] + l->pre - PC_COMPOSE_LEGACY_PIVOT_HDR) * l->k + PC_COMPOSE_LEGACY_PIVOT_HDR + l->post;
+    }
+}
+
 static void f_modern_bc(void *ctx, const float c[3], float out[3])
 {
     const bc_ctx *x = ctx;
     int i;
     for (i = 0; i < 3; i++) {
-        out[i] =
-            pc_clampf(pc_compose_modern_contrast(pc_compose_modern_brightness(c[i], x->b), x->c), 0.0f, 1.0f);
+        out[i] = pc_cmp_lut(x->modern, LUT, c[i]);
     }
 }
 
@@ -712,6 +961,7 @@ typedef struct hs_ctx {
     float saturation;
     float lightness;
     bool colorize;
+    bool hdr;
 } hs_ctx;
 
 static void f_hue_sat(void *ctx, const float c[3], float out[3])
@@ -734,8 +984,10 @@ static void f_hue_sat(void *ctx, const float c[3], float out[3])
     }
     {
         float o[3];
-        pc_compose_hue_saturation(c, x->hue + dh, pc_clampf(x->saturation / 100.0f + ds, -1.0f, 1.0f),
-                                  pc_clampf(x->lightness / 100.0f, -1.0f, 1.0f), x->colorize, o);
+        float sat = pc_compose_colorize_saturation(pc_clampf(x->saturation / 100.0f + ds, -1.0f, 1.0f),
+                                                   x->lightness / 100.0f, x->colorize, x->hdr);
+        pc_compose_hue_saturation_in(c, x->hue + dh, sat, pc_clampf(x->lightness / 100.0f, -1.0f, 1.0f),
+                                     x->colorize, x->hdr, o);
         pc_compose_range_lightness(o, dl, out);
     }
 }
@@ -756,28 +1008,31 @@ static void f_vibrance(void *ctx, const float c[3], float out[3])
 typedef struct mixer_ctx {
     const float (*m)[4];
     bool mono;
+    bool hdr; /* 32-bit: coefficients cut to 1/1024, nothing clips */
 } mixer_ctx;
 
-static float mixer_row(const float row[4], const float c[3])
+static float mixer_row(const float row[4], const float c[3], bool hdr)
 {
-    return pc_clampf(row[0] * c[0] + row[1] * c[1] + row[2] * c[2] + row[3], 0.0f, 1.0f);
+    float v = row[0] * c[0] + row[1] * c[1] + row[2] * c[2] + row[3];
+    return hdr ? v : pc_clampf(v, 0.0f, 1.0f);
 }
 
 static void f_mixer(void *ctx, const float c[3], float out[3])
 {
     const mixer_ctx *x = ctx;
     if (x->mono) {
-        out[0] = out[1] = out[2] = mixer_row(x->m[0], c);
+        out[0] = out[1] = out[2] = mixer_row(x->m[0], c, x->hdr);
         return;
     }
-    out[0] = mixer_row(x->m[0], c);
-    out[1] = mixer_row(x->m[1], c);
-    out[2] = mixer_row(x->m[2], c);
+    out[0] = mixer_row(x->m[0], c, x->hdr);
+    out[1] = mixer_row(x->m[1], c, x->hdr);
+    out[2] = mixer_row(x->m[2], c, x->hdr);
 }
 
 typedef struct pf_ctx {
     float m[3][3];
     bool set_lum;
+    bool linear; /* 32-bit: samples are already linear and may leave 0..1 unclipped */
     pc_compose_transfer t;
 } pf_ctx;
 
@@ -787,6 +1042,13 @@ static void f_photo_filter(void *ctx, const float c[3], float out[3])
     float d[3];
     float f[3];
     int i;
+    if (x->linear) {
+        /* 32-bit samples are linear already, and the result isn't clipped (photoshop corpus rgb32
+         * photo-filter.psd: white filters to 1.19 red). */
+        pc_color_mat3_mul(x->m, c, f);
+        memcpy(out, f, sizeof f);
+        return;
+    }
     for (i = 0; i < 3; i++) {
         d[i] = pc_compose_transfer_decode(x->t, c[i]);
     }
@@ -807,6 +1069,7 @@ static void f_photo_filter(void *ctx, const float c[3], float out[3])
 typedef struct bw_ctx {
     const float *weights;
     const float *tint; /* NULL: none */
+    bool hdr;          /* 32-bit: tint through the Color blend mode, nothing clips */
 } bw_ctx;
 
 static void f_black_white(void *ctx, const float c[3], float out[3])
@@ -816,8 +1079,14 @@ static void f_black_white(void *ctx, const float c[3], float out[3])
     int i;
     if (x->tint != NULL) {
         /* Photoshop tints like the Color blend mode: the tint's hue and saturation at the grey's
-         * luminosity (SetLum + ClipColor, Photoshop 27.11). */
+         * luminosity (SetLum + ClipColor, Photoshop 27.11). In 32-bit documents nothing clips at 1
+         * (photoshop corpus rgb32 black-white-tint.psd). */
         float t[3];
+        if (x->hdr) {
+            float bg[3] = {g, g, g};
+            pc_blend_rgb_within(PC_BLEND_COLOR, bg, x->tint, FLT_MAX, out);
+            return;
+        }
         pc_blend_set_lum(x->tint, g, t);
         for (i = 0; i < 3; i++) {
             out[i] = pc_clampf(t[i], 0.0f, 1.0f);
@@ -888,7 +1157,8 @@ static void map_dithered(pc_compose_buffer *buf, const pc_adjustment *adj, const
             continue;
         }
         if (adj->kind == PC_ADJ_GRADIENT_MAP) {
-            float t = pc_rgb_to_gray(p);
+            /* Driven by the W3C luminosity (0.3, 0.59, 0.11), not the Rec. 601 grey (#5018). */
+            float t = pc_blend_lum(p);
             if (adj->u.gradient_map.reverse) {
                 t = 1.0f - t;
             }
@@ -919,13 +1189,17 @@ pc_status pc_compose_adjust_apply_depth(const pc_adjustment *adj, pc_compose_buf
         map_rgb(buf, f_invert, NULL);
         return PC_OK;
     case PC_ADJ_THRESHOLD: {
-        float t = roundf(adj->u.threshold.level * 255.0f);
-        map_rgb(buf, f_threshold, &t);
+        threshold_ctx x;
+        x.t = roundf(adj->u.threshold.level * 255.0f);
+        x.depth = !has_depth || depth == PC_SAMPLE_TYPE_U8 ? 0 : (depth == PC_SAMPLE_TYPE_U16 ? 1 : 2);
+        map_rgb(buf, f_threshold, &x);
         return PC_OK;
     }
     case PC_ADJ_POSTERIZE: {
-        uint32_t n = adj->u.posterize.levels;
-        map_rgb(buf, f_posterize, &n);
+        posterize_ctx x;
+        x.n = adj->u.posterize.levels;
+        x.u16 = has_depth && depth == PC_SAMPLE_TYPE_U16;
+        map_rgb(buf, f_posterize, &x);
         return PC_OK;
     }
     case PC_ADJ_BRIGHTNESS_CONTRAST: {
@@ -933,11 +1207,25 @@ pc_status pc_compose_adjust_apply_depth(const pc_adjustment *adj, pc_compose_buf
         x.b = adj->u.brightness_contrast.brightness;
         x.c = adj->u.brightness_contrast.contrast;
         x.legacy = pc_cmp_legacy_bc_new(x.b, x.c);
+        x.modern = NULL;
         if (adj->u.brightness_contrast.legacy) {
-            map_rgb(buf, f_legacy_bc, &x);
+            map_rgb(buf, f32 ? f_legacy_bc_hdr : f_legacy_bc, &x);
         } else {
-            /* Modern (CS3+): smooth curves pinning black and white, brightness then contrast. */
+            /* Modern (CS3+): smooth curves pinning black and white, brightness then contrast,
+             * through one lookup table. */
+            float *table = pc_malloc_array(LUT, sizeof *table);
+            pc_status st;
+            if (table == NULL) {
+                return nomem(err);
+            }
+            st = pc_cmp_modern_lut(x.b, x.c, table, err);
+            if (st != PC_OK) {
+                free(table);
+                return st;
+            }
+            x.modern = table;
             map_rgb(buf, f_modern_bc, &x);
+            free(table);
         }
         return PC_OK;
     }
@@ -1007,6 +1295,7 @@ pc_status pc_compose_adjust_apply_depth(const pc_adjustment *adj, pc_compose_buf
         x.saturation = adj->u.hue_saturation.saturation;
         x.lightness = adj->u.hue_saturation.lightness;
         x.colorize = adj->u.hue_saturation.colorize;
+        x.hdr = f32;
         map_rgb(buf, f_hue_sat, &x);
         free(table);
         return PC_OK;
@@ -1022,8 +1311,24 @@ pc_status pc_compose_adjust_apply_depth(const pc_adjustment *adj, pc_compose_buf
     }
     case PC_ADJ_CHANNEL_MIXER: {
         mixer_ctx x;
-        x.m = (const float (*)[4])adj->u.channel_mixer.matrix;
+        float cut[3][4];
         x.mono = adj->u.channel_mixer.monochrome;
+        x.hdr = f32;
+        if (f32) {
+            /* Each source percentage is cut to 1/1024 (toward zero), the constant counts 255/512
+             * of its value, and nothing clips (photoshop corpus rgb32 channel-mixer.psd). */
+            int r;
+            int ci;
+            for (r = 0; r < 3; r++) {
+                for (ci = 0; ci < 3; ci++) {
+                    cut[r][ci] = truncf(adj->u.channel_mixer.matrix[r][ci] * 1024.0f) / 1024.0f;
+                }
+                cut[r][3] = adj->u.channel_mixer.matrix[r][3] * 255.0f / 512.0f;
+            }
+            x.m = (const float (*)[4])cut;
+        } else {
+            x.m = (const float (*)[4])adj->u.channel_mixer.matrix;
+        }
         map_rgb(buf, f_mixer, &x);
         return PC_OK;
     }
@@ -1033,6 +1338,7 @@ pc_status pc_compose_adjust_apply_depth(const pc_adjustment *adj, pc_compose_buf
         pc_compose_photo_filter_matrix(adj->u.photo_filter.color, adj->u.photo_filter.density, pl && f32,
                                        x.m);
         x.set_lum = pl && !f32;
+        x.linear = f32;
         x.t = transfer;
         map_rgb(buf, f_photo_filter, &x);
         return PC_OK;
@@ -1041,6 +1347,7 @@ pc_status pc_compose_adjust_apply_depth(const pc_adjustment *adj, pc_compose_buf
         bw_ctx x;
         x.weights = adj->u.black_white.weights;
         x.tint = adj->u.black_white.has_tint ? adj->u.black_white.tint : NULL;
+        x.hdr = f32;
         map_rgb(buf, f_black_white, &x);
         return PC_OK;
     }

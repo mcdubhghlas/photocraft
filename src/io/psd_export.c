@@ -15,11 +15,13 @@
 #include "base/pool.h"
 #include "base/utf8.h"
 #include "compose/compose.h"
+#include "compose/filter_mask.h"
 #include "compose/gradient_fill.h"
 #include "io/adjust_map.h"
 #include "io/blocks.h"
 #include "io/comps_map.h"
 #include "io/effects_map.h"
+#include "io/flat.h"
 #include "io/pixels.h"
 #include "io/psd_export_internal.h"
 #include "io/psd_import.h"
@@ -289,7 +291,7 @@ static bool mask_parameters(const float *user, const float *vector, pc_psd_mask_
         p.has_user_density = true;
         p.user_density = pc_io_q255(user[0]);
     }
-    if (user != NULL && user[1] != 0.0f) {
+    if (user != NULL && isfinite(user[1]) && user[1] > 0.0f) {
         p.has_user_feather = true;
         p.user_feather = (double)user[1];
     }
@@ -297,7 +299,7 @@ static bool mask_parameters(const float *user, const float *vector, pc_psd_mask_
         p.has_vector_density = true;
         p.vector_density = pc_io_q255(vector[0]);
     }
-    if (vector != NULL && vector[1] != 0.0f) {
+    if (vector != NULL && isfinite(vector[1]) && vector[1] > 0.0f) {
         p.has_vector_feather = true;
         p.vector_feather = (double)vector[1];
     }
@@ -463,6 +465,46 @@ static uint16_t label_index(pc_label_color c)
 }
 
 /* Ex::record: the layer record of l with extra blocks (taken over) and its pixels (NULL = none). */
+/* The layer Photoshop should open as its Background: the bottom top-level layer when it is a
+ * locked (transparency and position), unclipped, unmasked raster that is opaque over the whole
+ * canvas at full opacity and Normal. Photoshop recognises a Background by the bottom layer having
+ * no transparency channel (port of psd_export::psd_background). */
+static bool psd_background(const pc_document *doc, pc_layer_id *out)
+{
+    const pc_layer *l;
+    const pc_surface *s;
+    pc_rect canvas;
+    if (doc->nlayers == 0) {
+        return false;
+    }
+    l = &doc->layers[0];
+    if (l->content.kind != PC_LAYER_RASTER) {
+        return false;
+    }
+    s = pc_layer_surface(l);
+    if (s == NULL) {
+        return false;
+    }
+    if (!(l->locks.transparency && l->locks.position)) {
+        return false;
+    }
+    if (l->clipped || l->has_mask || l->has_vector_mask || l->opacity < 1.0f || l->fill_opacity < 1.0f) {
+        return false;
+    }
+    if (l->blend != PC_BLEND_NORMAL) {
+        return false;
+    }
+    canvas = pc_document_bounds(doc);
+    if (pc_rect_is_empty(canvas) || !pc_rect_eq(pc_surface_content_bounds(s), canvas)) {
+        return false;
+    }
+    if (!pc_io_opaque_surface(s, canvas)) {
+        return false;
+    }
+    *out = l->id;
+    return true;
+}
+
 static pc_status record(pc_io_ex *ex, const pc_layer *l, pc_psd_block *extra, size_t nextra,
                         const pc_surface *pixels, pc_psd_layer *out, pc_error *err)
 {
@@ -484,8 +526,13 @@ static pc_status record(pc_io_ex *ex, const pc_layer *l, pc_psd_block *extra, si
     } else {
         st = empty_channels(ex, &rec.channels, &rec.nchannels, err);
     }
-    /* Vector mask density/feather live in the mask parameters, with or without a user mask. */
-    if (l->has_vector_mask) {
+    /* Vector mask density/feather live in the mask parameters, with or without a user mask. A
+     * shape layer's path is its vector mask, with the shape's own density and feather. */
+    if (l->content.kind == PC_LAYER_SHAPE && !l->has_vector_mask) {
+        vector[0] = l->content.u.shape.density;
+        vector[1] = l->content.u.shape.feather;
+        vp = vector;
+    } else if (l->has_vector_mask) {
         vector[0] = l->vector_mask.density;
         vector[1] = l->vector_mask.feather;
         vp = vector;
@@ -509,8 +556,28 @@ static pc_status record(pc_io_ex *ex, const pc_layer *l, pc_psd_block *extra, si
             rec.mask.mask.real_first = true;
         }
     }
-    rec.flags = (uint8_t)((l->visible ? 0 : PC_PSD_LF_HIDDEN) |
-                          (l->locks.transparency ? PC_PSD_LF_TRANSPARENCY_PROTECTED : 0));
+    /* A Background carries no transparency channel: that is how Photoshop tells it apart. */
+    if (!ex->background_computed) {
+        ex->has_background = psd_background(ex->doc, &ex->background);
+        ex->background_computed = true;
+    }
+    if (st == PC_OK && ex->has_background && l->id == ex->background) {
+        size_t w = 0;
+        size_t r;
+        for (r = 0; r < rec.nchannels; r++) {
+            if (rec.channels[r].id != -1) {
+                rec.channels[w++] = rec.channels[r];
+            } else {
+                pc_psd_bytes_fini(&rec.channels[r].data);
+            }
+        }
+        rec.nchannels = w;
+    }
+    /* As Photoshop writes them: bit 4 is meaningful (BIT4_USEFUL), and set for layers whose
+     * pixels don't show (adjustment layers), per psd_export.rs. */
+    rec.flags = (uint8_t)(PC_PSD_LF_BIT4_USEFUL | (l->visible ? 0 : PC_PSD_LF_HIDDEN) |
+                          (l->locks.transparency ? PC_PSD_LF_TRANSPARENCY_PROTECTED : 0) |
+                          (l->content.kind == PC_LAYER_ADJUSTMENT ? PC_PSD_LF_PIXEL_DATA_IRRELEVANT : 0));
     if (st == PC_OK) {
         st = unicode_name_block(&l->name, &b, err);
         st = st == PC_OK ? push_block(&rec.blocks, &rec.nblocks, &cap, &b, err) : st;
@@ -1168,6 +1235,34 @@ static pc_status content_blocks(pc_io_ex *ex, const pc_layer *l, pc_psd_block **
         free(d);
         pc_buf_fini(&b);
     }
+    /* The layer's XMP packet goes into its shmd block (created when it has none); import takes
+     * it back out, so a layer without one keeps the block as it was. A metadata block that can't
+     * be read is left alone with a warning, never replaced. */
+    if (st == PC_OK && l->has_xmp) {
+        size_t pos = raw.n;
+        for (size_t i = 0; i < raw.n; i++) {
+            if (key_is(raw.v[i].key, "shmd")) {
+                pos = i;
+                break;
+            }
+        }
+        {
+            pc_psd_bytes xb = {NULL, 0};
+            pc_error xe;
+            pc_status xs = pc_psd_put_layer_xmp(pos < raw.n ? raw.v[pos].data : NULL,
+                                                pos < raw.n ? raw.v[pos].len : 0, pos < raw.n,
+                                                pc_str_c(&l->xmp), &xb, &xe);
+            if (xs == PC_OK) {
+                st = put_in_place(&raw, "shmd", xb.data, xb.len, err);
+            } else {
+                st = pc_io_warn(&ex->warnings, err,
+                                "layer \"%s\": its XMP metadata was not saved (its metadata block "
+                                "can't be read)",
+                                pc_str_c(&l->name));
+            }
+            pc_psd_bytes_fini(&xb);
+        }
+    }
     if (st == PC_OK && regen.n + raw.n > 0) {
         blocks = pc_calloc_array(regen.n + raw.n, sizeof *blocks);
         if (blocks == NULL) {
@@ -1335,6 +1430,8 @@ pc_status pc_io_ex_emit(pc_io_ex *ex, const pc_layer *layers, size_t n, size_t d
         const pc_surface *px = NULL;
         pc_surface fill;
         bool own_fill = false;
+        pc_surface unmixed;
+        bool own_unmixed = false;
         pc_psd_layer rec;
         pc_status st = content_blocks(ex, l, &extra, &nextra, err);
         if (st != PC_OK) {
@@ -1392,9 +1489,24 @@ pc_status pc_io_ex_emit(pc_io_ex *ex, const pc_layer *layers, size_t n, size_t d
         case PC_LAYER_SHAPE:
             px = l->content.u.shape.has_cache ? &l->content.u.shape.cache : NULL;
             break;
-        case PC_LAYER_SMART:
-            px = l->content.u.smart.has_cache ? &l->content.u.smart.cache : NULL;
+        case PC_LAYER_SMART: {
+            const pc_smart_object *sm = &l->content.u.smart;
+            const pc_surface *u;
+            px = sm->has_cache ? &sm->cache : NULL;
+            /* Photoshop's record holds the filtered pixels without the filter mask: unmix it out
+             * of the mixed cache using the unfiltered pixels kept while building the FEid item. */
+            u = pc_io_ex_unfiltered_for(&ex->smart, l->id);
+            if (u != NULL && sm->has_cache && sm->has_filter_mask && pc_io_sm_masked(sm)) {
+                st = pc_compose_filter_mask_unmix(u, &sm->cache, &sm->filter_mask, &unmixed, err);
+                if (st != PC_OK) {
+                    pc_psd_blocks_free(extra, nextra);
+                    return st;
+                }
+                own_unmixed = true;
+                px = &unmixed;
+            }
             break;
+        }
         case PC_LAYER_ADJUSTMENT:
         default:
             break;
@@ -1402,6 +1514,9 @@ pc_status pc_io_ex_emit(pc_io_ex *ex, const pc_layer *layers, size_t n, size_t d
         st = record(ex, l, extra, nextra, px, &rec, err);
         if (own_fill) {
             pc_surface_fini(&fill);
+        }
+        if (own_unmixed) {
+            pc_surface_fini(&unmixed);
         }
         if (st == PC_OK) {
             st = push_record(ex, &rec, l->has_link_group, l->link_group, err);

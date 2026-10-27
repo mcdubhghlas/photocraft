@@ -47,7 +47,7 @@ de {"filter":"gaussianBlur","radius":true}	ERR invalid type: boolean `true`, exp
 de {"filter":"gaussianBlur","radius":[]}	ERR invalid type: sequence, expected f32
 de {"filter":"gaussianBlur","radius":{}}	ERR invalid type: map, expected f32
 de {"filter":"gaussianBlur","radius":1,"radius":2}	{"filter":"gaussianBlur","radius":2.0}
-de {"filter":"nope"}	ERR unknown variant `nope`, expected one of `gaussianBlur`, `boxBlur`, `motionBlur`, `radialBlur`, `surfaceBlur`, `unsharpMask`, `smartSharpen`, `highPass`, `addNoise`, `median`, `dustAndScratches`, `minimum`, `maximum`, `offset`, `mosaic`, `emboss`, `findEdges`, `solarize`, `invert`, `desaturate`, `twirl`, `pinch`, `spherize`, `wave`, `ripple`, `polarCoordinates`, `colorHalftone`, `crystallize`, `facet`, `fragment`, `mezzotint`, `pointillize`, `diffuse`, `extrude`, `oilPaint`, `tiles`, `traceContour`, `wind`, `displace`, `shear`, `zigZag`, `fibers`, `lensFlare`, `lightingEffects`, `relight`, `reduceNoise`, `smartBlur`, `lensBlur`, `shapeBlur`, `tiltShift`, `irisBlur`, `fieldBlur`, `spinBlur`, `pathBlur`, `custom`, `hsbHsl`, `colorToAlpha`, `deInterlace`, `ntscColors`, `filterGallery`
+de {"filter":"nope"}	ERR unknown variant `nope`, expected one of `gaussianBlur`, `boxBlur`, `motionBlur`, `radialBlur`, `surfaceBlur`, `unsharpMask`, `smartSharpen`, `highPass`, `addNoise`, `median`, `dustAndScratches`, `minimum`, `maximum`, `offset`, `mosaic`, `emboss`, `findEdges`, `solarize`, `invert`, `desaturate`, `twirl`, `pinch`, `spherize`, `wave`, `ripple`, `polarCoordinates`, `colorHalftone`, `crystallize`, `facet`, `fragment`, `mezzotint`, `pointillize`, `diffuse`, `extrude`, `oilPaint`, `tiles`, `traceContour`, `wind`, `displace`, `shear`, `zigZag`, `clouds`, `fibers`, `lensFlare`, `lightingEffects`, `relight`, `reduceNoise`, `smartBlur`, `lensBlur`, `shapeBlur`, `tiltShift`, `irisBlur`, `fieldBlur`, `spinBlur`, `pathBlur`, `custom`, `hsbHsl`, `colorToAlpha`, `deInterlace`, `ntscColors`, `filterGallery`
 de {"filter":0,"radius":4}	ERR invalid type: integer `0`, expected variant identifier
 de {"filter":58}	ERR invalid type: integer `58`, expected variant identifier
 de {"filter":59}	ERR invalid type: integer `59`, expected variant identifier
@@ -125,7 +125,7 @@ ser {"filter":"addNoise","amount":1.5,"distribution":"uniform","monochromatic":t
 halo {"filter":"gaussianBlur","radius":2.0} Gaussian Blur r7 5db0347622833155
 halo {"filter":"gaussianBlur","radius":-1.0} Gaussian Blur r1 322eb7197b400635
 halo {"filter":"gaussianBlur","radius":null} Gaussian Blur r1 322eb7197b400635
-halo {"filter":"gaussianBlur","radius":1e+30} Gaussian Blur r-2147483648 c0e5ebe14fec9ffd
+halo {"filter":"gaussianBlur","radius":1e+30} Gaussian Blur r2147483647 db1c2859a43b8ead
 halo {"filter":"boxBlur","radius":2.5} Box Blur r4 0b109e0de6556e85
 halo {"filter":"motionBlur","angle":0.0,"distance":-7.0} Motion Blur r6 5af0a30b25604365
 halo {"filter":"mosaic","cellSize":0.2} Mosaic r2 7bb0851bab1f4625
@@ -305,72 +305,72 @@ translate_crop 0265924edc6a2b76
 homography 3cc7dc9a78afa350
 warp rgba8 identity b9d7648d0f77c74e
 warp rgba8 translate 60a0b4d05d458f3f
-warp rgba8 subpixel d3d9c95fb4b34ec8
-warp rgba8 scale2 8a94026ff79ee59a
+warp rgba8 subpixel 6850a28a6aacff43
+warp rgba8 scale2 ce186d65fe7de024
 warp rgba8 rotate 50816ab4c9efa29a
-warp rgba8 perspective a28ed21b1efcf585
-warp rgba8 shrink8 c083e7fc18506ca4
-warp rgba8 shrink3 86b1c0cc8f465603
+warp rgba8 perspective af0e459eacaa0b4c
+warp rgba8 shrink8 577af4f37eb0e832
+warp rgba8 shrink3 430cecee0893b296
 warp rgba8 flip 82afe95547fb3ab5
 warp rgba8 singular 88348fe55e17330b
 warp rgba8 infinite 88348fe55e17330b
 warp rgba8 far 88348fe55e17330b
 warp rgba16 identity 8a60dcfafe26f2d5
 warp rgba16 translate d863a02bd51fba45
-warp rgba16 subpixel e73fd183ab9410ea
-warp rgba16 scale2 cc47406435e8ef32
+warp rgba16 subpixel 10224e3c3560172c
+warp rgba16 scale2 a623b19231a2157f
 warp rgba16 rotate b7aaf76967b0722a
-warp rgba16 perspective 69b7adc8f871ef61
-warp rgba16 shrink8 6a8681a23951453c
-warp rgba16 shrink3 1dcfbacbb6a0f44f
+warp rgba16 perspective 1f733a6ccd3b562d
+warp rgba16 shrink8 455c13dcc77961c4
+warp rgba16 shrink3 ca61ee5f543c8a8f
 warp rgba16 flip 95ce77b2e2f8360e
 warp rgba16 singular 88348fe55e17330b
 warp rgba16 infinite 88348fe55e17330b
 warp rgba16 far 88348fe55e17330b
 warp rgba32 identity ffbdaae13ad46fc6
 warp rgba32 translate cf4d3211baf3afd3
-warp rgba32 subpixel 14cbdabbad213850
-warp rgba32 scale2 985c9af4dfeb03a0
+warp rgba32 subpixel a487f15d26c0263b
+warp rgba32 scale2 4c4ce2b8aee58896
 warp rgba32 rotate 4f5ed885611e1d4f
-warp rgba32 perspective 2ac88071aa9e7534
-warp rgba32 shrink8 a54bee4011d35b3e
-warp rgba32 shrink3 eb7b1af7af0b4c93
+warp rgba32 perspective 276b9ad2df4304f0
+warp rgba32 shrink8 bc5f2f7f4507d51c
+warp rgba32 shrink3 c779cead5d307788
 warp rgba32 flip 16236bdb39159186
 warp rgba32 singular 88348fe55e17330b
 warp rgba32 infinite 88348fe55e17330b
 warp rgba32 far 88348fe55e17330b
 warp rgb8 identity 4fa662268e774315
 warp rgb8 translate a5a7bcaebd741fed
-warp rgb8 subpixel 64a420e49f2bb14e
-warp rgb8 scale2 1cde90045b5ab2bb
+warp rgb8 subpixel 9ccbb81bee752361
+warp rgb8 scale2 3197f5d90173f2ca
 warp rgb8 rotate 8efadcf5e0515055
-warp rgb8 perspective 2862018bcd771926
-warp rgb8 shrink8 ec761eb715f7f345
-warp rgb8 shrink3 9f3948969977ad8a
+warp rgb8 perspective af234dc39acbce50
+warp rgb8 shrink8 ea933d045bb5d1d7
+warp rgb8 shrink3 b1c6dbd52694634f
 warp rgb8 flip 7fcd0996afe52093
 warp rgb8 singular 88348fe55e17330b
 warp rgb8 infinite 88348fe55e17330b
 warp rgb8 far 88348fe55e17330b
 warp gray8 identity 22da91737e1f4a26
 warp gray8 translate 04bbca4156c49577
-warp gray8 subpixel 0ae5cc400a277c24
-warp gray8 scale2 31ac94a29d8e83bd
+warp gray8 subpixel e7e81f88e2ca0c70
+warp gray8 scale2 672b90ab9b4d02f0
 warp gray8 rotate a494e8d7a89381a6
-warp gray8 perspective 33b499848e1c4c4f
-warp gray8 shrink8 fafe2b0fb5fd2154
-warp gray8 shrink3 0c8a7cf139531431
+warp gray8 perspective cd8f1ce6a3af001d
+warp gray8 shrink8 e6ad4f0f63fe4724
+warp gray8 shrink3 ebfc32b3fa6988eb
 warp gray8 flip 9342d7358a2738f3
 warp gray8 singular 621e460a322561f1
 warp gray8 infinite 621e460a322561f1
 warp gray8 far 621e460a322561f1
 warp cmyka8 identity f8dddd4ea5886436
 warp cmyka8 translate d0eb79c474e7aad6
-warp cmyka8 subpixel a4b79993723023c1
-warp cmyka8 scale2 e3208b83d5c3c1fd
+warp cmyka8 subpixel e2d1a4c2f9a867ea
+warp cmyka8 scale2 69891dcc2e870b56
 warp cmyka8 rotate e22001373df9c546
-warp cmyka8 perspective aad2c9ca3fbc7f65
-warp cmyka8 shrink8 3f707fadd6d0d66f
-warp cmyka8 shrink3 9c470f2b35a3a0b6
+warp cmyka8 perspective 71f77eb58af02d96
+warp cmyka8 shrink8 7d20fa7dfdf31cfa
+warp cmyka8 shrink3 01f2c4d0f7a915b7
 warp cmyka8 flip 47037b77800cc06b
 warp cmyka8 singular 26c3e847f14a7ae0
 warp cmyka8 infinite 26c3e847f14a7ae0
@@ -390,55 +390,55 @@ weights 3x2 3dbf7c25758154c5
 weights 1x1 337c9a5427b85e95
 apply rgba8 invert a4d6167d50ab5c3d
 apply rgba8 solarize 764f17ba1b34d1ff
-apply rgba8 findEdges e1c0a60e4e062097
+apply rgba8 findEdges fbcf99212958ace8
 apply rgba8 offsetWrap dd0ff63db4b94045
 apply rgba8 offsetRepeat cf9af83a9b224b7c
 apply rgba8 offsetTransparent 897f1c25f364565d
 apply rgba16 invert 020ea69ef6c3f71e
 apply rgba16 solarize d71e95ed0cdbffe4
-apply rgba16 findEdges 502494050f7d7b39
+apply rgba16 findEdges 7d64f418296c7958
 apply rgba16 offsetWrap a71573bd4349e16b
 apply rgba16 offsetRepeat 7b9fd5c6b6ecf571
 apply rgba16 offsetTransparent 5249913369fbf416
 apply rgba32 invert e80c7646bd77b953
 apply rgba32 solarize 22c2b70366a07a2d
-apply rgba32 findEdges 3a03ee88e887c435
+apply rgba32 findEdges 05e424cf5fc113f7
 apply rgba32 offsetWrap 2af5e1492d46aaf0
 apply rgba32 offsetRepeat a2259d2d23acc0a8
 apply rgba32 offsetTransparent 1447cc2642a5b493
 apply rgb8 invert 68545ad95602a047
 apply rgb8 solarize 54e258a838d5c2a0
-apply rgb8 findEdges 581b143b205fbfd2
+apply rgb8 findEdges 83adaa74d0862a77
 apply rgb8 offsetWrap acca040687723294
 apply rgb8 offsetRepeat cce8d030bfc78465
 apply rgb8 offsetTransparent 4561d9a3b066bab6
 apply gray8 invert 0c3d1583fd46d385
 apply gray8 solarize b8ab14fb691c6374
-apply gray8 findEdges 699aaf10472a2d37
+apply gray8 findEdges 304a1ac3e476ab59
 apply gray8 offsetWrap dd7283c1ca927904
 apply gray8 offsetRepeat 785814a239ef5f4c
 apply gray8 offsetTransparent 101635d64aaffe04
 apply graya16 invert 02ea756e5ca5752c
 apply graya16 solarize 29bc4babc59d39b1
-apply graya16 findEdges 0d44e7586bcb80dd
+apply graya16 findEdges ecd8a8bc97f0e372
 apply graya16 offsetWrap 77c9b225509e0135
 apply graya16 offsetRepeat 5da8212504871e66
 apply graya16 offsetTransparent 05c57e1c0b8596db
 apply cmyka8 invert c6965c2abe2fefc6
 apply cmyka8 solarize eae2eb323594a228
-apply cmyka8 findEdges 70b820de1939a1ce
+apply cmyka8 findEdges 4994735da76b0be2
 apply cmyka8 offsetWrap e7b1f8660b442f56
 apply cmyka8 offsetRepeat 43e1ad897c3225bc
 apply cmyka8 offsetTransparent 639aa127035859d1
 apply laba16 invert 020ea69ef6c3f71e
 apply laba16 solarize d71e95ed0cdbffe4
-apply laba16 findEdges 502494050f7d7b39
+apply laba16 findEdges 7d64f418296c7958
 apply laba16 offsetWrap a71573bd4349e16b
 apply laba16 offsetRepeat 7b9fd5c6b6ecf571
 apply laba16 offsetTransparent 5249913369fbf416
 apply laba32 invert e80c7646bd77b953
 apply laba32 solarize 22c2b70366a07a2d
-apply laba32 findEdges 3a03ee88e887c435
+apply laba32 findEdges 05e424cf5fc113f7
 apply laba32 offsetWrap 2af5e1492d46aaf0
 apply laba32 offsetRepeat a2259d2d23acc0a8
 apply laba32 offsetTransparent 1447cc2642a5b493
@@ -603,36 +603,36 @@ r5_shadows_highlights 5 96d82ca45b98f8f4 2b105927b124f2f5 1aa30c9ea07a94b0
 r5_shadows_highlights 6 18440fa62c05ef3f f9d7545861cf067f 458ddaecc56be5ee
 r5_quads fc5c5d3f0400f5ad
 r5_is_identity a689911e94ec72d1
-r5_warp rgba8 steep e927d6be8d2af646
-r5_warp rgba8 horizon baf77a289e39bd27
-r5_warp rgba8 behind 171b09001fc40063
-r5_warp rgba8 cross 2f1d7120543717bd
-r5_warp rgba8 shrink 20b55eb41b6041ec
-r5_warp rgba8 translate 7cfd9217c48effb3
-r5_warp rgba16 steep 578fd4e881c9d676
-r5_warp rgba16 horizon ad20ee060c91f3e1
-r5_warp rgba16 behind f4b2cd6890323840
-r5_warp rgba16 cross 17f30b1b2af9d002
-r5_warp rgba16 shrink acc0cb215334fe0b
-r5_warp rgba16 translate 5297775c22583a56
-r5_warp rgba32 steep c7693f52abfb67de
-r5_warp rgba32 horizon a84e1ef913f32512
-r5_warp rgba32 behind 5dc185f971f84121
-r5_warp rgba32 cross 5fff9300d5a6dfc3
-r5_warp rgba32 shrink a174e807e7470819
-r5_warp rgba32 translate 5025ae7ef73257bd
-r5_warp rgb8 steep af9e216992284165
-r5_warp rgb8 horizon 5cea17506cae9b8e
-r5_warp rgb8 behind 3d86644d7af91969
-r5_warp rgb8 cross 857757a8872ee3c9
-r5_warp rgb8 shrink ab4fe49219ab5c86
-r5_warp rgb8 translate ae8a756a7e8d3d4d
-r5_warp gray32 steep 8bbb946cae5e5af3
-r5_warp gray32 horizon f2a92c210423b0f7
-r5_warp gray32 behind 362f9674ae4a2e59
-r5_warp gray32 cross e4abed624c547213
-r5_warp gray32 shrink d83fb5901730cea6
-r5_warp gray32 translate 25ffe0ef44e22466
+r5_warp rgba8 steep 3bf3fea6e9c055ff
+r5_warp rgba8 horizon 891d2d28efd35537
+r5_warp rgba8 behind ca93ed922daa63db
+r5_warp rgba8 cross 8c854d79774337cd
+r5_warp rgba8 shrink 4f0fade95a50403f
+r5_warp rgba8 translate f7fdf9235d37c95e
+r5_warp rgba16 steep e73ddc9e055bc9d8
+r5_warp rgba16 horizon 9cd4b77d07abf787
+r5_warp rgba16 behind 944dc1f52ea9d5e3
+r5_warp rgba16 cross aeffc9e7b3c5a471
+r5_warp rgba16 shrink 97492c82db5e6bbf
+r5_warp rgba16 translate ae82594adf4dc37f
+r5_warp rgba32 steep 64e05f2a1fe0b6bf
+r5_warp rgba32 horizon 1a2346967876daf9
+r5_warp rgba32 behind c509ff466e9927f8
+r5_warp rgba32 cross 53bcc6b8711b0e9d
+r5_warp rgba32 shrink ef98bdc7c488dbfd
+r5_warp rgba32 translate d104f6a6ca40be5b
+r5_warp rgb8 steep 77bedde61833da7f
+r5_warp rgb8 horizon 4668ecafd4f8922a
+r5_warp rgb8 behind 37a82e907c2d0ecf
+r5_warp rgb8 cross f5c92e52f37877b4
+r5_warp rgb8 shrink f60dec06f61f94ee
+r5_warp rgb8 translate 7acae80abb689fa2
+r5_warp gray32 steep f818f21db54a7a76
+r5_warp gray32 horizon 9670324a5dd2a47c
+r5_warp gray32 behind 46a99861269df4c6
+r5_warp gray32 cross 33b554f7de3210ce
+r5_warp gray32 shrink 522f218de81b87d8
+r5_warp gray32 translate 6f1816c3fccb98be
 r5_stack_levels 7507d8ceb781eaa0
 r5_fuse_stack 1 0 8437dce9c5d1c898
 r5_fuse_stack 1 1 8437dce9c5d1c898

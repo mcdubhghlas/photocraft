@@ -5,6 +5,7 @@
 
 #include <pthread.h>
 #include <stdatomic.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -232,6 +233,23 @@ pc_status pc_algo_apply_tiled_with(const pc_surface *s, const pc_algo_filter *f,
     r.nx = ((uint64_t)pc_rect_width(area) + (uint64_t)tile - 1) / (uint64_t)tile;
     ny = ((uint64_t)pc_rect_height(area) + (uint64_t)tile - 1) / (uint64_t)tile;
     ntiles = r.nx * ny;
+    /* Every windowed filter: a Filter Gallery stack sums its effects' reach, and a radius is
+     * caller-supplied, so a short parameter set can ask for a huge source window per tile. Reject
+     * hostile source-window sizes (a negative reach reads as an enormous usize, as in the
+     * reference) before Image::read allocates them; the caller keeps the input unchanged. */
+    if (!r.halo.bounds) {
+        size_t tw = (size_t)pc_rect_width(area), th = (size_t)pc_rect_height(area);
+        size_t cw = tw < (size_t)tile ? tw : (size_t)tile, ch = th < (size_t)tile ? th : (size_t)tile;
+        size_t two_reach = (size_t)2 * (size_t)(int32_t)r.halo.radius; /* reach as usize, *2, wrapping */
+        size_t a1, a2, rs, rs_bytes;
+        bool ok = pc_size_add(cw, two_reach, &a1) && pc_size_add(ch, two_reach, &a2) &&
+                  pc_size_mul(a1, a2, &rs) && pc_size_mul(rs, pc_pixel_format_channels(fmt), &rs);
+        bool too_big = !ok || rs > (size_t)512 * 1024 * 1024 ||
+                       !pc_size_mul(rs, sizeof(float), &rs_bytes) || rs_bytes > (size_t)PTRDIFF_MAX;
+        if (too_big) {
+            return pc_surface_clone(s, out, err);
+        }
+    }
     if (r.halo.bounds) {
         st = pc_algo_image_read(s, pc_rect_union(bounds, area), &shared, err);
         if (st != PC_OK) {

@@ -318,7 +318,13 @@ static parsed parse_hue(const adj_rd *r, pc_adjustment *a)
         return P_NONE;
     }
     a->kind = PC_ADJ_HUE_SATURATION;
-    a->u.hue_saturation.hue = (float)h;
+    /* Photoshop stores the colorize hue signed (200 as -160); the model keeps 0..360. */
+    if (col != 0) {
+        float hr = fmodf((float)h, 360.0f);
+        a->u.hue_saturation.hue = hr < 0.0f ? hr + 360.0f : hr;
+    } else {
+        a->u.hue_saturation.hue = (float)h;
+    }
     a->u.hue_saturation.saturation = (float)s;
     a->u.hue_saturation.lightness = (float)l;
     a->u.hue_saturation.colorize = col != 0;
@@ -775,17 +781,24 @@ static parsed parse_photo_filter(const adj_rd *r, pc_adjustment *a)
         uint32_t u[3];
         float xyz[3];
         float lin[3];
+        float rel[3];
         for (size_t i = 0; i < 3; i++) {
             if (!be32(r, 2 + 4 * i, &u[i])) {
                 return P_NONE;
             }
-            /* The stored components are an XYZ colour scaled by 32768 (unsigned). */
-            xyz[i] = (float)u[i] / 32768.0f;
+            /* The stored components are XYZ relative to the D50 white (X / 0.9642, Y, Z / 0.8249)
+             * scaled by 32768 (unsigned), so white is (32768, 32768, 32768). */
+            rel[i] = (float)u[i] / 32768.0f;
         }
-        /* Real colours stay below about 1.0; anything past 2.0 is not an XYZ colour. */
-        if (xyz[0] > 2.0f || xyz[1] > 2.0f || xyz[2] > 2.0f) {
+        /* Relative to the white, real colours stay below about 2.0; anything past that is not an
+         * XYZ colour. */
+        if (rel[0] > 2.0f || rel[1] > 2.0f || rel[2] > 2.0f) {
             return P_NONE;
         }
+        /* Bring it back to absolute D50 XYZ before converting. */
+        xyz[0] = rel[0] * PC_COLOR_D50[0];
+        xyz[1] = rel[1];
+        xyz[2] = rel[2] * PC_COLOR_D50[2];
         pc_color_mat3_mul(PC_XYZ_D50_TO_SRGB, xyz, lin);
         for (size_t i = 0; i < 3; i++) {
             rgb[i] = pc_linear_to_srgb(pc_clampf(lin[i], 0.0f, 1.0f));

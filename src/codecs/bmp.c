@@ -391,6 +391,57 @@ pc_status cx_bmp_encode(const pc_cimage *src, cx_plan p, pc_buf *out, pc_error *
     return w.st;
 }
 
+pc_status pc_cencode_bmp_indexed(uint32_t w, uint32_t h, const uint8_t *indices, size_t n,
+                                 const uint8_t (*palette)[3], size_t npal, pc_buf *out, pc_error *err)
+{
+    cx_w wr = {out, PC_OK, err};
+    size_t stride = ((size_t)w + 3) & ~(size_t)3;
+    size_t hsize = 40;
+    size_t off = 14 + hsize + npal * 4;
+    size_t data_size;
+    size_t i;
+    uint8_t pad[3] = {0, 0, 0};
+    if (w == 0 || h == 0 || (uint64_t)w * h != (uint64_t)n) {
+        return cx_malformed(err, F, "index data does not match the size");
+    }
+    if (npal == 0 || npal > 256) {
+        return cx_malformed(err, F, "a palette BMP holds 1 to 256 colours");
+    }
+    for (i = 0; i < n; i++) {
+        if ((size_t)indices[i] >= npal) {
+            return cx_malformed(err, F, "palette index out of range");
+        }
+    }
+    if (!pc_size_mul(stride, h, &data_size) || data_size > UINT32_MAX - off) {
+        return cx_encode(err, F, "image too large for BMP");
+    }
+    cx_w_put(&wr, "BM", 2);
+    cx_w_le32(&wr, (uint32_t)(off + data_size));
+    cx_w_le32(&wr, 0);
+    cx_w_le32(&wr, (uint32_t)off);
+    cx_w_le32(&wr, (uint32_t)hsize);
+    cx_w_le32(&wr, w);
+    cx_w_le32(&wr, h); /* bottom-up */
+    cx_w_le16(&wr, 1);
+    cx_w_le16(&wr, 8);
+    cx_w_le32(&wr, 0); /* BI_RGB */
+    cx_w_le32(&wr, (uint32_t)data_size);
+    cx_w_le32(&wr, 2835); /* 72 dpi */
+    cx_w_le32(&wr, 2835);
+    cx_w_le32(&wr, (uint32_t)npal);
+    cx_w_le32(&wr, 0);
+    for (i = 0; i < npal; i++) {
+        uint8_t bgra[4] = {palette[i][2], palette[i][1], palette[i][0], 0};
+        cx_w_put(&wr, bgra, 4);
+    }
+    for (size_t yy = h; yy-- > 0;) {
+        const uint8_t *row = indices + yy * (size_t)w;
+        cx_w_put(&wr, row, w);
+        cx_w_put(&wr, pad, stride - (size_t)w);
+    }
+    return wr.st;
+}
+
 pc_status pc_cbmp_palette(const uint8_t *b, size_t n, bool *has, uint8_t (**palette)[3], size_t *npal,
                           pc_error *err)
 {

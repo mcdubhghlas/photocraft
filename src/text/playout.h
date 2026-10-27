@@ -226,7 +226,7 @@ pc_status pl_builder_build(pl_builder *b, const char *text, size_t len, pl_layou
 /* ---- line breaking and alignment (linebreak.c) ---- */
 
 /* Layout::break_all_lines(max_advance) (FLT_MAX for none) with the text indent set before. */
-pc_status pl_break_all_lines(pl_layout *l, float max_advance, pc_error *err);
+pc_status pl_break_all_lines(pl_layout *l, float max_advance, bool break_word, pc_error *err);
 
 typedef enum pl_align { PL_ALIGN_LEFT, PL_ALIGN_CENTER, PL_ALIGN_RIGHT, PL_ALIGN_JUSTIFY } pl_align;
 void pl_align_lines(pl_layout *l, pl_align a, bool align_when_overflowing);

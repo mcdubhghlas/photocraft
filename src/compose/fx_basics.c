@@ -67,6 +67,35 @@ float pc_compose_fx_satin_distance(const pc_satin *s)
     return pc_rs_maxf_k(s->distance, 1.0f);
 }
 
+/* Whether `e` paints anything in Dissolve mode (#6995): then it is not local, since it turns any
+ * coverage above zero into a chance of a full pixel, picked by document-coordinate noise. */
+static bool fx_dissolves(const pc_effect *e)
+{
+    switch (e->kind) {
+    case PC_FX_DROP_SHADOW:
+    case PC_FX_INNER_SHADOW:
+        return e->u.shadow.common.blend == PC_BLEND_DISSOLVE;
+    case PC_FX_OUTER_GLOW:
+    case PC_FX_INNER_GLOW:
+        return e->u.glow.common.blend == PC_BLEND_DISSOLVE;
+    case PC_FX_STROKE:
+        return e->u.stroke.common.blend == PC_BLEND_DISSOLVE;
+    case PC_FX_COLOR_OVERLAY:
+        return e->u.color_overlay.common.blend == PC_BLEND_DISSOLVE;
+    case PC_FX_GRADIENT_OVERLAY:
+        return e->u.gradient_overlay.common.blend == PC_BLEND_DISSOLVE;
+    case PC_FX_PATTERN_OVERLAY:
+        return e->u.pattern_overlay.common.blend == PC_BLEND_DISSOLVE;
+    case PC_FX_SATIN:
+        return e->u.satin.common.blend == PC_BLEND_DISSOLVE;
+    case PC_FX_BEVEL_EMBOSS:
+        return e->u.bevel.highlight.blend == PC_BLEND_DISSOLVE ||
+               e->u.bevel.shadow.blend == PC_BLEND_DISSOLVE;
+    default:
+        return false;
+    }
+}
+
 bool pc_compose_fx_maps_are_local(const pc_layer *layer)
 {
     size_t i;
@@ -75,6 +104,9 @@ bool pc_compose_fx_maps_are_local(const pc_layer *layer)
         bool local;
         if (!pc_effect_enabled(e)) {
             continue;
+        }
+        if (fx_dissolves(e)) {
+            return false;
         }
         switch (e->kind) {
         case PC_FX_STROKE:

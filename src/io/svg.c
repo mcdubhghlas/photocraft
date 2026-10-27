@@ -489,6 +489,8 @@ static pc_status shape_layer(conv *c, sv_arena *a, const sv_unode *p, sv_ts pare
         return PC_OK;
     }
     memset(&sh, 0, sizeof sh);
+    sh.density = 1.0f; /* ShapeLayer::default(): full fill density, no feather */
+    sh.feather = 0.0f;
     sh.path.subpaths = sp.v;
     sh.path.nsubpaths = sp.n;
     sh.path.fill_rule = p->fill != NULL && p->fill->evenodd ? PC_FILL_RULE_EVENODD : PC_FILL_RULE_NONZERO;

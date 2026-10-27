@@ -11,6 +11,7 @@
  * Contours are emitted as subpaths: the first combines, the rest exclude, which is the even-odd
  * area for nested, non-crossing contours regardless of their orientation. */
 #include <math.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -152,12 +153,18 @@ typedef struct grid {
     pc_rect rect;
 } grid;
 
+/* Non-finite samples (NaN/inf) are treated as 0 so marching squares stays well defined. */
+static float clean_val(float v)
+{
+    return isfinite(v) ? v : 0.0f;
+}
+
 static float gget(const grid *g, int64_t x, int64_t y)
 {
     if (x < 0 || y < 0 || x >= g->w || y >= g->h) {
-        return g->outside;
+        return g->outside; /* already cleaned at setup */
     }
-    return g->values[(size_t)(y * g->w + x)];
+    return clean_val(g->values[(size_t)(y * g->w + x)]);
 }
 
 static P point_between(const grid *g, int64_t ax0, int64_t ay0, int64_t bx0, int64_t by0)
@@ -165,7 +172,8 @@ static P point_between(const grid *g, int64_t ax0, int64_t ay0, int64_t bx0, int
     const float lvl = 0.5f;
     float va = gget(g, ax0, ay0);
     float vb = gget(g, bx0, by0);
-    double t = fabsf(vb - va) > 1e-9f ? pc_clampd((double)((lvl - va) / (vb - va)), 0.0, 1.0) : 0.5;
+    double raw_t = fabsf(vb - va) > 1e-9f ? (double)((lvl - va) / (vb - va)) : 0.5;
+    double t = isfinite(raw_t) ? pc_clampd(raw_t, 0.0, 1.0) : 0.5;
     double ax = (double)ax0 + 0.5;
     double ay = (double)ay0 + 0.5;
     double bx = (double)bx0 + 0.5;
@@ -355,7 +363,7 @@ pc_status pc_vec_contours(const float *values, size_t len, pc_rect rect, float o
     g.values = values;
     g.w = (int64_t)pc_rect_width(rect);
     g.h = (int64_t)pc_rect_height(rect);
-    g.outside = outside;
+    g.outside = clean_val(outside);
     g.rect = rect;
     if (!pc_size_mul((size_t)g.w, (size_t)g.h, &need) || need > len) {
         return pc_fail(err, PC_ERR_INVALID, "vector: trace mask has %zu values, %zux%zu needed", len,
@@ -488,14 +496,19 @@ static P walk(const P *lp, size_t n, size_t i, double window, bool fwd, bool clo
 {
     double acc = 0.0;
     size_t cur = i;
+    size_t max_steps = n < 256 ? n : 256;
     size_t s;
-    for (s = 0; s < n; s++) {
+    for (s = 0; s < max_steps; s++) {
         size_t nx;
+        double d;
         if (!closed && (fwd ? cur + 1 >= n : cur == 0)) {
             break;
         }
         nx = fwd ? (cur + 1) % n : (cur + n - 1) % n;
-        double d = len(sub(lp[nx], lp[cur]));
+        d = len(sub(lp[nx], lp[cur]));
+        if (!isfinite(d) || !isfinite(window)) {
+            break;
+        }
         if (acc + d >= window) {
             double t = (window - acc) / pc_rs_max_k(d, 1e-12);
             return add(lp[cur], mul(sub(lp[nx], lp[cur]), t));
@@ -512,14 +525,36 @@ static pc_status corners(const P *lp, size_t n, double window, bool closed, size
                          pc_error *err)
 {
     double cos_thresh = cos(pc_vec_to_radians(60.0));
-    double *turn = pc_malloc_array(n, sizeof *turn);
-    size_t *cs = pc_malloc_array(n, sizeof *cs);
+    double *turn;
+    size_t *cs;
     size_t ncs = 0;
     size_t i;
+    size_t max_neighbor_steps;
+    size_t work_budget;
+    /* Degenerate loops (too small or with non-finite points) have no corners. */
+    if (n < 3 || !isfinite(window)) {
+        *out = NULL;
+        *nout = 0;
+        return PC_OK;
+    }
+    for (i = 0; i < n; i++) {
+        if (!isfinite(lp[i].x) || !isfinite(lp[i].y)) {
+            *out = NULL;
+            *nout = 0;
+            return PC_OK;
+        }
+    }
+    turn = pc_malloc_array(n, sizeof *turn);
+    cs = pc_malloc_array(n, sizeof *cs);
     if (turn == NULL || cs == NULL) {
         free(turn);
         free(cs);
         return pc_fail(err, PC_ERR_NOMEM, "vector: out of memory");
+    }
+    max_neighbor_steps = n < 256 ? n : 256;
+    work_budget = n > SIZE_MAX / 64 ? SIZE_MAX : n * 64;
+    if (work_budget < 1024) {
+        work_budget = 1024;
     }
     for (i = 0; i < n; i++) {
         P a;
@@ -536,18 +571,30 @@ static pc_status corners(const P *lp, size_t n, double window, bool closed, size
         bool is_min = true;
         double acc = 0.0;
         size_t j = i;
+        size_t steps;
         if (turn[i] >= cos_thresh) {
             continue;
         }
+        if (work_budget == 0) {
+            break;
+        }
         /* Local minimum of the cosine within +-window (ties: first index). */
-        while (acc < window) {
+        steps = 0;
+        while (acc < window && steps < max_neighbor_steps && work_budget > 0) {
             size_t nx;
+            double d;
             if (!closed && j + 1 >= n) {
                 break;
             }
             nx = (j + 1) % n;
-            acc += len(sub(lp[nx], lp[j]));
+            d = len(sub(lp[nx], lp[j]));
+            if (!isfinite(d)) {
+                break;
+            }
+            acc += d;
             j = nx;
+            steps++;
+            work_budget--;
             if (j == i) {
                 break;
             }
@@ -558,14 +605,22 @@ static pc_status corners(const P *lp, size_t n, double window, bool closed, size
         }
         acc = 0.0;
         j = i;
-        while (is_min && acc < window) {
+        steps = 0;
+        while (is_min && acc < window && steps < max_neighbor_steps && work_budget > 0) {
             size_t pv;
+            double d;
             if (!closed && j == 0) {
                 break;
             }
             pv = (j + n - 1) % n;
-            acc += len(sub(lp[j], lp[pv]));
+            d = len(sub(lp[j], lp[pv]));
+            if (!isfinite(d)) {
+                break;
+            }
+            acc += d;
             j = pv;
+            steps++;
+            work_budget--;
             if (j == i) {
                 break;
             }
@@ -842,9 +897,23 @@ static pc_status fit_closed(const P *lp, size_t n, double tol, double window, pc
     seg_list segs = {NULL, NULL, 0, 0};
     P *pts = NULL;
     pc_knot *knots = NULL;
-    pc_status st = corners(lp, n, window, true, &cs, &ncs, err);
+    pc_status st;
     size_t i;
     size_t m;
+    /* Degenerate loop (too small or non-finite): an empty closed subpath. */
+    for (i = 0; i < n; i++) {
+        if (!isfinite(lp[i].x) || !isfinite(lp[i].y)) {
+            n = 0;
+            break;
+        }
+    }
+    if (n < 3) {
+        memset(out, 0, sizeof *out);
+        out->closed = true;
+        out->op = PC_PATH_COMBINE;
+        return PC_OK;
+    }
+    st = corners(lp, n, window, true, &cs, &ncs, err);
     if (st != PC_OK) {
         return st;
     }

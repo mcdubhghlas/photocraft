@@ -289,7 +289,7 @@ pc_status pc_cmp_render_content(const pc_layer *layer, pc_rect rect, const pc_cm
 /* ---- blending ---- */
 
 /* Deterministic hash for Dissolve (document coordinates, so it is stable under tiling). */
-static float dissolve_noise(int32_t x, int32_t y)
+float pc_cmp_dissolve_noise(int32_t x, int32_t y)
 {
     uint32_t h = ((uint32_t)x * 0x8da6b343u) ^ ((uint32_t)y * 0xd8163841u) ^ 0x9e3779b9u;
     h ^= h >> 15;
@@ -318,7 +318,7 @@ void pc_cmp_blend_into(pc_compose_buffer *backdrop, const pc_compose_buffer *src
             /* i < 2^28, so the i32 arithmetic of the reference is exact. */
             int32_t x = pc_i32_wrapping_add(rect.x0, (int32_t)(i % w));
             int32_t y = pc_i32_wrapping_add(rect.y0, (int32_t)(i / w));
-            s[3] = dissolve_noise(x, y) < s[3] * opacity ? 1.0f : 0.0f;
+            s[3] = pc_cmp_dissolve_noise(x, y) < s[3] * opacity ? 1.0f : 0.0f;
             pc_psblend_composite(PC_BLEND_NORMAL, b, s, 1.0f, b);
             continue;
         }
@@ -821,7 +821,25 @@ static pc_status composite_adjustment(const pc_layer *layer, const pc_layer *cli
     if (st == PC_OK) {
         st = pc_cmp_mask_vals(layer, backdrop->rect, cx, &mv, err);
     }
-    for (i = 0; st == PC_OK && i < backdrop->len; i++) {
+    if (st == PC_OK && layer->blend == PC_BLEND_DISSOLVE) {
+        /* An adjustment has no standalone source alpha. Its effective coverage comes from its own
+         * opacity and mask, not a continuous RGB mix (#3050): keep the adjusted colour at the
+         * pixels the dissolve noise lands below that coverage. */
+        uint32_t w = pc_rect_width(backdrop->rect);
+        for (i = 0; i < backdrop->len; i++) {
+            float k = opacity * mask_k(mv, i);
+            int32_t x = pc_i32_wrapping_add(backdrop->rect.x0, (int32_t)(uint32_t)(w > 0 ? i % w : 0));
+            int32_t y = pc_i32_wrapping_add(backdrop->rect.y0, (int32_t)(uint32_t)(w > 0 ? i / w : 0));
+            if (k > 0.0f && pc_cmp_dissolve_noise(x, y) < k) {
+                float *b = backdrop->px[i];
+                const float *a = adjusted.px[i];
+                b[0] = a[0];
+                b[1] = a[1];
+                b[2] = a[2];
+            }
+        }
+    }
+    for (i = 0; st == PC_OK && layer->blend != PC_BLEND_DISSOLVE && i < backdrop->len; i++) {
         float k = opacity * mask_k(mv, i);
         float *b = backdrop->px[i];
         const float *a = adjusted.px[i];
@@ -859,10 +877,27 @@ static pc_status composite_layer_plain(const pc_layer *layer, const pc_layer *cl
         return PC_OK;
     }
     opacity = layer->opacity * layer->fill_opacity;
-    /* Below 100 % fill Photoshop renders a pass-through group isolated, like Normal. */
+    /* Below 100 % fill Photoshop renders a pass-through group isolated, like Normal; so it does
+     * for a pass-through group that is the base of a clipping group and holds a visible adjustment
+     * child (psd-tools passthrough_clipping_mask_adjustment: an Exposure inside leaves the layers
+     * beneath alone), while such a group's blend modes still reach the backdrop. */
     if (layer->content.kind == PC_LAYER_GROUP && layer->blend == PC_BLEND_PASS_THROUGH &&
         layer->fill_opacity >= 1.0f && !pc_compose_has_effects(layer)) {
-        return composite_pass_through(layer, clipped, nclipped, backdrop, cx, scope, opacity, err);
+        bool clip_base_adjusts = false;
+        if (any_visible(clipped, nclipped)) {
+            const pc_group *grp = &layer->content.u.group;
+            size_t ci;
+            for (ci = 0; ci < grp->nchildren; ci++) {
+                if (grp->children[ci].visible &&
+                    grp->children[ci].content.kind == PC_LAYER_ADJUSTMENT) {
+                    clip_base_adjusts = true;
+                    break;
+                }
+            }
+        }
+        if (!clip_base_adjusts) {
+            return composite_pass_through(layer, clipped, nclipped, backdrop, cx, scope, opacity, err);
+        }
     }
     if (layer->content.kind == PC_LAYER_ADJUSTMENT) {
         return composite_adjustment(layer, clipped, nclipped, backdrop, cx, opacity, err);
@@ -894,6 +929,46 @@ static pc_status composite_layer_plain(const pc_layer *layer, const pc_layer *cl
             pc_layer_fini(&owned);
         }
         return st;
+    }
+    /* Opaque fast path: a Normal, full-coverage (opacity x fill >= 1) surface layer with nothing
+     * clipped, no mask or vector mask, no text gamma, outside Lab blend mixing, drawn onto a
+     * wholly transparent backdrop, is just its own straight-alpha pixels. Photoshop's public
+     * single-layer render (render_layer, an RGB/F32 context) takes this even when Fill is above
+     * 100 %, so a Lab document's lone-layer render differs from its flattened blend there. */
+    if (layer->content.kind != PC_LAYER_GROUP && layer->content.kind != PC_LAYER_FILL &&
+        layer->blend == PC_BLEND_NORMAL && opacity >= 1.0f && !any_visible(clipped, nclipped) &&
+        !layer->has_mask && !layer->has_vector_mask && pc_compose_text_gamma(layer) == 1.0f &&
+        !pc_psblend_lab_mix()) {
+        const pc_surface *fs = pc_layer_surface(layer);
+        bool transparent = true;
+        size_t fi;
+        for (fi = 0; fi < backdrop->len; fi++) {
+            if (backdrop->px[fi][3] > 0.0f) {
+                transparent = false;
+                break;
+            }
+        }
+        if (fs != NULL && transparent) {
+            pc_compose_buffer sb;
+            st = pc_compose_surface_to_buffer(fs, rect, &sb, err);
+            if (st != PC_OK) {
+                return st;
+            }
+            for (fi = 0; fi < backdrop->len && fi < sb.len; fi++) {
+                float *dp = backdrop->px[fi];
+                const float *src = sb.px[fi];
+                if (src[3] <= 0.0f) {
+                    memset(dp, 0, 4 * sizeof(float));
+                } else if (src[3] < 1.0f) {
+                    static const float zero[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+                    pc_psblend_composite(PC_BLEND_NORMAL, zero, src, 1.0f, dp);
+                } else {
+                    memcpy(dp, src, 4 * sizeof(float));
+                }
+            }
+            pc_compose_buffer_fini(&sb);
+            return PC_OK;
+        }
     }
     /* A stroked shape with visible clipped layers: the vector stroke sits above them. */
     if (any_visible(clipped, nclipped)) {
@@ -1181,14 +1256,30 @@ static pc_status composite_atop_any(const pc_layer *layer, pc_compose_buffer *ba
         if (st == PC_OK) {
             st = pc_cmp_mask_vals(layer, rect, cx, &mv, err);
         }
-        for (i = 0; st == PC_OK && i < base->len; i++) {
-            float *p = base->px[i];
-            float k = layer->opacity * layer->fill_opacity * mask_k(mv, i);
-            float bl[3];
-            int c;
-            pc_psblend_rgb(layer->blend, p, adjusted.px[i], bl);
-            for (c = 0; c < 3; c++) {
-                p[c] += (bl[c] - p[c]) * k;
+        {
+            uint32_t aw = pc_rect_width(rect);
+            for (i = 0; st == PC_OK && i < base->len; i++) {
+                float *p = base->px[i];
+                float k = layer->opacity * layer->fill_opacity * mask_k(mv, i);
+                const float *a = adjusted.px[i];
+                float bl[3];
+                int c;
+                if (layer->blend == PC_BLEND_DISSOLVE) {
+                    /* Clipping keeps the base's alpha; Dissolve selects source pixels by spatial
+                     * coverage instead of continuously mixing the colours (#3052). */
+                    int32_t x = pc_i32_wrapping_add(rect.x0, (int32_t)(uint32_t)(aw > 0 ? i % aw : 0));
+                    int32_t y = pc_i32_wrapping_add(rect.y0, (int32_t)(uint32_t)(aw > 0 ? i / aw : 0));
+                    if (pc_cmp_dissolve_noise(x, y) < k) {
+                        p[0] = a[0];
+                        p[1] = a[1];
+                        p[2] = a[2];
+                    }
+                    continue;
+                }
+                pc_psblend_rgb(layer->blend, p, a, bl);
+                for (c = 0; c < 3; c++) {
+                    p[c] += (bl[c] - p[c]) * k;
+                }
             }
         }
         free(mv);
@@ -1204,23 +1295,39 @@ static pc_status composite_atop_any(const pc_layer *layer, pc_compose_buffer *ba
     }
     opacity = layer->opacity * layer->fill_opacity;
     gamma = pc_compose_text_gamma(layer);
-    for (i = 0; i < base->len; i++) {
-        float *p = base->px[i];
-        float alpha = p[3];
-        float b[4];
-        float r[4];
-        if (alpha <= 0.0f) {
-            continue;
+    {
+        uint32_t aw = pc_rect_width(rect);
+        for (i = 0; i < base->len; i++) {
+            float *p = base->px[i];
+            float alpha = p[3];
+            const float *s = content.px[i];
+            float b[4];
+            float r[4];
+            if (alpha <= 0.0f) {
+                continue;
+            }
+            if (layer->blend == PC_BLEND_DISSOLVE) {
+                /* Clipping preserves the opaque base's alpha; Dissolve still selects source pixels
+                 * by spatial coverage instead of continuously mixing the colours (#3052). */
+                int32_t x = pc_i32_wrapping_add(rect.x0, (int32_t)(uint32_t)(aw > 0 ? i % aw : 0));
+                int32_t y = pc_i32_wrapping_add(rect.y0, (int32_t)(uint32_t)(aw > 0 ? i / aw : 0));
+                if (pc_cmp_dissolve_noise(x, y) < s[3] * opacity) {
+                    p[0] = s[0];
+                    p[1] = s[1];
+                    p[2] = s[2];
+                }
+                continue;
+            }
+            /* Blend as if the base were opaque, then keep the base's alpha. */
+            b[0] = p[0];
+            b[1] = p[1];
+            b[2] = p[2];
+            b[3] = 1.0f;
+            pc_psblend_composite_gamma(layer->blend, b, s, opacity, gamma, r);
+            p[0] = r[0];
+            p[1] = r[1];
+            p[2] = r[2];
         }
-        /* Blend as if the base were opaque, then keep the base's alpha. */
-        b[0] = p[0];
-        b[1] = p[1];
-        b[2] = p[2];
-        b[3] = 1.0f;
-        pc_psblend_composite_gamma(layer->blend, b, content.px[i], opacity, gamma, r);
-        p[0] = r[0];
-        p[1] = r[1];
-        p[2] = r[2];
     }
     pc_compose_buffer_fini(&content);
     return PC_OK;

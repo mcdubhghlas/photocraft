@@ -932,11 +932,23 @@ static void test_describe_formatting(void)
     check_describe(1.0, 1.0, "pixels", "1 pixels = 1.0000 pixels");
     check_describe(2.5, 0.125, "in", "2.5 pixels = 0.1250 in");
     check_describe(0.1, 1.00005, "mm", "0.1 pixels = 1.0001 mm");
-    check_describe(-0.0, -0.0, "x", "0 pixels = -0.0000 x");
+    check_describe(-0.0, -0.0, "x", "-0 pixels = -0.0000 x");
     check_describe(NAN, NAN, "n", "NaN pixels = NaN n");
     check_describe(INFINITY, -INFINITY, "i", "inf pixels = -inf i");
-    check_describe(1e300, 1e-7, "u", "9223372036854775807 pixels = 0.0000 u");
-    check_describe(-1e300, 0.00025, "u", "-9223372036854775808 pixels = 0.0003 u");
+    /* f64 Display prints lengths past i64::MAX in full (1 followed by 300 zeros), not i64::MAX. */
+    {
+        char want[512];
+        char digits[302];
+        size_t i;
+        for (i = 0; i < 300; i++) {
+            digits[i] = '0';
+        }
+        digits[300] = '\0';
+        snprintf(want, sizeof want, "1%s pixels = 0.0000 u", digits);
+        check_describe(1e300, 1e-7, "u", want);
+        snprintf(want, sizeof want, "-1%s pixels = 0.0003 u", digits);
+        check_describe(-1e300, 0.00025, "u", want);
+    }
     check_describe(1e-7, 0.00025, "u", "0.0000001 pixels = 0.0003 u");
     check_describe(3.0e-5, 12345.67895, "km", "0.00003 pixels = 12345.6789 km");
     check_describe(-7.0, 9.99995, "", "-7 pixels = 10.0000 ");

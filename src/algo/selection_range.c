@@ -274,7 +274,7 @@ void pc_algo_selection_hue_range(const float (*px)[4], size_t n, float center, f
 {
     size_t i;
     for (i = 0; i < n; i++) {
-        float c[3], h, chroma, dh;
+        float c[3], h, chroma, dh, max;
         int k;
         if (px[i][3] <= 0.0f) {
             mask[i] = 0.0f;
@@ -284,9 +284,11 @@ void pc_algo_selection_hue_range(const float (*px)[4], size_t n, float center, f
             c[k] = pc_clampf(px[i][k], 0.0f, 1.0f);
         }
         hue_chroma(c, &h, &chroma);
+        max = pc_rs_maxf(pc_rs_maxf(c[0], c[1]), c[2]);
         dh = pc_algo_rem_euclidf(h - center, 360.0f);
         dh = pc_rs_minf(dh, 360.0f - dh);
-        mask[i] = pc_clampf(pc_clampf(1.0f - dh / 60.0f, 0.0f, 1.0f) * chroma, 0.0f, 1.0f);
+        /* Darker colours weigh more, by 2 - max, matching Photoshop's hue-family presets (#5243). */
+        mask[i] = pc_clampf(pc_clampf(1.0f - dh / 60.0f, 0.0f, 1.0f) * chroma * (2.0f - max), 0.0f, 1.0f);
     }
 }
 

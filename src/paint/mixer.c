@@ -18,12 +18,14 @@ void pc_paint_mixer_state_default(pc_paint_mixer_state *s)
 
 bool pc_paint_mixer_state_eq(const pc_paint_mixer_state *a, const pc_paint_mixer_state *b)
 {
-    if (a->has_reservoir != b->has_reservoir || a->has_pickup != b->has_pickup || !(a->amount == b->amount)) {
+    if (a->has_reservoir != b->has_reservoir || a->has_pickup != b->has_pickup ||
+        a->has_color != b->has_color || !(a->amount == b->amount)) {
         return false;
     }
     for (int i = 0; i < 4; i++) {
         if ((a->has_reservoir && !(a->reservoir[i] == b->reservoir[i])) ||
-            (a->has_pickup && !(a->pickup[i] == b->pickup[i]))) {
+            (a->has_pickup && !(a->pickup[i] == b->pickup[i])) ||
+            (a->has_color && !(a->color[i] == b->color[i]))) {
             return false;
         }
     }
@@ -41,6 +43,51 @@ void pc_paint_mixer_state_clean(pc_paint_mixer_state *s)
 {
     s->has_pickup = false;
     memset(s->pickup, 0, sizeof s->pickup);
+}
+
+/* True when the recorded colour equals `color` (an unset colour never matches). */
+static bool color_is(const pc_paint_mixer_state *s, const float color[4])
+{
+    return s->has_color && s->color[0] == color[0] && s->color[1] == color[1] &&
+           s->color[2] == color[2] && s->color[3] == color[3];
+}
+
+void pc_paint_mixer_state_begin_stroke(pc_paint_mixer_state *s, const float color[4])
+{
+    if (!color_is(s, color)) {
+        pc_paint_mixer_state_load(s, color);
+        s->has_color = true;
+        memcpy(s->color, color, sizeof s->color);
+    }
+}
+
+void pc_paint_mixer_state_end_stroke(pc_paint_mixer_state *s, const float color[4], bool clean, bool load)
+{
+    if (clean) {
+        /* The automatic Clean empties the reservoir and the pickup well. */
+        s->has_reservoir = false;
+        memset(s->reservoir, 0, sizeof s->reservoir);
+        s->amount = 0.0f;
+        pc_paint_mixer_state_clean(s);
+    }
+    if (load) {
+        pc_paint_mixer_state_load(s, color);
+    }
+    s->has_color = true;
+    memcpy(s->color, color, sizeof s->color);
+}
+
+bool pc_paint_mixer_state_next_load(const pc_paint_mixer_state *s, const float color[4], float out[4])
+{
+    if (!color_is(s, color)) {
+        memcpy(out, color, 4 * sizeof *out);
+        return true;
+    }
+    if (s->has_reservoir) {
+        memcpy(out, s->reservoir, 4 * sizeof *out);
+        return true;
+    }
+    return false;
 }
 
 typedef struct mix_ctx {

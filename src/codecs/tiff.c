@@ -991,6 +991,25 @@ static pc_status read_metadata(const tiff_file *f, const tiff_dir *d, pc_cimage 
     if (lyr != NULL && (st = pc_meta_blob_set(&img->meta.photoshop_layers, lyr, ll, err)) != PC_OK) {
         return st;
     }
+    /* EXIF: the Exif and GPS directories IFD0 points to, with IFD0's descriptive tags, rebuilt as
+     * an EXIF block (the other pages are reduced copies or layers of the same image). */
+    if (d->at == f->first_ifd) {
+        cx_exif_dirs ed;
+        if (cx_exif_read(f->b, f->n, false, &ed)) {
+            if (cx_exif_has_directories(&ed)) {
+                pc_buf eb = PC_BUF_INIT;
+                st = cx_exif_block(&ed, &eb, err);
+                if (st == PC_OK && eb.len > 0) {
+                    st = pc_meta_blob_set(&img->meta.exif, eb.data, eb.len, err);
+                }
+                pc_buf_fini(&eb);
+            }
+            cx_exif_dirs_fini(&ed);
+            if (st != PC_OK) {
+                return st;
+            }
+        }
+    }
     return PC_OK;
 }
 
@@ -1054,6 +1073,48 @@ static pc_status crate_checks(const tiff_file *f, const tiff_dir *d, uint64_t sp
         return cx_malformed(err, F, "strip and tile tags conflict");
     }
     return PC_OK;
+}
+
+/* The a* and b* samples (1 and 2 of every pixel) of a Lab image between the file's encoding and
+ * PhotoCraft's (8 bits: a + 128; 16 bits: (a + 128) * 257). In the file, CIELab holds them signed
+ * (8 bits: a; 16 bits: a * 256) and ICCLab offset (8 bits: a + 128; 16 bits: (a + 128) * 256).
+ * `to_file` picks the direction; samples are native-endian. Bounds-checked (never past `len`). */
+static void tiff_convert_ab(uint8_t *data, size_t len, size_t channels, pc_csample sample, bool is_signed,
+                            bool to_file)
+{
+    size_t p;
+    if (sample == PC_CS_U8) {
+        if (!is_signed) {
+            return;
+        }
+        for (p = 0; channels >= 3 && p + channels <= len; p += channels) {
+            data[p + 1] ^= 0x80;
+            data[p + 2] ^= 0x80;
+        }
+    } else if (sample == PC_CS_U16) {
+        size_t stride = channels * 2;
+        for (p = 0; channels >= 3 && p + stride <= len; p += stride) {
+            int c;
+            for (c = 1; c <= 2; c++) {
+                size_t off = p + 2 * (size_t)c;
+                uint16_t v;
+                uint16_t ov;
+                memcpy(&v, data + off, 2);
+                if (to_file) {
+                    double a256 = ((double)v - 32896.0) * 256.0 / 257.0;
+                    a256 = round(a256);
+                    a256 = a256 < -32768.0 ? -32768.0 : a256 > 32767.0 ? 32767.0 : a256;
+                    ov = is_signed ? (uint16_t)(int16_t)a256 : (uint16_t)(a256 + 32768.0);
+                } else {
+                    double file_a256 = is_signed ? (double)(int16_t)v : (double)v - 32768.0;
+                    double out = round(file_a256 * 257.0 / 256.0 + 32896.0);
+                    out = out < 0.0 ? 0.0 : out > 65535.0 ? 65535.0 : out;
+                    ov = (uint16_t)out;
+                }
+                memcpy(data + off, &ov, 2);
+            }
+        }
+    }
 }
 
 /* The crate's colour type for a (patched) photometric interpretation. */
@@ -1134,6 +1195,7 @@ static pc_status decode_dir(const tiff_file *f, const tiff_dir *d, const pc_clim
     size_t alpha_at = 0;
     size_t color;
     bool all_samples;
+    bool lab = false;
     ct_kind ct = CT_GRAY;
     uint64_t eff_photometric;
     size_t chunk_spp;
@@ -1301,8 +1363,16 @@ static pc_status decode_dir(const tiff_file *f, const tiff_dir *d, const pc_clim
             l.palette[i][2] = (uint16_t)bl;
         }
     }
+    /* CIE L*a*b*: CIELab (8; a* and b* signed) and ICCLab (9; a* and b* offset) are decoded as
+     * RGB, then labelled Lab with a* and b* in PhotoCraft's encoding (tiff_convert_ab). */
+    lab = photometric == 8 || photometric == 9;
+    if (lab && (spp < 3 || !(l.src == S_U8 || l.src == S_U16))) {
+        st = cx_unsupported(err, F, "Lab image with %llu samples of %llu bits", (unsigned long long)spp,
+                            (unsigned long long)bits);
+        goto fail;
+    }
     /* Any extra sample may be the alpha; an alpha position past the samples is ignored. */
-    color = photometric == 2 ? 3 : photometric == 5 ? 4 : 1;
+    color = (photometric == 2 || photometric == 8 || photometric == 9) ? 3 : photometric == 5 ? 4 : 1;
     for (i = 0; i < nextra; i++) {
         if (extra[i] == 1 || extra[i] == 2) {
             if (color + i < spp) {
@@ -1312,7 +1382,9 @@ static pc_status decode_dir(const tiff_file *f, const tiff_dir *d, const pc_clim
             break;
         }
     }
-    all_samples = l.palette == NULL && (photometric == 2 || photometric == 5) && has_alpha_at && alpha_at > 0;
+    all_samples = l.palette == NULL &&
+                  (photometric == 2 || photometric == 5 || photometric == 8 || photometric == 9) && has_alpha_at &&
+                  alpha_at > 0;
     if ((st = crate_checks(f, d, spp, nextra, err)) != PC_OK) {
         goto fail;
     }
@@ -1323,7 +1395,7 @@ static pc_status decode_dir(const tiff_file *f, const tiff_dir *d, const pc_clim
     }
     l.compression = (uint16_t)comp;
     l.predictor = tiff_tag_uint(f, d, TAG_PREDICTOR, &v) ? (uint16_t)v : 1;
-    eff_photometric = (l.invert || l.palette != NULL || all_samples) ? 1 : photometric;
+    eff_photometric = (l.invert || l.palette != NULL || all_samples) ? 1 : lab ? 2 : photometric;
     if ((st = color_type(eff_photometric, spp, nextra, nextra > 0 && (extra[0] == 1 || extra[0] == 2), l.bits, &ct,
                          err)) != PC_OK) {
         goto fail;
@@ -1336,7 +1408,7 @@ static pc_status decode_dir(const tiff_file *f, const tiff_dir *d, const pc_clim
         l.out_layout = PC_CL_GRAY;
         chunk_spp = 1;
     } else if (ct == CT_MULTIBAND && all_samples) {
-        l.out_layout = photometric == 2 ? PC_CL_RGBA : PC_CL_CMYKA;
+        l.out_layout = photometric == 5 ? PC_CL_CMYKA : PC_CL_RGBA;
         chunk_spp = (size_t)spp;
     } else if (ct == CT_MULTIBAND && photometric <= 1) {
         l.out_layout = gray_alpha ? PC_CL_GRAYA : PC_CL_GRAY;
@@ -1356,6 +1428,16 @@ static pc_status decode_dir(const tiff_file *f, const tiff_dir *d, const pc_clim
     } else {
         st = cx_unsupported(err, F, "colour type Multiband");
         goto fail;
+    }
+    if (lab) {
+        if (l.out_layout == PC_CL_RGB) {
+            l.out_layout = PC_CL_LAB;
+        } else if (l.out_layout == PC_CL_RGBA) {
+            l.out_layout = PC_CL_LABA;
+        } else {
+            st = cx_malformed(err, F, "Lab image that does not read as three colour samples");
+            goto fail;
+        }
     }
     if (l.planar) {
         chunk_spp = 1;
@@ -1470,6 +1552,9 @@ static pc_status decode_dir(const tiff_file *f, const tiff_dir *d, const pc_clim
     if (decoded == 0 && missing > 0) {
         st = cx_malformed(err, F, "the image data is missing (cut off or past the end of the file)");
         goto fail;
+    }
+    if (lab) {
+        tiff_convert_ab(data, len, pc_clayout_channels(l.out_layout), l.out, photometric == 8, false);
     }
     st = pc_cimage_from_raw((uint32_t)w64, (uint32_t)h64, l.out_layout, l.out, data, len, out, err);
     data = NULL;
@@ -1821,39 +1906,123 @@ static bool upcase_eq(const char *a, size_t an, const char *b)
     return true;
 }
 
+static int exif_field_cmp(const void *a, const void *b)
+{
+    uint16_t ta = ((const cx_exif_field *)a)->tag;
+    uint16_t tb = ((const cx_exif_field *)b)->tag;
+    return ta < tb ? -1 : (ta > tb ? 1 : 0);
+}
+
+/* Writes an EXIF sub-directory (the Exif or GPS IFD) into the TIFF file at its current end, in the
+ * file's native byte order (reordering each value from the EXIF block's order from_le), as a
+ * self-contained classic IFD (4-byte offsets, next = 0). Sets *at to the directory's absolute
+ * file offset, for IFD0's pointer tag. Classic TIFF only (callers skip EXIF for BigTIFF). fs is a
+ * caller-owned array that is sorted in place. */
+static void write_exif_subdir(cx_w *w, bool from_le, cx_exif_field *fs, size_t n, uint64_t *at)
+{
+    bool le = host_little();
+    uint64_t base;
+    uint64_t extra;
+    size_t i;
+    if (w->b->len & 1) {
+        cx_w_byte(w, 0);
+    }
+    base = w->b->len;
+    *at = base;
+    qsort(fs, n, sizeof *fs, exif_field_cmp);
+    extra = base + 2 + 12 * (uint64_t)n + 4;
+    {
+        uint16_t cnt = (uint16_t)n;
+        cx_w_put(w, &cnt, 2);
+    }
+    for (i = 0; i < n; i++) {
+        uint32_t c = fs[i].count;
+        cx_w_put(w, &fs[i].tag, 2);
+        cx_w_put(w, &fs[i].ty, 2);
+        cx_w_put(w, &c, 4);
+        if (fs[i].vlen <= 4) {
+            uint8_t field[4] = {0, 0, 0, 0};
+            cx_exif_reorder(fs[i].ty, fs[i].val, fs[i].vlen, from_le, le, field);
+            cx_w_put(w, field, 4);
+        } else {
+            uint32_t a = (uint32_t)extra;
+            cx_w_put(w, &a, 4);
+            extra += (fs[i].vlen + 1) & ~(size_t)1;
+        }
+    }
+    {
+        uint32_t next = 0;
+        cx_w_put(w, &next, 4);
+    }
+    for (i = 0; i < n; i++) {
+        if (fs[i].vlen > 4) {
+            uint8_t *rv = pc_malloc(fs[i].vlen);
+            if (rv == NULL) {
+                if (w->st == PC_OK) {
+                    w->st = cx_nomem(w->err);
+                }
+                return;
+            }
+            cx_exif_reorder(fs[i].ty, fs[i].val, fs[i].vlen, from_le, le, rv);
+            cx_w_put(w, rv, fs[i].vlen);
+            free(rv);
+            if (fs[i].vlen & 1) {
+                cx_w_byte(w, 0);
+            }
+        }
+    }
+}
+
 static pc_status write_tiff(const pc_cimage *img, const pc_cencode_opts *o, bool big, const uint8_t *xmp,
                             size_t xmp_len, pc_buf *out, bool *overflow, pc_error *err)
 {
     size_t ch = pc_clayout_channels(img->layout);
-    size_t bps = pc_csample_bytes(img->sample);
+    /* CIELab has no float form: float Lab is written with 16 bits, the a and b samples in the
+     * file's signed encoding (tiff_convert_ab, to_file). The plan already down-converts float
+     * Lab to U16. */
+    bool is_lab = pc_clayout_is_lab(img->layout);
+    pc_csample wsample = is_lab ? (img->sample == PC_CS_U8 ? PC_CS_U8 : PC_CS_U16) : img->sample;
+    size_t bps = pc_csample_bytes(wsample);
     size_t row = (size_t)img->width * ch * bps;
     size_t rps = row > 0 ? (1000000 + row - 1) / row : 1;
     size_t nstrips;
+    pc_cimage labimg;
+    const uint8_t *src_data;
     strip_job j;
     pc_buf *parts;
     uint64_t *offs;
     uint64_t *cnts;
-    tag_out tags[32];
+    tag_out tags[48];
     size_t nt = 0;
     vals vbits;
     vals vfmt;
     vals vsmall[12];
     size_t ns = 0;
+    cx_exif_dirs edirs;
+    bool have_edirs = false;
+    uint64_t exif_sub_at = 0;
+    uint64_t gps_sub_at = 0;
+    uint8_t exif_ptr[4] = {0, 0, 0, 0};
+    uint8_t gps_ptr[4] = {0, 0, 0, 0};
     uint8_t res[16];
     size_t i;
     size_t k;
     pc_status st = PC_OK;
-    bool predict = !pc_csample_is_float(img->sample) &&
+    bool predict = !pc_csample_is_float(wsample) &&
                    (o->tiff_compression == PC_TIFF_LZW || o->tiff_compression == PC_TIFF_DEFLATE);
     uint16_t compression = o->tiff_compression == PC_TIFF_NONE    ? 1
                            : o->tiff_compression == PC_TIFF_LZW   ? 5
                            : o->tiff_compression == PC_TIFF_DEFLATE ? 8
                                                                     : 32773;
-    uint16_t photometric = pc_clayout_is_gray(img->layout) ? 1 : pc_clayout_is_rgb(img->layout) ? 2 : 5;
+    uint16_t photometric = is_lab                       ? 8
+                           : pc_clayout_is_gray(img->layout) ? 1
+                           : pc_clayout_is_rgb(img->layout)  ? 2
+                                                             : 5;
     uint8_t *offbuf = NULL;
     uint8_t *cntbuf = NULL;
     uint64_t ifd_at;
     *overflow = false;
+    memset(&edirs, 0, sizeof edirs);
     if (rps > img->height) {
         rps = img->height;
     }
@@ -1870,7 +2039,21 @@ static pc_status write_tiff(const pc_cimage *img, const pc_cencode_opts *o, bool
         free(cnts);
         return cx_nomem(err);
     }
-    j.data = img->data;
+    pc_cimage_init(&labimg);
+    src_data = img->data;
+    if (is_lab) {
+        st = pc_cimage_convert(img, img->layout, wsample, &labimg, err);
+        if (st != PC_OK) {
+            pc_cimage_fini(&labimg);
+            free(parts);
+            free(offs);
+            free(cnts);
+            return st;
+        }
+        tiff_convert_ab(labimg.data, labimg.len, ch, wsample, true, true);
+        src_data = labimg.data;
+    }
+    j.data = src_data;
     j.row = row;
     j.h = img->height;
     j.rps = rps;
@@ -1923,12 +2106,43 @@ static pc_status write_tiff(const pc_cimage *img, const pc_cencode_opts *o, bool
         *overflow = true;
         goto done;
     }
+    /* EXIF: write the Exif and GPS directories (if any) into the file before the image's IFD,
+     * capturing their offsets for IFD0's pointer tags; IFD0's descriptive tags are added below.
+     * Classic TIFF only (an EXIF block has 4-byte offsets; a BigTIFF file carries no EXIF). */
+    if (o->embed_metadata && !big && img->meta.exif.has && img->meta.exif.len > 0) {
+        size_t off = cx_exif_body(img->meta.exif.data, img->meta.exif.len);
+        if (off <= img->meta.exif.len &&
+            cx_exif_read(img->meta.exif.data + off, img->meta.exif.len - off, false, &edirs)) {
+            cx_w w = {out, PC_OK, err};
+            have_edirs = true;
+            if (edirs.n_exif > 0) {
+                write_exif_subdir(&w, edirs.le, edirs.exif, edirs.n_exif, &exif_sub_at);
+            }
+            if (edirs.n_gps > 0) {
+                write_exif_subdir(&w, edirs.le, edirs.gps, edirs.n_gps, &gps_sub_at);
+            }
+            if (w.st != PC_OK) {
+                st = w.st;
+                goto done;
+            }
+            if (exif_sub_at > UINT32_MAX || gps_sub_at > UINT32_MAX) {
+                *overflow = true;
+                goto done;
+            }
+            {
+                uint32_t a = (uint32_t)exif_sub_at;
+                uint32_t g = (uint32_t)gps_sub_at;
+                memcpy(exif_ptr, &a, 4);
+                memcpy(gps_ptr, &g, 4);
+            }
+        }
+    }
     /* tag values */
     memset(&vbits, 0, sizeof vbits);
     memset(&vfmt, 0, sizeof vfmt);
     for (i = 0; i < ch; i++) {
         v16(&vbits, (uint16_t)(bps * 8));
-        v16(&vfmt, pc_csample_is_float(img->sample) ? 3 : 1);
+        v16(&vfmt, pc_csample_is_float(wsample) ? 3 : 1);
     }
     offbuf = malloc(nstrips * (big ? 8 : 4));
     cntbuf = malloc(nstrips * (big ? 8 : 4));
@@ -2066,6 +2280,46 @@ static pc_status write_tiff(const pc_cimage *img, const pc_cencode_opts *o, bool
                 break;
             }
         }
+        /* The EXIF block's descriptive IFD0 tags (make, model, date, ...), unless a text tag of the
+         * same id was already written, plus the pointers to the Exif and GPS directories. The IFD0
+         * descriptive tags are ASCII (one-byte elements), so they need no byte-order reordering. */
+        if (have_edirs) {
+            for (i = 0; i < edirs.n_ifd0 && nt < 46; i++) {
+                size_t z;
+                bool dup = false;
+                for (z = 0; z < nt; z++) {
+                    if (tags[z].tag == edirs.ifd0[i].tag) {
+                        dup = true;
+                        break;
+                    }
+                }
+                if (dup || cx_exif_element(edirs.ifd0[i].ty) != 1) {
+                    continue;
+                }
+                tags[nt].tag = edirs.ifd0[i].tag;
+                tags[nt].ty = edirs.ifd0[i].ty;
+                tags[nt].count = edirs.ifd0[i].count;
+                tags[nt].data = edirs.ifd0[i].val;
+                tags[nt].len = edirs.ifd0[i].vlen;
+                nt++;
+            }
+            if (edirs.n_exif > 0 && nt < 47) {
+                tags[nt].tag = 34665;
+                tags[nt].ty = 4;
+                tags[nt].count = 1;
+                tags[nt].data = exif_ptr;
+                tags[nt].len = 4;
+                nt++;
+            }
+            if (edirs.n_gps > 0 && nt < 48) {
+                tags[nt].tag = 34853;
+                tags[nt].ty = 4;
+                tags[nt].count = 1;
+                tags[nt].data = gps_ptr;
+                tags[nt].len = 4;
+                nt++;
+            }
+        }
     }
     /* Document content, not metadata: written whenever present. */
     if (img->meta.photoshop_resources.has && img->meta.photoshop_resources.len > 0) {
@@ -2088,7 +2342,7 @@ static pc_status write_tiff(const pc_cimage *img, const pc_cencode_opts *o, bool
     {
         cx_w w = {out, PC_OK, err};
         size_t inl = big ? 8 : 4;
-        uint64_t at[32];
+        uint64_t at[48];
         /* out-of-line values, word aligned */
         for (i = 0; i < nt; i++) {
             if (tags[i].len > inl) {
@@ -2166,6 +2420,10 @@ done:
     free(cnts);
     free(offbuf);
     free(cntbuf);
+    if (have_edirs) {
+        cx_exif_dirs_fini(&edirs);
+    }
+    pc_cimage_fini(&labimg);
     return st;
 }
 

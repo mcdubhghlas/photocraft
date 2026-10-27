@@ -548,7 +548,19 @@ pc_status pc_compose_fx_distance_field(pc_compose_fx_field_kind kind, const floa
     case PC_COMPOSE_FIELD_STROKE_INSIDE:
         st = pc_fx_dist_inside(&s, PC_FX_CHAMFER, &d, err);
         break;
+    case PC_COMPOSE_FIELD_STROKE_OUTSIDE_EXACT:
+        /* A wide stroke's outer edge: exact Euclidean distance outside the shape (#3646). */
+        st = pc_fx_dist_outside(&s, PC_FX_EUCLIDEAN, &d, err);
+        break;
     case PC_COMPOSE_FIELD_STROKE_OUTSIDE_VECTOR:
+        /* A wide vector stroke's outer edge: exact Euclidean distance outside the local coverage. */
+        st = pc_fx_local_coverage(&s, &t, err);
+        if (st == PC_OK) {
+            st = pc_fx_dist_outside(&t, PC_FX_EUCLIDEAN, &d, err);
+        }
+        break;
+    case PC_COMPOSE_FIELD_STROKE_OUTSIDE_VECTOR_CHAMFER:
+        /* A narrow vector stroke's outer edge: chamfer distance outside the local coverage. */
         st = pc_fx_local_coverage(&s, &t, err);
         if (st == PC_OK) {
             st = pc_fx_dist_outside(&t, PC_FX_CHAMFER, &d, err);
@@ -642,13 +654,32 @@ static void box_line(const double *src, size_t n, int64_t x0, double *dst, size_
         }
         return;
     }
+    int64_t last_covered = INT64_MIN;
     for (i = x0 - (r - 1); i <= x0 + (r - 1); i++) {
         inner += AT(i);
     }
+    /* The highest index in the initial window with coverage (window.rev().find). */
+    for (i = x0 + (r - 1); i >= x0 - (r - 1); i--) {
+        if (AT(i) != 0.0) {
+            last_covered = i;
+            break;
+        }
+    }
     for (k = 0; k < m; k++) {
         int64_t x = x0 + (int64_t)k;
+        double entering;
         dst[k] = (inner + f * (AT(x - r) + AT(x + r))) * norm;
-        inner += AT(x + r) - AT(x - r + 1);
+        entering = AT(x + r);
+        inner += entering - AT(x - r + 1);
+        if (entering != 0.0) {
+            last_covered = x + r;
+        }
+        /* Cancellation can leave positive residue after the last covered pixel leaves; noise
+         * amplifies even that residue into visible speckles (#5638). Reset only truly empty
+         * windows, preserving arbitrarily faint real coverage. */
+        if (last_covered < x - r + 2) {
+            inner = 0.0;
+        }
     }
 #undef AT
 }
@@ -1007,7 +1038,9 @@ static void noise(pc_fxm *m, float amount, int32_t x0, int32_t y0)
             }
             nv = pc_compose_fx_hash_noise((int64_t)pc_i32_wrapping_add(x0, (int32_t)x),
                                           (int64_t)pc_i32_wrapping_add(y0, (int32_t)y));
-            *v = pc_clampf(*v + (nv - 0.5f) * 2.0f * amount, 0.0f, 1.0f);
+            /* Scaled by the coverage, so it fades out with the effect instead of lighting up the
+             * blur's near-zero tail out to the edge of its rectangular reach (#7833). */
+            *v = pc_clampf(*v * (1.0f + (nv - 0.5f) * 2.0f * amount), 0.0f, 1.0f);
         }
     }
 }

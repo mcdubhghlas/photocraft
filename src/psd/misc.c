@@ -171,6 +171,234 @@ pc_status pc_psd_write_shmd(const pc_psd_meta_item *items, size_t n, pc_psd_byte
     return psd_w_finish(&w, out);
 }
 
+/* ---- per-layer XMP: shmd › cust › layerXMP (a TEXT item in the `cust` item's versioned
+ * descriptor, Photoshop's layer.xmpMetadata.rawData; port of crates/psd/metadata.rs) ---- */
+
+/* The `cust` item's versioned descriptor, or *found = false when the item is not `cust` or does
+ * not parse (the caller then keeps the raw bytes). */
+static bool cust_descriptor(const pc_psd_meta_item *it, pc_psd_desc *out)
+{
+    pc_error e;
+    size_t used = 0;
+    if (memcmp(it->key, "cust", 4) != 0) {
+        return false;
+    }
+    if (pc_psd_vdesc_parse_prefix(it->data.data, it->data.len, out, &used, &e) != PC_OK) {
+        return false;
+    }
+    return true;
+}
+
+/* Index of the `layerXMP` TEXT item in `d`, or SIZE_MAX. */
+static size_t layer_xmp_index(const pc_psd_desc *d)
+{
+    for (size_t k = 0; k < d->n; k++) {
+        if (pc_psd_id_is(&d->items[k].key, "layerXMP") && d->items[k].value.kind == PC_PSD_V_TEXT) {
+            return k;
+        }
+    }
+    return SIZE_MAX;
+}
+
+static pc_status pad_even_bytes(pc_psd_bytes *b, pc_error *err)
+{
+    size_t old = b->len;
+    if (old % 2 == 1) {
+        uint8_t *p = pc_malloc(old + 1);
+        if (p == NULL) {
+            return psd_nomem(err);
+        }
+        memcpy(p, b->data, old);
+        p[old] = 0;
+        pc_psd_bytes_fini(b);
+        b->data = p;
+        b->len = old + 1;
+    }
+    return PC_OK;
+}
+
+pc_status pc_psd_take_layer_xmp(const uint8_t *shmd, size_t len, bool *found, char **xmp, bool *has_rest,
+                                pc_psd_bytes *rest, pc_error *err)
+{
+    pc_psd_meta_item *items = NULL;
+    size_t n = 0;
+    pc_error e;
+    *found = false;
+    *xmp = NULL;
+    *has_rest = false;
+    rest->data = NULL;
+    rest->len = 0;
+    if (pc_psd_parse_shmd(shmd, len, &items, &n, &e) != PC_OK) {
+        return PC_OK; /* unreadable: the caller keeps the original bytes */
+    }
+    for (size_t i = 0; i < n; i++) {
+        pc_psd_desc d;
+        size_t at;
+        char *x = NULL;
+        memset(&d, 0, sizeof d);
+        if (!cust_descriptor(&items[i], &d)) {
+            continue;
+        }
+        at = layer_xmp_index(&d);
+        if (at == SIZE_MAX) {
+            pc_psd_desc_fini(&d);
+            continue;
+        }
+        if (pc_psd_ustr_to_utf8(&d.items[at].value.text, &x, err) != PC_OK) {
+            pc_psd_desc_fini(&d);
+            pc_psd_meta_items_free(items, n);
+            return psd_nomem(err);
+        }
+        pc_psd_value_fini(&d.items[at].value);
+        pc_psd_id_fini(&d.items[at].key);
+        memmove(&d.items[at], &d.items[at + 1], (d.n - at - 1) * sizeof d.items[0]);
+        d.n--;
+        *found = true;
+        *xmp = x;
+        if (d.n == 0) {
+            pc_psd_desc_fini(&d);
+            pc_psd_bytes_fini(&items[i].data);
+            memmove(&items[i], &items[i + 1], (n - i - 1) * sizeof items[0]);
+            n--;
+        } else {
+            pc_psd_bytes vb = {NULL, 0};
+            pc_status st = pc_psd_vdesc_to_bytes(&d, &vb, err);
+            pc_psd_desc_fini(&d);
+            if (st == PC_OK) {
+                st = pad_even_bytes(&vb, err);
+            }
+            if (st != PC_OK) {
+                pc_psd_bytes_fini(&vb);
+                free(*xmp);
+                *xmp = NULL;
+                *found = false;
+                pc_psd_meta_items_free(items, n);
+                return st;
+            }
+            pc_psd_bytes_fini(&items[i].data);
+            items[i].data = vb;
+        }
+        if (n > 0) {
+            pc_status st = pc_psd_write_shmd(items, n, rest, err);
+            if (st != PC_OK) {
+                free(*xmp);
+                *xmp = NULL;
+                *found = false;
+                pc_psd_meta_items_free(items, n);
+                return st;
+            }
+            *has_rest = true;
+        }
+        pc_psd_meta_items_free(items, n);
+        return PC_OK;
+    }
+    pc_psd_meta_items_free(items, n);
+    return PC_OK;
+}
+
+pc_status pc_psd_put_layer_xmp(const uint8_t *shmd, size_t len, bool have, const char *xmp, pc_psd_bytes *out,
+                               pc_error *err)
+{
+    pc_psd_meta_item *items = NULL;
+    size_t n = 0;
+    size_t cap = 0;
+    pc_psd_value value;
+    pc_status st;
+    size_t cust_at = SIZE_MAX;
+    memset(&value, 0, sizeof value);
+    if (have) {
+        st = pc_psd_parse_shmd(shmd, len, &items, &n, err);
+        if (st != PC_OK) {
+            return st; /* an unreadable block is an error, so the caller never replaces it */
+        }
+    }
+    cap = n;
+    st = pc_psd_value_text(xmp, true, &value, err);
+    if (st != PC_OK) {
+        pc_psd_meta_items_free(items, n);
+        return st;
+    }
+    for (size_t i = 0; i < n; i++) {
+        if (memcmp(items[i].key, "cust", 4) == 0) {
+            cust_at = i;
+            break;
+        }
+    }
+    if (cust_at != SIZE_MAX) {
+        pc_psd_desc d;
+        size_t at;
+        pc_psd_bytes vb = {NULL, 0};
+        memset(&d, 0, sizeof d);
+        if (!cust_descriptor(&items[cust_at], &d)) {
+            pc_psd_value_fini(&value);
+            pc_psd_meta_items_free(items, n);
+            return pc_fail(err, PC_ERR_FORMAT, "malformed PSD: unreadable cust metadata");
+        }
+        at = layer_xmp_index(&d);
+        if (at != SIZE_MAX) {
+            pc_psd_value_fini(&d.items[at].value);
+            d.items[at].value = value;
+            value.kind = 0;
+        } else {
+            st = pc_psd_desc_add(&d, "layerXMP", &value, err);
+            if (st != PC_OK) {
+                pc_psd_desc_fini(&d);
+                pc_psd_meta_items_free(items, n);
+                return st;
+            }
+        }
+        st = pc_psd_vdesc_to_bytes(&d, &vb, err);
+        pc_psd_desc_fini(&d);
+        if (st == PC_OK) {
+            st = pad_even_bytes(&vb, err);
+        }
+        if (st != PC_OK) {
+            pc_psd_bytes_fini(&vb);
+            pc_psd_meta_items_free(items, n);
+            return st;
+        }
+        pc_psd_bytes_fini(&items[cust_at].data);
+        items[cust_at].data = vb;
+    } else {
+        pc_psd_desc d;
+        pc_psd_bytes vb = {NULL, 0};
+        pc_psd_meta_item it;
+        pc_psd_meta_item *nv;
+        st = pc_psd_desc_init(&d, "metadata", err);
+        if (st == PC_OK) {
+            st = pc_psd_desc_add(&d, "layerXMP", &value, err);
+        } else {
+            pc_psd_value_fini(&value);
+        }
+        if (st != PC_OK) {
+            pc_psd_desc_fini(&d);
+            pc_psd_meta_items_free(items, n);
+            return st;
+        }
+        st = pc_psd_vdesc_to_bytes(&d, &vb, err);
+        pc_psd_desc_fini(&d);
+        if (st == PC_OK) {
+            st = pc_psd_meta_item_make("cust", vb.data, vb.len, &it, err);
+        }
+        pc_psd_bytes_fini(&vb);
+        if (st != PC_OK) {
+            pc_psd_meta_items_free(items, n);
+            return st;
+        }
+        nv = pc_grow_array(items, &cap, n + 1, sizeof *nv);
+        if (nv == NULL) {
+            pc_psd_bytes_fini(&it.data);
+            pc_psd_meta_items_free(items, n);
+            return psd_nomem(err);
+        }
+        items = nv;
+        items[n++] = it;
+    }
+    st = pc_psd_write_shmd(items, n, out, err);
+    pc_psd_meta_items_free(items, n);
+    return st;
+}
+
 /* ---- path ---- */
 
 double pc_psd_fixed_to_f64(int32_t v)

@@ -145,8 +145,9 @@ size_t pc_io_camera_name(const char *make, const char *model, char *out, size_t 
 
 /* A developed raw as a 16-bit ProPhoto document, with a note saying how it was developed.
  * Takes over dev. */
-static pc_status developed_document(const char *name, const char *format, pc_raw_developed *dev,
-                                    const char *summary, pc_io_import_result *out, pc_error *err)
+static pc_status developed_document(const char *name, const uint8_t *bytes, size_t len, const char *format,
+                                    pc_raw_developed *dev, const char *summary, pc_io_import_result *out,
+                                    pc_error *err)
 {
     pc_cimage img;
     pc_io_import_result r;
@@ -159,6 +160,22 @@ static pc_status developed_document(const char *name, const char *format, pc_raw
     if (st != PC_OK) {
         pc_raw_developed_fini(dev);
         return pc_io_err_prefix(st, err, "codec: ");
+    }
+    /* The raw's own EXIF (camera, lens, exposure, date) for File Info's Camera Data. It carries
+     * no orientation: the developed image is already upright. */
+    {
+        pc_buf exif = PC_BUF_INIT;
+        bool has = false;
+        st = pc_raw_exif(bytes, len, &exif, &has, err);
+        if (st == PC_OK && has) {
+            st = pc_meta_blob_set(&img.meta.exif, exif.data, exif.len, err);
+        }
+        pc_buf_fini(&exif);
+        if (st != PC_OK) {
+            pc_cimage_fini(&img);
+            pc_raw_developed_fini(dev);
+            return st;
+        }
     }
     st = pc_io_image_to_document(name, &img, &r, err);
     pc_cimage_fini(&img);
@@ -232,7 +249,7 @@ pc_status pc_io_import_raw_with(const char *name, const uint8_t *bytes, size_t l
     if (st == PC_OK) {
         (void)snprintf(summary, sizeof summary, "%s (%s demosaic, as-shot white balance)",
                        PC_IO_DEVELOPED_NOTE, pc_raw_demosaic_id(opts->demosaic));
-        return developed_document(name, format, &dev, summary, out, err);
+        return developed_document(name, bytes, len, format, &dev, summary, out, err);
     }
     if (st != PC_ERR_UNSUPPORTED || !pc_raw_embedded_preview(bytes, len, &p)) {
         if (err != NULL) {
@@ -347,10 +364,10 @@ pc_status pc_io_import_raw_tuned(const char *name, const uint8_t *bytes, size_t 
             }
         }
         signed_fixed(tuning->exposure, 2, x, sizeof x);
-        (void)snprintf(summary, sizeof summary, "developed in Camera Raw (exposure %s EV%s, %s)", x,
-                       tone, wb);
+        (void)snprintf(summary, sizeof summary, "developed in Camera Raw (exposure %s EV%s, %s, %s demosaic)",
+                       x, tone, wb, pc_raw_demosaic_id(o.demosaic));
     }
-    st = developed_document(name, format, &dev, summary, &r, err);
+    st = developed_document(name, bytes, len, format, &dev, summary, &r, err);
     if (st != PC_OK) {
         return st;
     }

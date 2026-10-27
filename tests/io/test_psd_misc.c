@@ -596,6 +596,8 @@ static void test_joined_shape_components_roundtrip(void)
     memset(&c, 0, sizeof c);
     c.kind = PC_LAYER_SHAPE;
     sh = &c.u.shape;
+    sh->density = 1.0f; /* ShapeLayer::default() */
+    sh->feather = 0.0f;
     sh->path.subpaths = xmalloc(2 * sizeof *sh->path.subpaths);
     must(pc_subpath_polygon(outer_pts, 4, &sh->path.subpaths[0], NULL));
     must(pc_subpath_polygon(hole_pts, 4, &sh->path.subpaths[1], NULL));

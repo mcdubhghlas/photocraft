@@ -23,6 +23,19 @@
 #define XMP_KEYWORD "XML:com.adobe.xmp"
 #define METERS_PER_INCH 0.0254f
 
+/* Pixels per inch for a `pHYs` pixels-per-metre value. A whole number of ppi is stored rounded to
+ * a whole number of ppm, so when a whole dpi rounds back to the stored value that is the
+ * resolution that was meant, as Photoshop reads it (port of png::dpi_of_ppm). */
+static float dpi_of_ppm(uint32_t ppm)
+{
+    double dpi = (double)ppm * (double)METERS_PER_INCH;
+    double whole = round(dpi);
+    if (round(whole / (double)METERS_PER_INCH) == (double)ppm) {
+        return (float)whole;
+    }
+    return (float)dpi;
+}
+
 static bool host_little(void)
 {
     const uint16_t x = 1;
@@ -426,13 +439,114 @@ static pc_status read_meta_chunks(const uint8_t *b, size_t n, size_t alloc, pc_c
             uint32_t y = cx_be32(c.data + 4);
             if (c.data[8] == 1 && x > 0 && y > 0) {
                 img->meta.has_dpi = true;
-                img->meta.dpi_x = (float)x * METERS_PER_INCH;
-                img->meta.dpi_y = (float)y * METERS_PER_INCH;
+                img->meta.dpi_x = dpi_of_ppm(x);
+                img->meta.dpi_y = dpi_of_ppm(y);
             }
         }
     }
     *images = actl ? (uint64_t)frames + (fctl_before_idat ? 0 : 1) : 1;
     return PC_OK;
+}
+
+/* The colour table of a palette PNG (colour type 3) and the one entry its tRNS makes transparent,
+ * read from the headers without decoding pixels. *has is false for any other colour type, and for
+ * a tRNS with partial alpha or several transparent entries (an Indexed Color document holds one
+ * transparent entry). Port of png::palette. *palette is a new array the caller frees. */
+pc_status pc_cpng_palette(const uint8_t *b, size_t n, bool *has, uint8_t (**palette)[3], size_t *npal,
+                          bool *has_transparent, uint8_t *transparent, pc_error *err)
+{
+    size_t at = 8;
+    png_chunk_t c;
+    bool indexed = false;
+    const uint8_t *plte = NULL;
+    size_t plte_len = 0;
+    const uint8_t *trns = NULL;
+    size_t trns_len = 0;
+    *has = false;
+    *palette = NULL;
+    *npal = 0;
+    *has_transparent = false;
+    *transparent = 0;
+    if (n < 8 || memcmp(b, "\x89PNG\r\n\x1a\n", 8) != 0) {
+        return PC_OK;
+    }
+    while (next_chunk(b, n, &at, &c)) {
+        if (memcmp(c.type, "IEND", 4) == 0 || memcmp(c.type, "IDAT", 4) == 0) {
+            break;
+        }
+        if (!c.crc_ok) {
+            continue;
+        }
+        if (memcmp(c.type, "IHDR", 4) == 0 && c.len >= 13) {
+            indexed = c.data[9] == 3; /* colour type 3 = indexed */
+        } else if (memcmp(c.type, "PLTE", 4) == 0 && plte == NULL) {
+            plte = c.data;
+            plte_len = c.len;
+        } else if (memcmp(c.type, "tRNS", 4) == 0 && trns == NULL) {
+            trns = c.data;
+            trns_len = c.len;
+        }
+    }
+    if (!indexed || plte == NULL) {
+        return PC_OK;
+    }
+    {
+        size_t ncol = plte_len / 3;
+        uint8_t (*colors)[3];
+        size_t i;
+        if (ncol == 0) {
+            return PC_OK;
+        }
+        for (i = 0; i < trns_len; i++) {
+            uint8_t a = trns[i];
+            if (a == 255) {
+                continue;
+            }
+            if (a == 0 && !*has_transparent && i < ncol) {
+                *has_transparent = true;
+                *transparent = (uint8_t)i;
+                continue;
+            }
+            /* partial alpha, or a second transparent entry: not one indexed document */
+            *has_transparent = false;
+            return PC_OK;
+        }
+        colors = calloc(ncol, sizeof *colors);
+        if (colors == NULL) {
+            *has_transparent = false;
+            return cx_nomem(err);
+        }
+        memcpy(colors, plte, ncol * 3);
+        *palette = colors;
+        *npal = ncol;
+        *has = true;
+    }
+    return PC_OK;
+}
+
+/* The stereo pairing a PNG declares in its sTER chunk (PNG Extensions 1.4.0 §3.6), read from the
+ * headers without decoding pixels. Returns true and sets *mode (0 cross-fuse, 1 diverging-fuse)
+ * for the first CRC-valid sTER with a defined mode byte. Port of png::stereo. */
+bool pc_cpng_stereo(const uint8_t *b, size_t n, uint8_t *mode)
+{
+    size_t at = 8;
+    png_chunk_t c;
+    if (n < 8) {
+        return false;
+    }
+    while (next_chunk(b, n, &at, &c)) {
+        if (memcmp(c.type, "IEND", 4) == 0) {
+            break;
+        }
+        if (memcmp(c.type, "sTER", 4) != 0 || c.len != 1 || !c.crc_ok) {
+            continue;
+        }
+        if (c.data[0] == 0 || c.data[0] == 1) {
+            *mode = c.data[0];
+            return true;
+        }
+    }
+    return false;
 }
 
 /* ---- libpng pixel decode ---- */

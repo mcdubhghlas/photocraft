@@ -17,13 +17,13 @@ static const char *const IDS[PC_BUILTIN_COUNT] = {
 static const char *const DESCRIPTIONS[PC_BUILTIN_COUNT] = {
     "sRGB IEC61966-2.1",
     "Display P3",
-    "Adobe RGB (1998)-compatible (Photocraft)",
-    "ProPhoto RGB-compatible (ROMM primaries, Photocraft)",
-    "Linear sRGB (Photocraft)",
-    "Rec. ITU-R BT.2020 (Photocraft)",
-    "Gray Gamma 2.2 (Photocraft)",
-    "sGray (sRGB tone curve, Photocraft)",
-    "Lab D50 identity (Photocraft)",
+    "Adobe RGB (1998)-compatible (PhotoCraft)",
+    "ProPhoto RGB-compatible (ROMM primaries, PhotoCraft)",
+    "Linear sRGB (PhotoCraft)",
+    "Rec. ITU-R BT.2020 (PhotoCraft)",
+    "Gray Gamma 2.2 (PhotoCraft)",
+    "sGray (sRGB tone curve, PhotoCraft)",
+    "Lab D50 identity (PhotoCraft)",
     PC_SYNTH_DESCRIPTION,
 };
 
@@ -370,7 +370,7 @@ static pthread_once_t linear_gray_once = PTHREAD_ONCE_INIT;
 
 static void build_linear_gray(void)
 {
-    pc_status s = gray(&linear_gray_profile, "Linear Gray (Photocraft)", pc_cms_curve_gamma(1.0), NULL);
+    pc_status s = gray(&linear_gray_profile, "Linear Gray (PhotoCraft)", pc_cms_curve_gamma(1.0), NULL);
     linear_gray_built = s == PC_OK;
 }
 

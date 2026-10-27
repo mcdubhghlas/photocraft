@@ -41,6 +41,17 @@ pc_status pc_psd_write_shmd(const pc_psd_meta_item *items, size_t n, pc_psd_byte
 void pc_psd_meta_items_free(pc_psd_meta_item *items, size_t n);
 bool pc_psd_meta_item_eq(const pc_psd_meta_item *a, const pc_psd_meta_item *b);
 
+/* The layer's own XMP packet (shmd › cust › layerXMP, a TEXT item). take splits it out of the
+ * shmd block data: *found when present, *xmp the UTF-8 packet (owned, free()), *has_rest the
+ * block without it (*rest; *has_rest false means nothing is left and the shmd item is dropped).
+ * An unreadable block yields *found = false so the caller keeps the original bytes. put writes
+ * `xmp` into the block (have = false for a new block), replacing an existing packet in place or
+ * appending it to the cust descriptor; an unreadable block is an error. */
+pc_status pc_psd_take_layer_xmp(const uint8_t *shmd, size_t len, bool *found, char **xmp, bool *has_rest,
+                                pc_psd_bytes *rest, pc_error *err);
+pc_status pc_psd_put_layer_xmp(const uint8_t *shmd, size_t len, bool have, const char *xmp, pc_psd_bytes *out,
+                               pc_error *err);
+
 /* ---- path.rs: path records (resources 2000-2997, 1025; vmsk/vsms blocks) ---- */
 
 #define PC_PSD_PATH_RECORD_LEN 26

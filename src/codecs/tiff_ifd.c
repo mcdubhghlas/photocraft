@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "base/bytes.h"
 #include "base/mem.h"
 #include "codecs/internal.h"
 
@@ -608,4 +609,419 @@ pc_status pc_ctiff_info(const uint8_t *b, size_t n, pc_tiff_info *out, pc_error 
         return cx_malformed(err, PC_CF_TIFF, "not a TIFF or BigTIFF header");
     }
     return tiff_info_of(&f, out, err);
+}
+
+/* ---- EXIF directories of a TIFF stream (port of codecs::tiff_exif, used by the TIFF codec and
+ * the camera-raw importer) ---- */
+
+#define EXIF_TAG_EXIF_IFD 34665u
+#define EXIF_TAG_GPS_IFD 34853u
+#define EXIF_TAG_INTEROP_IFD 40965u
+#define EXIF_TAG_PIXEL_X 40962u
+#define EXIF_TAG_PIXEL_Y 40963u
+#define EXIF_MAX_FIELDS 1024u
+#define EXIF_MAX_BYTES (4u * 1024u * 1024u)
+
+/* IFD0's descriptive tags: ImageDescription, Make, Model, Software, DateTime, Artist, Copyright. */
+static const uint16_t EXIF_IFD0_TAGS[7] = {270, 271, 272, 305, 306, 315, 33432};
+
+static bool exif_is_ifd0_tag(uint16_t t)
+{
+    for (size_t i = 0; i < 7; i++) {
+        if (EXIF_IFD0_TAGS[i] == t) {
+            return true;
+        }
+    }
+    return false;
+}
+
+size_t cx_exif_element(uint16_t ty)
+{
+    switch (ty) {
+    case 3:  /* SHORT */
+    case 8:  /* SSHORT */
+        return 2;
+    case 4:  /* LONG */
+    case 5:  /* RATIONAL (two LONGs) */
+    case 9:  /* SLONG */
+    case 10: /* SRATIONAL */
+    case 11: /* FLOAT */
+    case 13: /* IFD */
+        return 4;
+    case 12: /* DOUBLE */
+    case 16: /* LONG8 */
+    case 17: /* SLONG8 */
+    case 18: /* IFD8 */
+        return 8;
+    default: /* BYTE, ASCII, UNDEFINED, SBYTE, ... */
+        return 1;
+    }
+}
+
+void cx_exif_reorder(uint16_t ty, const uint8_t *value, size_t vlen, bool from_le, bool to_le, uint8_t *out)
+{
+    size_t e = cx_exif_element(ty);
+    if (from_le == to_le || e == 1) {
+        memcpy(out, value, vlen);
+        return;
+    }
+    for (size_t i = 0; i < vlen; i += e) {
+        size_t m = vlen - i < e ? vlen - i : e;
+        for (size_t k = 0; k < m; k++) {
+            out[i + k] = value[i + m - 1 - k];
+        }
+    }
+}
+
+void cx_exif_dirs_fini(cx_exif_dirs *d)
+{
+    if (d == NULL) {
+        return;
+    }
+    for (size_t i = 0; i < d->n_ifd0; i++) {
+        free(d->ifd0[i].val);
+    }
+    for (size_t i = 0; i < d->n_exif; i++) {
+        free(d->exif[i].val);
+    }
+    for (size_t i = 0; i < d->n_gps; i++) {
+        free(d->gps[i].val);
+    }
+    free(d->ifd0);
+    free(d->exif);
+    free(d->gps);
+    memset(d, 0, sizeof *d);
+}
+
+/* The entries of d that pass the filters, each with an owned copy of its value. budget is the
+ * value bytes still allowed (shared across the stream's directories); an entry whose value does
+ * not fit is skipped so later, smaller entries can still be kept. Returns a malloc'd array (NULL
+ * with *n = 0 when empty, or on OOM with *oom set). */
+static cx_exif_field *exif_collect(const tiff_file *f, const tiff_dir *d, size_t *budget, bool only_ifd0,
+                                   bool drop_pixel, size_t *n, bool *oom)
+{
+    cx_exif_field *out;
+    size_t m = 0;
+    *n = 0;
+    out = pc_malloc_array(EXIF_MAX_FIELDS, sizeof *out);
+    if (out == NULL) {
+        *oom = true;
+        return NULL;
+    }
+    for (size_t i = 0; i < d->n && m < EXIF_MAX_FIELDS; i++) {
+        const tiff_entry *e = &d->entries[i];
+        size_t vlen = 0;
+        const uint8_t *v;
+        uint8_t *copy;
+        if (e->tag == EXIF_TAG_EXIF_IFD || e->tag == EXIF_TAG_GPS_IFD || e->tag == EXIF_TAG_INTEROP_IFD) {
+            continue;
+        }
+        if (only_ifd0 && !exif_is_ifd0_tag(e->tag)) {
+            continue;
+        }
+        if (drop_pixel && (e->tag == EXIF_TAG_PIXEL_X || e->tag == EXIF_TAG_PIXEL_Y)) {
+            continue;
+        }
+        if (e->count > UINT32_MAX) {
+            continue;
+        }
+        v = tiff_data(f, e, &vlen);
+        if (v == NULL || vlen > *budget) {
+            continue;
+        }
+        copy = pc_malloc(vlen > 0 ? vlen : 1);
+        if (copy == NULL) {
+            *oom = true;
+            for (size_t k = 0; k < m; k++) {
+                free(out[k].val);
+            }
+            free(out);
+            *n = 0;
+            return NULL;
+        }
+        memcpy(copy, v, vlen);
+        *budget -= vlen;
+        out[m].tag = e->tag;
+        out[m].ty = e->ty;
+        out[m].count = (uint32_t)e->count;
+        out[m].val = copy;
+        out[m].vlen = vlen;
+        m++;
+    }
+    if (m == 0) {
+        free(out);
+        return NULL;
+    }
+    *n = m;
+    return out;
+}
+
+static bool exif_read_file(const tiff_file *f, bool drop_pixel, cx_exif_dirs *out)
+{
+    tiff_dir ifd0;
+    size_t budget;
+    uint64_t at;
+    bool oom = false;
+    memset(out, 0, sizeof *out);
+    if (f->big) {
+        return false; /* an EXIF block is classic TIFF only */
+    }
+    if (!tiff_dir_read(f, f->first_ifd, &ifd0)) {
+        return false;
+    }
+    out->le = f->le;
+    budget = f->n < EXIF_MAX_BYTES ? f->n : EXIF_MAX_BYTES;
+    /* The small descriptive directories first, so a huge maker note cannot crowd out the GPS
+     * position: IFD0's descriptive tags, then GPS, then Exif. */
+    out->ifd0 = exif_collect(f, &ifd0, &budget, true, false, &out->n_ifd0, &oom);
+    if (tiff_tag_uint(f, &ifd0, EXIF_TAG_GPS_IFD, &at) && at != ifd0.at) {
+        tiff_dir gd;
+        if (tiff_dir_read(f, at, &gd)) {
+            out->gps = exif_collect(f, &gd, &budget, false, false, &out->n_gps, &oom);
+            tiff_dir_fini(&gd);
+        }
+    }
+    if (tiff_tag_uint(f, &ifd0, EXIF_TAG_EXIF_IFD, &at) && at != ifd0.at) {
+        tiff_dir ed;
+        if (tiff_dir_read(f, at, &ed)) {
+            out->exif = exif_collect(f, &ed, &budget, false, drop_pixel, &out->n_exif, &oom);
+            tiff_dir_fini(&ed);
+        }
+    }
+    tiff_dir_fini(&ifd0);
+    if (oom) {
+        cx_exif_dirs_fini(out);
+        return false;
+    }
+    return true;
+}
+
+bool cx_exif_read(const uint8_t *b, size_t n, bool drop_pixel_dims, cx_exif_dirs *out)
+{
+    tiff_file f;
+    memset(out, 0, sizeof *out);
+    if (!tiff_file_parse(b, n, &f)) {
+        return false;
+    }
+    return exif_read_file(&f, drop_pixel_dims, out);
+}
+
+bool cx_exif_has_directories(const cx_exif_dirs *d)
+{
+    return d->n_exif > 0 || d->n_gps > 0;
+}
+
+static int exif_cmp(const void *a, const void *b)
+{
+    uint16_t ta = ((const cx_exif_field *)a)->tag;
+    uint16_t tb = ((const cx_exif_field *)b)->tag;
+    return ta < tb ? -1 : (ta > tb ? 1 : 0);
+}
+
+static size_t exif_pad2(size_t x) { return (x + 1) & ~(size_t)1; }
+
+/* Byte size of a directory: table + next pointer + out-of-line (even-padded) values. */
+static size_t exif_dir_size(const cx_exif_field *fs, size_t n)
+{
+    size_t s = 2 + 12 * n + 4;
+    for (size_t i = 0; i < n; i++) {
+        if (fs[i].vlen > 4) {
+            s += exif_pad2(fs[i].vlen);
+        }
+    }
+    return s;
+}
+
+/* Writes one directory (sorted by tag) and its out-of-line values at cursor *at in o, keeping the
+ * stream's byte order le (values are copied verbatim; fs is sorted in place). */
+static void exif_write_dir(uint8_t *o, size_t *at, bool le, cx_exif_field *fs, size_t n)
+{
+    size_t start = *at;
+    size_t extra = start + 2 + 12 * n + 4;
+    size_t p = start;
+    qsort(fs, n, sizeof *fs, exif_cmp);
+    if (le) {
+        pc_store_le16(o + p, (uint16_t)n);
+    } else {
+        pc_store_be16(o + p, (uint16_t)n);
+    }
+    p += 2;
+    for (size_t i = 0; i < n; i++) {
+        if (le) {
+            pc_store_le16(o + p, fs[i].tag);
+            pc_store_le16(o + p + 2, fs[i].ty);
+            pc_store_le32(o + p + 4, fs[i].count);
+        } else {
+            pc_store_be16(o + p, fs[i].tag);
+            pc_store_be16(o + p + 2, fs[i].ty);
+            pc_store_be32(o + p + 4, fs[i].count);
+        }
+        if (fs[i].vlen <= 4) {
+            memset(o + p + 8, 0, 4);
+            memcpy(o + p + 8, fs[i].val, fs[i].vlen);
+        } else {
+            if (le) {
+                pc_store_le32(o + p + 8, (uint32_t)extra);
+            } else {
+                pc_store_be32(o + p + 8, (uint32_t)extra);
+            }
+            extra += exif_pad2(fs[i].vlen);
+        }
+        p += 12;
+    }
+    memset(o + p, 0, 4); /* next IFD = 0 */
+    p += 4;
+    for (size_t i = 0; i < n; i++) {
+        if (fs[i].vlen > 4) {
+            memcpy(o + p, fs[i].val, fs[i].vlen);
+            p += fs[i].vlen;
+            if (fs[i].vlen & 1) {
+                o[p++] = 0;
+            }
+        }
+    }
+    *at = p;
+}
+
+pc_status cx_exif_block(const cx_exif_dirs *d, pc_buf *out, pc_error *err)
+{
+    bool le = d->le;
+    cx_exif_field *f0;
+    cx_exif_field *fe = NULL;
+    cx_exif_field *fg = NULL;
+    uint8_t ptr_exif[4] = {0, 0, 0, 0};
+    uint8_t ptr_gps[4] = {0, 0, 0, 0};
+    size_t n0 = d->n_ifd0;
+    size_t at0 = 8;
+    size_t at_exif;
+    size_t at_gps;
+    size_t total;
+    uint8_t *buf;
+    size_t cur;
+    pc_status st;
+    /* IFD0 fields plus room for the two sub-directory pointers (shallow copies share val). */
+    f0 = pc_malloc_array(n0 + 2, sizeof *f0);
+    if (f0 == NULL) {
+        return cx_nomem(err);
+    }
+    if (n0 > 0) {
+        memcpy(f0, d->ifd0, n0 * sizeof *f0);
+    }
+    if (d->n_exif > 0) {
+        fe = pc_malloc_array(d->n_exif, sizeof *fe);
+        if (fe == NULL) {
+            free(f0);
+            return cx_nomem(err);
+        }
+        memcpy(fe, d->exif, d->n_exif * sizeof *fe);
+        f0[n0].tag = (uint16_t)EXIF_TAG_EXIF_IFD;
+        f0[n0].ty = 4;
+        f0[n0].count = 1;
+        f0[n0].val = ptr_exif;
+        f0[n0].vlen = 4;
+        n0++;
+    }
+    if (d->n_gps > 0) {
+        fg = pc_malloc_array(d->n_gps, sizeof *fg);
+        if (fg == NULL) {
+            free(fe);
+            free(f0);
+            return cx_nomem(err);
+        }
+        memcpy(fg, d->gps, d->n_gps * sizeof *fg);
+        f0[n0].tag = (uint16_t)EXIF_TAG_GPS_IFD;
+        f0[n0].ty = 4;
+        f0[n0].count = 1;
+        f0[n0].val = ptr_gps;
+        f0[n0].vlen = 4;
+        n0++;
+    }
+    /* Layout: header, then IFD0, Exif, GPS, each followed by its out-of-line values. */
+    at_exif = at0 + exif_dir_size(f0, n0);
+    at_gps = at_exif + (d->n_exif > 0 ? exif_dir_size(d->exif, d->n_exif) : 0);
+    if (le) {
+        pc_store_le32(ptr_exif, (uint32_t)at_exif);
+        pc_store_le32(ptr_gps, (uint32_t)at_gps);
+    } else {
+        pc_store_be32(ptr_exif, (uint32_t)at_exif);
+        pc_store_be32(ptr_gps, (uint32_t)at_gps);
+    }
+    total = at_gps + (d->n_gps > 0 ? exif_dir_size(d->gps, d->n_gps) : 0);
+    buf = pc_malloc(total > 0 ? total : 1);
+    if (buf == NULL) {
+        free(fg);
+        free(fe);
+        free(f0);
+        return cx_nomem(err);
+    }
+    memset(buf, 0, total);
+    buf[0] = le ? 'I' : 'M';
+    buf[1] = le ? 'I' : 'M';
+    if (le) {
+        pc_store_le16(buf + 2, 42);
+        pc_store_le32(buf + 4, (uint32_t)at0);
+    } else {
+        pc_store_be16(buf + 2, 42);
+        pc_store_be32(buf + 4, (uint32_t)at0);
+    }
+    cur = at0;
+    exif_write_dir(buf, &cur, le, f0, n0);
+    if (d->n_exif > 0) {
+        exif_write_dir(buf, &cur, le, fe, d->n_exif);
+    }
+    if (d->n_gps > 0) {
+        exif_write_dir(buf, &cur, le, fg, d->n_gps);
+    }
+    st = pc_buf_append(out, buf, cur, err);
+    free(buf);
+    free(fg);
+    free(fe);
+    free(f0);
+    return st;
+}
+
+pc_status pc_raw_exif(const uint8_t *b, size_t n, pc_buf *out, bool *found, pc_error *err)
+{
+    tiff_file f;
+    cx_exif_dirs d;
+    pc_status st;
+    *found = false;
+    /* Classic TIFF (42/43) via the shared parser, or a CR2 (II, magic 0x55) header. */
+    if (!tiff_file_parse(b, n, &f)) {
+        uint16_t magic;
+        tiff_file probe = {0};
+        probe.b = b;
+        probe.n = n;
+        probe.le = true;
+        if (n < 8 || b[0] != 'I' || b[1] != 'I' || !tiff_u16_at(&probe, 2, &magic) || magic != 0x55) {
+            return PC_OK;
+        }
+        memset(&f, 0, sizeof f);
+        f.b = b;
+        f.n = n;
+        f.le = true;
+        f.big = false;
+        {
+            uint32_t first = 0;
+            if (!tiff_u32_at(&f, 4, &first)) {
+                return PC_OK;
+            }
+            f.first_ifd = first;
+        }
+    }
+    /* A camera raw: keep IFD0's descriptive tags and the Exif/GPS directories, dropping the Exif
+     * directory's sensor/preview PixelXDimension/PixelYDimension. */
+    if (!exif_read_file(&f, true, &d)) {
+        return PC_OK;
+    }
+    if (d.n_exif == 0 && d.n_gps == 0 && d.n_ifd0 == 0) {
+        cx_exif_dirs_fini(&d);
+        return PC_OK;
+    }
+    st = cx_exif_block(&d, out, err);
+    cx_exif_dirs_fini(&d);
+    if (st == PC_OK) {
+        *found = true;
+    }
+    return st;
 }

@@ -17,6 +17,8 @@ static pc_status custom_k(const void *p, const void *prep, const pc_algo_image *
     size_t n = src->ch, cc = pc_algo_ncol(ctx, n), nk = 0, i, c, j;
     int32_t kx[25], ky[25];
     float kw[25], s = cp->scale == 0.0f ? 1.0f : cp->scale, off = cp->offset / 255.0f;
+    /* CMYK samples are ink: convolve brightness (1 - ink), then back to ink. */
+    bool sub = pc_algo_subtractive(ctx);
     (void)prep, (void)err;
     pc_algo_image_crop_into(src, out, dst);
     for (i = 0; i < 25 && i < cp->kernel.n; i++) {
@@ -35,11 +37,13 @@ static pc_status custom_k(const void *p, const void *prep, const pc_algo_image *
         int32_t x, y;
         pc_algo_xy(out, i, &x, &y);
         for (c = 0; c < cc; c++) {
-            float sum = -0.0f;
+            float sum = -0.0f, res;
             for (j = 0; j < nk; j++) {
-                sum += pc_algo_image_get(src, x + kx[j], y + ky[j], c) * kw[j];
+                float g = pc_algo_image_get(src, x + kx[j], y + ky[j], c);
+                sum += (sub ? 1.0f - g : g) * kw[j];
             }
-            dst[i * n + c] = sum / s + off;
+            res = sum / s + off;
+            dst[i * n + c] = sub ? 1.0f - res : res;
         }
     }
     return PC_OK;

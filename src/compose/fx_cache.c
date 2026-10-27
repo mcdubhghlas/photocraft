@@ -90,6 +90,55 @@ size_t pc_compose_effect_cache_bytes(void)
     return b;
 }
 
+/* Most bytes one layer's effect maps and source may take to build, whatever the cache budget. */
+#define PC_CMP_MAX_FX_BUILD_BYTES                                                                            \
+    (sizeof(void *) >= 8 ? ((uint64_t)4 << 30) : ((uint64_t)512 << 20))
+/* Deepest group nesting fx_over_budget / prepare walk (matches PREPARE_DEPTH). */
+#define PC_CMP_FX_WALK_DEPTH 64
+
+static uint64_t u64_sat_mul(uint64_t a, uint64_t b)
+{
+    return (b != 0 && a > UINT64_MAX / b) ? UINT64_MAX : a * b;
+}
+
+static uint64_t u64_sat_add(uint64_t a, uint64_t b)
+{
+    return a > UINT64_MAX - b ? UINT64_MAX : a + b;
+}
+
+/* The bytes fx_over_budget compares with the budget: every visible layer's effect maps over its
+ * whole region (groups included), as pc_compose_fx_maps_bytes counts a built set. */
+static uint64_t fx_region_bytes(const pc_layer *layers, size_t n, pc_rect canvas, uint32_t depth)
+{
+    uint64_t total = 0;
+    size_t i;
+    for (i = 0; i < n; i++) {
+        const pc_layer *l = &layers[i];
+        if (!l->visible) {
+            continue;
+        }
+        if (pc_compose_has_effects(l)) {
+            int32_t m = pc_compose_effects_margin(l);
+            pc_rect region =
+                pc_rect_intersect(pc_rect_inflate(pc_compose_effect_source_bounds(l, canvas), m),
+                                  pc_rect_inflate(canvas, m));
+            uint64_t maps = pc_cmp_fx_map_count(l);
+            uint64_t px = (uint64_t)pc_rect_width(region) * pc_rect_height(region);
+            total = u64_sat_add(total, u64_sat_mul(u64_sat_mul(maps, px), 4));
+        }
+        if (l->content.kind == PC_LAYER_GROUP && depth < PC_CMP_FX_WALK_DEPTH) {
+            total = u64_sat_add(total, fx_region_bytes(l->content.u.group.children,
+                                                       l->content.u.group.nchildren, canvas, depth + 1));
+        }
+    }
+    return total;
+}
+
+bool pc_cmp_fx_over_budget(const pc_layer *layers, size_t n, pc_rect canvas)
+{
+    return fx_region_bytes(layers, n, canvas, 0) > (uint64_t)pc_compose_effect_cache_budget();
+}
+
 static void entry_drop(fx_entry *e)
 {
     pc_cmp_fx_ref_release(e->ref);
@@ -399,8 +448,8 @@ pc_rect pc_cmp_effect_region(const pc_layer *layer, pc_rect rect, const pc_cmp_c
         clip = cx->fx->clip;
         pthread_mutex_unlock(&cx->fx->lock);
     }
-    if (has_clip && pc_rect_contains_rect(clip, rect) && pc_compose_shapeless(layer) &&
-        pc_compose_fx_maps_are_local(layer)) {
+    if (has_clip && pc_rect_contains_rect(clip, rect) &&
+        (pc_compose_shapeless(layer) || cx->fx_over_budget) && pc_compose_fx_maps_are_local(layer)) {
         pc_rect part = pc_rect_intersect(region, pc_rect_inflate(clip, pc_i32_sat_add(m, m)));
         *clipped = !pc_rect_eq(part, region);
         return part;
@@ -415,10 +464,18 @@ pc_status pc_cmp_effect_maps(const pc_layer *layer, pc_rect rect, const pc_cmp_c
     bool clipped = false;
     pc_rect region = pc_cmp_effect_region(layer, rect, cx, &clipped);
     uint64_t key = PC_CMP_HASH0;
+    uint64_t region_px;
     pc_cmp_fx_ref *maps = NULL;
     pc_cmp_fx_ref *r;
     size_t bytes;
     pc_status st;
+    /* Non-local effects keep their whole source region, which a few distant pixels stretch over
+     * the canvas: past the cap the effects are left out instead of allocating it (#8330). */
+    region_px = (uint64_t)pc_rect_width(region) * pc_rect_height(region);
+    if (u64_sat_mul(u64_sat_mul((uint64_t)pc_cmp_fx_map_count(layer) + 1, region_px), 4) >
+        PC_CMP_MAX_FX_BUILD_BYTES) {
+        region = PC_RECT_EMPTY;
+    }
     if (getenv("PHOTOCRAFT_FX_NOCACHE") != NULL) {
         return build(layer, region, cx, out, &bytes, err);
     }

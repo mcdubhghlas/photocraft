@@ -348,10 +348,25 @@ pc_status pc_zip_reader_open(pc_zip_reader *r, const uint8_t *bytes, size_t len,
     if (len < EOCD_LEN) {
         return pc_format_corrupt(err, "not a zip archive (too short)");
     }
-    /* End of central directory: scan back over a possible comment. */
+    /* End of central directory: scan back over a possible comment. A comment may itself contain
+     * the signature, so only accept a record whose declared comment reaches the end of the
+     * archive (APPNOTE 4.3.16) and whose central directory ends exactly where the record starts
+     * (the supported non-ZIP64 layout). A zeroed signature in a comment is not an empty ZIP. */
     min = len - EOCD_LEN > 65535 ? len - EOCD_LEN - 65535 : 0;
     for (i = len - EOCD_LEN + 1; i-- > min;) {
-        if (pc_load_le32(bytes + i) == EOCD_SIG) {
+        size_t comment_len;
+        size_t cd_size;
+        size_t cd_off;
+        if (pc_load_le32(bytes + i) != EOCD_SIG) {
+            continue;
+        }
+        comment_len = pc_load_le16(bytes + i + 20);
+        cd_size = pc_load_le32(bytes + i + 12);
+        cd_off = pc_load_le32(bytes + i + 16);
+        if (cd_off > SIZE_MAX - cd_size) {
+            continue;
+        }
+        if (i + EOCD_LEN + comment_len == len && cd_off + cd_size == i) {
             eocd = i;
             break;
         }

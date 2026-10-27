@@ -124,6 +124,9 @@ pc_status pc_algo_segment_data_costs(const pc_algo_rgb_image *img, const pc_algo
  * label (newly allocated, nsizes = components + 1). */
 pc_status pc_algo_segment_components(const bool *mask, size_t w, size_t h, uint32_t **labels, size_t **sizes,
                                      size_t *nsizes, pc_error *err);
+/* 4-connected labelling (labels/sizes: caller frees; sizes[0] unused). */
+pc_status pc_algo_segment_components4(const bool *mask, size_t w, size_t h, uint32_t **labels,
+                                      size_t **sizes, size_t *nsizes, pc_error *err);
 /* Keeps the components of mask that contain a seed (out: caller buffer of w * h). */
 pc_status pc_algo_segment_keep_seeded(const bool *mask, const bool *seeds, size_t w, size_t h, bool *out,
                                       pc_error *err);

@@ -134,7 +134,7 @@ static float rem_euclidf(float a, float b)
 }
 
 /* HSB (hue in degrees, saturation and brightness 0..1) -> RGB. */
-static void hsb_to_rgb(float h, float s, float v, float out[3])
+void pc_io_hsb_to_rgb(float h, float s, float v, float out[3])
 {
     float f, p, q, t;
     int sector;
@@ -177,7 +177,7 @@ bool pc_io_decode_known_color(uint16_t space, const uint16_t c[4], pc_color *out
         return true;
     case SPACE_HSB: {
         float hsb[3];
-        hsb_to_rgb((float)c[0] / 65535.0f * 360.0f, (float)c[1] / 65535.0f, (float)c[2] / 65535.0f, hsb);
+        pc_io_hsb_to_rgb((float)c[0] / 65535.0f * 360.0f, (float)c[1] / 65535.0f, (float)c[2] / 65535.0f, hsb);
         *out = pc_color_rgb(hsb[0], hsb[1], hsb[2]);
         return true;
     }

@@ -28,7 +28,9 @@ static float lut_x(size_t k)
 float pc_cmp_lut(const float *table, size_t len, float v)
 {
     float x = pc_clampf(v, 0.0f, 1.0f) * (float)(len - 1);
-    size_t i = pc_f32_to_size(floorf(x));
+    /* Never negative (NaN casts to 0, as its floor did), so truncating is floor, without the libm
+     * call baseline x86-64 (no SSE4.1) makes for it (d278a8569). */
+    size_t i = pc_f32_to_size(x);
     size_t j;
     float f;
     if (i > len - 1) {
@@ -39,37 +41,52 @@ float pc_cmp_lut(const float *table, size_t len, float v)
     return table[i] * (1.0f - f) + table[j] * f;
 }
 
+/* Levels' midtone gamma `g` on `u` in 0..1: u^(1/g), except that above 1, where that power curve
+ * is infinitely steep at black, Photoshop starts along a toe a*u - b*u^q of slope a = 2^g that
+ * joins the curve with the same value and slope. q = LEVELS_TOE_POWER is fitted. */
+#define LEVELS_TOE_POWER 2.2f
+
+static float levels_gamma(float u, float g)
+{
+    float c = 1.0f / g;
+    float a;
+    float qq;
+    float u1;
+    float b;
+    if (g <= 1.0f) {
+        return powf(u, c);
+    }
+    a = exp2f(g); /* 2f32.powf(g) */
+    qq = LEVELS_TOE_POWER;
+    /* Where the toe meets the curve. */
+    u1 = powf((1.0f - c / qq) / (a * (1.0f - 1.0f / qq)), 1.0f / (1.0f - c));
+    if (u >= u1 || u1 <= 0.0f) {
+        return powf(u, c);
+    }
+    b = (a * u1 - powf(u1, c)) / powf(u1, qq);
+    return a * u - b * powf(u, qq);
+}
+
 float pc_compose_levels_q(const pc_levels_channel *ch, float v, bool has_q, float q)
 {
-    /* Photoshop works on whole levels: the input is a level, and the input-range stretch is
-     * rounded (half up) to a whole level before the midtone gamma (psd-tools levels_grayscale). */
+    /* Photoshop works on whole levels in three steps, each rounded half up to a whole level: the
+     * input-range stretch, the midtone gamma and the output range (psd-tools levels_grayscale). */
     float range = pc_rs_maxf_k(ch->in_white - ch->in_black, 1e-6f);
+    bool use_q = has_q && isfinite(q) && q >= 1.0f;
     float u;
-    float g;
     float t;
-    if (has_q && isfinite(q) && q >= 1.0f) {
+    if (use_q) {
         float vq = roundf(v * q) / q;
         u = floorf(pc_clampf((vq - ch->in_black) / range, 0.0f, 1.0f) * q + 0.5f + 1e-3f) / q;
     } else {
         u = pc_clampf((v - ch->in_black) / range, 0.0f, 1.0f);
     }
-    g = pc_rs_maxf_k(ch->gamma, 0.01f);
-    if (g > 1.0f) {
-        /* A midtone gamma > 1 lifts shadows; Photoshop bounds the infinite slope of u^(1/g) at
-         * black with a soft shadow toe (initial slope about 2^gamma): a p-norm soft-min of the
-         * power curve with that line (sharpness 10, fitted). */
-        float power = powf(u, 1.0f / g);
-        float line = 0.93f * exp2f(g) * u;
-        if (power <= 1e-6f || line <= 1e-6f) {
-            t = pc_rs_minf(power, line);
-        } else {
-            const float p = 10.0f;
-            t = powf(powf(power, -p) + powf(line, -p), -1.0f / p);
-        }
-    } else {
-        t = powf(u, 1.0f / g);
+    t = levels_gamma(u, pc_rs_maxf_k(ch->gamma, 0.01f));
+    if (use_q) {
+        t = floorf(t * q + 0.5f) / q;
     }
-    return ch->out_black + t * (ch->out_white - ch->out_black);
+    t = ch->out_black + t * (ch->out_white - ch->out_black);
+    return use_q ? floorf(t * q + 0.5f) / q : t;
 }
 
 float pc_compose_levels(const pc_levels_channel *ch, float v)

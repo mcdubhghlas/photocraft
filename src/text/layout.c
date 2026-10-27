@@ -21,6 +21,30 @@
 /* Photoshop synthesizes small caps for faces without `smcp` at this scale. */
 #define SYNTHETIC_SMALL_CAPS_SCALE 0.7f
 
+/* Photoshop's default superscript / subscript size and position (Type preferences): the run is
+ * drawn at 58.3% of its size and its baseline moved by 33.3% of its size. */
+#define SCRIPT_SIZE 0.583f
+#define SCRIPT_POSITION 0.333f
+
+/* Superscript and subscript shrink a run and shift its baseline; others are unchanged. The
+ * baseline shift uses the original size, then the size is scaled (reference order). */
+static void drawn_style(pc_char_style *s)
+{
+    float dir;
+    switch (s->baseline) {
+    case PC_FONT_BASELINE_SUPERSCRIPT:
+        dir = 1.0f;
+        break;
+    case PC_FONT_BASELINE_SUBSCRIPT:
+        dir = -1.0f;
+        break;
+    default:
+        return;
+    }
+    s->baseline_shift_pt += dir * SCRIPT_POSITION * s->size_pt;
+    s->size_pt *= SCRIPT_SIZE;
+}
+
 pc_status pc_text_layouter_new(pc_text_layouter **out, pc_error *err)
 {
     pc_text_layouter *lo = calloc(1, sizeof *lo);
@@ -442,7 +466,7 @@ static pc_status build_and_break(const build_ctx *c, bool is_box, float avail, f
     }
     if (st == PC_OK) {
         pl->indent_amount = first_indent != 0.0f ? first_indent : 0.0f;
-        st = pl_break_all_lines(pl, is_box ? avail : FLT_MAX, err);
+        st = pl_break_all_lines(pl, is_box ? avail : FLT_MAX, is_box, err);
     }
     return st;
 }
@@ -531,7 +555,7 @@ pc_status pc_text_layouter_layout(pc_text_layouter *lo, pc_fontdb *db, const pc_
 {
     const char *text = pc_str_c(&t->text);
     size_t tlen = t->text.len;
-    float k = dpi > 0.0f ? dpi / 72.0f : 1.0f;
+    float k = isfinite(dpi) && dpi > 0.0f ? dpi / 72.0f : 1.0f;
     pc_text_run *runs = NULL;
     size_t nruns = 0, npar_runs = 0, i;
     pc_paragraph_run *pruns = NULL;
@@ -626,6 +650,7 @@ pc_status pc_text_layouter_layout(pc_text_layouter *lo, pc_fontdb *db, const pc_
         if (st != PC_OK) {
             goto cleanup;
         }
+        drawn_style(s);
         run_starts[i] = i == 0 ? 0 : run_starts[i - 1] + runs[i - 1].len;
         small_caps[i] = pc_text_small_caps_mode(
             s->caps,

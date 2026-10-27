@@ -84,7 +84,7 @@ static void test_texture_modulates_coverage(void)
     }
     /* Depth jitter per tip is deterministic and within [min depth, depth]. */
     b = tex_brush(&tile, PC_PAINT_MASK_MULTIPLY, 0.8f, true);
-    b.texture.depth_jitter = (pc_paint_dynamic){1.0f, PC_PAINT_CONTROL_OFF, 25, 0.25f};
+    b.texture.depth_jitter = (pc_paint_dynamic){1.0f, PC_PAINT_CONTROL_OFF, 25, 0.25f, pc_paint_response_curve_linear()};
     tb_line(0.0, 200.0, 0.0, pts);
     d = tb_dabs(&b, pts, 2);
     for (size_t i = 0; i < d.len; i++) {
@@ -561,7 +561,7 @@ static pc_paint_brush tilt_brush(float scale)
     pc_paint_brush b = tb_brush();
     b.size = 40.0f;
     b.shape_dynamics.enabled = true;
-    b.shape_dynamics.size = (pc_paint_dynamic){0.0f, PC_PAINT_CONTROL_PEN_TILT, 25, 1.0f};
+    b.shape_dynamics.size = (pc_paint_dynamic){0.0f, PC_PAINT_CONTROL_PEN_TILT, 25, 1.0f, pc_paint_response_curve_linear()};
     b.shape_dynamics.tilt_scale = scale;
     return b;
 }
@@ -760,7 +760,7 @@ static void test_transfer_wetness_and_mix_vary_per_dab(void)
         "{\"size\": 12, \"shapeDynamics\": {\"enabled\": true}, \"transfer\": {\"enabled\": true}}";
     b.transfer.enabled = true;
     b.transfer.wetness = pc_paint_dynamic_controlled(PC_PAINT_CONTROL_PEN_PRESSURE);
-    b.transfer.mix = (pc_paint_dynamic){1.0f, PC_PAINT_CONTROL_OFF, 25, 0.25f};
+    b.transfer.mix = (pc_paint_dynamic){1.0f, PC_PAINT_CONTROL_OFF, 25, 0.25f, pc_paint_response_curve_linear()};
     d = tb_dabs(&b, pts, 2);
     for (size_t i = 0; i < d.len; i++) {
         wet = wet && fabsf(d.v[i].wet - 0.3f) < 1e-5f;

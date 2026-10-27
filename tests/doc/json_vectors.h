@@ -957,22 +957,13 @@ static const json_vec JSON_VECS[] = {
      ".0}],[1.0,{\"mode\":\"Cmyk\",\"c\":[0.1,0.2,0.3,0.4],\"alpha\":0.5}]],\"opacity_stops\":[[0.0,1.0],[1"
      ".0,0.5]],\"style\":\"Radial\",\"angle\":90.0,\"scale\":1.0,\"reverse\":false,\"align\":true,\"offset"
      "\":[0.1,-0.2]}}}",
-     "ok\011{\"common\":{\"enabled\":true,\"blend\":\"Multiply\",\"opacity\":0.75},\"size\":3.0,\"position"
-     "\":\"Inside\",\"paint\":{\"Gradient\":{\"stops\":[[0.0,{\"mode\":\"Rgb\",\"c\":[0.1,0.2,0.3,0.0],\"al"
-     "pha\":1.0}],[1.0,{\"mode\":\"Cmyk\",\"c\":[0.1,0.2,0.3,0.4],\"alpha\":0.5}]],\"opacity_stops\":[[0.0,"
-     "1.0],[1.0,0.5]],\"style\":\"Radial\",\"angle\":90.0,\"scale\":1.0,\"reverse\":false,\"align\":true,\""
-     "offset\":[0.1,-0.2]}}}\011{\"common\":{\"blend\":\"Multiply\",\"enabled\":true,\"opacity\":0.75},\"pa"
-     "int\":{\"Gradient\":{\"align\":true,\"angle\":90.0,\"offset\":[0.10000000149011612,-0.200000002980232"
-     "24],\"opacity_stops\":[[0.0,1.0],[1.0,0.5]],\"reverse\":false,\"scale\":1.0,\"stops\":[[0.0,{\"alpha"
-     "\":1.0,\"c\":[0.10000000149011612,0.20000000298023224,0.30000001192092896,0.0],\"mode\":\"Rgb\"}],[1."
-     "0,{\"alpha\":0.5,\"c\":[0.10000000149011612,0.20000000298023224,0.30000001192092896,0.400000005960464"
-     "5],\"mode\":\"Cmyk\"}]],\"style\":\"Radial\"}},\"position\":\"Inside\",\"size\":3.0}"},
+     "ok\011{\"common\":{\"enabled\":true,\"blend\":\"Multiply\",\"opacity\":0.75},\"size\":3.0,\"position\":\"Inside\",\"paint\":{\"Gradient\":{\"stops\":[[0.0,{\"mode\":\"Rgb\",\"c\":[0.1,0.2,0.3,0.0],\"alpha\":1.0}],[1.0,{\"mode\":\"Cmyk\",\"c\":[0.1,0.2,0.3,0.4],\"alpha\":0.5}]],\"opacity_stops\":[[0.0,1.0],[1.0,0.5]],\"style\":\"Radial\",\"angle\":90.0,\"scale\":1.0,\"reverse\":false,\"align\":true,\"offset\":[0.1,-0.2]}},\"overprint\":false}\011{\"common\":{\"blend\":\"Multiply\",\"enabled\":true,\"opacity\":0.75},\"overprint\":false,\"paint\":{\"Gradient\":{\"align\":true,\"angle\":90.0,\"offset\":[0.10000000149011612,-0.20000000298023224],\"opacity_stops\":[[0.0,1.0],[1.0,0.5]],\"reverse\":false,\"scale\":1.0,\"stops\":[[0.0,{\"alpha\":1.0,\"c\":[0.10000000149011612,0.20000000298023224,0.30000001192092896,0.0],\"mode\":\"Rgb\"}],[1.0,{\"alpha\":0.5,\"c\":[0.10000000149011612,0.20000000298023224,0.30000001192092896,0.4000000059604645],\"mode\":\"Cmyk\"}]],\"style\":\"Radial\"}},\"position\":\"Inside\",\"size\":3.0}"},
     {"stroke_fx",
      "{}",
      "err\011missing field `common`"},
     {"stroke_fx",
      "[]",
-     "err\011invalid length 0, expected struct StrokeFx with 4 elements"},
+     "err\011invalid length 0, expected struct StrokeFx with 5 elements"},
     {"stroke_fx",
      "null",
      "err\011invalid type: null, expected struct StrokeFx"},
@@ -1071,30 +1062,13 @@ static const json_vec JSON_VECS[] = {
      "5},\"contour\":{\"contour\":{\"Custom\":{\"name\":\"Cone\",\"points\":[{\"input\":0.0,\"output\":0.0}"
      ",{\"input\":0.5,\"output\":1.0}]}},\"range\":0.5,\"anti_alias\":false},\"texture\":{\"name\":\"p\",\""
      "id\":\"abc\",\"scale\":1.0,\"depth\":-1.0,\"invert\":false,\"link\":true,\"phase\":[1.0,2.0]}}",
-     "ok\011{\"enabled\":true,\"style\":\"Emboss\",\"technique\":\"ChiselHard\",\"depth\":1.0,\"up\":true,"
-     "\"size\":5.0,\"soften\":0.0,\"angle\":120.0,\"altitude\":30.0,\"use_global_light\":true,\"gloss_conto"
-     "ur\":\"Linear\",\"highlight\":{\"enabled\":true,\"blend\":\"Multiply\",\"opacity\":0.75},\"highlight_"
-     "color\":{\"mode\":\"Rgb\",\"c\":[0.1,0.2,0.3,0.0],\"alpha\":1.0},\"shadow\":{\"enabled\":true,\"blend"
-     "\":\"Multiply\",\"opacity\":0.75},\"shadow_color\":{\"mode\":\"Cmyk\",\"c\":[0.1,0.2,0.3,0.4],\"alpha"
-     "\":0.5},\"contour\":{\"contour\":{\"Custom\":{\"name\":\"Cone\",\"points\":[{\"input\":0.0,\"output\""
-     ":0.0},{\"input\":0.5,\"output\":1.0}]}},\"range\":0.5,\"anti_alias\":false},\"texture\":{\"name\":\"p"
-     "\",\"id\":\"abc\",\"scale\":1.0,\"depth\":-1.0,\"invert\":false,\"link\":true,\"phase\":[1.0,2.0]}}"
-     "\011{\"altitude\":30.0,\"angle\":120.0,\"contour\":{\"anti_alias\":false,\"contour\":{\"Custom\":{\"n"
-     "ame\":\"Cone\",\"points\":[{\"input\":0.0,\"output\":0.0},{\"input\":0.5,\"output\":1.0}]}},\"range\""
-     ":0.5},\"depth\":1.0,\"enabled\":true,\"gloss_contour\":\"Linear\",\"highlight\":{\"blend\":\"Multiply"
-     "\",\"enabled\":true,\"opacity\":0.75},\"highlight_color\":{\"alpha\":1.0,\"c\":[0.10000000149011612,0"
-     ".20000000298023224,0.30000001192092896,0.0],\"mode\":\"Rgb\"},\"shadow\":{\"blend\":\"Multiply\",\"en"
-     "abled\":true,\"opacity\":0.75},\"shadow_color\":{\"alpha\":0.5,\"c\":[0.10000000149011612,0.200000002"
-     "98023224,0.30000001192092896,0.4000000059604645],\"mode\":\"Cmyk\"},\"size\":5.0,\"soften\":0.0,\"sty"
-     "le\":\"Emboss\",\"technique\":\"ChiselHard\",\"texture\":{\"depth\":-1.0,\"id\":\"abc\",\"invert\":fa"
-     "lse,\"link\":true,\"name\":\"p\",\"phase\":[1.0,2.0],\"scale\":1.0},\"up\":true,\"use_global_light\":"
-     "true}"},
+     "ok\011{\"enabled\":true,\"style\":\"Emboss\",\"technique\":\"ChiselHard\",\"depth\":1.0,\"up\":true,\"size\":5.0,\"soften\":0.0,\"angle\":120.0,\"altitude\":30.0,\"use_global_light\":true,\"gloss_contour\":\"Linear\",\"gloss_anti_alias\":false,\"highlight\":{\"enabled\":true,\"blend\":\"Multiply\",\"opacity\":0.75},\"highlight_color\":{\"mode\":\"Rgb\",\"c\":[0.1,0.2,0.3,0.0],\"alpha\":1.0},\"shadow\":{\"enabled\":true,\"blend\":\"Multiply\",\"opacity\":0.75},\"shadow_color\":{\"mode\":\"Cmyk\",\"c\":[0.1,0.2,0.3,0.4],\"alpha\":0.5},\"contour\":{\"contour\":{\"Custom\":{\"name\":\"Cone\",\"points\":[{\"input\":0.0,\"output\":0.0},{\"input\":0.5,\"output\":1.0}]}},\"range\":0.5,\"anti_alias\":false},\"texture\":{\"name\":\"p\",\"id\":\"abc\",\"scale\":1.0,\"depth\":-1.0,\"invert\":false,\"link\":true,\"phase\":[1.0,2.0]}}\011{\"altitude\":30.0,\"angle\":120.0,\"contour\":{\"anti_alias\":false,\"contour\":{\"Custom\":{\"name\":\"Cone\",\"points\":[{\"input\":0.0,\"output\":0.0},{\"input\":0.5,\"output\":1.0}]}},\"range\":0.5},\"depth\":1.0,\"enabled\":true,\"gloss_anti_alias\":false,\"gloss_contour\":\"Linear\",\"highlight\":{\"blend\":\"Multiply\",\"enabled\":true,\"opacity\":0.75},\"highlight_color\":{\"alpha\":1.0,\"c\":[0.10000000149011612,0.20000000298023224,0.30000001192092896,0.0],\"mode\":\"Rgb\"},\"shadow\":{\"blend\":\"Multiply\",\"enabled\":true,\"opacity\":0.75},\"shadow_color\":{\"alpha\":0.5,\"c\":[0.10000000149011612,0.20000000298023224,0.30000001192092896,0.4000000059604645],\"mode\":\"Cmyk\"},\"size\":5.0,\"soften\":0.0,\"style\":\"Emboss\",\"technique\":\"ChiselHard\",\"texture\":{\"depth\":-1.0,\"id\":\"abc\",\"invert\":false,\"link\":true,\"name\":\"p\",\"phase\":[1.0,2.0],\"scale\":1.0},\"up\":true,\"use_global_light\":true}"},
     {"bevel",
      "{}",
      "err\011missing field `enabled`"},
     {"bevel",
      "[]",
-     "err\011invalid length 0, expected struct Bevel with 17 elements"},
+     "err\011invalid length 0, expected struct Bevel with 18 elements"},
     {"bevel",
      "null",
      "err\011invalid type: null, expected struct Bevel"},
@@ -1211,17 +1185,7 @@ static const json_vec JSON_VECS[] = {
      ",\"alpha\":1.0}],[1.0,{\"mode\":\"Cmyk\",\"c\":[0.1,0.2,0.3,0.4],\"alpha\":0.5}]],\"opacity_stops\":["
      "[0.0,1.0],[1.0,0.5]],\"style\":\"Radial\",\"angle\":90.0,\"scale\":1.0,\"reverse\":false,\"align\":tr"
      "ue,\"offset\":[0.1,-0.2]}}}}",
-     "ok\011{\"Stroke\":{\"common\":{\"enabled\":true,\"blend\":\"Multiply\",\"opacity\":0.75},\"size\":3.0"
-     ",\"position\":\"Inside\",\"paint\":{\"Gradient\":{\"stops\":[[0.0,{\"mode\":\"Rgb\",\"c\":[0.1,0.2,0."
-     "3,0.0],\"alpha\":1.0}],[1.0,{\"mode\":\"Cmyk\",\"c\":[0.1,0.2,0.3,0.4],\"alpha\":0.5}]],\"opacity_sto"
-     "ps\":[[0.0,1.0],[1.0,0.5]],\"style\":\"Radial\",\"angle\":90.0,\"scale\":1.0,\"reverse\":false,\"alig"
-     "n\":true,\"offset\":[0.1,-0.2]}}}}\011{\"Stroke\":{\"common\":{\"blend\":\"Multiply\",\"enabled\":tru"
-     "e,\"opacity\":0.75},\"paint\":{\"Gradient\":{\"align\":true,\"angle\":90.0,\"offset\":[0.100000001490"
-     "11612,-0.20000000298023224],\"opacity_stops\":[[0.0,1.0],[1.0,0.5]],\"reverse\":false,\"scale\":1.0,"
-     "\"stops\":[[0.0,{\"alpha\":1.0,\"c\":[0.10000000149011612,0.20000000298023224,0.30000001192092896,0.0"
-     "],\"mode\":\"Rgb\"}],[1.0,{\"alpha\":0.5,\"c\":[0.10000000149011612,0.20000000298023224,0.30000001192"
-     "092896,0.4000000059604645],\"mode\":\"Cmyk\"}]],\"style\":\"Radial\"}},\"position\":\"Inside\",\"size"
-     "\":3.0}}"},
+     "ok\011{\"Stroke\":{\"common\":{\"enabled\":true,\"blend\":\"Multiply\",\"opacity\":0.75},\"size\":3.0,\"position\":\"Inside\",\"paint\":{\"Gradient\":{\"stops\":[[0.0,{\"mode\":\"Rgb\",\"c\":[0.1,0.2,0.3,0.0],\"alpha\":1.0}],[1.0,{\"mode\":\"Cmyk\",\"c\":[0.1,0.2,0.3,0.4],\"alpha\":0.5}]],\"opacity_stops\":[[0.0,1.0],[1.0,0.5]],\"style\":\"Radial\",\"angle\":90.0,\"scale\":1.0,\"reverse\":false,\"align\":true,\"offset\":[0.1,-0.2]}},\"overprint\":false}}\011{\"Stroke\":{\"common\":{\"blend\":\"Multiply\",\"enabled\":true,\"opacity\":0.75},\"overprint\":false,\"paint\":{\"Gradient\":{\"align\":true,\"angle\":90.0,\"offset\":[0.10000000149011612,-0.20000000298023224],\"opacity_stops\":[[0.0,1.0],[1.0,0.5]],\"reverse\":false,\"scale\":1.0,\"stops\":[[0.0,{\"alpha\":1.0,\"c\":[0.10000000149011612,0.20000000298023224,0.30000001192092896,0.0],\"mode\":\"Rgb\"}],[1.0,{\"alpha\":0.5,\"c\":[0.10000000149011612,0.20000000298023224,0.30000001192092896,0.4000000059604645],\"mode\":\"Cmyk\"}]],\"style\":\"Radial\"}},\"position\":\"Inside\",\"size\":3.0}}"},
     {"effect",
      "{\"ColorOverlay\":{\"common\":{\"enabled\":true,\"blend\":\"Multiply\",\"opacity\":0.75},\"color\":{"
      "\"mode\":\"Rgb\",\"c\":[0.1,0.2,0.3,0.0],\"alpha\":1.0}}}",
@@ -1272,24 +1236,7 @@ static const json_vec JSON_VECS[] = {
      "\"output\":0.0},{\"input\":0.5,\"output\":1.0}]}},\"range\":0.5,\"anti_alias\":false},\"texture\":{\""
      "name\":\"p\",\"id\":\"abc\",\"scale\":1.0,\"depth\":-1.0,\"invert\":false,\"link\":true,\"phase\":[1."
      "0,2.0]}}}",
-     "ok\011{\"BevelEmboss\":{\"enabled\":true,\"style\":\"Emboss\",\"technique\":\"ChiselHard\",\"depth\":"
-     "1.0,\"up\":true,\"size\":5.0,\"soften\":0.0,\"angle\":120.0,\"altitude\":30.0,\"use_global_light\":tr"
-     "ue,\"gloss_contour\":\"Linear\",\"highlight\":{\"enabled\":true,\"blend\":\"Multiply\",\"opacity\":0."
-     "75},\"highlight_color\":{\"mode\":\"Rgb\",\"c\":[0.1,0.2,0.3,0.0],\"alpha\":1.0},\"shadow\":{\"enable"
-     "d\":true,\"blend\":\"Multiply\",\"opacity\":0.75},\"shadow_color\":{\"mode\":\"Cmyk\",\"c\":[0.1,0.2,"
-     "0.3,0.4],\"alpha\":0.5},\"contour\":{\"contour\":{\"Custom\":{\"name\":\"Cone\",\"points\":[{\"input"
-     "\":0.0,\"output\":0.0},{\"input\":0.5,\"output\":1.0}]}},\"range\":0.5,\"anti_alias\":false},\"textur"
-     "e\":{\"name\":\"p\",\"id\":\"abc\",\"scale\":1.0,\"depth\":-1.0,\"invert\":false,\"link\":true,\"phas"
-     "e\":[1.0,2.0]}}}\011{\"BevelEmboss\":{\"altitude\":30.0,\"angle\":120.0,\"contour\":{\"anti_alias\":f"
-     "alse,\"contour\":{\"Custom\":{\"name\":\"Cone\",\"points\":[{\"input\":0.0,\"output\":0.0},{\"input\""
-     ":0.5,\"output\":1.0}]}},\"range\":0.5},\"depth\":1.0,\"enabled\":true,\"gloss_contour\":\"Linear\",\""
-     "highlight\":{\"blend\":\"Multiply\",\"enabled\":true,\"opacity\":0.75},\"highlight_color\":{\"alpha\""
-     ":1.0,\"c\":[0.10000000149011612,0.20000000298023224,0.30000001192092896,0.0],\"mode\":\"Rgb\"},\"shad"
-     "ow\":{\"blend\":\"Multiply\",\"enabled\":true,\"opacity\":0.75},\"shadow_color\":{\"alpha\":0.5,\"c\""
-     ":[0.10000000149011612,0.20000000298023224,0.30000001192092896,0.4000000059604645],\"mode\":\"Cmyk\"},"
-     "\"size\":5.0,\"soften\":0.0,\"style\":\"Emboss\",\"technique\":\"ChiselHard\",\"texture\":{\"depth\":"
-     "-1.0,\"id\":\"abc\",\"invert\":false,\"link\":true,\"name\":\"p\",\"phase\":[1.0,2.0],\"scale\":1.0},"
-     "\"up\":true,\"use_global_light\":true}}"},
+     "ok\011{\"BevelEmboss\":{\"enabled\":true,\"style\":\"Emboss\",\"technique\":\"ChiselHard\",\"depth\":1.0,\"up\":true,\"size\":5.0,\"soften\":0.0,\"angle\":120.0,\"altitude\":30.0,\"use_global_light\":true,\"gloss_contour\":\"Linear\",\"gloss_anti_alias\":false,\"highlight\":{\"enabled\":true,\"blend\":\"Multiply\",\"opacity\":0.75},\"highlight_color\":{\"mode\":\"Rgb\",\"c\":[0.1,0.2,0.3,0.0],\"alpha\":1.0},\"shadow\":{\"enabled\":true,\"blend\":\"Multiply\",\"opacity\":0.75},\"shadow_color\":{\"mode\":\"Cmyk\",\"c\":[0.1,0.2,0.3,0.4],\"alpha\":0.5},\"contour\":{\"contour\":{\"Custom\":{\"name\":\"Cone\",\"points\":[{\"input\":0.0,\"output\":0.0},{\"input\":0.5,\"output\":1.0}]}},\"range\":0.5,\"anti_alias\":false},\"texture\":{\"name\":\"p\",\"id\":\"abc\",\"scale\":1.0,\"depth\":-1.0,\"invert\":false,\"link\":true,\"phase\":[1.0,2.0]}}}\011{\"BevelEmboss\":{\"altitude\":30.0,\"angle\":120.0,\"contour\":{\"anti_alias\":false,\"contour\":{\"Custom\":{\"name\":\"Cone\",\"points\":[{\"input\":0.0,\"output\":0.0},{\"input\":0.5,\"output\":1.0}]}},\"range\":0.5},\"depth\":1.0,\"enabled\":true,\"gloss_anti_alias\":false,\"gloss_contour\":\"Linear\",\"highlight\":{\"blend\":\"Multiply\",\"enabled\":true,\"opacity\":0.75},\"highlight_color\":{\"alpha\":1.0,\"c\":[0.10000000149011612,0.20000000298023224,0.30000001192092896,0.0],\"mode\":\"Rgb\"},\"shadow\":{\"blend\":\"Multiply\",\"enabled\":true,\"opacity\":0.75},\"shadow_color\":{\"alpha\":0.5,\"c\":[0.10000000149011612,0.20000000298023224,0.30000001192092896,0.4000000059604645],\"mode\":\"Cmyk\"},\"size\":5.0,\"soften\":0.0,\"style\":\"Emboss\",\"technique\":\"ChiselHard\",\"texture\":{\"depth\":-1.0,\"id\":\"abc\",\"invert\":false,\"link\":true,\"name\":\"p\",\"phase\":[1.0,2.0],\"scale\":1.0},\"up\":true,\"use_global_light\":true}}"},
     {"effect",
      "{}",
      "err\011invalid value: map, expected map with a single key"},
@@ -1717,8 +1664,7 @@ static const json_vec JSON_VECS[] = {
      "0,3.0]}"},
     {"live_shape",
      "{\"kind\":\"polygon\",\"rect\":[0.0,1.0,2.0,3.0],\"sides\":5,\"star_ratio\":0.5}",
-     "ok\011{\"kind\":\"polygon\",\"rect\":[0.0,1.0,2.0,3.0],\"sides\":5,\"star_ratio\":0.5}\011{\"kind\":"
-     "\"polygon\",\"rect\":[0.0,1.0,2.0,3.0],\"sides\":5,\"star_ratio\":0.5}"},
+     "ok\011{\"kind\":\"polygon\",\"rect\":[0.0,1.0,2.0,3.0],\"sides\":5,\"star_ratio\":0.5,\"corner_radius\":0.0}\011{\"corner_radius\":0.0,\"kind\":\"polygon\",\"rect\":[0.0,1.0,2.0,3.0],\"sides\":5,\"star_ratio\":0.5}"},
     {"live_shape",
      "{\"kind\":\"line\",\"from\":[0.0,1.0],\"to\":[2.0,3.0],\"weight\":1.5}",
      "ok\011{\"kind\":\"line\",\"from\":[0.0,1.0],\"to\":[2.0,3.0],\"weight\":1.5}\011{\"from\":[0.0,1.0],"
@@ -1830,46 +1776,13 @@ static const json_vec JSON_VECS[] = {
      "ing\":\"Optical\",\"kern\":5.0,\"caps\":\"SmallCaps\",\"ligatures\":false,\"discretionary_ligatures\""
      ":true,\"features\":[{\"tag\":\"ss01\",\"value\":1}],\"variations\":[{\"axis\":\"wght\",\"value\":650."
      "0}],\"language\":\"en-US\",\"style_sheet\":3}",
-     "ok\011{\"font_family\":\"Inter\",\"font_style\":\"Bold\",\"postscript_name\":\"Inter-Bold\",\"weight"
-     "\":700,\"italic\":true,\"size_pt\":13.5,\"color\":{\"mode\":\"Rgb\",\"c\":[0.1,0.2,0.3,0.0],\"alpha\""
-     ":1.0},\"tracking\":10.0,\"leading_pt\":16.0,\"baseline_shift_pt\":1.0,\"horizontal_scale\":1.1,\"vert"
-     "ical_scale\":0.9,\"underline\":true,\"strikethrough\":false,\"faux_bold\":true,\"faux_italic\":false,"
-     "\"kerning\":\"Optical\",\"kern\":5.0,\"caps\":\"SmallCaps\",\"ligatures\":false,\"discretionary_ligat"
-     "ures\":true,\"features\":[{\"tag\":\"ss01\",\"value\":1}],\"variations\":[{\"axis\":\"wght\",\"value"
-     "\":650.0}],\"language\":\"en-US\",\"style_sheet\":3}\011{\"baseline_shift_pt\":1.0,\"caps\":\"SmallCa"
-     "ps\",\"color\":{\"alpha\":1.0,\"c\":[0.10000000149011612,0.20000000298023224,0.30000001192092896,0.0]"
-     ",\"mode\":\"Rgb\"},\"discretionary_ligatures\":true,\"faux_bold\":true,\"faux_italic\":false,\"featur"
-     "es\":[{\"tag\":\"ss01\",\"value\":1}],\"font_family\":\"Inter\",\"font_style\":\"Bold\",\"horizontal_"
-     "scale\":1.100000023841858,\"italic\":true,\"kern\":5.0,\"kerning\":\"Optical\",\"language\":\"en-US\""
-     ",\"leading_pt\":16.0,\"ligatures\":false,\"postscript_name\":\"Inter-Bold\",\"size_pt\":13.5,\"strike"
-     "through\":false,\"style_sheet\":3,\"tracking\":10.0,\"underline\":true,\"variations\":[{\"axis\":\"wg"
-     "ht\",\"value\":650.0}],\"vertical_scale\":0.8999999761581421,\"weight\":700}"},
+     "ok\011{\"font_family\":\"Inter\",\"font_style\":\"Bold\",\"postscript_name\":\"Inter-Bold\",\"weight\":700,\"italic\":true,\"size_pt\":13.5,\"color\":{\"mode\":\"Rgb\",\"c\":[0.1,0.2,0.3,0.0],\"alpha\":1.0},\"tracking\":10.0,\"leading_pt\":16.0,\"baseline_shift_pt\":1.0,\"horizontal_scale\":1.1,\"vertical_scale\":0.9,\"underline\":true,\"strikethrough\":false,\"faux_bold\":true,\"faux_italic\":false,\"kerning\":\"Optical\",\"kern\":5.0,\"caps\":\"SmallCaps\",\"baseline\":\"Normal\",\"ligatures\":false,\"discretionary_ligatures\":true,\"features\":[{\"tag\":\"ss01\",\"value\":1}],\"variations\":[{\"axis\":\"wght\",\"value\":650.0}],\"language\":\"en-US\",\"style_sheet\":3}\011{\"baseline\":\"Normal\",\"baseline_shift_pt\":1.0,\"caps\":\"SmallCaps\",\"color\":{\"alpha\":1.0,\"c\":[0.10000000149011612,0.20000000298023224,0.30000001192092896,0.0],\"mode\":\"Rgb\"},\"discretionary_ligatures\":true,\"faux_bold\":true,\"faux_italic\":false,\"features\":[{\"tag\":\"ss01\",\"value\":1}],\"font_family\":\"Inter\",\"font_style\":\"Bold\",\"horizontal_scale\":1.100000023841858,\"italic\":true,\"kern\":5.0,\"kerning\":\"Optical\",\"language\":\"en-US\",\"leading_pt\":16.0,\"ligatures\":false,\"postscript_name\":\"Inter-Bold\",\"size_pt\":13.5,\"strikethrough\":false,\"style_sheet\":3,\"tracking\":10.0,\"underline\":true,\"variations\":[{\"axis\":\"wght\",\"value\":650.0}],\"vertical_scale\":0.8999999761581421,\"weight\":700}"},
     {"char_style",
      "{}",
-     "ok\011{\"font_family\":\"\",\"font_style\":\"\",\"postscript_name\":null,\"weight\":400,\"italic\":fa"
-     "lse,\"size_pt\":12.0,\"color\":{\"mode\":\"Rgb\",\"c\":[0.0,0.0,0.0,0.0],\"alpha\":1.0},\"tracking\":"
-     "0.0,\"leading_pt\":null,\"baseline_shift_pt\":0.0,\"horizontal_scale\":1.0,\"vertical_scale\":1.0,\"u"
-     "nderline\":false,\"strikethrough\":false,\"faux_bold\":false,\"faux_italic\":false,\"kerning\":\"Metr"
-     "ics\",\"kern\":0.0,\"caps\":\"Normal\",\"ligatures\":true,\"discretionary_ligatures\":false,\"feature"
-     "s\":[],\"variations\":[],\"language\":null}\011{\"baseline_shift_pt\":0.0,\"caps\":\"Normal\",\"color"
-     "\":{\"alpha\":1.0,\"c\":[0.0,0.0,0.0,0.0],\"mode\":\"Rgb\"},\"discretionary_ligatures\":false,\"faux_"
-     "bold\":false,\"faux_italic\":false,\"features\":[],\"font_family\":\"\",\"font_style\":\"\",\"horizon"
-     "tal_scale\":1.0,\"italic\":false,\"kern\":0.0,\"kerning\":\"Metrics\",\"language\":null,\"leading_pt"
-     "\":null,\"ligatures\":true,\"postscript_name\":null,\"size_pt\":12.0,\"strikethrough\":false,\"tracki"
-     "ng\":0.0,\"underline\":false,\"variations\":[],\"vertical_scale\":1.0,\"weight\":400}"},
+     "ok\011{\"font_family\":\"\",\"font_style\":\"\",\"postscript_name\":null,\"weight\":400,\"italic\":false,\"size_pt\":12.0,\"color\":{\"mode\":\"Rgb\",\"c\":[0.0,0.0,0.0,0.0],\"alpha\":1.0},\"tracking\":0.0,\"leading_pt\":null,\"baseline_shift_pt\":0.0,\"horizontal_scale\":1.0,\"vertical_scale\":1.0,\"underline\":false,\"strikethrough\":false,\"faux_bold\":false,\"faux_italic\":false,\"kerning\":\"Metrics\",\"kern\":0.0,\"caps\":\"Normal\",\"baseline\":\"Normal\",\"ligatures\":true,\"discretionary_ligatures\":false,\"features\":[],\"variations\":[],\"language\":null}\011{\"baseline\":\"Normal\",\"baseline_shift_pt\":0.0,\"caps\":\"Normal\",\"color\":{\"alpha\":1.0,\"c\":[0.0,0.0,0.0,0.0],\"mode\":\"Rgb\"},\"discretionary_ligatures\":false,\"faux_bold\":false,\"faux_italic\":false,\"features\":[],\"font_family\":\"\",\"font_style\":\"\",\"horizontal_scale\":1.0,\"italic\":false,\"kern\":0.0,\"kerning\":\"Metrics\",\"language\":null,\"leading_pt\":null,\"ligatures\":true,\"postscript_name\":null,\"size_pt\":12.0,\"strikethrough\":false,\"tracking\":0.0,\"underline\":false,\"variations\":[],\"vertical_scale\":1.0,\"weight\":400}"},
     {"char_style",
      "[]",
-     "ok\011{\"font_family\":\"\",\"font_style\":\"\",\"postscript_name\":null,\"weight\":400,\"italic\":fa"
-     "lse,\"size_pt\":12.0,\"color\":{\"mode\":\"Rgb\",\"c\":[0.0,0.0,0.0,0.0],\"alpha\":1.0},\"tracking\":"
-     "0.0,\"leading_pt\":null,\"baseline_shift_pt\":0.0,\"horizontal_scale\":1.0,\"vertical_scale\":1.0,\"u"
-     "nderline\":false,\"strikethrough\":false,\"faux_bold\":false,\"faux_italic\":false,\"kerning\":\"Metr"
-     "ics\",\"kern\":0.0,\"caps\":\"Normal\",\"ligatures\":true,\"discretionary_ligatures\":false,\"feature"
-     "s\":[],\"variations\":[],\"language\":null}\011{\"baseline_shift_pt\":0.0,\"caps\":\"Normal\",\"color"
-     "\":{\"alpha\":1.0,\"c\":[0.0,0.0,0.0,0.0],\"mode\":\"Rgb\"},\"discretionary_ligatures\":false,\"faux_"
-     "bold\":false,\"faux_italic\":false,\"features\":[],\"font_family\":\"\",\"font_style\":\"\",\"horizon"
-     "tal_scale\":1.0,\"italic\":false,\"kern\":0.0,\"kerning\":\"Metrics\",\"language\":null,\"leading_pt"
-     "\":null,\"ligatures\":true,\"postscript_name\":null,\"size_pt\":12.0,\"strikethrough\":false,\"tracki"
-     "ng\":0.0,\"underline\":false,\"variations\":[],\"vertical_scale\":1.0,\"weight\":400}"},
+     "ok\011{\"font_family\":\"\",\"font_style\":\"\",\"postscript_name\":null,\"weight\":400,\"italic\":false,\"size_pt\":12.0,\"color\":{\"mode\":\"Rgb\",\"c\":[0.0,0.0,0.0,0.0],\"alpha\":1.0},\"tracking\":0.0,\"leading_pt\":null,\"baseline_shift_pt\":0.0,\"horizontal_scale\":1.0,\"vertical_scale\":1.0,\"underline\":false,\"strikethrough\":false,\"faux_bold\":false,\"faux_italic\":false,\"kerning\":\"Metrics\",\"kern\":0.0,\"caps\":\"Normal\",\"baseline\":\"Normal\",\"ligatures\":true,\"discretionary_ligatures\":false,\"features\":[],\"variations\":[],\"language\":null}\011{\"baseline\":\"Normal\",\"baseline_shift_pt\":0.0,\"caps\":\"Normal\",\"color\":{\"alpha\":1.0,\"c\":[0.0,0.0,0.0,0.0],\"mode\":\"Rgb\"},\"discretionary_ligatures\":false,\"faux_bold\":false,\"faux_italic\":false,\"features\":[],\"font_family\":\"\",\"font_style\":\"\",\"horizontal_scale\":1.0,\"italic\":false,\"kern\":0.0,\"kerning\":\"Metrics\",\"language\":null,\"leading_pt\":null,\"ligatures\":true,\"postscript_name\":null,\"size_pt\":12.0,\"strikethrough\":false,\"tracking\":0.0,\"underline\":false,\"variations\":[],\"vertical_scale\":1.0,\"weight\":400}"},
     {"char_style",
      "null",
      "err\011invalid type: null, expected struct CharStyle"},
@@ -1887,21 +1800,7 @@ static const json_vec JSON_VECS[] = {
      "talic\":false,\"kerning\":\"Optical\",\"kern\":5.0,\"caps\":\"SmallCaps\",\"ligatures\":false,\"discr"
      "etionary_ligatures\":true,\"features\":[{\"tag\":\"ss01\",\"value\":1}],\"variations\":[{\"axis\":\"w"
      "ght\",\"value\":650.0}],\"language\":\"en-US\",\"style_sheet\":3}}",
-     "ok\011{\"len\":5,\"style\":{\"font_family\":\"Inter\",\"font_style\":\"Bold\",\"postscript_name\":\"I"
-     "nter-Bold\",\"weight\":700,\"italic\":true,\"size_pt\":13.5,\"color\":{\"mode\":\"Rgb\",\"c\":[0.1,0."
-     "2,0.3,0.0],\"alpha\":1.0},\"tracking\":10.0,\"leading_pt\":16.0,\"baseline_shift_pt\":1.0,\"horizonta"
-     "l_scale\":1.1,\"vertical_scale\":0.9,\"underline\":true,\"strikethrough\":false,\"faux_bold\":true,\""
-     "faux_italic\":false,\"kerning\":\"Optical\",\"kern\":5.0,\"caps\":\"SmallCaps\",\"ligatures\":false,"
-     "\"discretionary_ligatures\":true,\"features\":[{\"tag\":\"ss01\",\"value\":1}],\"variations\":[{\"axi"
-     "s\":\"wght\",\"value\":650.0}],\"language\":\"en-US\",\"style_sheet\":3}}\011{\"len\":5,\"style\":{\""
-     "baseline_shift_pt\":1.0,\"caps\":\"SmallCaps\",\"color\":{\"alpha\":1.0,\"c\":[0.10000000149011612,0."
-     "20000000298023224,0.30000001192092896,0.0],\"mode\":\"Rgb\"},\"discretionary_ligatures\":true,\"faux_"
-     "bold\":true,\"faux_italic\":false,\"features\":[{\"tag\":\"ss01\",\"value\":1}],\"font_family\":\"Int"
-     "er\",\"font_style\":\"Bold\",\"horizontal_scale\":1.100000023841858,\"italic\":true,\"kern\":5.0,\"ke"
-     "rning\":\"Optical\",\"language\":\"en-US\",\"leading_pt\":16.0,\"ligatures\":false,\"postscript_name"
-     "\":\"Inter-Bold\",\"size_pt\":13.5,\"strikethrough\":false,\"style_sheet\":3,\"tracking\":10.0,\"unde"
-     "rline\":true,\"variations\":[{\"axis\":\"wght\",\"value\":650.0}],\"vertical_scale\":0.89999997615814"
-     "21,\"weight\":700}}"},
+     "ok\011{\"len\":5,\"style\":{\"font_family\":\"Inter\",\"font_style\":\"Bold\",\"postscript_name\":\"Inter-Bold\",\"weight\":700,\"italic\":true,\"size_pt\":13.5,\"color\":{\"mode\":\"Rgb\",\"c\":[0.1,0.2,0.3,0.0],\"alpha\":1.0},\"tracking\":10.0,\"leading_pt\":16.0,\"baseline_shift_pt\":1.0,\"horizontal_scale\":1.1,\"vertical_scale\":0.9,\"underline\":true,\"strikethrough\":false,\"faux_bold\":true,\"faux_italic\":false,\"kerning\":\"Optical\",\"kern\":5.0,\"caps\":\"SmallCaps\",\"baseline\":\"Normal\",\"ligatures\":false,\"discretionary_ligatures\":true,\"features\":[{\"tag\":\"ss01\",\"value\":1}],\"variations\":[{\"axis\":\"wght\",\"value\":650.0}],\"language\":\"en-US\",\"style_sheet\":3}}\011{\"len\":5,\"style\":{\"baseline\":\"Normal\",\"baseline_shift_pt\":1.0,\"caps\":\"SmallCaps\",\"color\":{\"alpha\":1.0,\"c\":[0.10000000149011612,0.20000000298023224,0.30000001192092896,0.0],\"mode\":\"Rgb\"},\"discretionary_ligatures\":true,\"faux_bold\":true,\"faux_italic\":false,\"features\":[{\"tag\":\"ss01\",\"value\":1}],\"font_family\":\"Inter\",\"font_style\":\"Bold\",\"horizontal_scale\":1.100000023841858,\"italic\":true,\"kern\":5.0,\"kerning\":\"Optical\",\"language\":\"en-US\",\"leading_pt\":16.0,\"ligatures\":false,\"postscript_name\":\"Inter-Bold\",\"size_pt\":13.5,\"strikethrough\":false,\"style_sheet\":3,\"tracking\":10.0,\"underline\":true,\"variations\":[{\"axis\":\"wght\",\"value\":650.0}],\"vertical_scale\":0.8999999761581421,\"weight\":700}}"},
     {"text_run",
      "{}",
      "err\011missing field `len`"},
@@ -2925,65 +2824,22 @@ static const json_vec JSON_VECS[] = {
      "err\011invalid value: integer `65536`, expected u16"},
     {"char_style",
      "{\"features\":[{\"tag\":\"ss01\",\"value\":1}]}",
-     "ok\011{\"font_family\":\"\",\"font_style\":\"\",\"postscript_name\":null,\"weight\":400,\"italic\":fa"
-     "lse,\"size_pt\":12.0,\"color\":{\"mode\":\"Rgb\",\"c\":[0.0,0.0,0.0,0.0],\"alpha\":1.0},\"tracking\":"
-     "0.0,\"leading_pt\":null,\"baseline_shift_pt\":0.0,\"horizontal_scale\":1.0,\"vertical_scale\":1.0,\"u"
-     "nderline\":false,\"strikethrough\":false,\"faux_bold\":false,\"faux_italic\":false,\"kerning\":\"Metr"
-     "ics\",\"kern\":0.0,\"caps\":\"Normal\",\"ligatures\":true,\"discretionary_ligatures\":false,\"feature"
-     "s\":[{\"tag\":\"ss01\",\"value\":1}],\"variations\":[],\"language\":null}\011{\"baseline_shift_pt\":0"
-     ".0,\"caps\":\"Normal\",\"color\":{\"alpha\":1.0,\"c\":[0.0,0.0,0.0,0.0],\"mode\":\"Rgb\"},\"discretio"
-     "nary_ligatures\":false,\"faux_bold\":false,\"faux_italic\":false,\"features\":[{\"tag\":\"ss01\",\"va"
-     "lue\":1}],\"font_family\":\"\",\"font_style\":\"\",\"horizontal_scale\":1.0,\"italic\":false,\"kern\""
-     ":0.0,\"kerning\":\"Metrics\",\"language\":null,\"leading_pt\":null,\"ligatures\":true,\"postscript_na"
-     "me\":null,\"size_pt\":12.0,\"strikethrough\":false,\"tracking\":0.0,\"underline\":false,\"variations"
-     "\":[],\"vertical_scale\":1.0,\"weight\":400}"},
+     "ok\011{\"font_family\":\"\",\"font_style\":\"\",\"postscript_name\":null,\"weight\":400,\"italic\":false,\"size_pt\":12.0,\"color\":{\"mode\":\"Rgb\",\"c\":[0.0,0.0,0.0,0.0],\"alpha\":1.0},\"tracking\":0.0,\"leading_pt\":null,\"baseline_shift_pt\":0.0,\"horizontal_scale\":1.0,\"vertical_scale\":1.0,\"underline\":false,\"strikethrough\":false,\"faux_bold\":false,\"faux_italic\":false,\"kerning\":\"Metrics\",\"kern\":0.0,\"caps\":\"Normal\",\"baseline\":\"Normal\",\"ligatures\":true,\"discretionary_ligatures\":false,\"features\":[{\"tag\":\"ss01\",\"value\":1}],\"variations\":[],\"language\":null}\011{\"baseline\":\"Normal\",\"baseline_shift_pt\":0.0,\"caps\":\"Normal\",\"color\":{\"alpha\":1.0,\"c\":[0.0,0.0,0.0,0.0],\"mode\":\"Rgb\"},\"discretionary_ligatures\":false,\"faux_bold\":false,\"faux_italic\":false,\"features\":[{\"tag\":\"ss01\",\"value\":1}],\"font_family\":\"\",\"font_style\":\"\",\"horizontal_scale\":1.0,\"italic\":false,\"kern\":0.0,\"kerning\":\"Metrics\",\"language\":null,\"leading_pt\":null,\"ligatures\":true,\"postscript_name\":null,\"size_pt\":12.0,\"strikethrough\":false,\"tracking\":0.0,\"underline\":false,\"variations\":[],\"vertical_scale\":1.0,\"weight\":400}"},
     {"char_style",
      "{\"features\":[{\"tag\":\"ss01\"}]}",
      "err\011missing field `value`"},
     {"char_style",
      "{\"features\":[[\"ss01\",1]]}",
-     "ok\011{\"font_family\":\"\",\"font_style\":\"\",\"postscript_name\":null,\"weight\":400,\"italic\":fa"
-     "lse,\"size_pt\":12.0,\"color\":{\"mode\":\"Rgb\",\"c\":[0.0,0.0,0.0,0.0],\"alpha\":1.0},\"tracking\":"
-     "0.0,\"leading_pt\":null,\"baseline_shift_pt\":0.0,\"horizontal_scale\":1.0,\"vertical_scale\":1.0,\"u"
-     "nderline\":false,\"strikethrough\":false,\"faux_bold\":false,\"faux_italic\":false,\"kerning\":\"Metr"
-     "ics\",\"kern\":0.0,\"caps\":\"Normal\",\"ligatures\":true,\"discretionary_ligatures\":false,\"feature"
-     "s\":[{\"tag\":\"ss01\",\"value\":1}],\"variations\":[],\"language\":null}\011{\"baseline_shift_pt\":0"
-     ".0,\"caps\":\"Normal\",\"color\":{\"alpha\":1.0,\"c\":[0.0,0.0,0.0,0.0],\"mode\":\"Rgb\"},\"discretio"
-     "nary_ligatures\":false,\"faux_bold\":false,\"faux_italic\":false,\"features\":[{\"tag\":\"ss01\",\"va"
-     "lue\":1}],\"font_family\":\"\",\"font_style\":\"\",\"horizontal_scale\":1.0,\"italic\":false,\"kern\""
-     ":0.0,\"kerning\":\"Metrics\",\"language\":null,\"leading_pt\":null,\"ligatures\":true,\"postscript_na"
-     "me\":null,\"size_pt\":12.0,\"strikethrough\":false,\"tracking\":0.0,\"underline\":false,\"variations"
-     "\":[],\"vertical_scale\":1.0,\"weight\":400}"},
+     "ok\011{\"font_family\":\"\",\"font_style\":\"\",\"postscript_name\":null,\"weight\":400,\"italic\":false,\"size_pt\":12.0,\"color\":{\"mode\":\"Rgb\",\"c\":[0.0,0.0,0.0,0.0],\"alpha\":1.0},\"tracking\":0.0,\"leading_pt\":null,\"baseline_shift_pt\":0.0,\"horizontal_scale\":1.0,\"vertical_scale\":1.0,\"underline\":false,\"strikethrough\":false,\"faux_bold\":false,\"faux_italic\":false,\"kerning\":\"Metrics\",\"kern\":0.0,\"caps\":\"Normal\",\"baseline\":\"Normal\",\"ligatures\":true,\"discretionary_ligatures\":false,\"features\":[{\"tag\":\"ss01\",\"value\":1}],\"variations\":[],\"language\":null}\011{\"baseline\":\"Normal\",\"baseline_shift_pt\":0.0,\"caps\":\"Normal\",\"color\":{\"alpha\":1.0,\"c\":[0.0,0.0,0.0,0.0],\"mode\":\"Rgb\"},\"discretionary_ligatures\":false,\"faux_bold\":false,\"faux_italic\":false,\"features\":[{\"tag\":\"ss01\",\"value\":1}],\"font_family\":\"\",\"font_style\":\"\",\"horizontal_scale\":1.0,\"italic\":false,\"kern\":0.0,\"kerning\":\"Metrics\",\"language\":null,\"leading_pt\":null,\"ligatures\":true,\"postscript_name\":null,\"size_pt\":12.0,\"strikethrough\":false,\"tracking\":0.0,\"underline\":false,\"variations\":[],\"vertical_scale\":1.0,\"weight\":400}"},
     {"char_style",
      "{\"color\":null}",
      "err\011invalid type: null, expected struct Color"},
     {"char_style",
      "{\"leading_pt\":null,\"language\":null,\"postscript_name\":null}",
-     "ok\011{\"font_family\":\"\",\"font_style\":\"\",\"postscript_name\":null,\"weight\":400,\"italic\":fa"
-     "lse,\"size_pt\":12.0,\"color\":{\"mode\":\"Rgb\",\"c\":[0.0,0.0,0.0,0.0],\"alpha\":1.0},\"tracking\":"
-     "0.0,\"leading_pt\":null,\"baseline_shift_pt\":0.0,\"horizontal_scale\":1.0,\"vertical_scale\":1.0,\"u"
-     "nderline\":false,\"strikethrough\":false,\"faux_bold\":false,\"faux_italic\":false,\"kerning\":\"Metr"
-     "ics\",\"kern\":0.0,\"caps\":\"Normal\",\"ligatures\":true,\"discretionary_ligatures\":false,\"feature"
-     "s\":[],\"variations\":[],\"language\":null}\011{\"baseline_shift_pt\":0.0,\"caps\":\"Normal\",\"color"
-     "\":{\"alpha\":1.0,\"c\":[0.0,0.0,0.0,0.0],\"mode\":\"Rgb\"},\"discretionary_ligatures\":false,\"faux_"
-     "bold\":false,\"faux_italic\":false,\"features\":[],\"font_family\":\"\",\"font_style\":\"\",\"horizon"
-     "tal_scale\":1.0,\"italic\":false,\"kern\":0.0,\"kerning\":\"Metrics\",\"language\":null,\"leading_pt"
-     "\":null,\"ligatures\":true,\"postscript_name\":null,\"size_pt\":12.0,\"strikethrough\":false,\"tracki"
-     "ng\":0.0,\"underline\":false,\"variations\":[],\"vertical_scale\":1.0,\"weight\":400}"},
+     "ok\011{\"font_family\":\"\",\"font_style\":\"\",\"postscript_name\":null,\"weight\":400,\"italic\":false,\"size_pt\":12.0,\"color\":{\"mode\":\"Rgb\",\"c\":[0.0,0.0,0.0,0.0],\"alpha\":1.0},\"tracking\":0.0,\"leading_pt\":null,\"baseline_shift_pt\":0.0,\"horizontal_scale\":1.0,\"vertical_scale\":1.0,\"underline\":false,\"strikethrough\":false,\"faux_bold\":false,\"faux_italic\":false,\"kerning\":\"Metrics\",\"kern\":0.0,\"caps\":\"Normal\",\"baseline\":\"Normal\",\"ligatures\":true,\"discretionary_ligatures\":false,\"features\":[],\"variations\":[],\"language\":null}\011{\"baseline\":\"Normal\",\"baseline_shift_pt\":0.0,\"caps\":\"Normal\",\"color\":{\"alpha\":1.0,\"c\":[0.0,0.0,0.0,0.0],\"mode\":\"Rgb\"},\"discretionary_ligatures\":false,\"faux_bold\":false,\"faux_italic\":false,\"features\":[],\"font_family\":\"\",\"font_style\":\"\",\"horizontal_scale\":1.0,\"italic\":false,\"kern\":0.0,\"kerning\":\"Metrics\",\"language\":null,\"leading_pt\":null,\"ligatures\":true,\"postscript_name\":null,\"size_pt\":12.0,\"strikethrough\":false,\"tracking\":0.0,\"underline\":false,\"variations\":[],\"vertical_scale\":1.0,\"weight\":400}"},
     {"char_style",
      "{\"style_sheet\":4294967295}",
-     "ok\011{\"font_family\":\"\",\"font_style\":\"\",\"postscript_name\":null,\"weight\":400,\"italic\":fa"
-     "lse,\"size_pt\":12.0,\"color\":{\"mode\":\"Rgb\",\"c\":[0.0,0.0,0.0,0.0],\"alpha\":1.0},\"tracking\":"
-     "0.0,\"leading_pt\":null,\"baseline_shift_pt\":0.0,\"horizontal_scale\":1.0,\"vertical_scale\":1.0,\"u"
-     "nderline\":false,\"strikethrough\":false,\"faux_bold\":false,\"faux_italic\":false,\"kerning\":\"Metr"
-     "ics\",\"kern\":0.0,\"caps\":\"Normal\",\"ligatures\":true,\"discretionary_ligatures\":false,\"feature"
-     "s\":[],\"variations\":[],\"language\":null,\"style_sheet\":4294967295}\011{\"baseline_shift_pt\":0.0,"
-     "\"caps\":\"Normal\",\"color\":{\"alpha\":1.0,\"c\":[0.0,0.0,0.0,0.0],\"mode\":\"Rgb\"},\"discretionar"
-     "y_ligatures\":false,\"faux_bold\":false,\"faux_italic\":false,\"features\":[],\"font_family\":\"\",\""
-     "font_style\":\"\",\"horizontal_scale\":1.0,\"italic\":false,\"kern\":0.0,\"kerning\":\"Metrics\",\"la"
-     "nguage\":null,\"leading_pt\":null,\"ligatures\":true,\"postscript_name\":null,\"size_pt\":12.0,\"stri"
-     "kethrough\":false,\"style_sheet\":4294967295,\"tracking\":0.0,\"underline\":false,\"variations\":[],"
-     "\"vertical_scale\":1.0,\"weight\":400}"},
+     "ok\011{\"font_family\":\"\",\"font_style\":\"\",\"postscript_name\":null,\"weight\":400,\"italic\":false,\"size_pt\":12.0,\"color\":{\"mode\":\"Rgb\",\"c\":[0.0,0.0,0.0,0.0],\"alpha\":1.0},\"tracking\":0.0,\"leading_pt\":null,\"baseline_shift_pt\":0.0,\"horizontal_scale\":1.0,\"vertical_scale\":1.0,\"underline\":false,\"strikethrough\":false,\"faux_bold\":false,\"faux_italic\":false,\"kerning\":\"Metrics\",\"kern\":0.0,\"caps\":\"Normal\",\"baseline\":\"Normal\",\"ligatures\":true,\"discretionary_ligatures\":false,\"features\":[],\"variations\":[],\"language\":null,\"style_sheet\":4294967295}\011{\"baseline\":\"Normal\",\"baseline_shift_pt\":0.0,\"caps\":\"Normal\",\"color\":{\"alpha\":1.0,\"c\":[0.0,0.0,0.0,0.0],\"mode\":\"Rgb\"},\"discretionary_ligatures\":false,\"faux_bold\":false,\"faux_italic\":false,\"features\":[],\"font_family\":\"\",\"font_style\":\"\",\"horizontal_scale\":1.0,\"italic\":false,\"kern\":0.0,\"kerning\":\"Metrics\",\"language\":null,\"leading_pt\":null,\"ligatures\":true,\"postscript_name\":null,\"size_pt\":12.0,\"strikethrough\":false,\"style_sheet\":4294967295,\"tracking\":0.0,\"underline\":false,\"variations\":[],\"vertical_scale\":1.0,\"weight\":400}"},
     {"char_style",
      "{\"style_sheet\":4294967296}",
      "err\011invalid value: integer `4294967296`, expected u32"},

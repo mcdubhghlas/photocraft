@@ -79,40 +79,53 @@ static void test_resolve_order_clipping_and_names(void)
     size_t n = 0;
     pc_slice *s;
     new_doc(&d, "", 50, 50);
-    /* Two stored slices with the same top-left keep their list order (stable sort); a slice
-     * reaching past the canvas is clipped, one outside it disappears. */
+    /* Resolve now follows Photoshop (#7770): later slices in the list cover earlier ones and a
+     * covered slice is cut into the rectangles that stay visible. Slice id 7 (0,0,10,10) is
+     * covered along its top by the later id 3 (0,0,20,5), so its visible piece is (0,5,10,10);
+     * id 9 reaching past the canvas is clipped to (40,40,50,50); id 11 lies outside and
+     * disappears. Everything (stored pieces + generated auto slices) is numbered top-to-bottom,
+     * left-to-right from 1. A duplicate id keeps its OWN origin now, not the first slice's. */
     s = add_slice(&d, 7, pc_rect_make(0, 0, 10, 10));
     s->kind = PC_SLICE_NO_IMAGE;
     add_slice(&d, 3, pc_rect_make(0, 0, 20, 5));
     add_slice(&d, 9, pc_rect_make(40, 40, 90, 90));
     add_slice(&d, 11, pc_rect_make(60, 0, 70, 10));
-    s = add_slice(&d, 7, pc_rect_make(30, 30, 31, 31)); /* duplicate id: lookups find the first */
+    s = add_slice(&d, 7, pc_rect_make(30, 30, 31, 31)); /* duplicate id, its own LAYER origin */
     s->origin = PC_SLICE_LAYER;
     CHECK(pc_slices_resolve(&d, &r, &n, NULL) == PC_OK);
-    CHECK(n > 4);
-    if (n > 4) {
-        CHECK(r[0].has_id && r[0].id == 7 && r[0].kind == PC_SLICE_NO_IMAGE);
-        CHECK(r[1].has_id && r[1].id == 3);
+    CHECK_EQ_UINT(n, 11);
+    if (n == 11) {
+        /* id 3 sorts first (y0=0, x0=0); then an auto slice; then id 7's visible piece. */
+        CHECK(r[0].has_id && r[0].id == 3 && r[0].origin == PC_SLICE_USER && r[0].kind == PC_SLICE_IMAGE);
+        CHECK(pc_rect_eq(r[0].rect, pc_rect_make(0, 0, 20, 5)));
         CHECK_EQ_STR(pc_str_c(&r[0].name), "Untitled_01");
+        CHECK(!r[1].has_id && r[1].origin == PC_SLICE_AUTO);
         CHECK_EQ_STR(pc_str_c(&r[1].name), "Untitled_02");
+        CHECK(r[2].has_id && r[2].id == 7 && r[2].origin == PC_SLICE_USER && r[2].kind == PC_SLICE_NO_IMAGE);
+        CHECK(pc_rect_eq(r[2].rect, pc_rect_make(0, 5, 10, 10))); /* top band cut away by id 3 */
+        CHECK_EQ_STR(pc_str_c(&r[2].name), "Untitled_03");
+        /* the duplicate id-7 slice keeps its own LAYER origin. */
+        CHECK(r[6].has_id && r[6].id == 7 && r[6].origin == PC_SLICE_LAYER && r[6].kind == PC_SLICE_IMAGE);
+        CHECK(pc_rect_eq(r[6].rect, pc_rect_make(30, 30, 31, 31)));
+        CHECK(r[10].has_id && r[10].id == 9 && r[10].origin == PC_SLICE_USER);
+        CHECK(pc_rect_eq(r[10].rect, pc_rect_make(40, 40, 50, 50))); /* clipped to the canvas */
     }
     {
         size_t i;
         size_t stored = 0;
+        size_t id7 = 0;
         for (i = 0; i < n; i++) {
             CHECK_EQ_UINT(r[i].number, i + 1);
             if (r[i].has_id) {
                 stored++;
-                CHECK(r[i].id != 11);
-                if (r[i].id == 9) {
-                    CHECK(pc_rect_eq(r[i].rect, pc_rect_make(40, 40, 50, 50)));
-                }
+                CHECK(r[i].id != 11); /* the slice outside the canvas disappears */
                 if (r[i].id == 7) {
-                    CHECK(r[i].origin == PC_SLICE_USER); /* both id-7 entries resolve to the first */
+                    id7++;
                 }
             }
         }
-        CHECK_EQ_UINT(stored, 4);
+        CHECK_EQ_UINT(stored, 4); /* ids 3, 7, 7, 9 (11 gone) */
+        CHECK_EQ_UINT(id7, 2);    /* both id-7 slices resolve, each with its own origin */
     }
     pc_resolved_slices_free(r, n);
     pc_document_fini(&d);

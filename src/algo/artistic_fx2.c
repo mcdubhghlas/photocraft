@@ -48,6 +48,70 @@ static float patch_height(float x, float y, float size)
     return pc_algo_hash01(bx, by, 0, 231) * bevel;
 }
 
+/* Average ink over s in [0, 1] at level tau for the soft threshold clamp(0.5 + (tau - s) * gain). */
+static float halftone_cover(float tau, float half, float gain)
+{
+    float a = tau - half, z = tau + half;
+    float solid = pc_gfx_clamp01(a);
+    float r0 = pc_gfx_clamp01(a), r1 = pc_gfx_clamp01(z);
+    float ramp = r1 > r0 ? (0.5f + tau * gain) * (r1 - r0) - 0.5f * gain * (r1 * r1 - r0 * r0) : 0.0f;
+    return solid + ramp;
+}
+
+/* For each tone (0 = paper .. 255 = solid ink), the level at which the soft threshold inks exactly
+ * that share of a cell on average (crate halftone_offsets). */
+static void halftone_offsets(float gain, float off[256])
+{
+    float half = 0.5f / pc_rs_maxf_k(gain, 1e-3f);
+    int i, it;
+    for (i = 0; i < 256; i++) {
+        float target = (float)i / 255.0f, lo = -half - 1.0f, hi = 1.0f + half + 1.0f;
+        for (it = 0; it < 40; it++) {
+            float mid = (lo + hi) / 2.0f;
+            if (halftone_cover(mid, half, gain) < target) {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        off[i] = i == 0 ? -half - 1.0f : (i == 255 ? 1.0f + half + 1.0f : (lo + hi) / 2.0f);
+    }
+}
+
+static int halftone_cmp(const void *a, const void *b)
+{
+    float x = *(const float *)a, y = *(const float *)b;
+    return x < y ? -1 : (x > y ? 1 : 0);
+}
+
+/* The round-dot spot function sampled over a 128x128 cell and sorted ascending (crate
+ * halftone_dot_ranks). */
+#define HALFTONE_DOTS (128 * 128)
+static void halftone_dot_ranks(float *ranks)
+{
+    int i;
+    for (i = 0; i < HALFTONE_DOTS; i++) {
+        float u = ((float)(i % 128) + 0.5f) / 128.0f, v = ((float)(i / 128) + 0.5f) / 128.0f;
+        ranks[i] = (cosf(2.0f * PC_FX_PI * u) + cosf(2.0f * PC_FX_PI * v)) / 2.0f;
+    }
+    qsort(ranks, HALFTONE_DOTS, sizeof *ranks, halftone_cmp);
+}
+
+/* Count of ranks strictly less than f (slice::partition_point for a `< f` predicate). */
+static size_t halftone_partition(const float *ranks, size_t n, float f)
+{
+    size_t lo = 0, hi = n;
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        if (ranks[mid] < f) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    return lo;
+}
+
 pc_status pc_gfx_apply2(const pc_algo_gallery_effect *e, gwin *w, const pc_algo_ctx *ctx, pc_error *err)
 {
     size_t W = w->w, H = w->h, N = W * H, i, c;
@@ -231,37 +295,54 @@ pc_status pc_gfx_apply2(const pc_algo_gallery_effect *e, gwin *w, const pc_algo_
         break;
     }
     case PC_ALGO_GAL_HALFTONE_PATTERN: {
-        float size = G("size"), con = G("contrast") / 50.0f, cell = 3.0f + size * 2.0f, cx, cy;
+        /* A halftone screen that keeps a continuous range of tones: each pixel compares its ink
+         * with the screen's threshold there; Contrast is how steeply. Thresholds are spread evenly
+         * over each cell and each tone offset so a cell's average ink is exactly that tone. */
+        float cell = 1.5f + 2.0f * pc_clampf(G("size"), 1.0f, 12.0f), gain = 0.5f + G("contrast") * 0.6f, cx, cy;
+        float offsets[256], *dots = NULL;
         pc_rect b = ctx->bounds;
         const char *ty = pc_algo_gallery_effect_choice(e, "patternType", cb);
         l = pc_gfx_win_lum(w);
-        if (l == NULL) {
+        dots = pc_malloc_array(HALFTONE_DOTS, sizeof *dots);
+        if (l == NULL || dots == NULL) {
+            free(dots);
             TRY(NOMEM());
         }
-        TRY(pc_gfx_blur1(l, W, H, 0.5f + size * 0.3f, err));
+        halftone_offsets(gain, offsets);
+        halftone_dot_ranks(dots);
+        TRY(pc_gfx_blur1(l, W, H, cell * 0.15f, err));
         cx = (float)pc_i32_wrapping_add(b.x0, b.x1) / 2.0f;
         cy = (float)pc_i32_wrapping_add(b.y0, b.y1) / 2.0f;
         for (i = 0; i < N; i++) {
-            float fx, fy, d, aa, ink;
+            float fx, fy, spot, tone, ff, level, ink;
+            size_t k0;
             pc_gfx_xy(w, i, &x, &y);
             fx = (float)x + 0.5f;
             fy = (float)y + 0.5f;
-            d = pc_gfx_clamp01((1.0f - l[i] - 0.5f) * (1.0f + con * 3.0f) + 0.5f);
-            aa = 1.0f / cell;
             if (strcmp(ty, "circle") == 0) {
-                float r = sqrtf(pc_fx_sq(fx - cx) + pc_fx_sq(fy - cy)) / cell;
-                float q = fabsf(pc_fx_fract(r) - 0.5f) * 2.0f;
-                ink = pc_gfx_smoothstep(d + aa, d - aa, q);
+                float t = sqrtf(pc_fx_sq(fx - cx) + pc_fx_sq(fy - cy));
+                spot = fabsf(pc_algo_rem_euclidf(t / cell, 1.0f) - 0.5f) * 2.0f;
             } else if (strcmp(ty, "line") == 0) {
-                float q = fabsf(pc_fx_fract(fy / cell) - 0.5f) * 2.0f;
-                ink = pc_gfx_smoothstep(d + aa, d - aa, q);
+                spot = fabsf(pc_algo_rem_euclidf(fy / cell, 1.0f) - 0.5f) * 2.0f;
             } else {
-                float u = pc_fx_fract(fx / cell) - 0.5f, v = pc_fx_fract(fy / cell) - 0.5f;
-                float q = sqrtf(u * u + v * v) * 2.0f, rr = sqrtf(d) * 1.15f;
-                ink = pc_gfx_smoothstep(rr + aa, rr - aa, q);
+                /* Round dots on a screen at 45 degrees. */
+                float rx = (fx + fy) * PC_FX_FRAC_1_SQRT_2, ry = (fy - fx) * PC_FX_FRAC_1_SQRT_2;
+                float u = pc_algo_rem_euclidf(rx / cell, 1.0f), v = pc_algo_rem_euclidf(ry / cell, 1.0f);
+                float fval = (cosf(2.0f * PC_FX_PI * u) + cosf(2.0f * PC_FX_PI * v)) / 2.0f;
+                size_t kk = halftone_partition(dots, HALFTONE_DOTS, fval);
+                spot = (float)kk / (float)HALFTONE_DOTS;
             }
+            tone = pc_gfx_clamp01(1.0f - l[i]) * 255.0f;
+            k0 = (size_t)floorf(tone);
+            ff = tone - floorf(tone);
+            {
+                size_t a0 = k0 < 255 ? k0 : 255, a1 = (k0 + 1) < 255 ? (k0 + 1) : 255;
+                level = offsets[a0] + (offsets[a1] - offsets[a0]) * ff;
+            }
+            ink = pc_gfx_clamp01(0.5f + (level - spot) * gain);
             w->c[i] = pc_gfx_mix(bg, fg, ink);
         }
+        free(dots);
         break;
     }
     case PC_ALGO_GAL_NOTE_PAPER: {

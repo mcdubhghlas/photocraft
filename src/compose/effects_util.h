@@ -21,6 +21,11 @@
 #define PC_COMPOSE_BEVEL_H_EPS 1e-5f
 /* Alpha above which a pixel belongs to the layer's shape (half an 8-bit step). */
 #define PC_COMPOSE_FX_INSIDE_EPS (0.5f / 255.0f)
+/* Outside width (px) from which a stroke's outer edge uses the exact Euclidean transform (round)
+ * rather than the 5x5 chamfer's octagon: half a pixel of deviation is reached at r ~ 19, so
+ * strokes narrower than this keep the chamfer, whose sub-pixel edge seeding Photoshop matches at
+ * small offsets, and wider ones stay round (#3646). */
+#define PC_COMPOSE_STROKE_CHAMFER_MAX 20.0f
 
 /* A contour's table (adjust::curve_lut of its points; PC_COMPOSE_FX_LUT_SIZE entries), or
  * *out = NULL for Linear (identity). */
@@ -88,17 +93,24 @@ float pc_compose_fx_bevel_chisel_h(pc_compose_bevel_paint paint, float size, flo
 float pc_compose_fx_outline_share(float cov, float l);
 /* (inside width, outside width) of a stroke. */
 void pc_compose_fx_stroke_widths(const pc_stroke_fx *st, float *in_w, float *out_w);
+/* Whether a stroke whose outside edge is out_w px wide uses the exact Euclidean transform (round)
+ * rather than the 5x5 chamfer's octagon (#3646); the CPU and GPU compositors both call this so a
+ * stroke picks the same field in each. */
+bool pc_compose_fx_stroke_outside_exact(float out_w);
 
-/* A distance field of an effect shape, as the map builders compute it (effects::FieldKind). */
+/* A distance field of an effect shape, as the map builders compute it (effects::FieldKind). The
+ * order matches the Rust FieldKind: the GPU compositor indexes field arrays by it. */
 typedef enum pc_compose_fx_field_kind {
-    PC_COMPOSE_FIELD_OUTSIDE,              /* exact distance outside the shape (precise outer glows) */
-    PC_COMPOSE_FIELD_INSIDE,               /* exact distance inside the shape (precise inner glows) */
-    PC_COMPOSE_FIELD_BEVEL_OUTSIDE,        /* chiselled bevels: outside, edges placed by coverage */
-    PC_COMPOSE_FIELD_BEVEL_INSIDE,         /* chiselled bevels: inside, edges placed by coverage */
-    PC_COMPOSE_FIELD_STROKE_OUTSIDE,       /* chamfer distance outside the shape */
-    PC_COMPOSE_FIELD_CHOKE_INSIDE,         /* chamfer distance outside 1 - alpha */
-    PC_COMPOSE_FIELD_STROKE_INSIDE,        /* chamfer distance inside the shape */
-    PC_COMPOSE_FIELD_STROKE_OUTSIDE_VECTOR /* chamfer distance outside the local coverage */
+    PC_COMPOSE_FIELD_OUTSIDE,               /* exact distance outside the shape (precise outer glows) */
+    PC_COMPOSE_FIELD_INSIDE,                /* exact distance inside the shape (precise inner glows) */
+    PC_COMPOSE_FIELD_BEVEL_OUTSIDE,         /* chiselled bevels: outside, edges placed by coverage */
+    PC_COMPOSE_FIELD_BEVEL_INSIDE,          /* chiselled bevels: inside, edges placed by coverage */
+    PC_COMPOSE_FIELD_STROKE_OUTSIDE,        /* chamfer distance outside the shape (narrow stroke) */
+    PC_COMPOSE_FIELD_CHOKE_INSIDE,          /* chamfer distance outside 1 - alpha */
+    PC_COMPOSE_FIELD_STROKE_INSIDE,         /* chamfer distance inside the shape */
+    PC_COMPOSE_FIELD_STROKE_OUTSIDE_EXACT,  /* exact Euclidean distance outside the shape (wide stroke) */
+    PC_COMPOSE_FIELD_STROKE_OUTSIDE_VECTOR, /* exact Euclidean distance outside the local coverage */
+    PC_COMPOSE_FIELD_STROKE_OUTSIDE_VECTOR_CHAMFER /* chamfer distance outside the local coverage */
 } pc_compose_fx_field_kind;
 
 /* The kind field of alpha (row-major w x h); *out has w * h values (NULL when that is 0). Values

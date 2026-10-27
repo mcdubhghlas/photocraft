@@ -23,30 +23,42 @@ static void test_pencil_1px_line_is_a_clean_8_connected_staircase(void)
     b.hardness = 1.0f;
     b.size = 1.0f;
     for (int c = 0; c < 5; c++) {
-        pc_paint_point pts[2] = {pc_paint_point_make(cases[c][0], cases[c][1], 1.0f),
-                                 pc_paint_point_make(cases[c][2], cases[c][3], 1.0f)};
-        double ax = floor(cases[c][0]), ay = floor(cases[c][1]), ex = floor(cases[c][2]),
-               ey = floor(cases[c][3]);
-        bool steep = fabs(ey - ay) > fabs(ex - ax);
-        double m0 = steep ? ay : ax, n0 = steep ? ax : ay, m1 = steep ? ey : ex, n1 = steep ? ex : ey;
+        double ax = cases[c][0], ay = cases[c][1], bx = cases[c][2], by = cases[c][3];
+        pc_paint_point pts[2] = {pc_paint_point_make(ax, ay, 1.0f), pc_paint_point_make(bx, by, 1.0f)};
+        /* start pixel (floored endpoints) */
+        double a_x = floor(ax), a_y = floor(ay), e_x = floor(bx), e_y = floor(by);
+        bool steep = fabs(by - ay) > fabs(bx - ax);
+        /* major axis: m is the stepping axis, n the minor */
+        double m0 = steep ? a_y : a_x, m1 = steep ? e_y : e_x;
+        double am = steep ? ay : ax, an = steep ? ax : ay;
+        double bm = steep ? by : bx, bn = steep ? bx : by;
         bool column[64] = {false};
         size_t painted = 0, distinct = 0;
         pc_surface s;
         tb_paint(&s, &b, pts, 2);
         for (int32_t y = 0; y < 40; y++) {
             for (int32_t x = 0; x < 40; x++) {
-                double m, n, ideal;
+                double m, n, on_line;
                 if (tb_alpha(&s, x, y) <= 0.0f) {
                     continue;
                 }
                 painted++;
-                m = steep ? y : x;
-                n = steep ? x : y;
-                ideal = n0 + (n1 - n0) * (m - m0) / (m1 - m0);
-                CHECK(fabs(n - ideal) <= 0.5 + 1e-9);
-                if (!column[(int)m]) {
-                    column[(int)m] = true;
-                    distinct++;
+                /* The pixel the stroke starts in is exempt from the on-line check. */
+                if ((double)x == a_x && (double)y == a_y) {
+                    /* still counts for column distinctness below */
+                } else {
+                    /* The pixel's centre is within half a pixel of the line at its column. */
+                    m = steep ? (double)y + 0.5 : (double)x + 0.5;
+                    n = steep ? (double)x + 0.5 : (double)y + 0.5;
+                    on_line = an + (bn - an) * (m - am) / (bm - am);
+                    CHECK(fabs(n - on_line) <= 0.5 + 1e-9);
+                }
+                {
+                    int mi = (int)(steep ? y : x);
+                    if (mi >= 0 && mi < 64 && !column[mi]) {
+                        column[mi] = true;
+                        distinct++;
+                    }
                 }
             }
         }

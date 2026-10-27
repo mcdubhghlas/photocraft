@@ -172,9 +172,10 @@ static pc_status comp_tile_run(const comp_job *j, comp_tile *t)
             }
             pc_to_rgba(j->fmt, &t->region[i], n, d);
             color_at(j, x, y, c);
-            pc_blend_composite(j->mode, d, c, k, o);
             if (j->lock_transparency) {
-                o[3] = d[3];
+                pc_blend_composite_atop(j->mode, d, c, k, o);
+            } else {
+                pc_blend_composite(j->mode, d, c, k, o);
             }
             memset(enc, 0, sizeof enc);
             cnt = pc_from_rgba(j->fmt, o, enc);

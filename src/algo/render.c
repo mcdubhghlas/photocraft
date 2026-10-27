@@ -37,8 +37,9 @@ static pc_status fibers_k(const void *p, const void *prep, const pc_algo_image *
         float xf, yf, sum = 0.0f, amp = 1.0f, norm = 0.0f, ax = fx, ay = fy, grain, t;
         uint32_t o;
         pc_algo_xy(out, i, &x, &y);
-        xf = (float)x;
-        yf = (float)y;
+        /* Anchored at the bounds' corner, so the fibres move with a smart object. */
+        xf = (float)(x - ctx->bounds.x0);
+        yf = (float)(y - ctx->bounds.y0);
         for (o = 0; o < 4; o++) {
             sum += value_noise(xf * ax, yf * ay, fp->seed + o * 977u) * amp;
             norm += amp;
@@ -183,8 +184,9 @@ static pc_status flare_k(const void *p, const void *prep, const pc_algo_image *s
         pc_algo_rgba(ctx, px, n, c);
         for (k = 0; k < 3; k++) {
             float a = pc_rs_maxf_k(f[k] * bright, 0.0f);
-            /* Screen keeps highlights below white for display-referred values. */
-            c[k] = 1.0f - (1.0f - c[k]) * (1.0f - pc_rs_minf_k(a, 1.0f));
+            /* Screen (c + a*(1 - c)): a 32-bit value already above white is left as is rather than
+             * pulled down towards it. */
+            c[k] += pc_rs_minf_k(a, 1.0f) * pc_rs_maxf_k(1.0f - c[k], 0.0f);
         }
         pc_algo_set_rgba(ctx, px, n, c);
     }

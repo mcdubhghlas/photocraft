@@ -34,7 +34,7 @@ use photocraft_psd::tagged::{SectionType, TaggedBlock};
 use photocraft_psd::{ColorMode as PMode, Compression, PsdFile, Version};
 use photocraft_raster::Surface;
 
-#[path = "../../../crates/io/tests/common/mod.rs"]
+#[path = "../../../crates/io/tests/it/common/mod.rs"]
 #[allow(dead_code, unused_imports, clippy::all)]
 mod io_common;
 
@@ -569,13 +569,14 @@ fn sample_effects() -> Vec<photocraft_doc::Effect> {
             noise: 0.0,
             source: GlowSource::Edge,
         }),
-        Effect::Stroke(StrokeFx { common: FxCommon::new(BlendMode::Normal, 1.0), size: 3.0, position: StrokePosition::Inside, paint: FxPaint::Color(Color::rgb(0.0, 1.0, 0.0)) }),
-        Effect::Stroke(StrokeFx { common: FxCommon::new(BlendMode::Multiply, 0.5), size: 6.0, position: StrokePosition::Center, paint: FxPaint::Gradient(g.clone()) }),
+        Effect::Stroke(StrokeFx { common: FxCommon::new(BlendMode::Normal, 1.0), size: 3.0, position: StrokePosition::Inside, paint: FxPaint::Color(Color::rgb(0.0, 1.0, 0.0)), overprint: false }),
+        Effect::Stroke(StrokeFx { common: FxCommon::new(BlendMode::Multiply, 0.5), size: 6.0, position: StrokePosition::Center, paint: FxPaint::Gradient(g.clone()), overprint: false }),
         Effect::Stroke(StrokeFx {
             common: FxCommon::new(BlendMode::Darken, 0.25),
             size: 2.0,
             position: StrokePosition::Outside,
             paint: FxPaint::Pattern { name: "Bubbles".into(), id: "abc".into(), scale: 0.5 },
+            overprint: false,
         }),
         Effect::ColorOverlay { common: FxCommon::new(BlendMode::Overlay, 0.5), color: Color::rgb(0.0, 0.0, 1.0) },
         Effect::ColorOverlay { common: FxCommon { enabled: false, blend: BlendMode::PassThrough, opacity: 1.0 }, color: Color::gray(0.5) },
@@ -594,6 +595,7 @@ fn sample_effects() -> Vec<photocraft_doc::Effect> {
             altitude: 40.0,
             use_global_light: false,
             gloss_contour: Contour::Linear,
+            gloss_anti_alias: false,
             highlight: FxCommon::new(BlendMode::Screen, 0.75),
             highlight_color: Color::WHITE,
             shadow: FxCommon::new(BlendMode::Multiply, 0.6),
@@ -613,6 +615,7 @@ fn sample_effects() -> Vec<photocraft_doc::Effect> {
             altitude: 30.0,
             use_global_light: true,
             gloss_contour: Contour::Custom { name: String::new(), points: vec![CurvePoint { input: 0.0, output: 1.0 }, CurvePoint { input: 1.0, output: 0.0 }], corners: Vec::new() },
+            gloss_anti_alias: false,
             highlight: FxCommon::new(BlendMode::ColorDodge, 0.5),
             highlight_color: Color::gray(0.9),
             shadow: FxCommon::new(BlendMode::ColorBurn, 0.6),

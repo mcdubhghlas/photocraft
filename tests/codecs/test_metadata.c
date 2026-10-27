@@ -111,7 +111,12 @@ static void check_format(pc_cformat f)
     } else {
         CHECK(fw_has(&img, f, NULL, PC_FW_ICC_DROPPED));
     }
-    if (c.exif) {
+    if (c.exif && f == PC_CF_TIFF) {
+        /* TIFF writes the block's directories as its own and rebuilds a block from them on reading
+         * (test_tiff_exif_roundtrip); the orientation-only sample has no Exif/GPS directory, so the
+         * block is not carried, but EXIF is not reported as dropped either. */
+        CHECK(!fw_has(&img, f, NULL, PC_FW_EXIF_DROPPED));
+    } else if (c.exif) {
         CHECK(pc_meta_blob_eq(&back.meta.exif, &img.meta.exif));
     } else {
         CHECK(fw_has(&img, f, NULL, PC_FW_EXIF_DROPPED));
@@ -633,11 +638,50 @@ static void test_metadata_survives_depth_conversion(void)
     pc_cimage_fini(&img);
 }
 
+/* A real EXIF block round-trips through TIFF export -> import: its Exif directory survives and the
+ * rebuilt block is stable across a second round trip (the TIFF codec writes the block's
+ * directories as the file's own and rebuilds a block from them on reading). */
+static void test_tiff_exif_roundtrip(void)
+{
+    static const uint8_t EXIF_WITH_DIR[44] = {
+        'I', 'I', 42, 0,                                    /* little-endian, magic 42 */
+        8, 0, 0, 0,                                         /* first IFD at offset 8 */
+        1, 0,                                               /* IFD0: 1 entry */
+        0x69, 0x87, 4, 0, 1, 0, 0, 0, 26, 0, 0, 0,          /* tag 34665 (ExifIFD), LONG, ->26 */
+        0, 0, 0, 0,                                         /* next IFD = 0 */
+        1, 0,                                               /* Exif dir: 1 entry */
+        0x27, 0x88, 3, 0, 1, 0, 0, 0, 0x90, 0x01, 0, 0,     /* tag 34855 (ISO), SHORT, = 400 */
+        0, 0, 0, 0                                          /* next IFD = 0 */
+    };
+    pc_cimage img = test_image(PC_CL_RGB, PC_CS_U8);
+    pc_buf b1;
+    pc_buf b2;
+    pc_cimage back1;
+    pc_cimage back2;
+    set_blob(&img.meta.exif, EXIF_WITH_DIR, sizeof EXIF_WITH_DIR);
+    CHECK(!fw_has(&img, PC_CF_TIFF, NULL, PC_FW_EXIF_DROPPED));
+    b1 = enc(&img, PC_CF_TIFF, NULL);
+    back1 = dec(b1.data, b1.len);
+    CHECK(back1.meta.exif.has);
+    /* The ISO tag (34855 = 0x8827, little-endian 0x27 0x88) survives in the rebuilt block. */
+    CHECK(find_bytes(back1.meta.exif.data, back1.meta.exif.len, "\x27\x88", 2));
+    b2 = enc(&back1, PC_CF_TIFF, NULL);
+    back2 = dec(b2.data, b2.len);
+    CHECK(back2.meta.exif.has);
+    CHECK(pc_meta_blob_eq(&back1.meta.exif, &back2.meta.exif));
+    pc_cimage_fini(&back2);
+    pc_buf_fini(&b2);
+    pc_cimage_fini(&back1);
+    pc_buf_fini(&b1);
+    pc_cimage_fini(&img);
+}
+
 int main(int argc, char **argv)
 {
     RUN(test_png_metadata);
     RUN(test_jpeg_metadata);
     RUN(test_tiff_metadata);
+    RUN(test_tiff_exif_roundtrip);
     RUN(test_webp_metadata);
     RUN(test_gif_metadata);
     RUN(test_bmp_metadata);

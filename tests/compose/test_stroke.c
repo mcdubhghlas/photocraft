@@ -103,6 +103,8 @@ static pc_layer shape(double x0, double x1, pc_fill fill, const pc_shape_stroke 
 {
     pc_shape_layer sh;
     memset(&sh, 0, sizeof sh);
+    sh.density = 1.0f; /* ShapeLayer::default() */
+    sh.feather = 0.0f;
     sh.path = square(x0, x1);
     sh.has_fill = true;
     sh.fill = fill;
@@ -122,6 +124,8 @@ static pc_shape_layer gradient_shape(uint32_t w, uint32_t h)
     pc_color_stop stops[2] = {{0.0f, PC_COLOR_BLACK}, {1.0f, PC_COLOR_WHITE}};
     pc_shape_layer sh;
     memset(&sh, 0, sizeof sh);
+    sh.density = 1.0f; /* ShapeLayer::default() */
+    sh.feather = 0.0f;
     sh.path = rect_path((double)w, (double)h);
     sh.has_fill = true;
     CHECK(pc_fill_gradient(stops, 2, 0.0f, 1.0f, PC_GRADIENT_LINEAR, false, &sh.fill, NULL) == PC_OK);
@@ -472,6 +476,8 @@ static void hairline(bool via_clip)
         const float fpx[4] = {f, f, f, 1};
         fmt.sample = samples[i];
         memset(&sh, 0, sizeof sh);
+        sh.density = 1.0f; /* ShapeLayer::default() */
+        sh.feather = 0.0f;
         sh.path = ch_polygon(poly, 4);
         sh.has_fill = true;
         sh.fill = pc_fill_solid(pc_color_rgb(f, f, f));

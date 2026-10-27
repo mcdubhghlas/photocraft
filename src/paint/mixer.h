@@ -31,14 +31,26 @@ typedef struct pc_paint_mixer_state {
     float amount;       /* remaining reservoir amount 0..1 */
     bool has_pickup;
     float pickup[4]; /* colour picked up from the canvas, straight RGBA */
+    /* The colour recorded by the last stroke (its colour) or the last Load/Clean Brush (the
+     * foreground). has_color false = no stroke, load or clean yet. */
+    bool has_color;
+    float color[4];
 } pc_paint_mixer_state;
 
 void pc_paint_mixer_state_default(pc_paint_mixer_state *s);
 bool pc_paint_mixer_state_eq(const pc_paint_mixer_state *a, const pc_paint_mixer_state *b);
 /* Load the reservoir with a colour (full). */
 void pc_paint_mixer_state_load(pc_paint_mixer_state *s, const float color[4]);
-/* Clean the brush (drop the picked-up colour). */
+/* Clean the brush: empty the reservoir and the pickup well (the colour memory is kept). */
 void pc_paint_mixer_state_clean(pc_paint_mixer_state *s);
+/* Before a stroke in `color`: choosing a colour other than the recorded one loads the reservoir. */
+void pc_paint_mixer_state_begin_stroke(pc_paint_mixer_state *s, const float color[4]);
+/* After a stroke in `color`: the automatic Clean empties the brush, then the automatic Load fills
+ * the reservoir again. */
+void pc_paint_mixer_state_end_stroke(pc_paint_mixer_state *s, const float color[4], bool clean, bool load);
+/* The reservoir colour the next stroke in `color` starts with (the Current Brush Load swatch);
+ * false = a clean brush. On true, out receives the colour. */
+bool pc_paint_mixer_state_next_load(const pc_paint_mixer_state *s, const float color[4], float out[4]);
 
 /* Paint a Mixer Brush stroke. `sample` is the surface colour is picked up from (NULL = the target
  * itself; a flattened composite for Sample All Layers). The brush opacity is ignored (flow comes

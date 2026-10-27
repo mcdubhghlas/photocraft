@@ -184,6 +184,8 @@ pc_status pc_engine_shape_from_params(const float foreground[4], yyjson_val *p, 
     }
 
     pc_shape_layer sh = {0};
+    sh.density = 1.0f; /* ShapeLayer::default() */
+    sh.feather = 0.0f;
     sh.path = path;
     sh.has_fill = has_fill;
     if (has_fill) {
@@ -899,6 +901,8 @@ static pc_status run_selection_to_shape(pc_engine_session *s, yyjson_val *p, pc_
         return pc_engine_err_bad_params(err, "shape.create", "%s", mm);
     }
     pc_shape_layer sh = {0};
+    sh.density = 1.0f; /* ShapeLayer::default() */
+    sh.feather = 0.0f;
     sh.path = path;
     sh.has_fill = has_fill;
     if (has_fill) {

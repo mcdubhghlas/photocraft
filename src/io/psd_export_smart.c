@@ -364,7 +364,60 @@ void pc_io_ex_smart_fini(pc_io_ex_smart *s)
         pc_blob_release(s->linked_copies[i].data);
     }
     free(s->linked_copies);
+    for (size_t i = 0; i < s->nunfiltered; i++) {
+        pc_surface_fini(&s->unfiltered[i].surface);
+    }
+    free(s->unfiltered);
     memset(s, 0, sizeof *s);
+}
+
+bool pc_io_sm_masked(const pc_smart_object *sm)
+{
+    bool any_visible = false;
+    if (!sm->has_filter_mask || !sm->filter_mask.enabled || !sm->filters_enabled) {
+        return false;
+    }
+    for (size_t i = 0; i < sm->nsmart_filters; i++) {
+        any_visible = any_visible || sm->smart_filters[i].visible;
+    }
+    return any_visible;
+}
+
+const pc_surface *pc_io_ex_unfiltered_for(const pc_io_ex_smart *s, uint64_t layer)
+{
+    for (size_t i = 0; i < s->nunfiltered; i++) {
+        if (s->unfiltered[i].layer == layer) {
+            return &s->unfiltered[i].surface;
+        }
+    }
+    return NULL;
+}
+
+/* Keeps a copy of the unfiltered placed pixels (converted to doc_fmt) for layer id, so the layer
+ * record can unmix the filter mask out of the cache. Takes over *surface on success. */
+static pc_status store_unfiltered(pc_io_ex_smart *s, uint64_t layer, pc_pixel_format doc_fmt,
+                                  const pc_surface *surface, pc_error *err)
+{
+    pc_surface conv;
+    pc_status st;
+    struct pc_io_ex_unfiltered *g =
+        pc_grow_array(s->unfiltered, &s->capunfiltered, s->nunfiltered + 1, sizeof *g);
+    if (g == NULL) {
+        return pc_io_nomem(err, "storing unfiltered smart-object pixels");
+    }
+    s->unfiltered = g;
+    if (pc_pixel_format_eq(pc_surface_format(surface), doc_fmt)) {
+        st = pc_surface_clone(surface, &conv, err);
+    } else {
+        st = pc_surface_convert(surface, doc_fmt, &conv, err);
+    }
+    if (st != PC_OK) {
+        return st;
+    }
+    s->unfiltered[s->nunfiltered].layer = layer;
+    s->unfiltered[s->nunfiltered].surface = conv;
+    s->nunfiltered++;
+    return PC_OK;
 }
 
 /* FEid data padded to 4 bytes inside the block length: Photoshop counts the padding in the
@@ -1381,6 +1434,14 @@ static pc_status filter_cache(pc_io_ex *ex, const pc_layer *l, const pc_smart_ob
         if (st == PC_OK) {
             st = pc_io_feid_item(placed, &unfiltered, sm->has_filter_mask ? &sm->filter_mask : NULL, bounds,
                                  ex->fmt, &has, &item, err);
+            /* Keep the unfiltered pixels: the layer record unmixes the filter mask out of the
+             * mixed cache using them (compose/filter_mask), as Photoshop stores it. */
+            if (st == PC_OK && has && pc_io_sm_masked(sm)) {
+                st = store_unfiltered(&ex->smart, l->id, ex->fmt, &unfiltered, err);
+                if (st != PC_OK) {
+                    pc_psd_fx_item_fini(&item);
+                }
+            }
             pc_surface_fini(&unfiltered);
         }
     }
@@ -1533,6 +1594,25 @@ pc_status pc_io_ex_smart_blocks(pc_io_ex *ex, const pc_layer *l, const pc_smart_
             }
             if (st == PC_OK && stack.nfilters > 0) {
                 st = strs_insert(&ex->smart.keep_fx, pc_str_c(&same->placed), same->placed.len, err);
+                /* With a shown filter mask the layer record holds the filtered pixels without the
+                 * mask: keep the unfiltered placed pixels (from the kept FEid item) so the record
+                 * can unmix them out of the cache, as Photoshop's record stores them. */
+                if (st == PC_OK && pc_io_sm_masked(sm)) {
+                    for (size_t i = 0; i < ex->smart.nold_fx; i++) {
+                        const pc_psd_fx_item *it = &ex->smart.old_fx[i];
+                        pc_surface u;
+                        bool has = false;
+                        if (it->id == NULL || strcmp(it->id, pc_str_c(&same->placed)) != 0) {
+                            continue;
+                        }
+                        st = pc_io_unfiltered_from_item(it, ex->fmt, &has, &u, err);
+                        if (st == PC_OK && has) {
+                            st = store_unfiltered(&ex->smart, l->id, ex->fmt, &u, err);
+                            pc_surface_fini(&u);
+                        }
+                        break;
+                    }
+                }
             }
             free(placed_own);
             pc_str_fini(&src.uuid);

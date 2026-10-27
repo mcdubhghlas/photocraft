@@ -13,7 +13,7 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 allowed() {
     case $1 in
     base) echo "" ;;
-    geom | cms | psd | codecs | raw | affinity) echo "base" ;;
+    geom | cms | psd | codecs | raw | affinity | ipp) echo "base" ;;
     color) echo "base cms" ;;
     raster) echo "base geom color" ;;
     doc) echo "base geom color raster" ;;
@@ -26,7 +26,7 @@ allowed() {
     gpu) echo "base geom color raster doc compose" ;;
     io) echo "base geom color cms raster doc compose algo psd codecs raw affinity text paint vector format" ;;
     plugins) echo "base geom color raster" ;;
-    engine) echo "base geom color cms raster doc ops compose paint algo text vector io psd format plugins codecs" ;;
+    engine) echo "base geom color cms raster doc ops compose paint algo text vector io psd format plugins codecs ipp" ;;
     automation) echo "base geom doc compose codecs io format engine" ;;
     cli) echo "base automation engine io format codecs" ;;
     ui) echo "base geom color cms raster doc compose gpu engine io plugins algo text vector paint format codecs" ;;

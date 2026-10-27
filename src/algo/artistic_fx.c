@@ -680,7 +680,7 @@ int32_t pc_algo_gallery_effect_reach(const pc_algo_gallery_effect *e)
     case PC_ALGO_GAL_GRAPHIC_PEN:
         return pc_i32_wrapping_add(f2i(G("strokeLength") / 2.0f), 2);
     case PC_ALGO_GAL_HALFTONE_PATTERN:
-        return pc_gfx_gs(0.5f + G("size") * 0.3f);
+        return pc_gfx_gs((1.5f + 2.0f * pc_clampf(G("size"), 1.0f, 12.0f)) * 0.15f);
     case PC_ALGO_GAL_NOTE_PAPER:
         return add3(pc_gfx_gs(1.0f), pc_gfx_gs(1.2f), 2);
     case PC_ALGO_GAL_PHOTOCOPY:

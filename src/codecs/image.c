@@ -22,40 +22,52 @@ size_t pc_clayout_channels(pc_clayout l)
     case PC_CL_GRAYA:
         return 2;
     case PC_CL_RGB:
+    case PC_CL_LAB:
         return 3;
     case PC_CL_RGBA:
     case PC_CL_CMYK:
+    case PC_CL_LABA:
         return 4;
     default:
         return 5;
     }
 }
 
-bool pc_clayout_has_alpha(pc_clayout l) { return l == PC_CL_GRAYA || l == PC_CL_RGBA || l == PC_CL_CMYKA; }
+bool pc_clayout_has_alpha(pc_clayout l)
+{
+    return l == PC_CL_GRAYA || l == PC_CL_RGBA || l == PC_CL_CMYKA || l == PC_CL_LABA;
+}
 size_t pc_clayout_color_channels(pc_clayout l) { return pc_clayout_channels(l) - (pc_clayout_has_alpha(l) ? 1 : 0); }
 bool pc_clayout_is_gray(pc_clayout l) { return l == PC_CL_GRAY || l == PC_CL_GRAYA; }
 bool pc_clayout_is_rgb(pc_clayout l) { return l == PC_CL_RGB || l == PC_CL_RGBA; }
 bool pc_clayout_is_cmyk(pc_clayout l) { return l == PC_CL_CMYK || l == PC_CL_CMYKA; }
+bool pc_clayout_is_lab(pc_clayout l) { return l == PC_CL_LAB || l == PC_CL_LABA; }
 
 pc_clayout pc_clayout_with_alpha(pc_clayout l)
 {
-    return pc_clayout_is_gray(l) ? PC_CL_GRAYA : pc_clayout_is_rgb(l) ? PC_CL_RGBA : PC_CL_CMYKA;
+    return pc_clayout_is_gray(l)  ? PC_CL_GRAYA
+           : pc_clayout_is_rgb(l) ? PC_CL_RGBA
+           : pc_clayout_is_lab(l) ? PC_CL_LABA
+                                  : PC_CL_CMYKA;
 }
 
 pc_clayout pc_clayout_without_alpha(pc_clayout l)
 {
-    return pc_clayout_is_gray(l) ? PC_CL_GRAY : pc_clayout_is_rgb(l) ? PC_CL_RGB : PC_CL_CMYK;
+    return pc_clayout_is_gray(l)  ? PC_CL_GRAY
+           : pc_clayout_is_rgb(l) ? PC_CL_RGB
+           : pc_clayout_is_lab(l) ? PC_CL_LAB
+                                  : PC_CL_CMYK;
 }
 
 bool pc_clayout_same_model(pc_clayout a, pc_clayout b)
 {
     return (pc_clayout_is_gray(a) && pc_clayout_is_gray(b)) || (pc_clayout_is_rgb(a) && pc_clayout_is_rgb(b)) ||
-           (pc_clayout_is_cmyk(a) && pc_clayout_is_cmyk(b));
+           (pc_clayout_is_cmyk(a) && pc_clayout_is_cmyk(b)) || (pc_clayout_is_lab(a) && pc_clayout_is_lab(b));
 }
 
 const char *pc_clayout_name(pc_clayout l)
 {
-    static const char *const N[PC_CL_COUNT] = {"Gray", "GrayA", "Rgb", "Rgba", "Cmyk", "CmykA"};
+    static const char *const N[PC_CL_COUNT] = {"Gray", "GrayA", "Rgb", "Rgba", "Cmyk", "CmykA", "Lab", "LabA"};
     return (unsigned)l < PC_CL_COUNT ? N[l] : "?";
 }
 
@@ -236,6 +248,9 @@ bool pc_cwarning_eq(const pc_cwarning *a, const pc_cwarning *b)
     case PC_CW_MORE_ELEMENTS:
     case PC_CW_DPX_ENCODING:
         return a->total == b->total;
+    case PC_CW_DISPLAY_WINDOW_STAGE:
+        return a->stage_w == b->stage_w && a->stage_h == b->stage_h && a->origin_x == b->origin_x &&
+               a->origin_y == b->origin_y;
     default:
         return a->format == b->format && a->max_samples == b->max_samples;
     }
@@ -312,6 +327,10 @@ void pc_cwarning_text(const pc_cwarning *w, char *out, size_t cap)
         break;
     case PC_CW_MORE_ELEMENTS:
         (void)snprintf(out, cap, "only the first of %u image elements was imported", (unsigned)w->total);
+        break;
+    case PC_CW_DISPLAY_WINDOW_STAGE:
+        (void)snprintf(out, cap, "opened on the full display window stage (%ux%u); the data sits at (%d, %d)",
+                       (unsigned)w->stage_w, (unsigned)w->stage_h, (int)w->origin_x, (int)w->origin_y);
         break;
     case PC_CW_DPX_ENCODING: {
         uint8_t transfer = (uint8_t)(w->total & 0xFF);
@@ -593,6 +612,94 @@ bool pc_cimage_has_out_of_range(const pc_cimage *img)
 /* Rec. 709 luma weights applied to encoded values. */
 static const float LUMA[3] = {0.2126f, 0.7152f, 0.0722f};
 
+/* CIE L*a*b* (D50) <-> encoded sRGB for PC_CL_LAB samples. Same formulas and constants as
+ * photocraft-color; this module stays standalone. Samples are normalised as PhotoCraft holds Lab:
+ * L* 0..100 as 0..1, a* and b* −128..127 as (v + 128) / 255. */
+static const float LAB_D50[3] = {0.96422f, 1.0f, 0.82521f};
+/* D50 XYZ -> linear sRGB (Bradford-adapted, as in the ICC sRGB profile). */
+static const float XYZ_D50_TO_SRGB[3][3] = {{3.133856f, -1.616867f, -0.490615f},
+                                            {-0.978768f, 1.916142f, 0.033454f},
+                                            {0.071945f, -0.228991f, 1.405243f}};
+/* Linear sRGB -> D50 XYZ. */
+static const float SRGB_TO_XYZ_D50[3][3] = {{0.436074f, 0.385064f, 0.143080f},
+                                            {0.222504f, 0.716878f, 0.060618f},
+                                            {0.013932f, 0.097104f, 0.714173f}};
+
+static float lab_to_encoded(float v)
+{
+    return v <= 0.0031308f ? v * 12.92f : 1.055f * powf(v, 1.0f / 2.4f) - 0.055f;
+}
+
+static float lab_to_linear(float v)
+{
+    return v <= 0.04045f ? v / 12.92f : powf((v + 0.055f) / 1.055f, 2.4f);
+}
+
+static void lab_mul(const float m[3][3], const float v[3], float out[3])
+{
+    size_t i;
+    for (i = 0; i < 3; i++) {
+        out[i] = m[i][0] * v[0] + m[i][1] * v[1] + m[i][2] * v[2];
+    }
+}
+
+/* Normalised Lab -> encoded sRGB in 0..1 (out-of-gamut colours clipped). */
+static void lab_to_srgb(const float n[3], float out[3])
+{
+    float l = n[0] * 100.0f;
+    float a = n[1] * 255.0f - 128.0f;
+    float b = n[2] * 255.0f - 128.0f;
+    float fy = (l + 16.0f) / 116.0f;
+    float fx = fy + a / 500.0f;
+    float fz = fy - b / 200.0f;
+    float d = 6.0f / 29.0f;
+    float f[3] = {fx, fy, fz};
+    float xyz[3];
+    size_t i;
+    for (i = 0; i < 3; i++) {
+        float t = f[i];
+        f[i] = t > d ? t * t * t : 3.0f * d * d * (t - 4.0f / 29.0f);
+    }
+    xyz[0] = f[0] * LAB_D50[0];
+    xyz[1] = f[1] * LAB_D50[1];
+    xyz[2] = f[2] * LAB_D50[2];
+    lab_mul(XYZ_D50_TO_SRGB, xyz, out);
+    for (i = 0; i < 3; i++) {
+        float v = out[i] < 0.0f ? 0.0f : out[i] > 1.0f ? 1.0f : out[i];
+        out[i] = lab_to_encoded(v);
+    }
+}
+
+/* Encoded sRGB -> normalised Lab. */
+static void srgb_to_lab(const float rgb[3], float out[3])
+{
+    float lin[3] = {lab_to_linear(rgb[0] < 0.0f ? 0.0f : rgb[0] > 1.0f ? 1.0f : rgb[0]),
+                    lab_to_linear(rgb[1] < 0.0f ? 0.0f : rgb[1] > 1.0f ? 1.0f : rgb[1]),
+                    lab_to_linear(rgb[2] < 0.0f ? 0.0f : rgb[2] > 1.0f ? 1.0f : rgb[2])};
+    float xyz[3];
+    float d = 6.0f / 29.0f;
+    float d3 = d * d * d;
+    float f[3];
+    float l;
+    float a;
+    float b;
+    size_t i;
+    lab_mul(SRGB_TO_XYZ_D50, lin, xyz);
+    for (i = 0; i < 3; i++) {
+        float t = xyz[i] / LAB_D50[i];
+        f[i] = t > d3 ? cbrtf(t) : t / (3.0f * d * d) + 4.0f / 29.0f;
+    }
+    l = 116.0f * f[1] - 16.0f;
+    a = 500.0f * (f[0] - f[1]);
+    b = 200.0f * (f[1] - f[2]);
+    l /= 100.0f;
+    a = (a + 128.0f) / 255.0f;
+    b = (b + 128.0f) / 255.0f;
+    out[0] = l < 0.0f ? 0.0f : l > 1.0f ? 1.0f : l;
+    out[1] = a < 0.0f ? 0.0f : a > 1.0f ? 1.0f : a;
+    out[2] = b < 0.0f ? 0.0f : b > 1.0f ? 1.0f : b;
+}
+
 void cx_convert_layout(const float *src, size_t n, pc_clayout from, pc_clayout to, float *out)
 {
     size_t fc = pc_clayout_channels(from);
@@ -622,10 +729,13 @@ void cx_convert_layout(const float *src, size_t n, pc_clayout from, pc_clayout t
                 rgb[0] = px[0];
                 rgb[1] = px[1];
                 rgb[2] = px[2];
-            } else {
+            } else if (pc_clayout_is_cmyk(from)) {
                 rgb[0] = (1.0f - px[0]) * (1.0f - px[3]);
                 rgb[1] = (1.0f - px[1]) * (1.0f - px[3]);
                 rgb[2] = (1.0f - px[2]) * (1.0f - px[3]);
+            } else {
+                float lab[3] = {px[0], px[1], px[2]};
+                lab_to_srgb(lab, rgb);
             }
             if (pc_clayout_is_gray(to)) {
                 o[k++] = rgb[0] * LUMA[0] + rgb[1] * LUMA[1] + rgb[2] * LUMA[2];
@@ -633,6 +743,12 @@ void cx_convert_layout(const float *src, size_t n, pc_clayout from, pc_clayout t
                 o[k++] = rgb[0];
                 o[k++] = rgb[1];
                 o[k++] = rgb[2];
+            } else if (pc_clayout_is_lab(to)) {
+                float lab[3];
+                srgb_to_lab(rgb, lab);
+                o[k++] = lab[0];
+                o[k++] = lab[1];
+                o[k++] = lab[2];
             } else {
                 float kk = 1.0f - pc_rs_maxf(pc_rs_maxf(rgb[0], rgb[1]), rgb[2]);
                 if (kk >= 1.0f) {

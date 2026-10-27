@@ -285,8 +285,8 @@ static void test_v6_settings_map_onto_brush_sections(void)
         CHECK(b->transfer.enabled && b->transfer.opacity.control == PC_PAINT_CONTROL_PEN_PRESSURE &&
               b->transfer.opacity.minimum == 0.1f && b->transfer.flow.control == PC_PAINT_CONTROL_FADE &&
               b->transfer.flow.jitter == 0.15f);
-        CHECK(b->pose.enabled && b->pose.override_rotation && !b->pose.override_tilt &&
-              b->pose.tilt_x == 45.0f && b->pose.rotation == 90.0f);
+        CHECK(b->pose.enabled && b->pose.override_rotation && !b->pose.override_tilt_x &&
+              !b->pose.override_tilt_y && b->pose.tilt_x == 45.0f && b->pose.rotation == 90.0f);
         CHECK(b->wet_edges && b->noise && b->build_up);
         CHECK(b->opacity == 0.8f && b->flow == 0.6f && b->smoothing.amount == 0.4f && b->pressure_size);
         CHECK(warned(&imp, "someFutureKey"));

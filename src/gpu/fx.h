@@ -4,7 +4,7 @@
 #define PC_GPU_FX_H
 #include "compose/effects_util.h"
 #define PC_GPU_FX_MAX_STAGES 128
-#define PC_GPU_FX_FIELD_COUNT 8
+#define PC_GPU_FX_FIELD_COUNT 10
 
 typedef enum pc_gpu_fx_kernel {
     PC_GPU_FX_SHIFT,

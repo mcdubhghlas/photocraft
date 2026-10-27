@@ -204,6 +204,7 @@ static const jfield live_polygon_f[] = {
     JFV("rect", LS, rect, f64x4),
     JFV("sides", LS, sides, pc_jt_u32),
     JFV("star_ratio", LS, star_ratio, pc_jt_f64),
+    JFVD("corner_radius", LS, corner_radius, pc_jt_f64, JD_ZERO),
 };
 static const jfield live_line_f[] = {
     JFV("from", LS, from, f64x2),
@@ -238,6 +239,10 @@ static const jtype jt_kerning = JT_UNIT_ENUM(pc_kerning, kerning_e);
 static const jvariant caps_v[] = {JVU("Normal"), JVU("SmallCaps"), JVU("AllCaps")};
 static const jenum caps_e = JENUM_UNITS(pc_caps, caps_v);
 static const jtype jt_caps = JT_UNIT_ENUM(pc_caps, caps_e);
+
+static const jvariant font_baseline_v[] = {JVU("Normal"), JVU("Superscript"), JVU("Subscript")};
+static const jenum font_baseline_e = JENUM_UNITS(pc_font_baseline, font_baseline_v);
+static const jtype jt_font_baseline = JT_UNIT_ENUM(pc_font_baseline, font_baseline_e);
 
 static const jfield font_feature_f[] = {
     JFV("tag", pc_font_feature, tag, pc_jt_str),
@@ -283,6 +288,7 @@ static const jfield char_style_f[] = {
     JFVD("kerning", CS, kerning, jt_kerning, JD_CONT),
     JFVD("kern", CS, kern, pc_jt_f32, JD_CONT),
     JFVD("caps", CS, caps, jt_caps, JD_CONT),
+    JFVD("baseline", CS, baseline, jt_font_baseline, JD_CONT),
     JFVD("ligatures", CS, ligatures, pc_jt_bool, JD_CONT),
     JFVD("discretionary_ligatures", CS, discretionary_ligatures, pc_jt_bool, JD_CONT),
     JFVECD("features", CS, features, nfeatures, jt_font_feature, JD_CONT),

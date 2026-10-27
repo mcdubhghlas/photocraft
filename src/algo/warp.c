@@ -307,7 +307,8 @@ static pc_status tri_tile(const tri_job *j, size_t k, pc_error *err)
         any = true;
         b = o * n;
         for (c = 0; c < a; c++) {
-            outp[b + c] = (float)pc_clampd(acc[c] / al, 0.0, 1.0);
+            /* The unclamped alpha, so a bicubic overshoot past 1 doesn't lighten the colour (#6203). */
+            outp[b + c] = (float)pc_clampd(acc[c] / acc[a], 0.0, 1.0);
         }
         outp[b + a] = (float)al;
     }
@@ -538,10 +539,51 @@ finish:
     return PC_OK;
 }
 
+/* Probe lines per axis mapped_lengths follows through the map. */
+#define PROBE 16
+
+/* The longest destination length of a source row and of a source column under f, measured along
+ * polylines through a (PROBE+1) grid. Non-finite steps count as zero. A thin source stretched far
+ * then bent needs many cells, or it comes out straight (#5793). */
+static void mapped_lengths(pc_rect src_rect, pc_algo_map_fn f, void *ctx, double *lu, double *lv)
+{
+    double x0 = (double)src_rect.x0, y0 = (double)src_rect.y0;
+    double sw = (double)pc_rect_width(src_rect), sh = (double)pc_rect_height(src_rect);
+    double pts[(PROBE + 1) * (PROBE + 1)][2];
+    size_t n = PROBE + 1, i, j, k, m;
+    double bu = 0.0, bv = 0.0;
+    for (j = 0; j < n; j++) {
+        for (i = 0; i < n; i++) {
+            f(ctx, x0 + sw * (double)i / (double)PROBE, y0 + sh * (double)j / (double)PROBE,
+              &pts[j * n + i][0], &pts[j * n + i][1]);
+        }
+    }
+    for (k = 0; k < n; k++) {
+        double row = 0.0, col = 0.0;
+        for (m = 1; m < n; m++) {
+            double d;
+            d = hypot(pts[k * n + m][0] - pts[k * n + m - 1][0], pts[k * n + m][1] - pts[k * n + m - 1][1]);
+            row += isfinite(d) ? d : 0.0;
+            d = hypot(pts[m * n + k][0] - pts[(m - 1) * n + k][0], pts[m * n + k][1] - pts[(m - 1) * n + k][1]);
+            col += isfinite(d) ? d : 0.0;
+        }
+        bu = pc_rs_max(bu, row);
+        bv = pc_rs_max(bv, col);
+    }
+    *lu = bu, *lv = bv;
+}
+
+/* Cells along one axis: a few pixels across on the longer of the source (s) and destination (d). */
+static size_t mesh_cells(double s, double d)
+{
+    size_t c = pc_f64_to_size(ceil(pc_rs_max(s, d) / CELL));
+    return c < 1 ? 1 : (c > MAX_CELLS ? MAX_CELLS : c);
+}
+
 pc_status pc_algo_warp_mesh_surface(const pc_surface *src, pc_rect src_rect, pc_algo_map_fn f, void *ctx,
                                     pc_algo_interp interp, pc_surface *out, pc_error *err)
 {
-    double sw, sh;
+    double sw, sh, lu, lv;
     size_t nx, ny, i, j, w1, nv, nt = 0;
     pc_algo_warp_vertex *verts;
     size_t (*tris)[3];
@@ -554,10 +596,9 @@ pc_status pc_algo_warp_mesh_surface(const pc_surface *src, pc_rect src_rect, pc_
     }
     sw = (double)pc_rect_width(src_rect);
     sh = (double)pc_rect_height(src_rect);
-    nx = pc_f64_to_size(ceil(sw / CELL));
-    ny = pc_f64_to_size(ceil(sh / CELL));
-    nx = nx < 1 ? 1 : (nx > MAX_CELLS ? MAX_CELLS : nx);
-    ny = ny < 1 ? 1 : (ny > MAX_CELLS ? MAX_CELLS : ny);
+    mapped_lengths(src_rect, f, ctx, &lu, &lv);
+    nx = mesh_cells(sw, lu);
+    ny = mesh_cells(sh, lv);
     w1 = nx + 1;
     nv = (nx + 1) * (ny + 1);
     verts = pc_malloc_array(nv, sizeof *verts);

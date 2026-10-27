@@ -43,15 +43,42 @@ typedef enum pc_paint_control {
 } pc_paint_control;
 #define PC_PAINT_CONTROL_COUNT 8
 
+/* A response curve: a monotone cubic (Fritsch-Carlson) mapping a 0..1 input to a 0..1 output
+ * (port of crates/paint/src/curve.rs). Fixed-size and Copy, so a brush evaluates it per dab
+ * without allocating. In JSON it is its list of [input, output] points. */
+#define PC_PAINT_CURVE_MAX_POINTS 16
+typedef struct pc_paint_response_curve {
+    uint8_t n;
+    float xs[PC_PAINT_CURVE_MAX_POINTS];
+    float ys[PC_PAINT_CURVE_MAX_POINTS];
+    float ms[PC_PAINT_CURVE_MAX_POINTS]; /* tangents at the points */
+} pc_paint_response_curve;
+
+/* The identity (the default): input passes through unchanged. */
+pc_paint_response_curve pc_paint_response_curve_linear(void);
+/* Build a curve from `n` control points (each {input, output}). Points are sanitised, not
+ * trusted: non-finite points are dropped, the rest clamped to 0..1, sorted by input (one point
+ * per input, the later output wins), capped at PC_PAINT_CURVE_MAX_POINTS, and their outputs made
+ * non-decreasing. Fewer than two usable points is linear. `points` may be NULL when n is 0. */
+pc_paint_response_curve pc_paint_response_curve_new(const float (*points)[2], size_t n);
+/* The curve's output for input `x` (0..1; anything else is clamped, NaN reads as 0). */
+float pc_paint_response_curve_eval(const pc_paint_response_curve *c, float x);
+/* The identity (the default curve). */
+bool pc_paint_response_curve_is_linear(const pc_paint_response_curve *c);
+bool pc_paint_response_curve_eq(const pc_paint_response_curve *a, const pc_paint_response_curve *b);
+
 /* One dynamic parameter: random jitter plus a controller with a floor. */
 typedef struct pc_paint_dynamic {
     float jitter; /* 0..1 per dab (for scatter: the amount, may exceed 1) */
     pc_paint_control control;
     uint32_t fade_steps;
     float minimum; /* 0..1 floor */
+    /* This dynamic's own response to its control (Fade, Pen Pressure, Pen Tilt, Stylus Wheel,
+     * Rotation), applied after the global pen curve. Linear by default. */
+    pc_paint_response_curve curve;
 } pc_paint_dynamic;
 
-pc_paint_dynamic pc_paint_dynamic_default(void); /* {0, Off, 25, 0} */
+pc_paint_dynamic pc_paint_dynamic_default(void); /* {0, Off, 25, 0, LINEAR} */
 pc_paint_dynamic pc_paint_dynamic_controlled(pc_paint_control c);
 pc_paint_dynamic pc_paint_dynamic_jitter(float jitter);
 bool pc_paint_dynamic_is_active(const pc_paint_dynamic *d);
@@ -203,7 +230,7 @@ typedef struct pc_paint_pose {
     float tilt_x, tilt_y; /* degrees -90..90 */
     float rotation;       /* degrees 0..360 */
     float pressure;       /* 0..1 */
-    bool override_tilt, override_rotation, override_pressure;
+    bool override_tilt_x, override_tilt_y, override_rotation, override_pressure;
 } pc_paint_pose;
 
 typedef struct pc_paint_smoothing {
@@ -219,6 +246,8 @@ typedef struct pc_paint_smoothing {
 typedef struct pc_paint_mixer_settings {
     float wet, load, mix, flow;
     bool sample_all_layers;
+    bool load_after_stroke; /* load the brush with the stroke colour after each stroke */
+    bool clean_after_stroke; /* empty the brush after each stroke */
 } pc_paint_mixer_settings;
 
 /* A complete brush. */

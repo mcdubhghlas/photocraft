@@ -828,4 +828,5 @@ const pc_algo_filter_def pc_algo_def_filter_gallery = {"filterGallery",
                                                        NULL,
                                                        gallery_k,
                                                        NULL,
-                                                       0};
+                                                       0,
+                                                       NULL};

@@ -485,7 +485,8 @@ bool pc_live_shape_eq(const pc_live_shape *a, const pc_live_shape *b)
     case PC_LIVE_ELLIPSE:
         return doubles_eq(a->rect, b->rect, 4);
     case PC_LIVE_POLYGON:
-        return doubles_eq(a->rect, b->rect, 4) && a->sides == b->sides && a->star_ratio == b->star_ratio;
+        return doubles_eq(a->rect, b->rect, 4) && a->sides == b->sides && a->star_ratio == b->star_ratio &&
+               a->corner_radius == b->corner_radius;
     case PC_LIVE_LINE:
         return doubles_eq(a->from, b->from, 2) && doubles_eq(a->to, b->to, 2) && a->weight == b->weight;
     }
@@ -530,6 +531,8 @@ pc_status pc_shape_layer_clone(const pc_shape_layer *s, pc_shape_layer *out, pc_
     t.has_live = s->has_live;
     t.live = s->live;
     t.psd_raw = pc_blob_retain(s->psd_raw);
+    t.density = s->density;
+    t.feather = s->feather;
     *out = t;
     return PC_OK;
 }
@@ -549,6 +552,9 @@ bool pc_shape_layer_eq(const pc_shape_layer *a, const pc_shape_layer *b)
         return false;
     }
     if (a->has_cache != b->has_cache || (a->has_cache && !pc_surface_eq(&a->cache, &b->cache))) {
+        return false;
+    }
+    if (a->density != b->density || a->feather != b->feather) {
         return false;
     }
     return pc_blob_eq(a->psd_raw, b->psd_raw);

@@ -34,6 +34,14 @@ static const char *const KNOWN[] = {
     "lay thai",
     "nav thai",
     "kern thai",
+    /* Hangul fallback face count (system engine): the reference's fontique query gives the
+     * generic-primary family and the explicit DejaVu fallback family distinct identities even
+     * when both resolve to the same physical tofu font, so an unsupported Korean run is split
+     * into three faces (one per script segment). The flat C fallback stack resolves the run and
+     * the surrounding space to the same family entry and keeps one face. Geometry is identical
+     * (nav/kern match); only the per-face glyph partitioning of the .notdef boxes differs.
+     * Needs a REWRITE_PLAN §7 entry. */
+    "lay hangul",
     NULL,
 };
 

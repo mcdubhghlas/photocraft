@@ -160,8 +160,10 @@ struct pc_compose_fx_maps {
     pc_fx_item *per; /* per enabled effect, in items order */
     size_t nitems;
     float *din; /* chamfer distances when the layer has strokes, else NULL */
-    float *dout;
-    float *vdout;        /* shape layers without an outline: distance outside the estimated outline */
+    float *dout; /* chamfer distance outside: a narrow stroke's outer edge (< STROKE_CHAMFER_MAX) */
+    float *dout_exact;   /* exact Euclidean distance outside: a wide stroke's outer edge (#3646) */
+    float *vdout;        /* shape layers without an outline: chamfer distance outside the estimated outline */
+    float *vdout_exact;  /* shape layers without an outline: exact Euclidean distance outside it (#3646) */
     bool outline;        /* the shape joins a filled shape's outline (pc_compose_effect_outline) */
     pc_fx_frame *frames; /* frames of gradient strokes by outside width */
     size_t nframes;

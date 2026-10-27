@@ -3,8 +3,11 @@
  * added after C2: apply_in, lab_channel_adjustment, apply_lab, color_balance_channel,
  * range_lightness). Expression order follows the reference exactly. */
 #include <math.h>
+#include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 
+#include "base/mem.h"
 #include "base/num.h"
 #include "base/rmath.h"
 #include "color/convert.h"
@@ -30,74 +33,111 @@ void pc_compose_range_lightness(const float c[3], float l, float out[3])
 
 /* ---- Color Balance ---- */
 
-/* How far one slider at +-100 moves the black or white point (Photoshop 27.11: shadows -100 maps
- * 99.6 of 255 to black, highlights +100 maps 155.5 to white). */
-#define BALANCE_LEVELS 0.39f
+/* One channel's Color Balance curve. Reverse-engineered from Photoshop: the three tones fold into
+ * one Levels per channel (input black point, input white point, midtone gamma), within 0.8 of 255
+ * everywhere. Folding matters: a lowered shadows and a raised highlights slider cancel each other's
+ * gamma, which applying the tones one after another doesn't (#3423).
+ * - Preserve Luminosity off: a slider only moves its own channel. Lowered shadows set the black
+ *   point to |shadows| levels, raised highlights set the white point to 255 - highlights levels,
+ *   and the gamma is 2^(m / 100) with m = midtones + (shadows + highlights) / 2.
+ * - Preserve Luminosity on: each channel's black point is (max - own) shadows levels, its white
+ *   point 255 - (own - min) highlights levels, and m = own - (max + min) / 2 midtones. */
+typedef struct balance_curve {
+    float b; /* input black point */
+    float w; /* input white point */
+    float e; /* the power curve's exponent, 1 / gamma */
+    bool has_knee;
+    float u0; /* where a gamma > 1 curve's Hermite join ends */
+    float s0; /* its starting slope 2^gamma */
+    float p;  /* the power curve's value at u0 */
+    float d;  /* the power curve's slope at u0 */
+} balance_curve;
 
-static float balance_black(float v, float b)
+static float balance_clamp_slider(float s)
 {
-    return pc_rs_maxf_k((v - b) / (1.0f - b), 0.0f);
+    return isfinite(s) ? pc_clampf(s, -100.0f, 100.0f) : 0.0f;
 }
 
-static float balance_white(float v, float w)
+static balance_curve balance_curve_new(const float tones[3][3], bool preserve_luminosity, int ch)
 {
-    return pc_rs_minf_k(v / w, 1.0f);
+    balance_curve c;
+    float shadows[3];
+    float midtones[3];
+    float highlights[3];
+    float black;
+    float white;
+    float m;
+    float gamma;
+    int i;
+    for (i = 0; i < 3; i++) {
+        shadows[i] = balance_clamp_slider(tones[0][i]);
+        midtones[i] = balance_clamp_slider(tones[1][i]);
+        highlights[i] = balance_clamp_slider(tones[2][i]);
+    }
+#define OWN(t) ((ch) >= 0 && (ch) < 3 ? (t)[(ch)] : 0.0f)
+#define MX(t) pc_rs_maxf(pc_rs_maxf((t)[0], (t)[1]), (t)[2])
+#define MN(t) pc_rs_minf(pc_rs_minf((t)[0], (t)[1]), (t)[2])
+    if (preserve_luminosity) {
+        black = MX(shadows) - OWN(shadows);
+        white = OWN(highlights) - MN(highlights);
+        m = OWN(midtones) - (MX(midtones) + MN(midtones)) / 2.0f;
+    } else {
+        black = pc_rs_maxf_k(-OWN(shadows), 0.0f);
+        white = pc_rs_maxf_k(OWN(highlights), 0.0f);
+        m = OWN(midtones) + (OWN(shadows) + OWN(highlights)) / 2.0f;
+    }
+#undef OWN
+#undef MX
+#undef MN
+    /* The midtone gamma of the channel's Levels: u^(1/gamma), except that a gamma > 1 (which would
+     * start with infinite slope) starts at slope 2^gamma and joins the power curve in a cubic
+     * Hermite at twice the input where that line meets it. */
+    gamma = exp2f(m / 100.0f);
+    c.e = 1.0f / pc_rs_maxf_k(gamma, 0.01f);
+    c.has_knee = false;
+    c.u0 = c.s0 = c.p = c.d = 0.0f;
+    if (gamma > 1.0f) {
+        float s0 = exp2f(gamma);
+        float u0 = pc_rs_minf_k(2.0f * powf(s0, 1.0f / (c.e - 1.0f)), 1.0f);
+        if (!isnan(u0) && u0 > 0.0f) {
+            c.has_knee = true;
+            c.u0 = u0;
+            c.s0 = s0;
+            c.p = powf(u0, c.e);
+            c.d = c.e * powf(u0, c.e - 1.0f);
+        }
+    }
+    c.b = black / 255.0f;
+    c.w = 1.0f - white / 255.0f;
+    return c;
+}
+
+static float balance_curve_eval(const balance_curve *c, float v)
+{
+    float u;
+    v = isfinite(v) ? pc_clampf(v, 0.0f, 1.0f) : 0.0f;
+    if (v >= c->w) {
+        return 1.0f;
+    }
+    if (v <= c->b) {
+        return 0.0f;
+    }
+    u = (v - c->b) / (c->w - c->b);
+    if (c->has_knee && u < c->u0) {
+        float t = u / c->u0;
+        float t2 = t * t;
+        float t3 = t * t * t;
+        return pc_clampf((t3 - 2.0f * t2 + t) * c->u0 * c->s0 + (3.0f * t2 - 2.0f * t3) * c->p +
+                             (t3 - t2) * c->u0 * c->d,
+                         0.0f, 1.0f);
+    }
+    return powf(u, c->e);
 }
 
 float pc_compose_color_balance_channel(const float tones[3][3], bool preserve_luminosity, int ch, float v)
 {
-    /* Reverse-engineered from Photoshop 27.11: every slider is a levels-and-gamma curve per
-     * channel. Preserve Luminosity off: a slider moves only its own channel (midtones gamma
-     * 2^-a; shadows gamma 2^(-a/2) after a black point at 0.39 |a| when lowered; highlights gamma
-     * 2^(-a/2) after a white point at 1 - 0.39 a when raised). On: midtones is gamma 2^(-a/2) on
-     * the slider's channel and 2^(a/2) on the others; shadows and highlights go by the
-     * differences between a tone's three sliders (plain black / white points). Tones apply
-     * highlights, shadows, then midtones. */
-    static const int order[3] = {2, 0, 1};
-    int t;
-    v = pc_clampf(v, 0.0f, 1.0f);
-    for (t = 0; t < 3; t++) {
-        int tone = order[t];
-        const float *sliders = tones[tone];
-        float a[3];
-        int src;
-        for (src = 0; src < 3; src++) {
-            a[src] = pc_clampf(sliders[src] / 100.0f, -1.0f, 1.0f);
-        }
-        if (preserve_luminosity && tone != 1) {
-            float own = ch >= 0 && ch < 3 ? a[ch] : 0.0f;
-            float lo = FLT_MAX;
-            float hi = -FLT_MAX;
-            for (src = 0; src < 3; src++) {
-                lo = pc_rs_minf(lo, a[src]);
-                hi = pc_rs_maxf(hi, a[src]);
-            }
-            v = tone == 0 ? balance_black(v, BALANCE_LEVELS * (hi - own))
-                          : balance_white(v, 1.0f - BALANCE_LEVELS * (own - lo));
-            continue;
-        }
-        for (src = 0; src < 3; src++) {
-            float k = pc_clampf(sliders[src] / 100.0f, -1.0f, 1.0f);
-            bool own = src == ch;
-            if (k == 0.0f || (!preserve_luminosity && !own)) {
-                continue;
-            }
-            if (tone == 1 && !preserve_luminosity) {
-                v = powf(v, exp2f(-k));
-            } else if (tone == 1) {
-                v = powf(v, exp2f((own ? -k : k) / 2.0f));
-            } else if (tone == 0 && !preserve_luminosity && k < 0.0f) {
-                v = powf(balance_black(v, BALANCE_LEVELS * -k), exp2f(-k / 2.0f));
-            } else if (tone == 0 && !preserve_luminosity) {
-                v = powf(v, exp2f(-k / 2.0f));
-            } else if (tone == 2 && !preserve_luminosity && k > 0.0f) {
-                v = powf(balance_white(v, 1.0f - BALANCE_LEVELS * k), exp2f(-k / 2.0f));
-            } else if (tone == 2 && !preserve_luminosity) {
-                v = powf(v, exp2f(-k / 2.0f));
-            }
-        }
-    }
-    return v;
+    balance_curve c = balance_curve_new(tones, preserve_luminosity, ch);
+    return balance_curve_eval(&c, v);
 }
 
 /* ---- Lab documents ---- */
@@ -129,12 +169,22 @@ static bool stored_channel_adjustment(const pc_adjustment *adj)
     }
 }
 
+/* A CMYK document applies Hue/Saturation (not colorize) and Color Balance to its C, M and Y inks
+ * as a screen-colour adjustment of (1 - ink). */
+bool pc_cmp_cmy_adjustment(const pc_adjustment *adj)
+{
+    return (adj->kind == PC_ADJ_HUE_SATURATION && !adj->u.hue_saturation.colorize) ||
+           adj->kind == PC_ADJ_COLOR_BALANCE;
+}
+
 /* Whether a CMYK document evaluates adj on its inks rather than on the screen colour: Invert and
- * Posterize (each ink, black included, so paper inverts to 400% ink) and Threshold (paper or 100%
- * black ink alone). */
+ * Posterize (each ink, black included, so paper inverts to 400% ink), Threshold (paper or 100%
+ * black ink alone), Brightness/Contrast (each ink's stored value 1 - ink through the tone curve)
+ * and the CMY adjustments (Hue/Saturation not colorize, Color Balance). */
 bool pc_compose_cmyk_channel_adjustment(const pc_adjustment *adj)
 {
-    return stored_channel_adjustment(adj);
+    return stored_channel_adjustment(adj) || pc_cmp_cmy_adjustment(adj) ||
+           adj->kind == PC_ADJ_BRIGHTNESS_CONTRAST;
 }
 
 /* Invert, Posterize or Threshold on one pixel's own channels in a Lab or CMYK document of depth
@@ -142,7 +192,7 @@ bool pc_compose_cmyk_channel_adjustment(const pc_adjustment *adj)
  * them, or the C, M, Y, K inks (0: none); gray is the pixel's luma, which CMYK Threshold compares.
  * Lab Invert turns 8-bit bytes v into 255 - v (a becomes -1 - a) and mirrors a and b around
  * neutral at 16 bits (photoshop corpus lab16 invert.psd: neutral stays neutral). */
-static void stored_channels(const pc_adjustment *adj, pc_color_mode mode, bool has_depth,
+void pc_cmp_stored_channels(const pc_adjustment *adj, pc_color_mode mode, bool has_depth,
                             pc_sample_type depth, float *ch, size_t nch, float gray)
 {
     bool lab = mode == PC_COLOR_MODE_LAB;
@@ -155,11 +205,17 @@ static void stored_channels(const pc_adjustment *adj, pc_color_mode mode, bool h
         }
         break;
     }
-    case PC_ADJ_POSTERIZE:
+    case PC_ADJ_POSTERIZE: {
+        /* Depth-aware (16-bit documents bin the 16-bit sample). CMYK posterizes the STORED value
+         * (1 - ink), which its uneven levels make differ from posterizing the ink. */
+        bool u16 = has_depth && depth == PC_SAMPLE_TYPE_U16;
+        bool cmyk = mode == PC_COLOR_MODE_CMYK;
         for (i = 0; i < nch; i++) {
-            ch[i] = pc_compose_posterize(ch[i], adj->u.posterize.levels);
+            ch[i] = cmyk ? 1.0f - pc_compose_posterize_in(1.0f - ch[i], adj->u.posterize.levels, u16)
+                         : pc_compose_posterize_in(ch[i], adj->u.posterize.levels, u16);
         }
         break;
+    }
     case PC_ADJ_THRESHOLD: {
         /* On the 8-bit grid, like the RGB threshold. */
         float t = roundf(adj->u.threshold.level * 255.0f);
@@ -209,6 +265,8 @@ static void apply_lab(const pc_adjustment *adj, pc_compose_buffer *buf, bool has
     size_t w = bw > 1 ? bw : 1;
     pc_cmp_legacy_bc legacy = {0.0f, 0.0f, 0.0f};
     float threshold = 0.0f;
+    float modern_table[PC_COMPOSE_LUT_SIZE];
+    bool use_modern = false;
     size_t i;
     int c;
     if (adj->kind == PC_ADJ_THRESHOLD) {
@@ -216,6 +274,13 @@ static void apply_lab(const pc_adjustment *adj, pc_compose_buffer *buf, bool has
     } else if (adj->kind == PC_ADJ_BRIGHTNESS_CONTRAST) {
         legacy =
             pc_cmp_legacy_bc_new(adj->u.brightness_contrast.brightness, adj->u.brightness_contrast.contrast);
+        /* Modern (CS3+) BC is a lookup table (brightness then contrast), sampled like the RGB
+         * path; the legacy curve is linear and needs no table. */
+        if (!adj->u.brightness_contrast.legacy &&
+            pc_cmp_modern_lut(adj->u.brightness_contrast.brightness, adj->u.brightness_contrast.contrast,
+                              modern_table, NULL) == PC_OK) {
+            use_modern = true;
+        }
     }
     for (i = 0; i < buf->len; i++) {
         float *p = buf->px[i];
@@ -230,7 +295,7 @@ static void apply_lab(const pc_adjustment *adj, pc_compose_buffer *buf, bool has
         case PC_ADJ_POSTERIZE:
             /* L -> 100 - L and a, b mirrored about neutral; each channel posterized (see
              * stored_channels). */
-            stored_channels(adj, PC_COLOR_MODE_LAB, has_depth, depth, n, 3, 0.0f);
+            pc_cmp_stored_channels(adj, PC_COLOR_MODE_LAB, has_depth, depth, n, 3, 0.0f);
             lab_denorm(n, o);
             break;
         case PC_ADJ_THRESHOLD:
@@ -240,13 +305,8 @@ static void apply_lab(const pc_adjustment *adj, pc_compose_buffer *buf, bool has
         case PC_ADJ_BRIGHTNESS_CONTRAST: {
             /* The tone curve on L only, added as the difference of two round trips (like
              * tone_in_space) so a and b, and colours a round trip moves, stay put. */
-            float l =
-                adj->u.brightness_contrast.legacy
-                    ? pc_cmp_legacy_bc_apply(&legacy, n[0])
-                    : pc_clampf(pc_compose_modern_contrast(
-                                    pc_compose_modern_brightness(n[0], adj->u.brightness_contrast.brightness),
-                                    adj->u.brightness_contrast.contrast),
-                                0.0f, 1.0f);
+            float l = use_modern ? pc_cmp_lut(modern_table, PC_COMPOSE_LUT_SIZE, n[0])
+                                 : pc_cmp_legacy_bc_apply(&legacy, n[0]);
             float before[3];
             float after[3];
             float m[3];
@@ -287,6 +347,78 @@ static void apply_lab(const pc_adjustment *adj, pc_compose_buffer *buf, bool has
     }
 }
 
+/* ink v through the ink tone table (built over the stored value 1 - ink): ink_through. */
+float pc_cmp_ink_through(const float *table, float ink)
+{
+    return 1.0f - pc_cmp_lut(table, PC_COMPOSE_LUT_SIZE, 1.0f - ink);
+}
+
+/* The luma Photoshop's CMYK Threshold compares: Rec. 601 weights on the inks' plain complement,
+ * (1 - c)(1 - k) and so on, whatever the document's profile (adjust.rs ink_luma). */
+float pc_cmp_ink_luma(const float ink[4])
+{
+    float paper = 1.0f - pc_clampf(ink[3], 0.0f, 1.0f);
+    float rgb[3];
+    int i;
+    for (i = 0; i < 3; i++) {
+        rgb[i] = (1.0f - pc_clampf(ink[i], 0.0f, 1.0f)) * paper;
+    }
+    return pc_rgb_to_gray(rgb);
+}
+
+/* Brightness/Contrast as the ink tone table (ink_brightness_contrast_lut): the modern LUT, or the
+ * legacy curve pivoting at 1 - 128/255 (the stored value's pivot). Fills table[PC_COMPOSE_LUT_SIZE]. */
+pc_status pc_cmp_ink_bc_lut(float brightness, float contrast, bool legacy_flag, float *table, pc_error *err)
+{
+    size_t k;
+    pc_cmp_legacy_bc l;
+    float pivot;
+    if (!legacy_flag) {
+        return pc_cmp_modern_lut(brightness, contrast, table, err);
+    }
+    l = pc_cmp_legacy_bc_new(brightness, contrast);
+    pivot = 1.0f - PC_COMPOSE_LEGACY_PIVOT;
+    for (k = 0; k < PC_COMPOSE_LUT_SIZE; k++) {
+        float v = (float)k / (float)(PC_COMPOSE_LUT_SIZE - 1);
+        table[k] = pc_clampf((v + l.pre - pivot) * l.k + pivot + l.post, 0.0f, 1.0f);
+    }
+    return PC_OK;
+}
+
+/* Hue/Saturation (not colorize) and Color Balance on a CMYK document's C, M and Y inks: the inks
+ * as screen-colour (1 - ink) through apply_depth, then stored back (apply_cmy). K is untouched. */
+pc_status pc_cmp_apply_cmy(const pc_adjustment *adj, float (*inks)[4], size_t n, pc_sample_type depth,
+                           pc_error *err)
+{
+    const pc_compose_transfer srgb = {PC_COMPOSE_TRANSFER_SRGB, 0.0f};
+    pc_compose_buffer tmp;
+    pc_status st;
+    size_t i;
+    int c;
+    if (n == 0) {
+        return PC_OK;
+    }
+    st = pc_compose_buffer_transparent(pc_rect_make(0, 0, (int32_t)(n > (size_t)INT32_MAX ? INT32_MAX : n), 1),
+                                       &tmp, err);
+    if (st != PC_OK) {
+        return st;
+    }
+    for (i = 0; i < n && i < tmp.len; i++) {
+        tmp.px[i][0] = 1.0f - inks[i][0];
+        tmp.px[i][1] = 1.0f - inks[i][1];
+        tmp.px[i][2] = 1.0f - inks[i][2];
+        tmp.px[i][3] = 1.0f;
+    }
+    st = pc_compose_adjust_apply_depth(adj, &tmp, srgb, false, depth, err);
+    for (i = 0; st == PC_OK && i < n && i < tmp.len; i++) {
+        for (c = 0; c < 3; c++) {
+            inks[i][c] = pc_clampf(1.0f - tmp.px[i][c], 0.0f, 1.0f);
+        }
+    }
+    pc_compose_buffer_fini(&tmp);
+    return st;
+}
+
 pc_status pc_compose_adjust_apply_in(const pc_adjustment *adj, pc_compose_buffer *buf,
                                      pc_compose_transfer transfer, bool has_depth, pc_sample_type depth,
                                      pc_color_mode mode, pc_error *err)
@@ -295,10 +427,65 @@ pc_status pc_compose_adjust_apply_in(const pc_adjustment *adj, pc_compose_buffer
         apply_lab(adj, buf, has_depth, depth);
         return PC_OK;
     }
+    /* A CMYK document evaluates some adjustments on its inks (the screen colour separated through
+     * the document's CMYK profile, so neutrals carry the black that profile generates). */
     if (mode == PC_COLOR_MODE_CMYK && pc_compose_cmyk_channel_adjustment(adj)) {
-        /* The inks are the screen colour separated through the document's CMYK profile, so
-         * neutrals carry the black that profile generates rather than the file's. */
         size_t i;
+        if (adj->kind == PC_ADJ_BRIGHTNESS_CONTRAST) {
+            /* Each ink's stored value (1 - ink) through the Brightness/Contrast tone curve. */
+            float *table = pc_malloc_array(PC_COMPOSE_LUT_SIZE, sizeof *table);
+            pc_status st;
+            if (table == NULL) {
+                return pc_fail(err, PC_ERR_NOMEM, "compose: out of memory");
+            }
+            st = pc_cmp_ink_bc_lut(adj->u.brightness_contrast.brightness, adj->u.brightness_contrast.contrast,
+                            adj->u.brightness_contrast.legacy, table, err);
+            for (i = 0; st == PC_OK && i < buf->len; i++) {
+                float *p = buf->px[i];
+                float ink[4];
+                float rgb[3];
+                int c;
+                if (p[3] <= 0.0f) {
+                    continue;
+                }
+                pc_rgb_to_cmyk(p, ink);
+                for (c = 0; c < 4; c++) {
+                    ink[c] = pc_cmp_ink_through(table, ink[c]);
+                }
+                pc_cmyk_to_rgb(ink, rgb);
+                p[0] = rgb[0];
+                p[1] = rgb[1];
+                p[2] = rgb[2];
+            }
+            free(table);
+            return st;
+        }
+        if (pc_cmp_cmy_adjustment(adj)) {
+            /* The C, M and Y inks through the adjustment as screen colour; K untouched. */
+            float (*inks)[4] = pc_malloc_array(buf->len > 0 ? buf->len : 1, sizeof *inks);
+            pc_status st;
+            if (inks == NULL) {
+                return pc_fail(err, PC_ERR_NOMEM, "compose: out of memory");
+            }
+            for (i = 0; i < buf->len; i++) {
+                pc_rgb_to_cmyk(buf->px[i], inks[i]);
+            }
+            st = pc_cmp_apply_cmy(adj, inks, buf->len, depth, err);
+            for (i = 0; st == PC_OK && i < buf->len; i++) {
+                float *p = buf->px[i];
+                float rgb[3];
+                if (p[3] <= 0.0f) {
+                    continue;
+                }
+                pc_cmyk_to_rgb(inks[i], rgb);
+                p[0] = rgb[0];
+                p[1] = rgb[1];
+                p[2] = rgb[2];
+            }
+            free(inks);
+            return st;
+        }
+        /* Invert, Posterize and Threshold on the stored inks. */
         for (i = 0; i < buf->len; i++) {
             float *p = buf->px[i];
             float ink[4];
@@ -307,7 +494,7 @@ pc_status pc_compose_adjust_apply_in(const pc_adjustment *adj, pc_compose_buffer
                 continue;
             }
             pc_rgb_to_cmyk(p, ink);
-            stored_channels(adj, PC_COLOR_MODE_CMYK, has_depth, depth, ink, 4, pc_rgb_to_gray(p));
+            pc_cmp_stored_channels(adj, PC_COLOR_MODE_CMYK, has_depth, depth, ink, 4, pc_cmp_ink_luma(ink));
             pc_cmyk_to_rgb(ink, rgb);
             p[0] = rgb[0];
             p[1] = rgb[1];

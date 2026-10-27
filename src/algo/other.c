@@ -201,18 +201,60 @@ static pc_status min_max_k(const void *p, const pc_algo_image *src, pc_rect out,
                                                      : min_max(src, out, m->radius, max, dst, err);
 }
 
+/* Invert the colour channels (keep alpha) of every pixel in `data` (`count` pixels, `n` channels,
+ * `cc` colour channels). */
+static void flip_ink(float *data, size_t count, size_t n, size_t cc)
+{
+    size_t i, c;
+    for (i = 0; i < count; i++) {
+        for (c = 0; c < cc; c++) {
+            data[i * n + c] = 1.0f - data[i * n + c];
+        }
+    }
+}
+
+/* Minimum / Maximum in the document's polarity. CMYK samples are ink, so there Maximum spreads
+ * paper white and Minimum spreads ink (as Photoshop does): the colour channels run inverted, alpha
+ * keeps its usual polarity. */
+static pc_status min_max_ink(const void *p, const pc_algo_image *src, pc_rect out,
+                             const pc_algo_ctx *ctx, bool max, float *dst, pc_error *err)
+{
+    pc_algo_image inv;
+    size_t n, cc, src_count, dst_count;
+    pc_status st;
+    if (!pc_algo_subtractive(ctx)) {
+        return min_max_k(p, src, out, max, dst, err);
+    }
+    n = src->ch > 0 ? src->ch : 1;
+    cc = pc_algo_ncol(ctx, n);
+    st = pc_algo_image_clone(src, &inv, err);
+    if (st != PC_OK) {
+        return st;
+    }
+    src_count = (size_t)pc_rect_width(src->rect) * pc_rect_height(src->rect);
+    flip_ink(inv.data, src->data != NULL ? src_count : 0, n, cc);
+    st = min_max_k(p, &inv, out, max, dst, err);
+    pc_algo_image_fini(&inv);
+    if (st != PC_OK) {
+        return st;
+    }
+    dst_count = (size_t)pc_rect_width(out) * pc_rect_height(out);
+    flip_ink(dst, dst_count, n, cc);
+    return PC_OK;
+}
+
 static pc_status minimum_k(const void *p, const void *prep, const pc_algo_image *src, pc_rect out,
                            const pc_algo_ctx *ctx, float *dst, pc_error *err)
 {
-    (void)prep, (void)ctx;
-    return min_max_k(p, src, out, false, dst, err);
+    (void)prep;
+    return min_max_ink(p, src, out, ctx, false, dst, err);
 }
 
 static pc_status maximum_k(const void *p, const void *prep, const pc_algo_image *src, pc_rect out,
                            const pc_algo_ctx *ctx, float *dst, pc_error *err)
 {
-    (void)prep, (void)ctx;
-    return min_max_k(p, src, out, true, dst, err);
+    (void)prep;
+    return min_max_ink(p, src, out, ctx, true, dst, err);
 }
 
 static pc_algo_halo minmax_halo(const void *p, const pc_rect *b)

@@ -175,13 +175,13 @@ static pc_algo_halo td_halo_gauss(const void *p, const pc_rect *b)
 {
     (void)b;
     return pc_algo_halo_radius(
-        pc_i32_wrapping_add(td_i(ceilf(pc_rs_maxf_k(((const td_radius *)p)->radius, 0.0f) * 3.0f)), 1));
+        pc_i32_sat_add(td_i(ceilf(pc_rs_maxf_k(((const td_radius *)p)->radius, 0.0f) * 3.0f)), 1));
 }
 static pc_algo_halo td_halo_box(const void *p, const pc_rect *b)
 {
     (void)b;
     return pc_algo_halo_radius(
-        pc_i32_wrapping_add(td_i(ceilf(pc_rs_maxf_k(((const td_radius *)p)->radius, 0.0f))), 1));
+        pc_i32_sat_add(td_i(ceilf(pc_rs_maxf_k(((const td_radius *)p)->radius, 0.0f))), 1));
 }
 static pc_algo_halo td_halo_motion(const void *p, const pc_rect *b)
 {
@@ -193,7 +193,7 @@ static pc_algo_halo td_halo_mosaic(const void *p, const pc_rect *b)
 {
     (void)b;
     return pc_algo_halo_radius(
-        pc_i32_wrapping_add(td_i(ceilf(pc_rs_maxf_k(((const td_mosaic *)p)->cell_size, 1.0f))), 1));
+        pc_i32_sat_add(td_i(ceilf(pc_rs_maxf_k(((const td_mosaic *)p)->cell_size, 1.0f))), 1));
 }
 static pc_algo_halo td_halo_emboss(const void *p, const pc_rect *b)
 {
@@ -263,7 +263,7 @@ static pc_status td_find_edges_k(const void *p, const void *prep, const pc_algo_
             float gx = (G(1, -1) + 2.0f * G(1, 0) + G(1, 1)) - (G(-1, -1) + 2.0f * G(-1, 0) + G(-1, 1));
             float gy = (G(-1, 1) + 2.0f * G(0, 1) + G(1, 1)) - (G(-1, -1) + 2.0f * G(0, -1) + G(1, -1));
 #undef G
-            float e = pc_clampf(sqrtf(gx * gx + gy * gy) / 4.0f, 0.0f, 1.0f);
+            float e = pc_clampf(sqrtf(gx * gx + gy * gy), 0.0f, 1.0f);
             dst[i * n + c] = sub ? e : 1.0f - e;
         }
     }
@@ -293,10 +293,10 @@ static pc_status td_offset_k(const void *p, const void *prep, const pc_algo_imag
 
 #define TD_DEF(name, tg, T, F, init, halo, kern)                                                             \
     static const pc_algo_filter_def name = {(tg), sizeof(T), (F),  TD_N(F), (init), NULL, (halo),            \
-                                            NULL, NULL,      NULL, (kern),  NULL,   0}
+                                            NULL, NULL,      NULL, (kern),  NULL,   0,      NULL}
 #define TD_UNIT(name, tg, halo, kern)                                                                        \
     static const pc_algo_filter_def name = {(tg), 0,    NULL, 0,      NULL, NULL, (halo),                    \
-                                            NULL, NULL, NULL, (kern), NULL, 0}
+                                            NULL, NULL, NULL, (kern), NULL, 0,    NULL}
 
 TD_DEF(TD_GAUSS, "gaussianBlur", td_radius, TD_RADIUS_F, NULL, td_halo_gauss, NULL);
 TD_DEF(TD_BOX, "boxBlur", td_radius, TD_RADIUS_F, NULL, td_halo_box, NULL);

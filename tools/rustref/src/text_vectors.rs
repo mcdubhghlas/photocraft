@@ -612,7 +612,7 @@ fn l13_coverage() {
             3 => (100, 3),
             _ => (3, 64),
         };
-        let mut c = Coverage::new(w, h);
+        let mut c = Coverage::try_new(w, h).unwrap();
         let mut s = String::new();
         let nl = 3 + case % 9;
         for i in 0..nl {
@@ -640,7 +640,7 @@ fn l13_coverage() {
                 s.push_str(&x64(v));
             }
         }
-        let v = c.finish();
+        let v = c.finish().unwrap_or_default();
         let mut hh = H0;
         for x in &v {
             hf32(&mut hh, *x);

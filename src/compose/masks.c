@@ -145,61 +145,128 @@ static uint64_t key_of(const pc_layer *layer, pc_rect canvas)
     return h;
 }
 
+/* One box pass: weight 1 on +-r around each sample and `end` (0..1) on the two samples just past
+ * the window, so a fractional variance can be matched exactly (shared with the shape renderer). */
+typedef struct box_pass {
+    size_t r;
+    float end;
+    bool active;
+} box_pass;
+
+/* The box radius and fractional end weight whose single pass has variance sigma^2 / 3. */
+static box_pass box_pass_for_sigma(float sigma)
+{
+    box_pass bp = {0, 0.0f, false};
+    double sm;
+    double v;
+    double rf;
+    double nn;
+    double end;
+    double r0;
+    size_t r;
+    if (!isfinite(sigma) || sigma <= 0.0f) {
+        return bp;
+    }
+    /* Feathers top out at 1000 px; the cap keeps the radius arithmetic far from overflow. */
+    sm = (double)(sigma < MAX_FEATHER_SIGMA ? sigma : MAX_FEATHER_SIGMA);
+    v = sm * sm / 3.0;
+    /* The largest whole radius whose box variance r(r+1)/3 is at most v. */
+    r0 = floor((sqrt(12.0 * v + 1.0) - 1.0) / 2.0);
+    if (!(r0 > 0.0)) {
+        r0 = 0.0;
+    }
+    r = (size_t)r0;
+    while (r > 0 && (double)r * ((double)r + 1.0) / 3.0 > v) {
+        r--;
+    }
+    while ((double)(r + 1) * ((double)(r + 1) + 1.0) / 3.0 <= v) {
+        r++;
+    }
+    rf = (double)r;
+    nn = 2.0 * (double)r + 1.0;
+    end = (nn * (rf * (rf + 1.0) / 3.0 - v)) / (2.0 * v - 2.0 * (rf + 1.0) * (rf + 1.0));
+    /* f64::clamp(0, 1): NaN stays NaN. */
+    end = end < 0.0 ? 0.0 : (end > 1.0 ? 1.0 : end);
+    bp.r = r;
+    bp.end = (float)end;
+    bp.active = true;
+    return bp;
+}
+
+/* One box pass over a line: reads the pre-pass values from `scratch` (a copy of `line`) and writes
+ * the blurred result into `line` (edges clamp). */
+static void blur_line(float *line, float *scratch, size_t len, const box_pass *bp)
+{
+    int64_t radius = (int64_t)bp->r;
+    int64_t last = (int64_t)len - 1;
+    float acc = -0.0f; /* Iterator::sum starts at -0.0 */
+    float n;
+    float below;
+    int64_t j;
+    size_t i;
+    if (len == 0) {
+        return;
+    }
+    memcpy(scratch, line, len * sizeof *line);
+#define GET(ix) scratch[(size_t)((ix) < 0 ? 0 : ((ix) > last ? last : (ix)))]
+    for (j = -radius; j <= radius; j++) {
+        acc += GET(j);
+    }
+    n = (float)(2 * bp->r + 1) + 2.0f * bp->end;
+    below = GET(-radius - 1);
+    for (i = 0; i < len; i++) {
+        int64_t ii = (int64_t)i;
+        float above = GET(ii + radius + 1);
+        float leaving = GET(ii - radius);
+        line[i] = (acc + bp->end * (below + above)) / n;
+        acc += above - leaving;
+        below = leaving;
+    }
+#undef GET
+}
+
 /* Approximate Gaussian blur of a w x h plane: three box passes per axis (edges clamp). */
 static pc_status gaussian(float *v, size_t w, size_t h, float sigma, pc_error *err)
 {
-    float ideal;
-    size_t r;
+    box_pass bp = box_pass_for_sigma(sigma);
     size_t len_max = w > h ? w : h;
-    float *line;
-    size_t pass;
-    if (!(sigma > 0.0f) || w == 0 || h == 0) {
+    float *work;
+    float *scratch;
+    int axis;
+    if (!bp.active || w == 0 || h == 0) {
         return PC_OK;
     }
-    /* Box widths whose three-pass variance matches sigma^2 (Wells 1986 / Kovesi). */
-    ideal = sqrtf(12.0f * sigma * sigma / 3.0f + 1.0f);
-    r = (((pc_f32_to_size(floorf(ideal)) | 1u) - 1u) / 2u);
-    if (r == 0) {
-        return PC_OK;
-    }
-    line = pc_malloc_array(len_max, sizeof *line);
-    if (line == NULL) {
+    work = pc_malloc_array(len_max, sizeof *work);
+    scratch = pc_malloc_array(len_max, sizeof *scratch);
+    if (work == NULL || scratch == NULL) {
+        free(work);
+        free(scratch);
         return pc_fail(err, PC_ERR_NOMEM, "compose: out of memory");
     }
-    for (pass = 0; pass < 2; pass++) {
-        size_t len = pass == 0 ? w : h;
-        size_t count = pass == 0 ? h : w;
+    for (axis = 0; axis < 2; axis++) {
+        size_t lines = axis ? w : h;
+        size_t line_len = axis ? h : w;
         size_t k;
-        for (k = 0; k < count; k++) {
+        for (k = 0; k < lines; k++) {
+            size_t i;
             int rep;
+            for (i = 0; i < line_len; i++) {
+                work[i] = axis ? v[i * w + k] : v[k * w + i];
+            }
             for (rep = 0; rep < 3; rep++) {
-                size_t i;
-                float acc = -0.0f; /* Iterator::sum starts at -0.0 */
-                float n = (float)(2 * r + 1);
-                int64_t j;
-                int64_t last = (int64_t)len - 1;
-                for (i = 0; i < len; i++) {
-                    line[i] = pass == 0 ? v[k * w + i] : v[i * w + k];
+                blur_line(work, scratch, line_len, &bp);
+            }
+            for (i = 0; i < line_len; i++) {
+                if (axis) {
+                    v[i * w + k] = work[i];
+                } else {
+                    v[k * w + i] = work[i];
                 }
-#define GET(ix) line[(size_t)((ix) < 0 ? 0 : ((ix) > last ? last : (ix)))]
-                for (j = -(int64_t)r; j <= (int64_t)r; j++) {
-                    acc += GET(j);
-                }
-                for (i = 0; i < len; i++) {
-                    int64_t ii = (int64_t)i;
-                    float out = acc / n;
-                    if (pass == 0) {
-                        v[k * w + i] = out;
-                    } else {
-                        v[i * w + k] = out;
-                    }
-                    acc += GET(ii + (int64_t)r + 1) - GET(ii - (int64_t)r);
-                }
-#undef GET
             }
         }
     }
-    free(line);
+    free(work);
+    free(scratch);
     return PC_OK;
 }
 

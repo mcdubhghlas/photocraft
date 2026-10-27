@@ -251,7 +251,7 @@ static void test_metadata_text_and_encoding(void)
 {
     pc_metadata m;
     pc_metadata c;
-    pc_file_encoding e = {false, 0, false, false, false, 0};
+    pc_file_encoding e = {false, 0, false, false, false, 0, false, 0};
     pc_file_encoding f = e;
     memset(&m, 0, sizeof m);
     m.text = calloc(2, sizeof *m.text);

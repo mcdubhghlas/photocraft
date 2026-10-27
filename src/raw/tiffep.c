@@ -146,7 +146,7 @@ bool rx_tiffep_cfa(const rx_tiff *t, const rx_ifd *raw, const rx_ifd *ifds, size
 }
 
 /* Nikon maker note: "Nikon\0", version, then an embedded TIFF relative to itself. */
-static bool nikon_maker_note(const rx_tiff *t, const rx_ifd *ifds, size_t n, rx_tiff *inner, rx_ifd *ifd)
+bool rx_nikon_maker_note(const rx_tiff *t, const rx_ifd *ifds, size_t n, rx_tiff *inner, rx_ifd *ifd)
 {
     rx_entry e;
     bool found = false;
@@ -279,7 +279,7 @@ pc_status rx_tiffep_decode(const rx_tiff *t, pc_raw_format format, const pc_raw_
         return rx_unsupported(err, "%s: no CFA image found", pc_raw_format_name(format));
     }
     if (format == PC_RAW_NEF) {
-        nikon = nikon_maker_note(t, ifds, n, &note_t, &note);
+        nikon = rx_nikon_maker_note(t, ifds, n, &note_t, &note);
     }
     craw = format == PC_RAW_ARW && rx_sony_is_craw(t, &raw);
     if (craw) {

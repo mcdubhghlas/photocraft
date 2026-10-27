@@ -133,7 +133,7 @@ fn entry_error(m: &str) -> &str {
 }
 
 fn result(h: &mut u64, bytes: &[u8]) {
-    let limits = Limits { max_entry: 64 << 20, max_total: 256 << 20 };
+    let limits = Limits { max_entry: 64 << 20, max_total: 256 << 20, max_pixel_bytes: 1 << 30 };
     match read(bytes, limits) { Ok(d) => u(h, doc_hash(&d)), Err(e) => s(h, entry_error(&e.to_string())) }
     match preview(bytes) { Ok(p) => { u(h, p.width as u64); u(h, p.height as u64); u(h, p.png.len() as u64); } Err(e) => s(h, &e.to_string()) }
 }
@@ -199,7 +199,7 @@ pub fn affinity_mutations(file: &str) {
     let bytes = std::fs::read(file).unwrap();
     let mut st = 0x5EED_u64 ^ bytes.len() as u64;
     let mut next = || { st = st.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407); st >> 33 };
-    let limits = Limits { max_entry: 64 << 20, max_total: 256 << 20 };
+    let limits = Limits { max_entry: 64 << 20, max_total: 256 << 20, max_pixel_bytes: 1 << 30 };
     for i in 0..40 {
         let mut c = bytes.clone();
         for _ in 0..1 + next() % 6 {

@@ -129,9 +129,11 @@ pc_status pc_text_build_engine_data(const pc_text_layer *layer, pc_ed_value *tmp
 pc_status pc_text_build_tysh(const pc_text_layer *layer, float dpi, const float *ink, pc_psd_bytes *out,
                              pc_error *err);
 
-/* UTF-16 run lengths over `text` -> UTF-8 byte lengths (out has n entries; negative/NaN lengths
- * count as 0, lengths past the end stop at the end). */
-void pc_text_utf16_to_byte_lengths(const char *text, size_t len, const double *lens, size_t n, size_t *out);
+/* UTF-16 run lengths over `text` -> UTF-8 byte lengths. Processing stops once `text` is exhausted
+ * (the run that empties it is still written) and after at most MAX_ENGINE_RUNS runs; negative/NaN
+ * lengths count as 0. `out` must hold n entries; returns how many were written (<= n). */
+size_t pc_text_utf16_to_byte_lengths(const char *text, size_t len, const double *lens, size_t n,
+                                     size_t *out);
 /* The PostScript name the PSD FontSet stores for a style ("Inter-SemiBoldItalic"). */
 pc_status pc_text_postscript_for(const pc_char_style *s, pc_str *out, pc_error *err);
 

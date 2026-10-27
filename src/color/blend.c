@@ -463,3 +463,23 @@ void pc_blend_composite(pc_blend_mode m, const float backdrop[4], const float so
     o[3] = ao;
     memcpy(out, o, sizeof o);
 }
+
+void pc_blend_composite_atop(pc_blend_mode m, const float backdrop[4], const float source[4],
+                             float opacity, float out[4])
+{
+    float as = source[3] * opacity;
+    float cb[3], cs[3], b[3], o[4];
+    int i;
+    if (as <= 0.0f) {
+        memmove(out, backdrop, 4 * sizeof *out);
+        return;
+    }
+    memcpy(cb, backdrop, sizeof cb);
+    memcpy(cs, source, sizeof cs);
+    pc_blend_rgb(m, cb, cs, b);
+    memcpy(o, backdrop, sizeof o);
+    for (i = 0; i < 3; i++) {
+        o[i] = (1.0f - as) * backdrop[i] + as * b[i];
+    }
+    memcpy(out, o, sizeof o);
+}

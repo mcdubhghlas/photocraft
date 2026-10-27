@@ -155,6 +155,7 @@ typedef struct pc_live_shape {
     double radii[4]; /* RECT: tl, tr, br, bl */
     uint32_t sides;  /* POLYGON */
     double star_ratio;
+    double corner_radius; /* POLYGON: rounds every vertex (0 = sharp); #[serde(default)] = 0.0 */
     double from[2]; /* LINE */
     double to[2];
     double weight;
@@ -174,6 +175,8 @@ typedef struct pc_shape_layer {
     bool has_cache;
     pc_surface cache;
     pc_blob *psd_raw; /* vsms/vmsk block data; NULL = None */
+    float density;    /* path's density as the fill's mask, 0..=1; older files load at 1.0 */
+    float feather;    /* path's feather radius in px; older files load at 0.0 */
 } pc_shape_layer;
 
 void pc_shape_layer_fini(pc_shape_layer *s);

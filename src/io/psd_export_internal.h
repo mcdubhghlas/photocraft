@@ -110,6 +110,15 @@ typedef struct pc_io_ex_smart {
     } *linked_copies;
     size_t nlinked_copies;
     size_t caplinked_copies;
+    /* The unfiltered placed pixels (in the document format) of each smart object whose filter
+     * mask shows: its layer record holds the filtered pixels without the mask, recovered by
+     * unmixing the mixed cache (compose/filter_mask). Keyed by layer id. */
+    struct pc_io_ex_unfiltered {
+        uint64_t layer;
+        pc_surface surface;
+    } *unfiltered;
+    size_t nunfiltered;
+    size_t capunfiltered;
 } pc_io_ex_smart;
 
 /* u64 -> u32 open-addressing map (document layer id -> PSD layer id). */
@@ -143,6 +152,10 @@ typedef struct pc_io_ex {
     size_t caplinks;
     pc_io_warnings warnings;
     bool comps; /* layer comps to regenerate into each layer's cmls */
+    /* The layer Photoshop opens as the Background (no transparency channel), computed lazily. */
+    bool background_computed;
+    bool has_background;
+    pc_layer_id background;
     pc_io_ex_smart smart;
 } pc_io_ex;
 
@@ -191,7 +204,29 @@ bool pc_io_keep_imported_resource(const pc_document *doc, uint16_t id, const uin
 pc_status pc_io_global_block(const uint8_t signature[4], const uint8_t key[4], const uint8_t *data,
                              size_t len, pc_psd_block *out, pc_error *err);
 /* The signature a kept tagged block is written with: 8B64 (PSB-only) becomes 8BIM in a PSD. */
-void pc_io_block_signature(const uint8_t sig[4], pc_psd_version version, uint8_t out[4]);
+void pc_io_block_signature(const uint8_t sig[4], const uint8_t key[4], pc_psd_version version,
+                           uint8_t out[4]);
+
+/* Whether an imported resource `id`/`data` should also be copied; NULL means keep all. */
+typedef bool (*pc_io_res_keep_fn)(void *ctx, uint16_t id, const uint8_t *data, size_t len);
+
+/* Assembles a layerless PSD around `image_data`: `res` (the mode's own resources, ownership
+ * taken) plus the paths, XMP, EXIF and every other imported resource `keep` accepts (except the
+ * ones that only describe layers and any already in `res`), the measurement scale, the version
+ * info, and the document-level tagged blocks. `color_mode_data` is moved into the file. Takes
+ * ownership of `image_data` and `*color_mode_data` and frees them on error. Shared by the modes
+ * that have no layers in Photoshop: Multichannel, Indexed Color and Bitmap. */
+pc_status pc_io_layerless_file(const pc_document *doc, pc_psd_header header, pc_psd_bytes image_data,
+                               uint16_t image_compression, pc_psd_bytes *color_mode_data,
+                               pc_io_res_list *res, pc_io_res_keep_fn keep, void *keep_ctx,
+                               pc_io_warnings *warnings, pc_psd_file *out, pc_error *err);
+
+/* ---- palette_map.c (Indexed Color / Bitmap) ---- */
+
+/* Writes an Indexed Color or Bitmap document as a layerless PSD (colour modes 2 / 0). *handled
+ * false (and *out untouched) for any other document, which is written like the rest. */
+pc_status pc_io_palette_to_psd(const pc_document *doc, bool force_psb, bool *handled, pc_psd_file *out,
+                               pc_io_warnings *warnings, pc_error *err);
 
 /* ---- psd_export_smart.c ---- */
 
@@ -211,5 +246,11 @@ pc_status pc_io_ex_upsert(pc_io_raw_blocks *raw, const char key[4], uint8_t **da
                           const char *before, pc_error *err);
 /* Whether set s holds p. */
 bool pc_io_ex_strs_has(const pc_io_strs *s, const char *p, size_t len);
+
+/* Whether a smart object's filter mask shows (its record then holds the filtered pixels without
+ * the mask): the mask is enabled, filters are enabled and at least one is visible. */
+bool pc_io_sm_masked(const pc_smart_object *sm);
+/* The stored unfiltered placed pixels for layer id, or NULL (borrowed). */
+const pc_surface *pc_io_ex_unfiltered_for(const pc_io_ex_smart *s, uint64_t layer);
 
 #endif

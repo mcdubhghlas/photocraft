@@ -953,6 +953,8 @@ static pc_status edit_convert_shape(pc_document *doc, bool *ha, pc_layer_id *a, 
     }
     pc_shape_layer sh;
     memset(&sh, 0, sizeof sh);
+    sh.density = 1.0f; /* ShapeLayer::default() */
+    sh.feather = 0.0f;
     if (text_path(doc, t, &sh.path, err) != PC_OK) {
         return err != NULL ? err->code : PC_ERR_NOMEM;
     }

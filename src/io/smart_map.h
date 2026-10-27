@@ -125,6 +125,12 @@ bool pc_io_stored_size(const pc_psd_desc *d, double out[2]);
 pc_status pc_io_feid_item(const char *placed, const pc_surface *unfiltered, const pc_layer_mask *mask,
                           pc_rect bounds, pc_pixel_format doc_fmt, bool *has, pc_psd_fx_item *out,
                           pc_error *err);
+/* The unfiltered placed pixels of an FEid item (the inverse of pc_io_feid_item), in `fmt`: colour
+ * channels from slot 0, transparency from the last slot (opaque without it). *has false when the
+ * item has no colour planes, its depth isn't fmt's, fmt has no alpha, or a plane doesn't decode.
+ * *out initialised on success with *has true. */
+pc_status pc_io_unfiltered_from_item(const pc_psd_fx_item *item, pc_pixel_format fmt, bool *has,
+                                     pc_surface *out, pc_error *err);
 pc_status pc_io_fx_item_clone(const pc_psd_fx_item *it, pc_psd_fx_item *out, pc_error *err);
 /* A uuid-shaped id (8-4-4-4-12 hex digits) from the BLAKE3 hash of seed. */
 void pc_io_uuid_from(const void *seed, size_t len, char out[37]);

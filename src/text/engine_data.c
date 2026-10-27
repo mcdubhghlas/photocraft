@@ -319,7 +319,8 @@ bool pc_ed_as_f64(const pc_ed_value *v, double *out)
         *out = (double)v->i;
         return true;
     }
-    if (v != NULL && v->kind == PC_ED_REAL) {
+    /* `inf`, `nan` and `1e999` parse as reals but are never a valid number (Value::as_f64). */
+    if (v != NULL && v->kind == PC_ED_REAL && isfinite(v->r)) {
         *out = v->r;
         return true;
     }

@@ -37,6 +37,64 @@ static uint32_t f32_bits(float f)
     return u;
 }
 
+bool pc_compose_fx_stroke_outside_exact(float out_w)
+{
+    return out_w >= PC_COMPOSE_STROKE_CHAMFER_MAX;
+}
+
+size_t pc_cmp_fx_map_count(const pc_layer *layer)
+{
+    size_t per = 0;
+    size_t outside;
+    size_t stroke;
+    size_t vector_outline;
+    size_t i;
+    bool has_stroke = false;
+    bool chamfer_out = false;
+    bool exact_out = false;
+    for (i = 0; i < layer->effects.nitems; i++) {
+        const pc_effect *e = &layer->effects.items[i];
+        if (!pc_effect_enabled(e)) {
+            continue;
+        }
+        switch (e->kind) {
+        case PC_FX_DROP_SHADOW:
+        case PC_FX_INNER_SHADOW:
+        case PC_FX_OUTER_GLOW:
+        case PC_FX_INNER_GLOW:
+        case PC_FX_SATIN:
+            per += 1;
+            break;
+        case PC_FX_BEVEL_EMBOSS:
+            per += 2;
+            break;
+        case PC_FX_STROKE: {
+            float in_w;
+            float out_w;
+            has_stroke = true;
+            pc_compose_fx_stroke_widths(&e->u.stroke, &in_w, &out_w);
+            if (out_w > 0.0f) {
+                if (pc_compose_fx_stroke_outside_exact(out_w)) {
+                    exact_out = true;
+                } else {
+                    chamfer_out = true;
+                }
+            }
+            break;
+        }
+        default:
+            break;
+        }
+    }
+    outside = (size_t)chamfer_out + (size_t)exact_out;
+    stroke = has_stroke ? 1 + outside : 0;
+    vector_outline = (has_stroke && layer->content.kind == PC_LAYER_SHAPE &&
+                      pc_compose_effect_outline(layer) == NULL)
+                         ? outside
+                         : 0;
+    return 1 + per + stroke + vector_outline;
+}
+
 /* The frame a gradient stroke aligned with the layer is laid out in: the pixel bounds of the
  * effect shape grown by the stroke's outside width less one pixel (Photoshop spans the gradient
  * over the stroke's extent, not the layer's). */
@@ -105,7 +163,9 @@ size_t pc_compose_fx_maps_bytes(const pc_compose_fx_maps *maps)
     for (i = 0; i < maps->nitems; i++) {
         count += maps->per[i].n;
     }
-    count += (size_t)(maps->din != NULL) + (size_t)(maps->dout != NULL) + (size_t)(maps->vdout != NULL);
+    count += (size_t)(maps->din != NULL) + (size_t)(maps->dout != NULL) +
+             (size_t)(maps->dout_exact != NULL) + (size_t)(maps->vdout != NULL) +
+             (size_t)(maps->vdout_exact != NULL);
     return count * n * 4;
 }
 
@@ -123,7 +183,9 @@ void pc_compose_fx_maps_free(pc_compose_fx_maps *maps)
     free(maps->per);
     free(maps->din);
     free(maps->dout);
+    free(maps->dout_exact);
     free(maps->vdout);
+    free(maps->vdout_exact);
     free(maps->frames);
     free(maps);
 }
@@ -289,18 +351,48 @@ pc_status pc_compose_fx_build_maps(const pc_layer *layer, float *shape, size_t s
     }
     m->outline = pc_compose_effect_outline(layer) != NULL;
     if (st == PC_OK && has_stroke) {
+        /* A stroke's outer edge keeps the 5x5 chamfer below STROKE_CHAMFER_MAX (Photoshop matches
+         * its sub-pixel seeding at small offsets) and uses the exact Euclidean transform at or
+         * above it, where the chamfer's octagon facets a wide stroke (#3646). Inside distances
+         * always keep the chamfer. Each outer field is built only when a stroke of that width is
+         * present; the compositor picks per stroke. */
+        bool chamfer_out = false;
+        bool exact_out = false;
+        for (i = 0; i < layer->effects.nitems; i++) {
+            const pc_effect *e = &layer->effects.items[i];
+            float in_w;
+            float out_w;
+            if (!pc_effect_enabled(e) || e->kind != PC_FX_STROKE) {
+                continue;
+            }
+            pc_compose_fx_stroke_widths(&e->u.stroke, &in_w, &out_w);
+            if (out_w > 0.0f) {
+                if (pc_compose_fx_stroke_outside_exact(out_w)) {
+                    exact_out = true;
+                } else {
+                    chamfer_out = true;
+                }
+            }
+        }
         st = pc_fx_dist_inside(&m->shape, PC_FX_CHAMFER, &m->din, err);
-        if (st == PC_OK) {
+        if (st == PC_OK && chamfer_out) {
             st = pc_fx_dist_outside(&m->shape, PC_FX_CHAMFER, &m->dout, err);
         }
-        /* Without an outline (unfilled shapes), estimate the vector outline from local coverage. */
-        if (st == PC_OK && vector_shape && !m->outline) {
-            pc_fxm cov;
+        if (st == PC_OK && exact_out) {
+            st = pc_fx_dist_outside(&m->shape, PC_FX_EUCLIDEAN, &m->dout_exact, err);
+        }
+        /* Without an outline (unfilled shapes), estimate the vector outline from local coverage;
+         * it picks the chamfer or the exact transform the same way. */
+        if (st == PC_OK && vector_shape && !m->outline && (chamfer_out || exact_out)) {
+            pc_fxm cov = {0, 0, NULL};
             st = pc_fx_local_coverage(&m->shape, &cov, err);
-            if (st == PC_OK) {
+            if (st == PC_OK && chamfer_out) {
                 st = pc_fx_dist_outside(&cov, PC_FX_CHAMFER, &m->vdout, err);
-                pc_fxm_free(&cov);
             }
+            if (st == PC_OK && exact_out) {
+                st = pc_fx_dist_outside(&cov, PC_FX_EUCLIDEAN, &m->vdout_exact, err);
+            }
+            pc_fxm_free(&cov);
         }
     }
     for (i = 0; i < layer->effects.nitems && st == PC_OK; i++) {

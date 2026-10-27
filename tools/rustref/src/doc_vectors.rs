@@ -191,6 +191,7 @@ fn bevel(full: bool) -> Bevel {
         altitude: 30.0,
         use_global_light: true,
         gloss_contour: if full { custom_contour() } else { Contour::Linear },
+        gloss_anti_alias: false,
         highlight: fxc(true, BlendMode::Screen, 0.75),
         highlight_color: Color::WHITE,
         shadow: fxc(true, BlendMode::Multiply, 0.75),
@@ -210,7 +211,7 @@ fn effects_all() -> Vec<Effect> {
         Effect::InnerShadow(shadow2()),
         Effect::OuterGlow(glow(FxPaint::Color(Color::rgb(1.0, 1.0, 0.75)))),
         Effect::InnerGlow(glow(FxPaint::Gradient(Gradient::default()))),
-        Effect::Stroke(StrokeFx { common: fxc(true, BlendMode::Normal, 1.0), size: 3.0, position: StrokePosition::Center, paint: FxPaint::Pattern { name: ESC.into(), id: "".into(), scale: 1.0 } }),
+        Effect::Stroke(StrokeFx { common: fxc(true, BlendMode::Normal, 1.0), size: 3.0, position: StrokePosition::Center, paint: FxPaint::Pattern { name: ESC.into(), id: "".into(), scale: 1.0 }, overprint: false }),
         Effect::ColorOverlay { common: fxc(false, BlendMode::Color, 0.5), color: colors()[3] },
         Effect::GradientOverlay { common: fxc(true, BlendMode::Overlay, 1.0), gradient: gradient_full(), dither: true },
         Effect::PatternOverlay { common: fxc(true, BlendMode::Normal, 1.0), name: "Water".into(), id: "id-1".into(), scale: 2.0, angle: 15.0, link: false, phase: (1.0, 2.0) },
@@ -327,6 +328,7 @@ fn char_full() -> CharStyle {
         kerning: Kerning::Optical,
         kern: 1.0 / 3.0,
         caps: Caps::SmallCaps,
+        baseline: FontBaseline::Normal,
         ligatures: false,
         discretionary_ligatures: true,
         features: vec![FontFeature { tag: "ss01".into(), value: 1 }, FontFeature { tag: "liga".into(), value: u16::MAX }],
@@ -491,8 +493,8 @@ fn ser_lines() {
     ser!(Glow: glow(FxPaint::Color(Color::WHITE)), glow(FxPaint::Pattern { name: "p".into(), id: "".into(), scale: 1.0 }));
     ser!(StrokePosition: StrokePosition::Outside, StrokePosition::Inside, StrokePosition::Center);
     ser!(StrokeFx:
-        StrokeFx { common: fxc(true, BlendMode::Normal, 1.0), size: 3.0, position: StrokePosition::Outside, paint: FxPaint::Color(Color::BLACK) },
-        StrokeFx { common: fxc(true, BlendMode::Normal, 1.0), size: 0.5, position: StrokePosition::Inside, paint: FxPaint::Gradient(Gradient::default()) },
+        StrokeFx { common: fxc(true, BlendMode::Normal, 1.0), size: 3.0, position: StrokePosition::Outside, paint: FxPaint::Color(Color::BLACK), overprint: false },
+        StrokeFx { common: fxc(true, BlendMode::Normal, 1.0), size: 0.5, position: StrokePosition::Inside, paint: FxPaint::Gradient(Gradient::default()), overprint: false },
     );
     ser!(Satin: Satin { common: fxc(true, BlendMode::Multiply, 0.5), color: Color::BLACK, angle: 19.0, distance: 11.0, size: 14.0, contour: Contour::Linear, anti_alias: false, invert: true });
     for s in [BevelStyle::OuterBevel, BevelStyle::InnerBevel, BevelStyle::Emboss, BevelStyle::PillowEmboss, BevelStyle::StrokeEmboss] {
@@ -535,7 +537,7 @@ fn ser_lines() {
     ser!(LiveShape:
         LiveShape::Rect { rect: [0.0, 1.0, 2.5, 1e20], radii: [0.1, -0.0, 5e-324, 4.0] },
         LiveShape::Ellipse { rect: [10.0, 10.0, 20.0, 30.0] },
-        LiveShape::Polygon { rect: [0.0; 4], sides: u32::MAX, star_ratio: 0.5 },
+        LiveShape::Polygon { rect: [0.0; 4], sides: u32::MAX, star_ratio: 0.5 , corner_radius: 0.0 },
         LiveShape::Line { from: [0.0, 0.0], to: [-1.0, 1e-7], weight: 2.0 },
     );
     ser!(Kerning: Kerning::Metrics, Kerning::Optical, Kerning::Off);
@@ -1496,9 +1498,9 @@ fn resync_lines() {
     ser!(FileEncoding:
         FileEncoding::default(),
         FileEncoding { jpeg_quality: Some(87), ..Default::default() },
-        FileEncoding { jpeg_quality: None, webp_lossless: Some(false), webp_quality: Some(100) },
-        FileEncoding { jpeg_quality: Some(0), webp_lossless: Some(true), webp_quality: Some(255) });
-    serp!(FileEncoding: FileEncoding { jpeg_quality: Some(12), webp_lossless: Some(true), webp_quality: None });
+        FileEncoding { jpeg_quality: None, webp_lossless: Some(false), webp_quality: Some(100) , png_stereo: None },
+        FileEncoding { jpeg_quality: Some(0), webp_lossless: Some(true), webp_quality: Some(255) , png_stereo: None });
+    serp!(FileEncoding: FileEncoding { jpeg_quality: Some(12), webp_lossless: Some(true), webp_quality: None , png_stereo: None });
     serp!(Guides: Guides { horizontal: vec![1.5], vertical: vec![], colors: vec![GuideColor { vertical: false, position: 1.5, rgb: [9, 8, 7] }] });
     de!(Adjustment: r#"{"Curves":{"master":[],"per_channel":[[],[],[]],"pencil":true}}"#,
         r#"{"Curves":{"master":[],"per_channel":[[],[],[]],"pencil":1}}"#,

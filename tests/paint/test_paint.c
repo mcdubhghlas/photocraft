@@ -378,15 +378,15 @@ static void test_hostile_brushes_render_at_every_depth(void)
         b.build_up = true;
         b.build_up_rate = v;
         b.shape_dynamics = (pc_paint_shape_dynamics){true,
-                                                     {v, PC_PAINT_CONTROL_FADE, 0, v},
+                                                     {v, PC_PAINT_CONTROL_FADE, 0, v, pc_paint_response_curve_linear()},
                                                      v,
-                                                     {v, PC_PAINT_CONTROL_PEN_TILT, 3, v},
-                                                     {v, PC_PAINT_CONTROL_ROTATION, 1, v},
+                                                     {v, PC_PAINT_CONTROL_PEN_TILT, 3, v, pc_paint_response_curve_linear()},
+                                                     {v, PC_PAINT_CONTROL_ROTATION, 1, v, pc_paint_response_curve_linear()},
                                                      true,
                                                      true,
                                                      true};
         b.scattering = (pc_paint_scattering){
-            true, {v, PC_PAINT_CONTROL_STYLUS_WHEEL, 25, v}, true, 99, {v, PC_PAINT_CONTROL_FADE, 0, v}};
+            true, {v, PC_PAINT_CONTROL_STYLUS_WHEEL, 25, v, pc_paint_response_curve_linear()}, true, 99, {v, PC_PAINT_CONTROL_FADE, 0, v, pc_paint_response_curve_linear()}};
         b.texture.enabled = true;
         b.texture.each_tip = k % 2 == 0;
         b.texture.scale = v;
@@ -400,12 +400,12 @@ static void test_hostile_brushes_render_at_every_depth(void)
         b.dual_brush.scatter = v;
         b.dual_brush.count = 0;
         b.color_dynamics =
-            (pc_paint_color_dynamics){true, k % 2 == 1, {v, PC_PAINT_CONTROL_PEN_PRESSURE, 0, v}, v, v, v, v};
+            (pc_paint_color_dynamics){true, k % 2 == 1, {v, PC_PAINT_CONTROL_PEN_PRESSURE, 0, v, pc_paint_response_curve_linear()}, v, v, v, v};
         b.transfer = (pc_paint_transfer){true,
-                                         {v, PC_PAINT_CONTROL_FADE, 0, v},
-                                         {v, PC_PAINT_CONTROL_OFF, 0, v},
-                                         {v, PC_PAINT_CONTROL_OFF, 0, v},
-                                         {v, PC_PAINT_CONTROL_OFF, 0, v}};
+                                         {v, PC_PAINT_CONTROL_FADE, 0, v, pc_paint_response_curve_linear()},
+                                         {v, PC_PAINT_CONTROL_OFF, 0, v, pc_paint_response_curve_linear()},
+                                         {v, PC_PAINT_CONTROL_OFF, 0, v, pc_paint_response_curve_linear()},
+                                         {v, PC_PAINT_CONTROL_OFF, 0, v, pc_paint_response_curve_linear()}};
         b.smoothing.amount = v;
         b.wet_edges = true;
         b.noise = true;

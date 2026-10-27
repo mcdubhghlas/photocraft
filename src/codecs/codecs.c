@@ -150,9 +150,25 @@ pc_cencode_opts pc_cencode_opts_default(void)
     o.exr_compression = PC_EXR_ZIP16;
     o.dpx_bits = PC_DPX_BITS_AUTO;
     o.tga_bits = 0;
+    o.dds_compression = PC_DDS_NONE;
+    o.dds_mipmaps = false;
     o.embed_icc = true;
     o.embed_metadata = true;
     return o;
+}
+
+const char *pc_dds_compression_name(pc_dds_compression c)
+{
+    switch (c) {
+    case PC_DDS_BC1:
+        return "bc1";
+    case PC_DDS_BC2:
+        return "bc2";
+    case PC_DDS_BC3:
+        return "bc3";
+    default:
+        return "none";
+    }
 }
 
 /* ---- plan ---- */
@@ -208,8 +224,8 @@ static pc_clayout pick_layout(pc_clayout src, const pc_clayout *ls, size_t n, bo
     if (has_layout(ls, n, cand)) {
         return cand;
     }
-    /* CMYK falls back to RGB; gray expands to RGB. */
-    if (pc_clayout_is_cmyk(cand) || pc_clayout_is_gray(cand)) {
+    /* CMYK and Lab fall back to RGB; gray expands to RGB. */
+    if (pc_clayout_is_cmyk(cand) || pc_clayout_is_lab(cand) || pc_clayout_is_gray(cand)) {
         cand = pc_clayout_has_alpha(cand) ? PC_CL_RGBA : PC_CL_RGB;
     }
     if (has_layout(ls, n, cand)) {
@@ -241,6 +257,14 @@ cx_plan cx_plan_for(const pc_cimage *img, pc_cformat f, const pc_cencode_opts *o
          * The sample type follows the chosen bits (U8 for 8, U16 for 10, 12 and 16). */
         p.layout = img->layout == PC_CL_GRAYA ? PC_CL_GRAY : pick_layout(img->layout, c.layouts, c.nlayouts, c.alpha);
         p.sample = cx_dpx_plan_sample(o->dpx_bits, img->sample);
+    } else if (f == PC_CF_TIFF && pc_clayout_is_lab(img->layout) && pc_csample_is_float(img->sample)) {
+        /* CIELab has no float form: float Lab is written with 16 bits. */
+        p.layout = pick_layout(img->layout, c.layouts, c.nlayouts, c.alpha);
+        p.sample = PC_CS_U16;
+    } else if (f == PC_CF_DDS && o->dds_compression != PC_DDS_NONE) {
+        /* A block-compressed DDS stores RGBA whatever the source. */
+        p.layout = PC_CL_RGBA;
+        p.sample = PC_CS_U8;
     } else {
         p.layout = pick_layout(img->layout, c.layouts, c.nlayouts, c.alpha);
         p.sample = pick_sample(img->sample, &c);
@@ -272,6 +296,7 @@ bool pc_cfidelity_eq(const pc_cfidelity *a, const pc_cfidelity *b)
     case PC_FW_DEPTH_REDUCED:
         return a->from == b->from && a->to == b->to;
     case PC_FW_CMYK_CONVERTED:
+    case PC_FW_LAB_CONVERTED:
         return a->to_layout == b->to_layout;
     case PC_FW_METADATA_TOO_LARGE:
         return strcmp(a->what, b->what) == 0 && a->bytes == b->bytes;
@@ -302,6 +327,9 @@ void pc_cfidelity_text(const pc_cfidelity *w, char *out, size_t cap)
         break;
     case PC_FW_CMYK_CONVERTED:
         (void)snprintf(out, cap, "CMYK will be converted to %s (not colour-managed)", pc_clayout_name(w->to_layout));
+        break;
+    case PC_FW_LAB_CONVERTED:
+        (void)snprintf(out, cap, "Lab will be converted to %s (sRGB)", pc_clayout_name(w->to_layout));
         break;
     case PC_FW_COLOR_TO_GRAY:
         (void)snprintf(out, cap, "colour will be converted to grayscale");
@@ -406,18 +434,27 @@ size_t pc_cfidelity_warnings_with(const pc_cimage *img, pc_cformat f, const pc_c
         w.to = p.sample;
         push(&l, w);
     }
-    if (pc_csample_is_float(ss) && !pc_csample_is_float(p.sample) && pc_cimage_has_out_of_range(img)) {
+    /* FITS stores floats as 0..1 (see fits.c), so out-of-range values are clipped even when the
+     * output sample type is itself float. */
+    if (pc_csample_is_float(ss) && (!pc_csample_is_float(p.sample) || f == PC_CF_FITS) &&
+        pc_cimage_has_out_of_range(img)) {
         push(&l, W(PC_FW_RANGE_CLIPPED));
     }
     /* Layout */
     if (pc_clayout_has_alpha(sl) && !pc_clayout_has_alpha(p.layout) && pc_cimage_has_translucency(img)) {
         push(&l, W(PC_FW_ALPHA_DISCARDED));
     }
-    if (f == PC_CF_GIF && pc_clayout_has_alpha(p.layout) && pc_cimage_has_translucency(img)) {
+    if ((f == PC_CF_GIF || (f == PC_CF_DDS && o->dds_compression == PC_DDS_BC1)) &&
+        pc_clayout_has_alpha(p.layout) && pc_cimage_has_translucency(img)) {
         push(&l, W(PC_FW_ALPHA_BINARIZED));
     }
     if (pc_clayout_is_cmyk(sl) && !pc_clayout_is_cmyk(p.layout)) {
         pc_cfidelity w = W(PC_FW_CMYK_CONVERTED);
+        w.to_layout = p.layout;
+        push(&l, w);
+    }
+    if (pc_clayout_is_lab(sl) && !pc_clayout_is_lab(p.layout)) {
+        pc_cfidelity w = W(PC_FW_LAB_CONVERTED);
         w.to_layout = p.layout;
         push(&l, w);
     }
@@ -427,7 +464,8 @@ size_t pc_cfidelity_warnings_with(const pc_cimage *img, pc_cformat f, const pc_c
     /* Compression */
     if (f == PC_CF_GIF) {
         push(&l, W(PC_FW_PALETTE_QUANTIZED));
-    } else if (c.lossy || (f == PC_CF_WEBP && !o->webp_lossless)) {
+    } else if (c.lossy || (f == PC_CF_WEBP && !o->webp_lossless) ||
+               (f == PC_CF_DDS && o->dds_compression != PC_DDS_NONE)) {
         push(&l, W(PC_FW_LOSSY_COMPRESSION));
     }
     /* Metadata */
@@ -578,6 +616,12 @@ pc_status pc_cdecode_as_with(pc_cformat f, const uint8_t *b, size_t n, const pc_
     case PC_CF_DPX:
         st = cx_dpx_decode(b, n, l, &img, err);
         break;
+    case PC_CF_DDS:
+        st = cx_dds_decode(b, n, l, &img, err);
+        break;
+    case PC_CF_CINEON:
+        st = cx_cineon_decode(b, n, l, &img, err);
+        break;
     default:
         st = cx_unsupported(err, f, "decoding is not available for this format");
     }
@@ -599,6 +643,8 @@ pc_status pc_cdecode_as_with(pc_cformat f, const uint8_t *b, size_t n, const pc_
         orient = 1;
     } else if (f == PC_CF_DPX) {
         orient = cx_dpx_orientation(b, n);
+    } else if (f == PC_CF_CINEON) {
+        orient = cx_cineon_orientation(b, n);
     } else {
         orient = img.meta.exif.has ? pc_exif_orientation(img.meta.exif.data, img.meta.exif.len) : 1;
     }
@@ -718,6 +764,12 @@ pc_status pc_cencode(const pc_cimage *img, pc_cformat f, const pc_cencode_opts *
         break;
     case PC_CF_DPX:
         st = cx_dpx_encode(img, p, o, &b, err);
+        break;
+    case PC_CF_DDS:
+        st = cx_dds_encode(img, p, o, &b, err);
+        break;
+    case PC_CF_CINEON:
+        st = cx_cineon_encode(img, p, &b, err);
         break;
     default:
         st = cx_unsupported(err, f, "encoding is not available in this build");

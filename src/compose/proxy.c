@@ -215,17 +215,52 @@ pc_status pc_compose_proxy_document(const pc_document *doc, uint32_t k, pc_docum
 
 bool pc_compose_proxy_faithful(const pc_document *doc)
 {
-    pc_walk w;
-    size_t i;
+    /* Only the layers the compositor draws count: hidden layers, and everything inside hidden
+     * groups, are skipped (visible_layers). An explicit stack folds the reference's recursion. */
+    const pc_layer **stack = NULL;
+    size_t sp = 0;
+    size_t cap = 0;
     bool ok = true;
-    if (pc_document_walk(doc, &w, NULL) != PC_OK) {
-        return false;
+    const pc_layer *base = doc->layers;
+    size_t n = doc->nlayers;
+    size_t i;
+    /* Seed with the top-level visible layers (bottom-first order is irrelevant to an all-check). */
+    for (i = 0; ok && i < n; i++) {
+        if (base[i].visible) {
+            const pc_layer **ns = pc_grow_array(stack, &cap, sp + 1, sizeof *stack);
+            if (ns == NULL) {
+                free(stack);
+                return false; /* out of memory: the conservative answer */
+            }
+            stack = ns;
+            stack[sp++] = &base[i];
+        }
     }
-    for (i = 0; i < w.len && ok; i++) {
-        const pc_layer *l = w.items[i].layer;
-        ok = !pc_compose_has_effects(l) &&
-             !(l->has_vector_mask && l->vector_mask.enabled && !pc_path_is_empty(&l->vector_mask.path));
+    while (ok && sp > 0) {
+        const pc_layer *l = stack[--sp];
+        size_t cn = 0;
+        const pc_layer *ch;
+        if (pc_compose_has_effects(l) ||
+            (l->has_vector_mask && l->vector_mask.enabled && !pc_path_is_empty(&l->vector_mask.path))) {
+            ok = false;
+            break;
+        }
+        ch = pc_layer_children(l, &cn);
+        for (i = 0; i < cn; i++) {
+            if (!ch[i].visible) {
+                continue;
+            }
+            {
+                const pc_layer **ns = pc_grow_array(stack, &cap, sp + 1, sizeof *stack);
+                if (ns == NULL) {
+                    free(stack);
+                    return false;
+                }
+                stack = ns;
+                stack[sp++] = &ch[i];
+            }
+        }
     }
-    pc_walk_fini(&w);
+    free(stack);
     return ok;
 }

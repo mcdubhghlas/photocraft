@@ -211,7 +211,13 @@ static pc_status set_text(const tiff *t, uint16_t typ, uint32_t count, size_t fi
                           pc_error *err)
 {
     pc_algo_exif_str s;
-    pc_status st = text(t, typ, count, field, &s, err);
+    pc_status st;
+    /* Duplicate TIFF text tags can point at the same large payload. Keep the first recognized
+     * value and do not repeatedly decode/copy later duplicates. */
+    if (dst->s != NULL) {
+        return PC_OK;
+    }
+    st = text(t, typ, count, field, &s, err);
     if (st != PC_OK) {
         return st;
     }

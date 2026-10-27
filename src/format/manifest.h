@@ -30,7 +30,7 @@
 
 /* Writer identification: the reference writes `photocraft-format {CARGO_PKG_VERSION}`; the C
  * writer keeps the reference's version so both writers produce identical manifests. */
-#define PC_FORMAT_GENERATOR "photocraft-format 0.8.2"
+#define PC_FORMAT_GENERATOR "photocraft-format 0.15.0"
 
 typedef struct pc_mf_tile {
     int32_t tx;
@@ -149,6 +149,8 @@ typedef struct pc_mf_content {
     pc_shape_stroke stroke;
     bool has_live;
     pc_live_shape live;
+    float density; /* shape path's density as the fill's mask; older files default to 1.0 */
+    float feather; /* shape path's feather in px; older files default to 0.0 */
     /* smart */
     bool has_contents_id; /* shared source identity; older bundles did not record it */
     uint64_t contents_id;
@@ -195,6 +197,8 @@ struct pc_mf_layer {
     pc_advanced_blending advanced;
     bool has_video;
     pc_mf_video video;
+    bool has_xmp;
+    pc_str xmp;
 };
 
 typedef struct pc_mf_spot {
@@ -329,6 +333,7 @@ typedef struct pc_mf_doc {
     size_t nnotes;
     pc_text_styles text_styles;
     pc_slices slices;
+    double ruler_origin[2];
 } pc_mf_doc;
 
 struct pc_format_manifest {

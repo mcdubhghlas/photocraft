@@ -62,6 +62,7 @@ enum {
     RX_COLOR_SPACE = 40961,
     RX_INTEROP_IFD = 40965,
     RX_INTEROP_INDEX = 1, /* in the Interoperability IFD */
+    RX_NIKON_COLOR_SPACE = 30, /* 0x001E in a Nikon maker note: 1 sRGB, 2 Adobe RGB */
     RX_DNG_VERSION = 50706,
     RX_UNIQUE_CAMERA_MODEL = 50708,
     RX_CFA_PLANE_COLOR = 50710,
@@ -326,6 +327,13 @@ pc_status rx_opcodes_parse(const uint8_t *list, size_t n, pc_raw_gain_map **maps
  * points_h entries). */
 void rx_gain_map_row(const pc_raw_gain_map *m, double rv, size_t mp, float *out);
 float rx_gain_map_at(const pc_raw_gain_map *m, const float *row, double rh);
+/* Direct four-corner bilinear gain at image-relative (rv, rh) for map plane mp: equals
+ * rx_gain_map_row + rx_gain_map_at without materialising the full points_h-wide row. */
+float rx_gain_map_at_rv(const pc_raw_gain_map *m, double rv, size_t mp, double rh);
+
+/* Locates a Nikon maker note (tag 0x927C beginning "Nikon\0") in any of the given IFDs and opens
+ * its inner TIFF, returning that TIFF (inner) and its first IFD (ifd). false if none. */
+bool rx_nikon_maker_note(const rx_tiff *t, const rx_ifd *ifds, size_t n, rx_tiff *inner, rx_ifd *ifd);
 bool rx_gain_map_covers(const pc_raw_gain_map *m, size_t ax, size_t ay);
 
 /* Measured camera profiles (cameras.rs). */

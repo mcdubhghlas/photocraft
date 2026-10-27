@@ -86,6 +86,7 @@ typedef struct pc_param_spec {
     double min, max, def;     /* PC_PARAM_NUMBER */
     int64_t imin, imax, idef; /* PC_PARAM_INT (defaults -1e6, 1e6, 0) */
     bool bdef;                /* PC_PARAM_BOOL */
+    bool unit_px;             /* PC_PARAM_NUMBER / PC_PARAM_INT: unit is "px" (else unitless) */
     pc_str *options;          /* PC_PARAM_CHOICE: n_options strings */
     size_t n_options;
     bool has_cdef; /* PC_PARAM_CHOICE: a default was given (cdef) */

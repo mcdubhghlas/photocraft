@@ -196,6 +196,8 @@ fn rich_doc(mode: ColorMode, depth: SampleType) -> Document {
             live: Some(LiveShape::Rect { rect: [1.0, 2.0, 30.0, 40.0], radii: [4.0, 0.0, 4.0, 0.0] }),
             cache: Some(cache.clone()),
             psd_raw: Some(blob(10, 30)),
+            density: 1.0,
+            feather: 0.0,
         }),
     );
     shape.label = LabelColor::Green;
@@ -497,7 +499,7 @@ fn docs() -> Vec<(String, Document)> {
     for (i, live) in lives.into_iter().enumerate() {
         d.layers.push(Layer::new(
             format!("S{i}"),
-            LayerContent::Shape(ShapeLayer { path: vector_path(), fill: None, stroke: None, live: Some(live), cache: None, psd_raw: None }),
+            LayerContent::Shape(ShapeLayer { path: vector_path(), fill: None, stroke: None, live: Some(live), cache: None, psd_raw: None, density: 1.0, feather: 0.0 }),
         ));
     }
     let adjs: Vec<Adjustment> = from!(ADJUSTMENTS);

@@ -200,7 +200,7 @@ static pc_status find_edges_k(const void *p, const void *prep, const pc_algo_ima
             float gx = (G(1, -1) + 2.0f * G(1, 0) + G(1, 1)) - (G(-1, -1) + 2.0f * G(-1, 0) + G(-1, 1));
             float gy = (G(-1, 1) + 2.0f * G(0, 1) + G(1, 1)) - (G(-1, -1) + 2.0f * G(0, -1) + G(1, -1));
 #undef G
-            float e = pc_clampf(sqrtf(gx * gx + gy * gy) / 4.0f, 0.0f, 1.0f);
+            float e = pc_clampf(sqrtf(gx * gx + gy * gy), 0.0f, 1.0f);
             dst[i * n + c] = sub ? e : 1.0f - e;
         }
     }

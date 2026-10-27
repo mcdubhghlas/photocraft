@@ -560,6 +560,8 @@ static pc_status shape(builder *b, pc_path *p, const pc_af_node *n, pc_affine to
     pc_rect frame = b->canvas;
     pc_status st = PC_OK;
     memset(&sh, 0, sizeof sh);
+    sh.density = 1.0f; /* ShapeLayer::default(): full density, no feather */
+    sh.feather = 0.0f;
     sh.path = *p;
     memset(p, 0, sizeof *p);
     if (pc_path_control_bounds(&sh.path, cb)) {

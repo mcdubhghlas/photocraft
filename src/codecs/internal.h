@@ -102,6 +102,11 @@ pc_status cx_hdr_decode(const uint8_t *b, size_t n, const pc_climits *l, pc_cima
 pc_status cx_hdr_encode(const pc_cimage *img, cx_plan p, pc_buf *out, pc_error *err);
 pc_status cx_dpx_decode(const uint8_t *b, size_t n, const pc_climits *l, pc_cimage *out, pc_error *err);
 pc_status cx_dpx_encode(const pc_cimage *img, cx_plan p, const pc_cencode_opts *o, pc_buf *out, pc_error *err);
+pc_status cx_dds_decode(const uint8_t *b, size_t n, const pc_climits *l, pc_cimage *out, pc_error *err);
+pc_status cx_dds_encode(const pc_cimage *img, cx_plan p, const pc_cencode_opts *o, pc_buf *out, pc_error *err);
+pc_status cx_cineon_decode(const uint8_t *b, size_t n, const pc_climits *l, pc_cimage *out, pc_error *err);
+pc_status cx_cineon_encode(const pc_cimage *img, cx_plan p, pc_buf *out, pc_error *err);
+uint16_t cx_cineon_orientation(const uint8_t *b, size_t n);
 /* The plan sample type DPX writes for the chosen bits (U8 for 8, U16 for 10/12/16; AUTO follows
  * the source: U8 stays U8, everything else becomes U16). */
 pc_csample cx_dpx_plan_sample(pc_dpx_bits bits, pc_csample src);
@@ -156,6 +161,48 @@ bool cx_tif_rd(const cx_tif *t, size_t at, size_t k, uint64_t *v);
 bool cx_tif_ifd0(cx_tif *t, cx_ifd0 *out);
 /* 6 when the block starts with JPEG's Exif\0\0 prefix, else 0. */
 size_t cx_exif_body(const uint8_t *b, size_t n);
+
+/* ---- EXIF directories of a TIFF stream (tiff_ifd.c; port of codecs::tiff_exif) ----
+ * An EXIF block is itself a classic (4-byte-offset) TIFF stream: its IFD0 points to the Exif
+ * (34665) and GPS (34853) directories and carries descriptive tags. Both the TIFF codec and the
+ * camera-raw importer read and write EXIF through here. Values are kept in the stream's own byte
+ * order (cx_exif_dirs::le) so tags we do not understand survive a round trip. Every count, offset
+ * and length is bounded against the stream (see cx_exif_read) so a hostile file cannot crash or
+ * over-allocate. */
+typedef struct cx_exif_field {
+    uint16_t tag;
+    uint16_t ty;
+    uint32_t count;
+    uint8_t *val; /* owned copy, in the stream's byte order */
+    size_t vlen;
+} cx_exif_field;
+
+typedef struct cx_exif_dirs {
+    bool le; /* the stream's byte order */
+    cx_exif_field *ifd0;
+    size_t n_ifd0;
+    cx_exif_field *exif;
+    size_t n_exif;
+    cx_exif_field *gps;
+    size_t n_gps;
+} cx_exif_dirs;
+
+void cx_exif_dirs_fini(cx_exif_dirs *d);
+/* The EXIF parts of the classic TIFF stream b (a TIFF file, or an EXIF block without its
+ * Exif\0\0 prefix): IFD0's descriptive tags and the Exif and GPS directories. drop_pixel_dims
+ * leaves out the Exif directory's PixelXDimension/PixelYDimension (for camera raws). false (and
+ * *out zeroed) when b is not a readable classic TIFF, or on out of memory. The values copied add
+ * up to at most 4 MiB and to at most b's length. */
+bool cx_exif_read(const uint8_t *b, size_t n, bool drop_pixel_dims, cx_exif_dirs *out);
+/* Whether there is an Exif or GPS directory (IFD0's descriptive tags alone are not EXIF). */
+bool cx_exif_has_directories(const cx_exif_dirs *d);
+/* An EXIF block (a classic TIFF stream in d->le order) built from d, appended to out. */
+pc_status cx_exif_block(const cx_exif_dirs *d, pc_buf *out, pc_error *err);
+/* Bytes per element whose order a byte-order change reverses (RATIONAL is two LONGs); 1 otherwise. */
+size_t cx_exif_element(uint16_t ty);
+/* Copies vlen bytes of value (type ty) from byte order from_le into to_le, reversing each
+ * element when the orders differ. out must hold vlen bytes. */
+void cx_exif_reorder(uint16_t ty, const uint8_t *value, size_t vlen, bool from_le, bool to_le, uint8_t *out);
 
 /* ---- GIF reading (gif.c) ---- */
 

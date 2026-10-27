@@ -18,10 +18,11 @@
 /* A struct variant: tag, params type, field table, defaults (or NULL), halo, kernel. */
 #define PC_FX_DEF(name, tg, T, F, init, halo, kern)                                                          \
     const pc_algo_filter_def name = {(tg), sizeof(T), (F),  PC_FX_N(F), (init), NULL, (halo),                \
-                                     NULL, NULL,      NULL, (kern),     NULL,   0}
+                                     NULL, NULL,      NULL, (kern),     NULL,   0,      NULL}
 /* A unit variant (no parameters). */
 #define PC_FX_UNIT(name, tg, halo, kern)                                                                     \
-    const pc_algo_filter_def name = {(tg), 0, NULL, 0, NULL, NULL, (halo), NULL, NULL, NULL, (kern), NULL, 0}
+    const pc_algo_filter_def name = {(tg), 0,    NULL, 0,      NULL, NULL, (halo),                           \
+                                     NULL, NULL, NULL, (kern), NULL, 0,    NULL}
 
 /* Rust's f32::to_radians (multiplies by the f32 constant PI / 180). */
 #define PC_FX_RAD_PER_DEG (3.14159265358979323846f / 180.0f)

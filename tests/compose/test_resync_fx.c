@@ -782,7 +782,9 @@ static void test_alpha_channels_print_as_black_ink_in_multichannel(void)
     d.nchannels = 1;
     CHECK(pc_compose_flatten(&d, &b, NULL) == PC_OK);
     CHECK(fabsf(b.px[0][0] - 0.5f) <= 1.0f / 255.0f && fabsf(b.px[0][1] - 0.5f) <= 1.0f / 255.0f);
-    CHECK(b.px[1][0] == 1.0f);
+    /* An unselected (default value 0 = black in the Channels panel) alpha pixel prints as solid
+     * black ink (ink = 1 - value = 1), as Photoshop previews it: the inverse of the stored value. */
+    CHECK(b.px[1][0] == 0.0f);
     pc_compose_buffer_fini(&b);
     pc_document_fini(&d);
 }

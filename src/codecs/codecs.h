@@ -56,6 +56,9 @@ typedef enum pc_tiff_compression { PC_TIFF_NONE, PC_TIFF_LZW, PC_TIFF_DEFLATE, P
 typedef enum pc_exr_compression { PC_EXR_NONE, PC_EXR_RLE, PC_EXR_ZIP1, PC_EXR_ZIP16, PC_EXR_PIZ } pc_exr_compression;
 /* DPX code-value bit depth to write (AUTO: 8 for U8 images, 16 otherwise). */
 typedef enum pc_dpx_bits { PC_DPX_BITS_AUTO, PC_DPX_BITS_8, PC_DPX_BITS_10, PC_DPX_BITS_12, PC_DPX_BITS_16 } pc_dpx_bits;
+/* DDS block compression (none = uncompressed; BC1/BC2/BC3 are DXT1/DXT3/DXT5, lossy). */
+typedef enum pc_dds_compression { PC_DDS_NONE, PC_DDS_BC1, PC_DDS_BC2, PC_DDS_BC3 } pc_dds_compression;
+const char *pc_dds_compression_name(pc_dds_compression c); /* "none", "bc1", "bc2", "bc3" */
 
 typedef struct pc_cencode_opts {
     uint8_t jpeg_quality;          /* 1..=100 */
@@ -69,6 +72,8 @@ typedef struct pc_cencode_opts {
     pc_exr_compression exr_compression;
     pc_dpx_bits dpx_bits; /* DPX code-value bit depth */
     uint8_t tga_bits; /* 0 = automatic, 24 = RGB, 32 = RGBA */
+    pc_dds_compression dds_compression;
+    bool dds_mipmaps; /* write the full mip chain */
     bool embed_icc;
     bool embed_metadata; /* EXIF/XMP/DPI/text */
 } pc_cencode_opts;
@@ -149,6 +154,21 @@ pc_status pc_cdecode_gif_frames(const uint8_t *b, size_t n, const pc_cdecode_opt
 pc_status pc_cbmp_palette(const uint8_t *b, size_t n, bool *has, uint8_t (**palette)[3], size_t *npal,
                           pc_error *err);
 
+/* The colour table of a palette PNG (colour type 3) and the one entry its tRNS makes transparent,
+ * without decoding pixels. *has is false for any other colour type, a missing/empty PLTE, or a
+ * tRNS with partial alpha or several transparent entries. *palette is new; the caller frees it. */
+pc_status pc_cpng_palette(const uint8_t *b, size_t n, bool *has, uint8_t (**palette)[3], size_t *npal,
+                          bool *has_transparent, uint8_t *transparent, pc_error *err);
+/* The stereo pairing a PNG's sTER chunk declares (0 cross-fuse, 1 diverging-fuse): true and sets
+ * *mode for the first CRC-valid sTER with a defined mode byte, false otherwise. */
+bool pc_cpng_stereo(const uint8_t *b, size_t n, uint8_t *mode);
+
+/* The colour table of a GIF's first frame (its Local Color Table, else the Global one) and the
+ * entry its Graphic Control Extension makes transparent, without decoding pixels. *has is false
+ * for anything that isn't a well-formed GIF up to its first image with a table. *palette new. */
+pc_status pc_cgif_palette(const uint8_t *b, size_t n, bool *has, uint8_t (**palette)[3], size_t *npal,
+                          bool *has_transparent, uint8_t *transparent, pc_error *err);
+
 /* ---- fidelity warnings ---- */
 
 typedef enum pc_cfidelity_kind {
@@ -158,6 +178,7 @@ typedef enum pc_cfidelity_kind {
     PC_FW_ALPHA_DISCARDED,
     PC_FW_ALPHA_BINARIZED,
     PC_FW_CMYK_CONVERTED, /* to */
+    PC_FW_LAB_CONVERTED,  /* to */
     PC_FW_COLOR_TO_GRAY,
     PC_FW_PALETTE_QUANTIZED,
     PC_FW_LOSSY_COMPRESSION,
@@ -245,5 +266,18 @@ pc_status pc_cencode_png_indexed(uint32_t w, uint32_t h, const uint8_t *indices,
 pc_status pc_cencode_png_indexed_dpi(uint32_t w, uint32_t h, const uint8_t *indices, size_t n,
                                      const uint8_t (*palette)[3], size_t npal, int transparent,
                                      const float *dpi, pc_buf *out, pc_error *err);
+
+/* An 8-bit palette BMP: row-major indices, RGB palette (1..=256 entries). BMP has no
+ * transparency. *out replaced. */
+pc_status pc_cencode_bmp_indexed(uint32_t w, uint32_t h, const uint8_t *indices, size_t n,
+                                 const uint8_t (*palette)[3], size_t npal, pc_buf *out, pc_error *err);
+
+/* The EXIF block of a camera raw built on a classic TIFF stream (NEF, ARW, CR2, DNG, RW2), for
+ * the image developed from it: IFD0's descriptive tags (make, model, date...) plus the Exif and
+ * GPS directories, without the Exif directory's sensor/preview PixelXDimension/PixelYDimension.
+ * Appends the block to *out and sets *found when present; *found stays false (and *out is
+ * untouched) when the file is not a classic TIFF or carries none of these tags. Never fails on
+ * malformed input (copies are bounded by the stream size and a fixed cap). */
+pc_status pc_raw_exif(const uint8_t *b, size_t n, pc_buf *out, bool *found, pc_error *err);
 
 #endif

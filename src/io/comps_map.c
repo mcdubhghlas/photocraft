@@ -531,19 +531,29 @@ static pc_status apply_layer(const pc_layer *l, pc_io_comps *r, pc_io_warnings *
         return st;
     }
     has_here = pc_comp_layer_position(l, here);
+    /* Photoshop writes `enab` only where the layer's visibility changes from one comp to the next:
+     * a comp entry without it inherits the last `enab` before it, or visible when none came before
+     * (#8093). Only comps that capture visibility take the inherited value; the Last Document State
+     * (comp 0) and the others keep what the entry says (comps_map.rs). */
+    bool inherited = true;
     for (size_t i = 0; i < ns && st == PC_OK; i++) {
         const setting *s = &ss[i];
-        pc_comp_layer_state state;
-        if (!s->has_visible && !s->has_offset) {
-            continue;
+        bool resolved = s->has_visible ? s->visible : inherited;
+        bool has_position = false;
+        int32_t position[2] = {0, 0};
+        bool any_nonzero = false;
+        for (size_t j = 0; j < s->ncomps; j++) {
+            if (s->comps[j] != 0) {
+                any_nonzero = true;
+                break;
+            }
         }
-        memset(&state, 0, sizeof state);
-        state.layer = l->id;
-        state.has_visible = s->has_visible;
-        state.visible = s->visible;
+        if (any_nonzero) {
+            inherited = resolved;
+        }
         if (has_here && s->has_offset) {
-            state.has_position = offset_position(here, s->offset, state.position);
-            if (!state.has_position && warnings != NULL) {
+            has_position = offset_position(here, s->offset, position);
+            if (!has_position && warnings != NULL) {
                 st = pc_io_warn(warnings, err,
                                 "layer \"%s\": layer comp position offset (%lld, %lld) is out of range; that "
                                 "position was not imported",
@@ -552,6 +562,9 @@ static pc_status apply_layer(const pc_layer *l, pc_io_comps *r, pc_io_warnings *
         }
         for (size_t j = 0; j < s->ncomps && st == PC_OK; j++) {
             pc_layer_comp *target = NULL;
+            pc_comp_layer_state state;
+            bool vis_set;
+            bool vis_val;
             if (s->comps[j] == 0) {
                 target = &r->last_state;
             } else {
@@ -561,9 +574,29 @@ static pc_status apply_layer(const pc_layer *l, pc_io_comps *r, pc_io_warnings *
                     }
                 }
             }
-            if (target != NULL) {
-                st = push_state(target, &state, err);
+            if (target == NULL) {
+                continue;
             }
+            /* A non-Last comp that captures visibility takes the resolved (inherited) value;
+             * otherwise the entry's own `enab`. */
+            if (s->comps[j] != 0 && target->apply_visibility) {
+                vis_set = true;
+                vis_val = resolved;
+            } else {
+                vis_set = s->has_visible;
+                vis_val = s->visible;
+            }
+            if (!vis_set && !s->has_offset) {
+                continue;
+            }
+            memset(&state, 0, sizeof state);
+            state.layer = l->id;
+            state.has_visible = vis_set;
+            state.visible = vis_val;
+            state.has_position = has_position;
+            state.position[0] = position[0];
+            state.position[1] = position[1];
+            st = push_state(target, &state, err);
         }
     }
     settings_free(ss, ns);

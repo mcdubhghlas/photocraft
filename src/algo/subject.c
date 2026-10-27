@@ -454,14 +454,206 @@ float pc_algo_subject_otsu(const float *v, size_t n)
     return ((float)bt + 0.5f) / 255.0f;
 }
 
+/* Fills the holes of `mask` (4-connected background not touching the border) by what they look
+ * like: a hole up to speck_frac of the mask's area always fills; a larger one up to hole_frac only
+ * when its pixels fit the foreground model better than the background's (crate
+ * fill_holes_by_model). `out` is a caller buffer of w*h. */
+static pc_status fill_holes_by_model(const bool *mask, const pc_algo_rgb_image *img,
+                                     const pc_algo_gmm *fg, const pc_algo_gmm *bg, float speck_frac,
+                                     float hole_frac, bool *out, pc_error *err)
+{
+    size_t w = img->w, h = img->h, n = w * h, i, x, y, area = 0, max_speck, max_hole, nhs;
+    uint32_t *hl = NULL;
+    size_t *hs = NULL;
+    bool *inv = NULL, *touches = NULL;
+    double *cf = NULL, *cb = NULL;
+    pc_status st;
+    memcpy(out, mask, n * sizeof(bool));
+    for (i = 0; i < n; i++) {
+        area += mask[i];
+    }
+    max_speck = (size_t)((float)area * speck_frac);
+    max_hole = (size_t)((float)area * hole_frac);
+    inv = pc_malloc_array(n ? n : 1, sizeof(bool));
+    if (inv == NULL) {
+        return pc_fail(err, PC_ERR_NOMEM, "out of memory filling holes");
+    }
+    for (i = 0; i < n; i++) {
+        inv[i] = !mask[i];
+    }
+    st = pc_algo_segment_components4(inv, w, h, &hl, &hs, &nhs, err);
+    free(inv);
+    if (st != PC_OK) {
+        return st;
+    }
+    touches = pc_calloc_array(nhs ? nhs : 1, sizeof(bool));
+    cf = pc_calloc_array(nhs ? nhs : 1, sizeof(double));
+    cb = pc_calloc_array(nhs ? nhs : 1, sizeof(double));
+    if (touches == NULL || cf == NULL || cb == NULL) {
+        st = pc_fail(err, PC_ERR_NOMEM, "out of memory filling holes");
+        goto done;
+    }
+    for (x = 0; x < w; x++) {
+        touches[hl[x]] = true;
+        touches[hl[(h - 1) * w + x]] = true;
+    }
+    for (y = 0; y < h; y++) {
+        touches[hl[y * w]] = true;
+        touches[hl[y * w + w - 1]] = true;
+    }
+    for (i = 0; i < n; i++) {
+        size_t l = hl[i];
+        if (l == 0 || touches[l] || hs[l] > max_hole || hs[l] <= max_speck) {
+            continue;
+        }
+        cf[l] += (double)pc_algo_gmm_neg_log(fg, img->px[i]);
+        cb[l] += (double)pc_algo_gmm_neg_log(bg, img->px[i]);
+    }
+    for (i = 0; i < n; i++) {
+        size_t l = hl[i];
+        if (l == 0 || touches[l] || hs[l] > max_hole) {
+            continue;
+        }
+        if (hs[l] <= max_speck || cf[l] <= cb[l]) {
+            out[i] = true;
+        }
+    }
+done:
+    free(touches), free(cf), free(cb), free(hl), free(hs);
+    return st;
+}
+
+static int cost_cmp(const void *a, const void *b)
+{
+    float x = *(const float *)a, y = *(const float *)b;
+    return x < y ? -1 : (x > y ? 1 : 0);
+}
+
+/* A second GrabCut whose background model only knows the backdrop (crate backdrop_pass). On
+ * success *produced is true and low_out/fg_out/bg_out are written; otherwise *produced is false
+ * and the caller keeps the first pass's result. */
+static pc_status backdrop_pass(const pc_algo_rgb_image *img, const bool *blob, bool *low_out,
+                               pc_algo_gmm *fg_out, pc_algo_gmm *bg_out, bool *produced, pc_error *err)
+{
+    size_t w = img->w, h = img->h, n = w * h, i, x, y;
+    size_t x0 = w, y0 = h, x1 = 0, y1 = 0, margin, bx0, by0, bx1, by1, frame, dim, ns = 0;
+    float (*samples)[3] = NULL, (*ss)[3] = NULL;
+    float *fcosts = NULL, limit;
+    size_t nss = 0;
+    uint8_t *trimap = NULL;
+    bool *cut = NULL, some = false, found = false, blob_present = false;
+    pc_algo_gmm backdrop = {NULL, 0, 0.0f}, fg = {NULL, 0, 0.0f}, bg = {NULL, 0, 0.0f};
+    pc_status st = PC_OK;
+    *produced = false;
+    for (i = 0; i < n; i++) {
+        if (blob[i]) {
+            x = i % w, y = i / w;
+            x0 = x < x0 ? x : x0, y0 = y < y0 ? y : y0;
+            x1 = x > x1 ? x : x1, y1 = y > y1 ? y : y1;
+            blob_present = true;
+        }
+    }
+    if (!blob_present || x1 < x0 || y1 < y0) {
+        return PC_OK;
+    }
+    dim = (x1 - x0 + 1) > (y1 - y0 + 1) ? (x1 - x0 + 1) : (y1 - y0 + 1);
+    margin = (size_t)ceilf((float)dim * 0.15f);
+    if (margin < 4) {
+        margin = 4;
+    }
+    bx0 = x0 > margin ? x0 - margin : 0;
+    by0 = y0 > margin ? y0 - margin : 0;
+    bx1 = (x1 + margin) < (w - 1) ? (x1 + margin) : (w - 1);
+    by1 = (y1 + margin) < (h - 1) ? (y1 + margin) : (h - 1);
+    frame = (size_t)roundf((float)(w < h ? w : h) * 0.06f);
+    if (frame < 2) {
+        frame = 2;
+    }
+    samples = pc_malloc_array(n ? n : 1, sizeof *samples);
+    if (samples == NULL) {
+        return pc_fail(err, PC_ERR_NOMEM, "out of memory for Select Subject");
+    }
+#define IN_FRAME(xx, yy) ((xx) < frame || (yy) < frame || (xx) + frame >= w || (yy) + frame >= h)
+#define NEAR_BLOB(xx, yy) ((xx) >= bx0 && (xx) <= bx1 && (yy) >= by0 && (yy) <= by1)
+    for (i = 0; i < n; i++) {
+        x = i % w, y = i / w;
+        if (IN_FRAME(x, y) && !NEAR_BLOB(x, y)) {
+            samples[ns][0] = img->px[i][0], samples[ns][1] = img->px[i][1], samples[ns][2] = img->px[i][2];
+            ns++;
+        }
+    }
+    st = pc_algo_segment_subsample((const float (*)[3])samples, ns, 40000, &ss, &nss, err);
+    if (st != PC_OK) {
+        goto done;
+    }
+    st = pc_algo_gmm_fit((const float (*)[3])ss, nss, PC_ALGO_GRABCUT_K, PC_ALGO_GMM_DEFAULT_REG, &backdrop,
+                         &some, err);
+    if (st != PC_OK) {
+        goto done;
+    }
+    if (!some || ns == 0) {
+        goto done;
+    }
+    fcosts = pc_malloc_array(ns, sizeof *fcosts);
+    trimap = pc_malloc_array(n ? n : 1, 1);
+    cut = pc_malloc_array(n ? n : 1, sizeof(bool));
+    if (fcosts == NULL || trimap == NULL || cut == NULL) {
+        st = pc_fail(err, PC_ERR_NOMEM, "out of memory for Select Subject");
+        goto done;
+    }
+    for (i = 0; i < ns; i++) {
+        fcosts[i] = pc_algo_gmm_neg_log(&backdrop, samples[i]);
+    }
+    qsort(fcosts, ns, sizeof *fcosts, cost_cmp);
+    limit = fcosts[ns * 99 / 100] + 4.0f;
+    for (i = 0; i < n; i++) {
+        x = i % w, y = i / w;
+        if (IN_FRAME(x, y) && !NEAR_BLOB(x, y)) {
+            trimap[i] = PC_ALGO_GRABCUT_BG;
+        } else if (blob[i] || pc_algo_gmm_neg_log(&backdrop, img->px[i]) > limit) {
+            trimap[i] = PC_ALGO_GRABCUT_PR_FG;
+        } else {
+            trimap[i] = PC_ALGO_GRABCUT_PR_BG;
+        }
+    }
+    st = pc_algo_grabcut(img, trimap, 4, &fg, &bg, &some, err);
+    if (st != PC_OK || !some) {
+        goto done;
+    }
+    for (i = 0; i < n; i++) {
+        cut[i] = trimap[i] == PC_ALGO_GRABCUT_PR_FG || trimap[i] == PC_ALGO_GRABCUT_FG;
+    }
+    st = pc_algo_segment_keep_seeded(cut, blob, w, h, low_out, err);
+    if (st != PC_OK) {
+        goto done;
+    }
+    for (i = 0; i < n && !found; i++) {
+        found = low_out[i];
+    }
+    if (found) {
+        *fg_out = fg, *bg_out = bg;
+        fg.comps = NULL, bg.comps = NULL; /* ownership moved to the caller */
+        *produced = true;
+    }
+#undef IN_FRAME
+#undef NEAR_BLOB
+done:
+    pc_algo_gmm_fini(&backdrop);
+    pc_algo_gmm_fini(&fg);
+    pc_algo_gmm_fini(&bg);
+    free(samples), free(ss), free(fcosts), free(trimap), free(cut);
+    return st;
+}
+
 pc_status pc_algo_subject_select(const pc_algo_sampler *s, pc_rect canvas, pc_algo_region *out, pc_error *err)
 {
     size_t step, w, h, n, x, y;
     pc_algo_rgb_image img = {0, 0, NULL};
     float *sal = NULL, t;
     uint8_t *trimap = NULL;
-    bool *low = NULL, *clean = NULL, any_fg = false, some = false, any = false;
-    pc_algo_gmm fg = {NULL, 0, 0.0f}, bg = {NULL, 0, 0.0f};
+    bool *low = NULL, *clean = NULL, *bp_low = NULL, *filled = NULL, any_fg = false, some = false, any = false;
+    bool produced = false;
+    pc_algo_gmm fg = {NULL, 0, 0.0f}, bg = {NULL, 0, 0.0f}, fg2 = {NULL, 0, 0.0f}, bg2 = {NULL, 0, 0.0f};
     pc_status st;
     out->bbox = PC_RECT_EMPTY;
     out->mask = NULL;
@@ -485,7 +677,9 @@ pc_status pc_algo_subject_select(const pc_algo_sampler *s, pc_rect canvas, pc_al
     trimap = pc_malloc_array(n ? n : 1, 1);
     low = pc_malloc_array(n ? n : 1, sizeof(bool));
     clean = pc_malloc_array(n ? n : 1, sizeof(bool));
-    if (trimap == NULL || low == NULL || clean == NULL) {
+    bp_low = pc_malloc_array(n ? n : 1, sizeof(bool));
+    filled = pc_malloc_array(n ? n : 1, sizeof(bool));
+    if (trimap == NULL || low == NULL || clean == NULL || bp_low == NULL || filled == NULL) {
         st = pc_fail(err, PC_ERR_NOMEM, "out of memory for Select Subject");
         goto done;
     }
@@ -513,23 +707,46 @@ pc_status pc_algo_subject_select(const pc_algo_sampler *s, pc_rect canvas, pc_al
     for (x = 0; x < n; x++) {
         low[x] = trimap[x] == PC_ALGO_GRABCUT_PR_FG || trimap[x] == PC_ALGO_GRABCUT_FG;
     }
-    st = pc_algo_segment_clean_mask(low, w, h, 0.2f, 0.05f, clean, err);
+    st = pc_algo_segment_clean_mask(low, w, h, 0.2f, 0.0f, clean, err);
     if (st != PC_OK) {
         goto done;
     }
     for (x = 0; x < n && !any; x++) {
         any = clean[x];
     }
-    if (any) {
-        st = pc_algo_segment_finish_region(s, canvas, step, clean, w, h, &fg, &bg, out, err);
+    if (!any) {
+        goto done;
     }
+    /* A second GrabCut whose background model only knows the backdrop; keeps subject parts whose
+     * colour is close to the backdrop that the first pass explained away (#2788). */
+    st = backdrop_pass(&img, clean, bp_low, &fg2, &bg2, &produced, err);
+    if (st != PC_OK) {
+        goto done;
+    }
+    if (produced) {
+        memcpy(clean, bp_low, n * sizeof(bool));
+        pc_algo_gmm_fini(&fg);
+        pc_algo_gmm_fini(&bg);
+        fg = fg2, bg = bg2;
+        fg2.comps = NULL, bg2.comps = NULL;
+    }
+    /* Fill holes that fit the foreground better than the backdrop; keep enclosed backdrop open. */
+    st = fill_holes_by_model(clean, &img, &fg, &bg, 0.002f, 0.05f, filled, err);
+    if (st != PC_OK) {
+        goto done;
+    }
+    st = pc_algo_segment_finish_region(s, canvas, step, filled, w, h, &fg, &bg, out, err);
 done:
     pc_algo_gmm_fini(&fg);
     pc_algo_gmm_fini(&bg);
+    pc_algo_gmm_fini(&fg2);
+    pc_algo_gmm_fini(&bg2);
     pc_algo_rgb_image_fini(&img);
     free(sal);
     free(trimap);
     free(low);
     free(clean);
+    free(bp_low);
+    free(filled);
     return st;
 }

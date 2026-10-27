@@ -18,7 +18,7 @@ typedef struct shared_maps {
 struct pc_gpu_fx_context {
     gl33 gl;
     GLuint vertex, programs[9], vao, framebuffer;
-    GLuint shape, fields[8], temps[PC_GPU_FX_MAX_STAGES], lut, pattern, dummy;
+    GLuint shape, fields[PC_GPU_FX_FIELD_COUNT], temps[PC_GPU_FX_MAX_STAGES], lut, pattern, dummy;
     size_t ntemps;
     GLint maximum;
     bool faulted, lost;
@@ -193,7 +193,7 @@ void pc_gpu_fx_context_free(pc_gpu_fx_context *ctx)
     }
     if (!ctx->lost) {
         gl->glDeleteTextures(1, &ctx->shape);
-        gl->glDeleteTextures(8, ctx->fields);
+        gl->glDeleteTextures(PC_GPU_FX_FIELD_COUNT, ctx->fields);
         gl->glDeleteTextures((GLsizei)ctx->ntemps, ctx->temps);
         gl->glDeleteTextures(1, &ctx->lut);
         gl->glDeleteTextures(1, &ctx->pattern);
@@ -237,7 +237,7 @@ pc_status pc_gpu_fx_context_new(const gl33 *gl, pc_gpu_fx_context **out, pc_erro
         gl->glGenVertexArrays(1, &ctx->vao);
         gl->glGenFramebuffers(1, &ctx->framebuffer);
         gl->glGenTextures(1, &ctx->shape);
-        gl->glGenTextures(8, ctx->fields);
+        gl->glGenTextures(PC_GPU_FX_FIELD_COUNT, ctx->fields);
         gl->glGenTextures(1, &ctx->lut);
         gl->glGenTextures(1, &ctx->pattern);
         gl->glGenTextures(1, &ctx->dummy);
@@ -334,7 +334,7 @@ pc_status pc_gpu_fx_render_window(pc_gpu_fx_context *ctx, const pc_gpu_fx_progra
         return rc;
     uint64_t w = pc_rect_width(region), h = pc_rect_height(region);
     size_t fields = 0;
-    for (size_t i = 0; i < 8; i++) {
+    for (size_t i = 0; i < PC_GPU_FX_FIELD_COUNT; i++) {
         fields += p->fields[i] ? 1u : 0u;
     }
     if (!w || !h || w > (uint64_t)ctx->maximum || h > (uint64_t)ctx->maximum ||
@@ -397,7 +397,7 @@ pc_status pc_gpu_fx_render_window(pc_gpu_fx_context *ctx, const pc_gpu_fx_progra
     gl->glActiveTexture(GL_TEXTURE0);
     gl->glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     scalar_texture(gl, ctx->shape, (int)w, (int)h, shape);
-    for (size_t i = 0; rc == PC_OK && i < 8; i++) {
+    for (size_t i = 0; rc == PC_OK && i < PC_GPU_FX_FIELD_COUNT; i++) {
         if (p->fields[i]) {
             float *distance = NULL;
             rc = pc_compose_fx_distance_field((pc_compose_fx_field_kind)i, shape, (size_t)w, (size_t)h,

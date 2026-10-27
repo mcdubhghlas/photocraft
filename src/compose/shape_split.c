@@ -64,6 +64,9 @@ static pc_status shape_key(const pc_shape_layer *sh, pc_rect canvas, pc_sample_t
     if (st != PC_OK) {
         return st;
     }
+    /* Soft-fill parameters (#5846): distinct density/feather must not share a split. */
+    pc_cmp_hash_f32(&h, sh->density);
+    pc_cmp_hash_f32(&h, sh->feather);
     pc_cmp_hash_u64(&h, sh->has_cache ? pc_cmp_surface_fp(&sh->cache) : 0);
     *out = h;
     return PC_OK;

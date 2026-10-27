@@ -8,6 +8,7 @@
  * shape. The boundary edges of the inside intervals are accumulated as signed trapezoid areas
  * into a per-row cell buffer whose prefix sum is the exact covered area of every pixel. */
 #include <math.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -19,19 +20,16 @@
 
 /* Same split depth as the reference: bounds the crossing recursion in band(). */
 #define BAND_MAX_DEPTH 24u
-/* Not in the reference: a per-row budget for crossing splits, charged with the number of
- * active edges each split re-scans (every split filters and re-sorts the row's edges). Rows with
- * hundreds of mutually crossing edges (e.g. 1e6 px wide dashed strokes), or coordinates so large
- * that rounding noise beats the 1e-9 crossing test (splitting down to BAND_MAX_DEPTH, 2^24
- * pieces), take minutes per render in the reference. Real geometry stays far below the budget
- * (the parity corpus peaks at 0.55M, the reference's 6016^2 perf scene at 0.14M), so its
- * coverage is bit-identical; past it, sub-bands are swept unsplit (still clamped to 0..1). */
-#define BAND_SPLIT_BUDGET ((size_t)1 << 21)
-/* Not in the reference either: every sub-band scans all of the row's active edges, so a row with
- * n active edges and their endpoints inside it costs O(n^2) (the reference has no bound: a
- * hostile path reached 1.7e9 scans in one row). Past this many scanned edges per row the rest of
- * the row is swept as a single sub-band. Real geometry peaks at 1.1M (parity corpus). */
-#define ROW_SCAN_BUDGET ((size_t)1 << 24)
+/* Maximum sub-band cuts within a single pixel row before adjacent cuts are coalesced, and a
+ * cumulative edge-evaluation budget per row that prevents quadratic work on degenerate inputs.
+ * Both match the reference exactly, so real geometry is bit-identical and only hostile inputs
+ * (e.g. 1e6 px wide dashed strokes, or coordinates so large rounding beats the crossing test)
+ * are clamped. */
+#define MAX_ROW_CUTS ((size_t)256)
+#define MAX_ROW_EDGE_WORK ((size_t)262144)
+/* Polygon coordinates are clamped to +-COORD_LIMIT: far outside any i32 pixel rectangle, and
+ * small enough that edge slopes and positions never overflow to infinity or NaN. */
+#define COORD_LIMIT 1e15
 #define STRIP 32u
 /* Coverage below this is f32 round-off in the cell prefix sum, not area: it is well under half a
  * 16-bit step (7.6e-6), so 8- and 16-bit output is unchanged by dropping it. */
@@ -139,12 +137,20 @@ pc_status pc_vec_rasterizer_add_component(pc_vec_rasterizer *r, const pc_vec_pol
             continue;
         }
         for (k = 0; k < m; k++) {
-            const double *a = poly->pts[k];
-            const double *b = poly->pts[(k + 1) % m];
+            const double *pa = poly->pts[k];
+            const double *pb = poly->pts[(k + 1) % m];
+            double a[2];
+            double b[2];
+            double dxdy;
             pc_vec_raster_edge *e;
-            if (!(isfinite(a[0]) && isfinite(a[1]) && isfinite(b[0]) && isfinite(b[1]))) {
+            if (!(isfinite(pa[0]) && isfinite(pa[1]) && isfinite(pb[0]) && isfinite(pb[1]))) {
                 continue;
             }
+            /* Far beyond any pixel rectangle; keeps edge arithmetic from overflowing. */
+            a[0] = pc_clampd(pa[0], -COORD_LIMIT, COORD_LIMIT);
+            a[1] = pc_clampd(pa[1], -COORD_LIMIT, COORD_LIMIT);
+            b[0] = pc_clampd(pb[0], -COORD_LIMIT, COORD_LIMIT);
+            b[1] = pc_clampd(pb[1], -COORD_LIMIT, COORD_LIMIT);
             if (!has_bounds) {
                 bb[0] = pc_rs_min(a[0], b[0]);
                 bb[1] = pc_rs_min(a[1], b[1]);
@@ -160,20 +166,25 @@ pc_status pc_vec_rasterizer_add_component(pc_vec_rasterizer *r, const pc_vec_pol
             if (a[1] == b[1]) {
                 continue;
             }
+            dxdy = a[1] < b[1] ? (b[0] - a[0]) / (b[1] - a[1]) : (a[0] - b[0]) / (a[1] - b[1]);
+            /* Only a vanishingly short edge has an infinite slope once clamped: like a horizontal
+             * edge it covers no area, and it would turn coverage into NaN. */
+            if (!isfinite(dxdy)) {
+                continue;
+            }
             e = &r->edges[r->nedges++];
             if (a[1] < b[1]) {
                 e->x0 = a[0];
                 e->y0 = a[1];
                 e->y1 = b[1];
                 e->dir = 1;
-                e->dxdy = (b[0] - a[0]) / (b[1] - a[1]);
             } else {
                 e->x0 = b[0];
                 e->y0 = b[1];
                 e->y1 = a[1];
                 e->dir = -1;
-                e->dxdy = (a[0] - b[0]) / (a[1] - b[1]);
             }
+            e->dxdy = dxdy;
             e->comp = comp;
         }
     }
@@ -224,6 +235,9 @@ typedef struct row_state {
     size_t *active;
     size_t nactive;
     size_t active_cap;
+    size_t *sub_active; /* edges of the current row overlapping the current sub-band */
+    size_t nsub_active;
+    size_t sub_active_cap;
     double *cuts;
     double *cuts_scratch;
     size_t ncuts;
@@ -235,13 +249,13 @@ typedef struct row_state {
     int32_t *wind;
     float *acc; /* width + 1 cells: the extra one absorbs spill-over */
     size_t width;
-    size_t splits; /* split budget left in this row (active edges re-scanned) */
-    size_t scans;  /* active edges scanned by band() in this row */
+    size_t work; /* cumulative band edges evaluated in this row (bounds quadratic work) */
 } row_state;
 
 static void row_state_fini(row_state *st)
 {
     free(st->active);
+    free(st->sub_active);
     free(st->cuts);
     free(st->cuts_scratch);
     free(st->band);
@@ -306,7 +320,8 @@ static pc_status row_reserve(row_state *st, pc_error *err)
     if (!grow_pair((void **)&st->cuts, (void **)&st->cuts_scratch, &st->cuts_cap, 2 + 2 * st->nactive,
                    sizeof *st->cuts) ||
         !grow_pair((void **)&st->band, (void **)&st->band_scratch, &st->band_cap, st->nactive,
-                   sizeof *st->band)) {
+                   sizeof *st->band) ||
+        !grow_pair((void **)&st->sub_active, NULL, &st->sub_active_cap, st->nactive, sizeof *st->sub_active)) {
         return pc_fail(err, PC_ERR_NOMEM, "vector: out of memory");
     }
     return PC_OK;
@@ -435,22 +450,22 @@ static void band(const pc_vec_rasterizer *r, double a, double b, int32_t x0, row
     size_t n;
     int32_t union_count = 0;
     bool inside;
-    st->scans += st->nactive;
     if (b - a <= 1e-12) {
         return;
     }
     st->nband = 0;
     mid = 0.5 * (a + b);
-    for (i = 0; i < st->nactive; i++) {
-        const pc_vec_raster_edge *e = &r->edges[st->active[i]];
+    for (i = 0; i < st->nsub_active; i++) {
+        const pc_vec_raster_edge *e = &r->edges[st->sub_active[i]];
         if (e->y0 <= mid && e->y1 >= mid) {
             band_edge *be = &st->band[st->nband++];
             be->xa = e->x0 + (a - e->y0) * e->dxdy;
             be->xb = e->x0 + (b - e->y0) * e->dxdy;
             be->xm = 0.5 * (be->xa + be->xb);
-            be->idx = (uint32_t)st->active[i];
+            be->idx = (uint32_t)st->sub_active[i];
         }
     }
+    st->work = st->work > SIZE_MAX - st->nband ? SIZE_MAX : st->work + st->nband;
     if (st->nband == 0) {
         if (r->inverted) {
             add_full(st->acc, b - a);
@@ -460,7 +475,7 @@ static void band(const pc_vec_rasterizer *r, double a, double b, int32_t x0, row
     pc_vec_stable_sort(st->band, st->nband, sizeof *st->band, st->band_scratch, band_cmp);
     /* An inversion of the order at the band's top or bottom means two edges cross inside it:
      * split there so the order is constant in every piece. */
-    if (depth < BAND_MAX_DEPTH && st->splits >= st->nactive) {
+    if (depth < BAND_MAX_DEPTH && st->work < MAX_ROW_EDGE_WORK) {
         size_t k;
         for (k = 1; k < st->nband; k++) {
             band_edge p = st->band[k - 1];
@@ -474,7 +489,6 @@ static void band(const pc_vec_rasterizer *r, double a, double b, int32_t x0, row
                 if (y <= a + 1e-9 || y >= b - 1e-9) {
                     y = mid;
                 }
-                st->splits -= st->nactive;
                 band(r, a, y, x0, st, depth + 1);
                 band(r, y, b, x0, st, depth + 1);
                 return;
@@ -554,6 +568,7 @@ static pc_status render_rows(const pc_vec_rasterizer *r, pc_rect rect, float *ou
         float sum = 0.0f;
         double *cuts;
         size_t ncuts;
+        size_t next_sub;
         for (k = 0; k < st->nactive; k++) {
             if (r->edges[st->active[k]].y1 > ya) {
                 st->active[keep++] = st->active[k];
@@ -603,14 +618,44 @@ static pc_status render_rows(const pc_vec_rasterizer *r, pc_rect rect, float *ou
             }
             ncuts = kept;
         }
-        st->splits = BAND_SPLIT_BUDGET;
-        st->scans = 0;
-        for (k = 0; k + 1 < ncuts; k++) {
-            if (st->scans > ROW_SCAN_BUDGET) {
-                band(r, cuts[k], cuts[ncuts - 1], rect.x0, st, 0);
-                break;
+        /* Coalesce adjacent cuts so a single row never has more than MAX_ROW_CUTS sub-bands. */
+        if (ncuts > MAX_ROW_CUTS) {
+            size_t step = ((ncuts - 1) + (MAX_ROW_CUTS - 1) - 1) / (MAX_ROW_CUTS - 1); /* div_ceil */
+            double last = cuts[ncuts - 1];
+            size_t thinned = 0;
+            for (k = 0; k < ncuts; k++) {
+                if (k % step == 0) {
+                    cuts[thinned++] = cuts[k];
+                }
             }
-            band(r, cuts[k], cuts[k + 1], rect.x0, st, 0);
+            if (thinned == 0 || cuts[thinned - 1] != last) {
+                cuts[thinned++] = last;
+            }
+            ncuts = thinned;
+        }
+        st->work = 0;
+        st->nsub_active = 0;
+        next_sub = 0;
+        for (k = 0; k + 1 < ncuts; k++) {
+            double ca = cuts[k];
+            double cb = cuts[k + 1];
+            size_t keep2 = 0;
+            size_t s;
+            while (next_sub < st->nactive && r->edges[st->active[next_sub]].y0 < cb) {
+                size_t ei = st->active[next_sub];
+                if (r->edges[ei].y1 > ca) {
+                    st->sub_active[st->nsub_active++] = ei;
+                }
+                next_sub++;
+            }
+            /* Drop edges that ended before this sub-band. */
+            for (s = 0; s < st->nsub_active; s++) {
+                if (r->edges[st->sub_active[s]].y1 > ca) {
+                    st->sub_active[keep2++] = st->sub_active[s];
+                }
+            }
+            st->nsub_active = keep2;
+            band(r, ca, cb, rect.x0, st, 0);
         }
         for (k = 0; k < w; k++) {
             sum += st->acc[k];

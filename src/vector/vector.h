@@ -266,11 +266,26 @@ pc_status pc_vec_paint_clone(const pc_vec_paint *p, pc_vec_paint *out, pc_error 
 /* Straight RGBA at pixel centre (x, y). */
 void pc_vec_paint_at(const pc_vec_paint *p, double x, double y, float out[4]);
 
+/* How much of a shape's fill shows at each pixel: the path's coverage, or (with a density below 1
+ * or a feather) the path as the fill's soft vector mask. */
+typedef enum pc_vec_fill_coverage_kind {
+    PC_VEC_FILL_COV_PATH,  /* the rasteriser's plain coverage */
+    PC_VEC_FILL_COV_DENSE, /* density without feather: 1 - density * (1 - coverage) */
+    PC_VEC_FILL_COV_PLANE  /* feathered (and maybe less dense): the mask over `area`, else `outside` */
+} pc_vec_fill_coverage_kind;
+
 /* Everything needed to render a shape layer, compiled once. */
 typedef struct pc_vec_compiled_shape {
     bool has_fill;
     pc_vec_rasterizer fill;
     pc_vec_paint fill_paint;
+    /* Fill coverage beyond the hard path (density / feather). */
+    pc_vec_fill_coverage_kind fill_cov;
+    float fill_density;       /* DENSE: clamped density in 0..=1 */
+    pc_rect fill_plane_area;  /* PLANE: the blurred mask's region */
+    float *fill_plane_values; /* PLANE: row-major coverage over fill_plane_area (malloc'd) */
+    size_t fill_plane_len;    /* PLANE: area width * height */
+    float fill_plane_outside; /* PLANE: coverage everywhere outside fill_plane_area */
     bool has_stroke;
     pc_vec_rasterizer stroke;
     pc_vec_paint stroke_paint;

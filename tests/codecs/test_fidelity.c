@@ -105,7 +105,14 @@ static void test_tiff_is_clean_for_all_integer_and_f32_layouts(void)
         for (s = 0; s < 4; s++) {
             pc_cimage img = test_image((pc_clayout)l, S[s]);
             warns_t w = warns(&img, PC_CF_TIFF);
-            if (w.n != 0) {
+            if (pc_clayout_is_lab((pc_clayout)l) && pc_csample_is_float(S[s])) {
+                /* CIELab has no float form: it is written with 16 bits, and says so. */
+                pc_cfidelity dr = depth_reduced(S[s], PC_CS_U16);
+                if (!(w.n == 1 && pc_cfidelity_eq(&w.w[0], &dr))) {
+                    PC_T_FAIL("%s %s: expected one DepthReduced-to-U16 warning, got %zu",
+                              pc_clayout_name((pc_clayout)l), pc_csample_name(S[s]), w.n);
+                }
+            } else if (w.n != 0) {
                 PC_T_FAIL("%s %s: %zu warnings", pc_clayout_name((pc_clayout)l), pc_csample_name(S[s]), w.n);
             }
             pc_t_checks++;

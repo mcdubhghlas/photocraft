@@ -47,6 +47,8 @@ enum kind {
     K_TILE,
     K_STRUCT,
     K_POINTS,
+    K_CURVE, /* pc_paint_response_curve: a list of [input, output] points */
+    K_POSE,  /* pc_paint_pose: via the PoseWire form */
     K_STRS /* pc_paint_str_list */
 };
 enum def { D_REQ, D_FIELD, D_CONT };
@@ -611,6 +613,123 @@ static yyjson_mut_val *write_tip(yyjson_mut_doc *d, const pc_paint_tip *t, unsig
     return o != NULL && tile != NULL && yyjson_mut_obj_add_val(d, o, "sampled", tile) ? o : NULL;
 }
 
+/* Brush Pose serialises through a wire form with a combined `overrideTilt` and the two axis flags
+ * (crates/paint PoseWire): writes overrideTilt = x && y, overrideTiltX = x, overrideTiltY = y;
+ * reads an axis from its own key, migrating a missing axis from the old combined flag. */
+static pc_status read_pose_f32(yyjson_val *v, float *out, pc_error *err)
+{
+    return read_f32v(v, out, err);
+}
+static pc_status read_pose_bool(yyjson_val *v, bool *out, pc_error *err)
+{
+    if (!yyjson_is_bool(v)) {
+        return fail_type(v, "a boolean", err);
+    }
+    *out = yyjson_get_bool(v);
+    return PC_OK;
+}
+
+static pc_status read_pose(yyjson_val *v, pc_paint_pose *out, pc_error *err)
+{
+    bool ot = false, otx = false, oty = false, otx_set = false, oty_set = false;
+    pc_status st = PC_OK;
+    pc_paint_pose_default(out);
+    if (yyjson_is_obj(v)) {
+        yyjson_val *fv;
+        if ((fv = pc_json_get(v, "enabled")) != NULL && (st = read_pose_bool(fv, &out->enabled, err)) != PC_OK) {
+            return st;
+        }
+        if ((fv = pc_json_get(v, "tiltX")) != NULL && (st = read_pose_f32(fv, &out->tilt_x, err)) != PC_OK) {
+            return st;
+        }
+        if ((fv = pc_json_get(v, "tiltY")) != NULL && (st = read_pose_f32(fv, &out->tilt_y, err)) != PC_OK) {
+            return st;
+        }
+        if ((fv = pc_json_get(v, "rotation")) != NULL && (st = read_pose_f32(fv, &out->rotation, err)) != PC_OK) {
+            return st;
+        }
+        if ((fv = pc_json_get(v, "pressure")) != NULL && (st = read_pose_f32(fv, &out->pressure, err)) != PC_OK) {
+            return st;
+        }
+        if ((fv = pc_json_get(v, "overrideTilt")) != NULL && (st = read_pose_bool(fv, &ot, err)) != PC_OK) {
+            return st;
+        }
+        if ((fv = pc_json_get(v, "overrideTiltX")) != NULL) {
+            if ((st = read_pose_bool(fv, &otx, err)) != PC_OK) {
+                return st;
+            }
+            otx_set = true;
+        }
+        if ((fv = pc_json_get(v, "overrideTiltY")) != NULL) {
+            if ((st = read_pose_bool(fv, &oty, err)) != PC_OK) {
+                return st;
+            }
+            oty_set = true;
+        }
+        if ((fv = pc_json_get(v, "overrideRotation")) != NULL &&
+            (st = read_pose_bool(fv, &out->override_rotation, err)) != PC_OK) {
+            return st;
+        }
+        if ((fv = pc_json_get(v, "overridePressure")) != NULL &&
+            (st = read_pose_bool(fv, &out->override_pressure, err)) != PC_OK) {
+            return st;
+        }
+    } else if (yyjson_is_arr(v)) {
+        size_t len = yyjson_arr_size(v);
+        struct {
+            const char *kind; /* "f" float, "b" bool slot, special for the three overrides */
+            void *slot;
+        } seq[10] = {{"b", &out->enabled},        {"f", &out->tilt_x},
+                     {"f", &out->tilt_y},         {"f", &out->rotation},
+                     {"f", &out->pressure},       {"b", &ot},
+                     {"x", NULL},                 {"y", NULL},
+                     {"b", &out->override_rotation}, {"b", &out->override_pressure}};
+        for (size_t i = 0; i < 10 && i < len; i++) {
+            yyjson_val *e = yyjson_arr_get(v, i);
+            if (seq[i].kind[0] == 'f') {
+                st = read_pose_f32(e, seq[i].slot, err);
+            } else if (seq[i].kind[0] == 'x') {
+                st = read_pose_bool(e, &otx, err);
+                otx_set = true;
+            } else if (seq[i].kind[0] == 'y') {
+                st = read_pose_bool(e, &oty, err);
+                oty_set = true;
+            } else {
+                st = read_pose_bool(e, seq[i].slot, err);
+            }
+            if (st != PC_OK) {
+                return st;
+            }
+        }
+        if (len > 10) {
+            return pc_fail(err, PC_ERR_INVALID, "invalid length %zu, expected fewer elements in array", len);
+        }
+    } else {
+        return fail_type(v, "struct Pose", err);
+    }
+    out->override_tilt_x = otx_set ? otx : ot;
+    out->override_tilt_y = oty_set ? oty : ot;
+    return PC_OK;
+}
+
+static yyjson_mut_val *write_pose(yyjson_mut_doc *d, const pc_paint_pose *p, unsigned flags)
+{
+    yyjson_mut_val *o = yyjson_mut_obj(d);
+    bool ok = o != NULL;
+    ok = ok && yyjson_mut_obj_add_val(d, o, "enabled", yyjson_mut_bool(d, p->enabled));
+    ok = ok && yyjson_mut_obj_add_val(d, o, "tiltX", w_f32(d, p->tilt_x, flags));
+    ok = ok && yyjson_mut_obj_add_val(d, o, "tiltY", w_f32(d, p->tilt_y, flags));
+    ok = ok && yyjson_mut_obj_add_val(d, o, "rotation", w_f32(d, p->rotation, flags));
+    ok = ok && yyjson_mut_obj_add_val(d, o, "pressure", w_f32(d, p->pressure, flags));
+    ok = ok && yyjson_mut_obj_add_val(d, o, "overrideTilt",
+                                      yyjson_mut_bool(d, p->override_tilt_x && p->override_tilt_y));
+    ok = ok && yyjson_mut_obj_add_val(d, o, "overrideTiltX", yyjson_mut_bool(d, p->override_tilt_x));
+    ok = ok && yyjson_mut_obj_add_val(d, o, "overrideTiltY", yyjson_mut_bool(d, p->override_tilt_y));
+    ok = ok && yyjson_mut_obj_add_val(d, o, "overrideRotation", yyjson_mut_bool(d, p->override_rotation));
+    ok = ok && yyjson_mut_obj_add_val(d, o, "overridePressure", yyjson_mut_bool(d, p->override_pressure));
+    return ok ? o : NULL;
+}
+
 typedef struct procedural_c {
     pc_paint_pattern_style style;
     uint32_t size;
@@ -758,6 +877,51 @@ static pc_status read_points(yyjson_val *v, void *slot, pc_error *err)
         *pp = pts;
         *cnt = n;
     }
+    return PC_OK;
+}
+
+/* ResponseCurve: a sequence of [input, output] points (Vec<[f32; 2]>). */
+static pc_status read_curve(yyjson_val *v, void *slot, pc_error *err)
+{
+    size_t n;
+    float (*pts)[2] = NULL;
+    pc_paint_response_curve c;
+    if (!yyjson_is_arr(v)) {
+        return fail_type(v, "a sequence", err);
+    }
+    n = yyjson_arr_size(v);
+    if (n > 0) {
+        pts = pc_malloc_array(n, sizeof *pts);
+        if (pts == NULL) {
+            return fail_nomem(err);
+        }
+    }
+    for (size_t i = 0; i < n; i++) {
+        yyjson_val *e = yyjson_arr_get(v, i);
+        size_t len;
+        if (!yyjson_is_arr(e)) {
+            free(pts);
+            return fail_type(e, "an array of length 2", err);
+        }
+        len = yyjson_arr_size(e);
+        for (size_t j = 0; j < 2; j++) {
+            if (j >= len) {
+                free(pts);
+                return pc_fail(err, PC_ERR_INVALID, "invalid length %zu, expected an array of length 2", j);
+            }
+            if (read_f32v(yyjson_arr_get(e, j), &pts[i][j], err) != PC_OK) {
+                free(pts);
+                return PC_ERR_INVALID;
+            }
+        }
+        if (len > 2) {
+            free(pts);
+            return pc_fail(err, PC_ERR_INVALID, "invalid length %zu, expected an array of length 2", len);
+        }
+    }
+    c = pc_paint_response_curve_new((const float (*)[2])pts, n);
+    free(pts);
+    memcpy(slot, &c, sizeof c);
     return PC_OK;
 }
 
@@ -922,6 +1086,10 @@ static pc_status read_field(const field *f, yyjson_val *v, void *slot, pc_error 
     }
     case K_POINTS:
         return read_points(v, slot, err);
+    case K_CURVE:
+        return read_curve(v, slot, err);
+    case K_POSE:
+        return read_pose(v, slot, err);
     case K_STRS:
         return read_strs(v, slot, err);
     default:
@@ -994,6 +1162,23 @@ static yyjson_mut_val *write_field(const field *f, yyjson_mut_doc *d, const void
         for (size_t i = 0; a != NULL && i < *cnt; i++) {
             yyjson_mut_val *x = write_struct(&POINT_S, d, &(*pp)[i], flags);
             if (x == NULL || !yyjson_mut_arr_append(a, x)) {
+                return NULL;
+            }
+        }
+        return a;
+    }
+    case K_POSE:
+        return write_pose(d, slot, flags);
+    case K_CURVE: {
+        const pc_paint_response_curve *c = slot;
+        yyjson_mut_val *a = yyjson_mut_arr(d);
+        size_t np = c->n < PC_PAINT_CURVE_MAX_POINTS ? c->n : PC_PAINT_CURVE_MAX_POINTS;
+        for (size_t i = 0; a != NULL && i < np; i++) {
+            yyjson_mut_val *pt = yyjson_mut_arr(d);
+            yyjson_mut_val *px = w_f32(d, c->xs[i], flags);
+            yyjson_mut_val *py = w_f32(d, c->ys[i], flags);
+            if (pt == NULL || px == NULL || py == NULL || !yyjson_mut_arr_append(pt, px) ||
+                !yyjson_mut_arr_append(pt, py) || !yyjson_mut_arr_append(a, pt)) {
                 return NULL;
             }
         }
@@ -1188,10 +1373,6 @@ static void def_locks(void *p)
 {
     pc_paint_section_locks_default(p);
 }
-static void def_pose(void *p)
-{
-    pc_paint_pose_default(p);
-}
 static void def_smoothing(void *p)
 {
     pc_paint_smoothing_default(p);
@@ -1232,8 +1413,9 @@ static const field DYN_F[] = {
     F("control", DY, control, K_ENUM, &E_CONTROL),
     F("fadeSteps", DY, fade_steps, K_U32, NULL),
     F("minimum", DY, minimum, K_F32, NULL),
+    F("curve", DY, curve, K_CURVE, NULL),
 };
-static const sdesc DYN_S = {"struct Dynamic", "Dynamic", DYN_F, 4, sizeof(DY), def_dynamic};
+static const sdesc DYN_S = {"struct Dynamic", "Dynamic", DYN_F, 5, sizeof(DY), def_dynamic};
 
 typedef pc_paint_shape_dynamics SD;
 static const field SHAPE_F[] = {
@@ -1316,19 +1498,6 @@ static const field LOCKS_F[] = {
 };
 static const sdesc LOCKS_S = {"struct SectionLocks", "SectionLocks", LOCKS_F, 12, sizeof(SL), def_locks};
 
-typedef pc_paint_pose PO;
-static const field POSE_F[] = {
-    F("enabled", PO, enabled, K_BOOL, NULL),
-    F("tiltX", PO, tilt_x, K_F32, NULL),
-    F("tiltY", PO, tilt_y, K_F32, NULL),
-    F("rotation", PO, rotation, K_F32, NULL),
-    F("pressure", PO, pressure, K_F32, NULL),
-    F("overrideTilt", PO, override_tilt, K_BOOL, NULL),
-    F("overrideRotation", PO, override_rotation, K_BOOL, NULL),
-    F("overridePressure", PO, override_pressure, K_BOOL, NULL),
-};
-static const sdesc POSE_S = {"struct Pose", "Pose", POSE_F, 8, sizeof(PO), def_pose};
-
 typedef pc_paint_smoothing SM;
 static const field SMOOTH_F[] = {
     F("enabled", SM, enabled, K_BOOL, NULL),
@@ -1347,8 +1516,10 @@ static const field MIXER_F[] = {
     F("mix", MX, mix, K_F32, NULL),
     F("flow", MX, flow, K_F32, NULL),
     F("sampleAllLayers", MX, sample_all_layers, K_BOOL, NULL),
+    F("loadAfterStroke", MX, load_after_stroke, K_BOOL, NULL),
+    F("cleanAfterStroke", MX, clean_after_stroke, K_BOOL, NULL),
 };
-static const sdesc MIXER_S = {"struct MixerSettings", "MixerSettings", MIXER_F, 5, sizeof(MX), def_mixer};
+static const sdesc MIXER_S = {"struct MixerSettings", "MixerSettings", MIXER_F, 7, sizeof(MX), def_mixer};
 
 typedef pc_paint_replace_settings RS;
 static const field REPLACE_F[] = {
@@ -1402,7 +1573,7 @@ static const field BRUSH_F[] = {
     F("dualBrush", BR, dual_brush, K_STRUCT, &DUAL_S),
     F("colorDynamics", BR, color_dynamics, K_STRUCT, &COLOR_S),
     F("transfer", BR, transfer, K_STRUCT, &TRANSFER_S),
-    F("pose", BR, pose, K_STRUCT, &POSE_S),
+    F("pose", BR, pose, K_POSE, NULL),
     F("noise", BR, noise, K_BOOL, NULL),
     F("wetEdges", BR, wet_edges, K_BOOL, NULL),
     F("buildUp", BR, build_up, K_BOOL, NULL),
@@ -1469,7 +1640,7 @@ static bool type_info(pc_paint_json_type t, tinfo *out)
         [PC_PAINT_JSON_SCATTERING] = &SCATTER_S, [PC_PAINT_JSON_TEXTURE] = &TEXTURE_S,
         [PC_PAINT_JSON_DUAL_BRUSH] = &DUAL_S,    [PC_PAINT_JSON_COLOR_DYNAMICS] = &COLOR_S,
         [PC_PAINT_JSON_TRANSFER] = &TRANSFER_S,  [PC_PAINT_JSON_SECTION_LOCKS] = &LOCKS_S,
-        [PC_PAINT_JSON_POSE] = &POSE_S,          [PC_PAINT_JSON_SMOOTHING] = &SMOOTH_S,
+        [PC_PAINT_JSON_SMOOTHING] = &SMOOTH_S,
         [PC_PAINT_JSON_MIXER] = &MIXER_S,        [PC_PAINT_JSON_REPLACE_SETTINGS] = &REPLACE_S,
         [PC_PAINT_JSON_BG_ERASE_SETTINGS] = &BG_ERASE_S,
     };
@@ -1514,6 +1685,10 @@ static bool type_info(pc_paint_json_type t, tinfo *out)
     case PC_PAINT_JSON_TIP:
         out->single = (field){"", NULL, K_TIP, D_REQ, 0, 0, NULL};
         out->size = sizeof(pc_paint_tip);
+        break;
+    case PC_PAINT_JSON_POSE:
+        out->single = (field){"", NULL, K_POSE, D_REQ, 0, 0, NULL};
+        out->size = sizeof(pc_paint_pose);
         break;
     default: /* PC_PAINT_JSON_PATTERN */
         out->single = (field){"", NULL, K_PATTERN, D_REQ, 0, 0, NULL};

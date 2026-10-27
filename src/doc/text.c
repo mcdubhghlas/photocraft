@@ -138,7 +138,7 @@ bool pc_char_style_eq(const pc_char_style *a, const pc_char_style *b)
         !(a->vertical_scale == b->vertical_scale) || a->underline != b->underline ||
         a->strikethrough != b->strikethrough || a->faux_bold != b->faux_bold ||
         a->faux_italic != b->faux_italic || a->kerning != b->kerning || !(a->kern == b->kern) ||
-        a->caps != b->caps || a->ligatures != b->ligatures ||
+        a->caps != b->caps || a->baseline != b->baseline || a->ligatures != b->ligatures ||
         a->discretionary_ligatures != b->discretionary_ligatures || a->has_language != b->has_language ||
         (a->has_language && !pc_str_eq(&a->language, &b->language)) ||
         a->has_style_sheet != b->has_style_sheet ||

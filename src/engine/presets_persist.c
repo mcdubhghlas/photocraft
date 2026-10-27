@@ -475,6 +475,8 @@ pc_status pc_engine_presets_to_json(const pc_engine_session *s, pc_json_value *o
                            ld != NULL ? yyjson_mut_val_mut_copy(d, ld) : yyjson_mut_obj(d));
     yyjson_mut_obj_add_val(d, root, "swatches", groups_to(d, &st->swatches, sizeof(pc_swatch), sw_item_to));
     pc_engine_document_presets_to_json(st, d, root); /* E3: documents + recent_documents */
+    pc_engine_contour_lib_to_json(st, d, root);      /* R0-feat: contours */
+    pc_engine_export_presets_to_json(st, d, root);   /* R0-feat: export_presets */
     yyjson_mut_doc_set_root(d, root);
     pc_status rc = pc_json_value_from_mut(root, out, err);
     yyjson_mut_doc_free(d);
@@ -590,6 +592,8 @@ void pc_engine_load_presets_json(pc_engine_session *s, yyjson_val *v)
         }
     }
     pc_engine_document_presets_load(st, v); /* E3: documents + recent_documents */
+    pc_engine_contour_lib_load(st, v);      /* R0-feat: contours */
+    pc_engine_export_presets_load(st, v);   /* R0-feat: export_presets */
     st->rev++;
 }
 

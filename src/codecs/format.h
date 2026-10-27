@@ -27,9 +27,11 @@ typedef enum pc_cformat {
     PC_CF_AVIF, /* neither read nor written in this build */
     PC_CF_HEIF, /* read-only (libheif) when built with it */
     PC_CF_FITS, /* Flexible Image Transport System (astronomy): gray or RGB */
-    PC_CF_DPX   /* SMPTE 268M Digital Picture Exchange: luma, RGB or RGBA film and video frames */
+    PC_CF_DPX,  /* SMPTE 268M Digital Picture Exchange: luma, RGB or RGBA film and video frames */
+    PC_CF_DDS,  /* DirectDraw Surface: uncompressed or BC1/BC2/BC3 2D textures */
+    PC_CF_CINEON /* Kodak Cineon (.cin): 10-bit film scans, the format DPX grew from */
 } pc_cformat;
-#define PC_CF_COUNT 17
+#define PC_CF_COUNT 19
 
 /* What a format can hold and what this build reads/writes for it. */
 typedef struct pc_ccaps {

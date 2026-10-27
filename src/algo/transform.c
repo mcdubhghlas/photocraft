@@ -213,6 +213,7 @@ typedef struct warp_ctx {
     pc_algo_homography inv;
     double side; /* 1 or -1: the sign the forward w keeps over the source; 0 when it changes */
     double w_lo; /* every sampled pixel's inverse w is at least this far from the horizon */
+    double front; /* when side == 0: the side of the horizon to draw (#4863); sign of inv.w kept */
     pc_algo_interp interp;
     size_t n;
     pc_tile first;
@@ -244,6 +245,31 @@ static double fold_max(const double *v, size_t n)
     return m;
 }
 
+/* The homogeneous w of (x, y) under h: its sign is the side of the horizon the point maps to. */
+static double homography_w(const pc_algo_homography *h, double x, double y)
+{
+    return h->m[6] * x + h->m[7] * y + h->m[8];
+}
+
+/* The side of the horizon (+1 or -1) that most corners of r = [x0,y0,x1,y1] map to, the centre's
+ * on a tie (#4863). A Distort dragged past the horizon maps the rest of the source to the far side,
+ * where it would show as a mirrored copy wrapped round infinity; drawing keeps to this side. */
+static double front_side(const pc_algo_homography *h, const double r[4])
+{
+    int ahead = 0;
+    ahead += homography_w(h, r[0], r[1]) > 0.0;
+    ahead += homography_w(h, r[2], r[1]) > 0.0;
+    ahead += homography_w(h, r[2], r[3]) > 0.0;
+    ahead += homography_w(h, r[0], r[3]) > 0.0;
+    if (ahead >= 3) {
+        return 1.0;
+    }
+    if (ahead <= 1) {
+        return -1.0;
+    }
+    return homography_w(h, (r[0] + r[2]) / 2.0, (r[1] + r[3]) / 2.0) >= 0.0 ? 1.0 : -1.0;
+}
+
 /* One destination tile; *out stays NULL when nothing in it is covered. */
 static pc_status warp_tile(const warp_ctx *w, pc_rect t, float **out, pc_error *err)
 {
@@ -257,6 +283,7 @@ static pc_status warp_tile(const warp_ctx *w, pc_rect t, float **out, pc_error *
     bool any = false;
     int32_t x, y;
     double acc[PC_RASTER_MAX_CHANNELS] = {0.0, 0.0, 0.0, 0.0, 0.0};
+    double foot_u = 1.0, foot_v = 1.0;
     pc_status st;
     *out = NULL;
     if (n < 1 || n > PC_RASTER_MAX_CHANNELS) {
@@ -297,10 +324,10 @@ static pc_status warp_tile(const warp_ctx *w, pc_rect t, float **out, pc_error *
     for (pi = 0; pi < np; pi++) {
         pc_algo_homography_apply(&w->inv, xs[pi], ys[pi], &xs[pi], &ys[pi]);
     }
-    fx0 = pc_i32_wrapping_sub(pc_f64_to_i32(floor(fold_min(xs, np))), 3);
-    fy0 = pc_i32_wrapping_sub(pc_f64_to_i32(floor(fold_min(ys, np))), 3);
-    fx1 = pc_i32_wrapping_add(pc_f64_to_i32(ceil(fold_max(xs, np))), 3);
-    fy1 = pc_i32_wrapping_add(pc_f64_to_i32(ceil(fold_max(ys, np))), 3);
+    fx0 = pc_i32_sat_sub(pc_f64_to_i32(floor(fold_min(xs, np))), 3);
+    fy0 = pc_i32_sat_sub(pc_f64_to_i32(floor(fold_min(ys, np))), 3);
+    fx1 = pc_i32_sat_add(pc_f64_to_i32(ceil(fold_max(xs, np))), 3);
+    fy1 = pc_i32_sat_add(pc_f64_to_i32(ceil(fold_max(ys, np))), 3);
     /* Without a one-signed forward w, a tile straddling the inverse horizon has no bounded
      * footprint. */
     for (pi = 0; pi < 4; pi++) {
@@ -331,10 +358,33 @@ static pc_status warp_tile(const warp_ctx *w, pc_rect t, float **out, pc_error *
          ? 0.0                                                                                               \
          : (double)                                                                                          \
                px[((size_t)((int64_t)(yy) - foot.y0) * fw + (size_t)((int64_t)(xx) - foot.x0)) * n + (cc)])
+    /* Samples past the source rect repeat its edge, so a stretched edge row or column keeps its
+     * colour and opacity (the "pixel stretch", #3773); the outline is antialiased by coverage
+     * instead. `foot_u`/`foot_v` are a destination pixel's extent in source pixels. */
+#define CLAMPED(xx, yy, cc)                                                                                  \
+    AT(pc_clamp_i32((xx), w->src_rect.x0, w->src_rect.x1 - 1),                                                \
+       pc_clamp_i32((yy), w->src_rect.y0, w->src_rect.y1 - 1), (cc))
+    {
+        double mx = ((double)t.x0 + (double)t.x1) / 2.0, my = ((double)t.y0 + (double)t.y1) / 2.0;
+        double ox, oy, dxx, dxy, dyx, dyy, eu, ev;
+        pc_algo_homography_apply(&w->inv, mx, my, &ox, &oy);
+        pc_algo_homography_apply(&w->inv, mx + 1.0, my, &dxx, &dxy);
+        pc_algo_homography_apply(&w->inv, mx, my + 1.0, &dyx, &dyy);
+        eu = fabs(dxx - ox) + fabs(dyx - ox);
+        ev = fabs(dxy - oy) + fabs(dyy - oy);
+        foot_u = (isfinite(eu) && eu > 1e-12) ? eu : 1.0;
+        foot_v = (isfinite(ev) && ev > 1e-12) ? ev : 1.0;
+    }
     for (y = t.y0; y < t.y1; y++) {
         for (x = t.x0; x < t.x1; x++) {
             double u, v, al;
             size_t o;
+            if (w->side == 0.0) {
+                double iw = w->inv.m[6] * ((double)x + 0.5) + w->inv.m[7] * ((double)y + 0.5) + w->inv.m[8];
+                if (w->front * iw <= 0.0) {
+                    continue;
+                }
+            }
             pc_algo_homography_apply(&w->inv, (double)x + 0.5, (double)y + 0.5, &u, &v);
             u -= 0.5;
             v -= 0.5;
@@ -360,7 +410,7 @@ static pc_status warp_tile(const warp_ctx *w, pc_rect t, float **out, pc_error *
                     for (dx = 0; dx < 2; dx++) {
                         int32_t sx = pc_i32_wrapping_add(ix, dx), sy = pc_i32_wrapping_add(iy, dy);
                         for (c = 0; c < n; c++) {
-                            acc[c] += AT(sx, sy, c) * wx[dx] * wy[dy];
+                            acc[c] += CLAMPED(sx, sy, c) * wx[dx] * wy[dy];
                         }
                     }
                 }
@@ -376,9 +426,18 @@ static pc_status warp_tile(const warp_ctx *w, pc_rect t, float **out, pc_error *
                         int32_t sx = pc_i32_wrapping_add(pc_i32_wrapping_sub(ix, 1), i);
                         int32_t sy = pc_i32_wrapping_add(pc_i32_wrapping_sub(iy, 1), j);
                         for (c = 0; c < n; c++) {
-                            acc[c] += AT(sx, sy, c) * k;
+                            acc[c] += CLAMPED(sx, sy, c) * k;
                         }
                     }
+                }
+            }
+            if (w->interp != PC_ALGO_INTERP_NEAREST) {
+                /* How much of this pixel the warped source rect covers, per axis (#3773). */
+                double uc = u + 0.5, vc = v + 0.5;
+                double cu = pc_clampd(pc_rs_min(uc - (double)w->src_rect.x0, (double)w->src_rect.x1 - uc) / foot_u + 0.5, 0.0, 1.0);
+                double cv = pc_clampd(pc_rs_min(vc - (double)w->src_rect.y0, (double)w->src_rect.y1 - vc) / foot_v + 0.5, 0.0, 1.0);
+                for (c = 0; c < n; c++) {
+                    acc[c] *= cu * cv;
                 }
             }
             al = pc_clampd(acc[a], 0.0, 1.0);
@@ -388,8 +447,10 @@ static pc_status warp_tile(const warp_ctx *w, pc_rect t, float **out, pc_error *
             any = true;
             o = ((size_t)((int64_t)y - t.y0) * tw + (size_t)((int64_t)x - t.x0)) * n;
             for (c = 0; c < a; c++) {
-                /* Integer storage clips on write; float colours keep their signed / HDR range. */
-                outp[o + c] = (float)(acc[c] / al);
+                /* Un-premultiply by the unclamped alpha: bicubic overshoots it past 1 next to partly
+                 * transparent pixels, and dividing by the clamped 1 would lighten the colour by the
+                 * overshoot (#6203). Integer storage clips on write; float colours keep HDR range. */
+                outp[o + c] = (float)(acc[c] / acc[a]);
             }
             outp[o + a] = (float)al;
         }
@@ -508,6 +569,38 @@ static pc_status warp(const pc_surface *src, pc_rect src_rect, const pc_algo_hom
         finite = finite && isfinite(xs[i]) && isfinite(ys[i]);
     }
     w.w_lo = 1.0 / wmax;
+    /* A source straddling the horizon draws only its front side: the inverse w at a pixel has the
+     * sign of the forward w at the source point it samples, and the other side would show as a
+     * mirrored copy wrapped round infinity (#4863). A clip wholly on one side of the inverse horizon
+     * only samples that side, so that side is drawn (#7557). */
+    w.front = 0.0;
+    if (w.side == 0.0) {
+        double clip_side = 0.0;
+        if (clip != NULL) {
+            double cw[4];
+            static const double sides[2] = {1.0, -1.0};
+            int k;
+            cw[0] = homography_w(&inv, (double)clip->x0, (double)clip->y0);
+            cw[1] = homography_w(&inv, (double)clip->x1, (double)clip->y0);
+            cw[2] = homography_w(&inv, (double)clip->x1, (double)clip->y1);
+            cw[3] = homography_w(&inv, (double)clip->x0, (double)clip->y1);
+            for (k = 0; k < 2 && clip_side == 0.0; k++) {
+                bool all = true;
+                for (i = 0; i < 4; i++) {
+                    all = all && sides[k] * cw[i] > 0.0;
+                }
+                if (all) {
+                    clip_side = sides[k];
+                }
+            }
+        }
+        if (clip_side != 0.0) {
+            w.front = clip_side;
+        } else {
+            double r[4] = {(double)src_rect.x0, (double)src_rect.y0, (double)src_rect.x1, (double)src_rect.y1};
+            w.front = front_side(&hh, r);
+        }
+    }
     if (finite) {
         int32_t bx0 = pc_f64_to_i32(pc_rs_max_k(floor(fold_min(xs, 4)), -lim)) - 1;
         int32_t by0 = pc_f64_to_i32(pc_rs_max_k(floor(fold_min(ys, 4)), -lim)) - 1;

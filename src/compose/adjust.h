@@ -108,6 +108,14 @@ void pc_compose_hue_range_tables(const pc_hue_range ranges[6], float *out);
  * then the hue rotates and saturation scales (raised: divided by 1 - s); Colorize builds the
  * colour at the lightened lightness (0 % saturation leaves only the lightness). */
 void pc_compose_hue_saturation(const float c[3], float hue, float s, float l, bool colorize, float out[3]);
+/* [`pc_compose_hue_saturation`] in a document of the given depth: at 32 bits (`hdr`) the raised
+ * saturation is not clipped and the chroma scales by [`pc_compose_hdr_saturation_factor`]. */
+void pc_compose_hue_saturation_in(const float c[3], float hue, float s, float l, bool colorize, bool hdr,
+                                  float out[3]);
+/* The factor 32-bit Hue/Saturation scales chroma by for saturation s (-1..1); finite at L = 1. */
+float pc_compose_hdr_saturation_factor(float s);
+/* Hue/Saturation's saturation taken in a document: a 32-bit Colorize scales s by 1 - |lightness|. */
+float pc_compose_colorize_saturation(float s, float lightness, bool colorize, bool hdr);
 /* Black & White grey value (weights in percent: reds, yellows, greens, cyans, blues, magentas). */
 float pc_compose_black_white_gray(const float c[3], const float weights[6]);
 /* Ordered-dither offset in -0.5..0.5 (4x4 Bayer matrix) for document pixel (x, y). */
@@ -137,6 +145,9 @@ float pc_compose_modern_brightness(float v, float brightness);
 float pc_compose_modern_contrast(float v, float contrast);
 /* Photoshop posterize: levels equal input bins (clamped to 2..=255). */
 float pc_compose_posterize(float v, uint32_t levels);
+/* Posterize in a document: at 16 bits (u16) bins the 16-bit sample onto 8-bit levels through a
+ * 16-bit step; 8 bits (and other depths) use pc_compose_posterize. */
+float pc_compose_posterize_in(float v, uint32_t levels, bool u16);
 float pc_compose_levels(const pc_levels_channel *ch, float v);
 /* Levels on samples with q steps per unit (has_q false, q < 1 or non-finite: continuous). */
 float pc_compose_levels_q(const pc_levels_channel *ch, float v, bool has_q, float q);

@@ -179,6 +179,9 @@ pc_status pc_format_manifest_build(const pc_document *doc, const char *thumbnail
 /* Parse (bounded by pc_format_check_manifest_depth, as the store's read is), migrate and decode.
  * JSON errors as pc_format_json; migration and model errors as the reference's. */
 pc_status pc_format_manifest_parse(const uint8_t *json, size_t len, pc_format_manifest **out, pc_error *err);
+/* Rejects a decoded manifest that holds a non-finite float (e.g. a number past f32's range that
+ * decoded to infinity): PC_ERR with "`PATH` is out of range", else PC_OK. */
+pc_status pc_format_manifest_check_finite(const pc_format_manifest *m, pc_error *err);
 
 /* convert::Loader::document. With preserve_ids, every stored id (document, layers, smart
  * contents) is reserved first; implausibly large ones remap the whole document to fresh ids.

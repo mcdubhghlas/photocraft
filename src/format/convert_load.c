@@ -567,6 +567,8 @@ static pc_status load_content(loader *L, pc_mf_content *m, pc_layer *kids, size_
         s->live = m->live;
         memset(&m->live, 0, sizeof m->live);
         m->has_live = false;
+        s->density = m->density;
+        s->feather = m->feather;
         break;
     }
     case PC_LAYER_SMART: {
@@ -737,6 +739,11 @@ static pc_status load_layer_with(loader *L, pc_mf_layer *m, pc_layer *kids, size
     l.blend_if = m->blend_if;
     memset(&m->blend_if, 0, sizeof m->blend_if);
     l.advanced = m->advanced;
+    if (m->has_xmp) {
+        str_move(&l.xmp, &m->xmp);
+        l.has_xmp = true;
+        m->has_xmp = false;
+    }
     *out = l;
     return PC_OK;
 }
@@ -1047,6 +1054,8 @@ static pc_status load_document(loader *L, pc_mf_doc *m, pc_document *out, pc_err
     str_move(&d.name, &m->name);
     d.size = m->size;
     d.resolution_dpi = m->resolution_dpi;
+    d.ruler_origin[0] = m->ruler_origin[0];
+    d.ruler_origin[1] = m->ruler_origin[1];
     d.mode = m->mode;
     d.depth = m->depth;
     d.guides = m->guides;

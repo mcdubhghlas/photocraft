@@ -385,7 +385,10 @@ static void dry_media(builder *bd)
     b.spacing = 0.04f;
     angle_dir(&b);
     b.transfer.enabled = true;
-    b.transfer.flow = (pc_paint_dynamic){0.0f, PC_PAINT_CONTROL_FADE, 400, 0.1f};
+    b.transfer.flow = pc_paint_dynamic_default();
+    b.transfer.flow.control = PC_PAINT_CONTROL_FADE;
+    b.transfer.flow.fade_steps = 400;
+    b.transfer.flow.minimum = 0.1f;
     add(bd, "Dry Bristle", &b);
 
     start(bd, &b, 60.0f, bd->base->hardness);
@@ -444,7 +447,13 @@ static void wet_media(builder *bd)
     b.roundness = 0.35f;
     b.spacing = 0.05f;
     angle_dir(&b);
-    transfer(&b, pc_paint_dynamic_default(), (pc_paint_dynamic){0.0f, PC_PAINT_CONTROL_FADE, 600, 0.35f});
+    {
+        pc_paint_dynamic flow = pc_paint_dynamic_default();
+        flow.control = PC_PAINT_CONTROL_FADE;
+        flow.fade_steps = 600;
+        flow.minimum = 0.35f;
+        transfer(&b, pc_paint_dynamic_default(), flow);
+    }
     add(bd, "Gouache Flat", &b);
 
     start(bd, &b, 70.0f, bd->base->hardness);

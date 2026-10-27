@@ -986,26 +986,35 @@ static bool c_option_string(de *d, const content *c, pc_param_spec *ps)
 
 typedef struct variant_def {
     const char *name;      /* struct variant ParamSpec::<name> */
-    const char *fields[3]; /* declaration order */
+    const char *fields[4]; /* declaration order */
     size_t nfields;
     unsigned required; /* bit k: field k has no default */
 } variant_def;
 
 static const variant_def VARIANTS[4] = {
-    {"Number", {"min", "max", "default"}, 3, 7u},
-    {"Int", {"min", "max", "default"}, 3, 0u},
-    {"Bool", {"default", NULL, NULL}, 1, 0u},
-    {"Choice", {"options", "default", NULL}, 2, 1u},
+    {"Number", {"min", "max", "default", "unit"}, 4, 7u},
+    {"Int", {"min", "max", "default", "unit"}, 4, 0u},
+    {"Bool", {"default", NULL, NULL, NULL}, 1, 0u},
+    {"Choice", {"options", "default", NULL, NULL}, 2, 1u},
 };
+
+/* lenient_unit: "px" -> px, anything else (unknown string, number, null, array, object) unitless. */
+static bool c_unit(const content *c, bool *out)
+{
+    *out = c->t == CT_STR && c->slen == 2 && memcmp(c->s, "px", 2) == 0;
+    return true;
+}
 
 /* One field value of variant v (field k) into ps. */
 static bool c_field(de *d, pc_param_type v, size_t k, const content *c, pc_param_spec *ps)
 {
     switch (v) {
     case PC_PARAM_NUMBER:
-        return c_f64(d, c, k == 0 ? &ps->min : k == 1 ? &ps->max : &ps->def);
+        return k == 3 ? c_unit(c, &ps->unit_px)
+                      : c_f64(d, c, k == 0 ? &ps->min : k == 1 ? &ps->max : &ps->def);
     case PC_PARAM_INT:
-        return c_i64(d, c, k == 0 ? &ps->imin : k == 1 ? &ps->imax : &ps->idef);
+        return k == 3 ? c_unit(c, &ps->unit_px)
+                      : c_i64(d, c, k == 0 ? &ps->imin : k == 1 ? &ps->imax : &ps->idef);
     case PC_PARAM_BOOL:
         return c_bool(d, c, &ps->bdef);
     case PC_PARAM_CHOICE:

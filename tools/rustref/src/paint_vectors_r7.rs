@@ -333,12 +333,12 @@ fn r7(sets: &[Vec<StrokePoint>]) {
     for (w, hh, seed, max) in [(1000u32, 400u32, 1u64, 96u32), (37, 5, 2, 8), (5, 3, 3, 96), (96, 97, 4, 96), (300, 200, 5, 0), (1, 1, 6, 1), (64, 64, 7, 7)] {
         let p = gtile(w, hh, seed).preview(max);
         let mut h = H0;
-        for x in &p.data {
+        for x in p.data.iter() {
             fnv(&mut h, &x.to_le_bytes());
         }
         l!("preview", w, hh, seed, max, format!("{},{}:{h:016x}", p.width, p.height));
     }
-    for (i, t) in [GrayTile { width: 4, height: 4, data: vec![1] }, GrayTile { width: 0, height: 0, data: vec![] }].iter().enumerate() {
+    for (i, t) in [GrayTile { width: 4, height: 4, data: vec![1].into() }, GrayTile { width: 0, height: 0, data: Vec::<u16>::new().into() }].iter().enumerate() {
         let p = t.preview(96);
         l!("preview", "bad", t.width, i, 96, format!("{},{}:{:?}", p.width, p.height, p.data));
     }

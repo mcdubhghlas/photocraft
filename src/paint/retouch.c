@@ -272,9 +272,10 @@ pc_status pc_paint_apply_coverage(pc_surface *target, pc_rect rect, const float 
             float d[4], s[4], o[4], enc[PC_RASTER_MAX_CHANNELS];
             pc_to_rgba(fmt, px, n, d);
             pc_to_rgba(fmt, src, n, s);
-            pc_blend_composite(blend, d, s, k, o);
             if (lock_transparency) {
-                o[3] = d[3];
+                pc_blend_composite_atop(blend, d, s, k, o);
+            } else {
+                pc_blend_composite(blend, d, s, k, o);
             }
             (void)pc_from_rgba(fmt, o, enc);
             memcpy(px, enc, n * sizeof *px);

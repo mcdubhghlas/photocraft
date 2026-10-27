@@ -170,7 +170,7 @@ fn gtile(w: u32, h: u32, seed: u64) -> GrayTile {
         data.push((mix64(seed.wrapping_mul(1000).wrapping_add(i)) >> 48) as u16);
         i += 1;
     }
-    GrayTile { width: w, height: h, data }
+    GrayTile { width: w, height: h, data: data.into() }
 }
 
 fn base() -> BrushSettings {
@@ -227,7 +227,7 @@ fn brushes() -> Vec<BrushSettings> {
         v.push(BrushSettings {
             roundness: 0.4,
             size: 18.0,
-            shape_dynamics: ShapeDynamics { enabled: true, angle: Dynamic { jitter: 0.1, control: c, fade_steps: 7, minimum: 0.0 }, ..Default::default() },
+            shape_dynamics: ShapeDynamics { enabled: true, angle: Dynamic { jitter: 0.1, control: c, fade_steps: 7, minimum: 0.0, ..Default::default() }, ..Default::default() },
             ..b()
         });
     }
@@ -375,7 +375,7 @@ fn brushes() -> Vec<BrushSettings> {
     v.push(BrushSettings { smoothing: Smoothing { amount: 0.6, ..Default::default() }, ..b() });
     v.push(BrushSettings { smoothing: Smoothing { amount: 0.3, pulled_string: true, ..Default::default() }, ..b() });
     v.push(BrushSettings {
-        pose: Pose { enabled: true, pressure: 0.4, tilt_x: 30.0, tilt_y: -20.0, rotation: 45.0, override_pressure: true, override_tilt: true, override_rotation: true },
+        pose: Pose { enabled: true, pressure: 0.4, tilt_x: 30.0, tilt_y: -20.0, rotation: 45.0, override_pressure: true, override_tilt_x: true, override_tilt_y: true, override_rotation: true },
         shape_dynamics: ShapeDynamics { enabled: true, size: Dynamic::controlled(Control::PenPressure), brush_projection: true, ..Default::default() },
         ..b()
     });
@@ -920,7 +920,7 @@ pub fn run() {
         let mut h = H0;
         u64le(&mut h, t.width as u64);
         u64le(&mut h, t.height as u64);
-        for x in &t.data {
+        for x in t.data.iter() {
             fnv(&mut h, &x.to_le_bytes());
         }
         format!("{h:016x}")

@@ -89,8 +89,38 @@ pc_status pc_io_parse_sold(const uint8_t *data, size_t len, bool *found, pc_io_p
 
 /* ---- writing the placement ---- */
 
-/* Where the source corners land (top-left, top-right, bottom-right, bottom-left), x, y pairs. */
-static void quad_points(const pc_io_placed_spec *s, double out[8])
+/* The most patches a quiltWarp is read with along each side (blocks::QUILT_MAX_PATCHES). */
+#define QUILT_MAX_PATCHES 64
+
+/* The mesh of a split warp: a custom warp of more than one patch, which SoLd stores as quiltWarp
+ * and PlLd can't store. NULL otherwise. */
+static const pc_mesh *split_mesh(const pc_warp *w)
+{
+    if (w == NULL || w->style != PC_WARP_CUSTOM || !w->has_mesh || w->mesh.npoints == 16) {
+        return NULL;
+    }
+    return pc_mesh_is_valid(&w->mesh) ? &w->mesh : NULL;
+}
+
+/* The warp SoLd stores: none, with a message, for a split warp of more patches along a side than a
+ * quiltWarp is read with, so its corners are framed by the source rect as on reopen; else w. */
+static pc_status sold_warp(const pc_warp *w, pc_io_warnings *warnings, const pc_warp **out, pc_error *err)
+{
+    const pc_mesh *m = split_mesh(w);
+    *out = w;
+    if (m != NULL && (m->nus > QUILT_MAX_PATCHES + 1 || m->nvs > QUILT_MAX_PATCHES + 1)) {
+        *out = NULL;
+        return pc_io_warn(warnings, err,
+                          "a split warp of more than %d patches along a side was written to PSD without its warp",
+                          QUILT_MAX_PATCHES);
+    }
+    return PC_OK;
+}
+
+/* Where the source corners land (top-left, top-right, bottom-right, bottom-left), x, y pairs. The
+ * frame is placed_frame of `warp` (the warp the block stores) for an affine placement, the source
+ * rect for a projective one. */
+static void quad_points(const pc_io_placed_spec *s, const pc_warp *warp, double out[8])
 {
     const double w = s->size[0];
     const double h = s->size[1];
@@ -103,7 +133,7 @@ static void quad_points(const pc_io_placed_spec *s, double out[8])
         frame[2] = w;
         frame[3] = h;
     } else {
-        pc_io_placed_frame(s->warp, w, h, frame);
+        pc_io_placed_frame(warp, w, h, frame);
     }
     /* Source corners: top-left, top-right, bottom-right, bottom-left of the control box. */
     pts[0][0] = frame[0];
@@ -128,12 +158,12 @@ static void quad_points(const pc_io_placed_spec *s, double out[8])
     }
 }
 
-static pc_status quad(const pc_io_placed_spec *s, pc_psd_value *out, pc_error *err)
+static pc_status quad(const pc_io_placed_spec *s, const pc_warp *warp, pc_psd_value *out, pc_error *err)
 {
     double q[8];
     pc_psd_value list;
     pc_status st = PC_OK;
-    quad_points(s, q);
+    quad_points(s, warp, q);
     memset(&list, 0, sizeof list);
     list.kind = PC_PSD_V_LIST;
     for (size_t i = 0; i < 8 && st == PC_OK; i++) {
@@ -148,7 +178,7 @@ static pc_status quad(const pc_io_placed_spec *s, pc_psd_value *out, pc_error *e
     return PC_OK;
 }
 
-bool pc_io_quad_moved(const pc_psd_desc *tmpl, const pc_io_placed_spec *s)
+static bool quad_moved(const pc_psd_desc *tmpl, const pc_io_placed_spec *s, const pc_warp *warp)
 {
     const pc_psd_value *pts = pc_psd_desc_get(tmpl, "Trnf");
     double old[8];
@@ -169,7 +199,7 @@ bool pc_io_quad_moved(const pc_psd_desc *tmpl, const pc_io_placed_spec *s)
     if (n != 8) {
         return true;
     }
-    quad_points(s, now);
+    quad_points(s, warp, now);
     for (size_t i = 0; i < 8; i++) {
         if (fabs(old[i] - now[i]) > 1e-6 * (1.0 + fabs(old[i]))) {
             return true;
@@ -178,58 +208,83 @@ bool pc_io_quad_moved(const pc_psd_desc *tmpl, const pc_io_placed_spec *s)
     return false;
 }
 
+bool pc_io_quad_moved(const pc_psd_desc *tmpl, const pc_io_placed_spec *s)
+{
+    return quad_moved(tmpl, s, s->warp);
+}
+
 static pc_status enumv(const char *t, const char *v, pc_psd_value *out, pc_error *err)
 {
     return pc_psd_value_enum(t, v, out, err);
 }
 
-static pc_status unit_floats(const pc_mesh *m, size_t axis, pc_psd_value *out, pc_error *err)
+static pc_status axis_floats(const double *vals, size_t n, pc_psd_value *out, pc_error *err)
 {
-    double *f = pc_malloc_array(m->npoints > 0 ? m->npoints : 1, sizeof *f);
+    double *f = pc_malloc_array(n > 0 ? n : 1, sizeof *f);
     if (f == NULL) {
         return pc_io_nomem(err, "writing a warp");
     }
-    for (size_t i = 0; i < m->npoints; i++) {
-        f[i] = axis == 0 ? m->points[i].x : m->points[i].y;
+    for (size_t i = 0; i < n; i++) {
+        f[i] = vals[i];
     }
     memset(out, 0, sizeof *out);
     out->kind = PC_PSD_V_UNIT_FLOATS;
     memcpy(out->unit, "#Pxl", 4);
     out->floats = f;
-    out->nfloats = m->npoints;
+    out->nfloats = n;
     return PC_OK;
 }
 
-/* The warp descriptor (also the PlLd warp). Multi-patch meshes have no 1 x 1 envelope and are
- * written as no warp, with a message. */
-static pc_status warp_desc(const pc_warp *wp, const double size[2], pc_io_warnings *warnings,
-                           pc_psd_desc *out, pc_error *err)
+/* The control points of a custom warp: an object array of their x and y. */
+static pc_status mesh_points(const pc_mesh *m, pc_psd_value *out, pc_error *err)
 {
-    const double nb[4] = {0.0, 0.0, size[0], size[1]};
-    pc_warp none;
-    const pc_warp *w = wp;
-    const pc_mesh *mesh = NULL;
+    pc_psd_desc *body = calloc(1, sizeof *body);
+    pc_psd_value v;
+    pc_status st;
+    double *xs;
+    double *ys;
+    if (body == NULL) {
+        return pc_io_nomem(err, "writing a warp");
+    }
+    st = pc_psd_desc_init(body, "rationalPoint", err);
+    xs = st == PC_OK ? pc_malloc_array(m->npoints > 0 ? m->npoints : 1, sizeof *xs) : NULL;
+    ys = st == PC_OK ? pc_malloc_array(m->npoints > 0 ? m->npoints : 1, sizeof *ys) : NULL;
+    if (st == PC_OK && (xs == NULL || ys == NULL)) {
+        st = pc_io_nomem(err, "writing a warp");
+    }
+    for (size_t i = 0; st == PC_OK && i < m->npoints; i++) {
+        xs[i] = m->points[i].x;
+        ys[i] = m->points[i].y;
+    }
+    if (st == PC_OK) {
+        st = axis_floats(xs, m->npoints, &v, err);
+        st = pc_io3_put(body, "Hrzn", &v, st, err);
+    }
+    if (st == PC_OK) {
+        st = axis_floats(ys, m->npoints, &v, err);
+        st = pc_io3_put(body, "Vrtc", &v, st, err);
+    }
+    free(xs);
+    free(ys);
+    if (st != PC_OK) {
+        pc_psd_desc_free(body);
+        return st;
+    }
+    memset(out, 0, sizeof *out);
+    out->kind = PC_PSD_V_OBJECT_ARRAY;
+    out->prefix = (uint32_t)m->npoints;
+    out->desc = body;
+    return PC_OK;
+}
+
+/* Style, bend, distortions, axis, bounds and order: the keys a warp and a quiltWarp descriptor
+ * share, in Photoshop's order. */
+static pc_status warp_head(const char *cls, const pc_warp *w, pc_psd_desc *out, pc_error *err)
+{
     pc_psd_desc bounds;
     pc_psd_desc d;
     pc_psd_value v;
-    pc_status st = PC_OK;
-    pc_warp_none(&none, nb);
-    if (w == NULL) {
-        w = &none;
-    }
-    if (w->style == PC_WARP_CUSTOM) {
-        if (w->has_mesh && w->mesh.npoints == 16) {
-            mesh = &w->mesh;
-        } else {
-            st = pc_io_warn(warnings, err,
-                            "a custom warp with more than one patch was written to PSD without its warp");
-            w = &none;
-        }
-    }
-    if (st != PC_OK) {
-        return st;
-    }
-    st = pc_psd_desc_init(&bounds, "classFloatRect", err);
+    pc_status st = pc_psd_desc_init(&bounds, "classFloatRect", err);
     if (st != PC_OK) {
         return st;
     }
@@ -245,7 +300,7 @@ static pc_status warp_desc(const pc_warp *wp, const double size[2], pc_io_warnin
         pc_psd_desc_fini(&bounds);
         return st;
     }
-    st = pc_psd_desc_init(&d, "warp", err);
+    st = pc_psd_desc_init(&d, cls, err);
     if (st != PC_OK) {
         pc_psd_desc_fini(&bounds);
         return st;
@@ -267,34 +322,54 @@ static pc_status warp_desc(const pc_warp *wp, const double size[2], pc_io_warnin
     st = pc_io3_put(&d, "uOrder", &v, st, err);
     v = pc_psd_value_int(4);
     st = pc_io3_put(&d, "vOrder", &v, st, err);
-    if (st == PC_OK && mesh != NULL) {
-        pc_psd_desc *body = calloc(1, sizeof *body);
-        pc_psd_desc env;
-        if (body == NULL) {
-            st = pc_io_nomem(err, "writing a warp");
+    if (st != PC_OK) {
+        pc_psd_desc_fini(&d);
+        return st;
+    }
+    *out = d;
+    return PC_OK;
+}
+
+/* The warp descriptor (also the PlLd warp). A split warp is written as no warp: SoLd keeps it in
+ * quiltWarp, next to this warpNone, as Photoshop does. A custom warp without a usable mesh is
+ * written as no warp, with a message. */
+static pc_status warp_desc(const pc_warp *wp, const double size[2], pc_io_warnings *warnings,
+                           pc_psd_desc *out, pc_error *err)
+{
+    const double nb[4] = {0.0, 0.0, size[0], size[1]};
+    pc_warp none;
+    const pc_warp *w = wp;
+    const pc_mesh *mesh = NULL;
+    pc_psd_desc d;
+    pc_status st = PC_OK;
+    pc_warp_none(&none, nb);
+    if (w == NULL) {
+        w = &none;
+    }
+    if (w->style == PC_WARP_CUSTOM) {
+        if (w->has_mesh && w->mesh.npoints == 16) {
+            mesh = &w->mesh;
+        } else if (w->has_mesh && pc_mesh_is_valid(&w->mesh)) {
+            w = &none; /* a split warp: SoLd stores it in quiltWarp, this stays warpNone */
         } else {
-            st = pc_psd_desc_init(body, "rationalPoint", err);
-            if (st == PC_OK) {
-                st = unit_floats(mesh, 0, &v, err);
-                st = pc_io3_put(body, "Hrzn", &v, st, err);
-            }
-            if (st == PC_OK) {
-                st = unit_floats(mesh, 1, &v, err);
-                st = pc_io3_put(body, "Vrtc", &v, st, err);
-            }
-            if (st != PC_OK) {
-                pc_psd_desc_free(body);
-            }
+            st = pc_io_warn(warnings, err,
+                            "a custom warp without a valid mesh was written to PSD without its warp");
+            w = &none;
         }
+    }
+    if (st != PC_OK) {
+        return st;
+    }
+    st = warp_head("warp", w, &d, err);
+    if (st == PC_OK && mesh != NULL) {
+        pc_psd_desc env;
+        pc_psd_value v;
+        st = mesh_points(mesh, &v, err);
         if (st == PC_OK) {
             st = pc_psd_desc_init(&env, "customEnvelopeWarp", err);
             if (st != PC_OK) {
-                pc_psd_desc_free(body);
+                pc_psd_value_fini(&v);
             } else {
-                memset(&v, 0, sizeof v);
-                v.kind = PC_PSD_V_OBJECT_ARRAY;
-                v.prefix = 16;
-                v.desc = body;
                 st = pc_io3_put(&env, "meshPoints", &v, st, err);
                 st = pc_io3_put_obj(&d, "customEnvelopeWarp", &env, st, err);
             }
@@ -305,6 +380,135 @@ static pc_status warp_desc(const pc_warp *wp, const double size[2], pc_io_warnin
         return st;
     }
     *out = d;
+    return PC_OK;
+}
+
+/* One quilt slice object array (quiltSliceX / quiltSliceY): the patch boundaries `knots` (in 0..1)
+ * mapped onto lo..hi across the warp's box. */
+static pc_status quilt_slice(const char *key, const double *knots, size_t nknots, double lo, double hi,
+                             pc_psd_value *out, pc_error *err)
+{
+    pc_psd_desc *body = calloc(1, sizeof *body);
+    pc_psd_value v;
+    double *vals;
+    pc_status st;
+    if (body == NULL) {
+        return pc_io_nomem(err, "writing a warp");
+    }
+    if (!(isfinite(hi - lo) && hi > lo)) {
+        lo = 0.0;
+        hi = 1.0;
+    }
+    st = pc_psd_desc_init(body, "UntF", err);
+    vals = st == PC_OK ? pc_malloc_array(nknots > 0 ? nknots : 1, sizeof *vals) : NULL;
+    if (st == PC_OK && vals == NULL) {
+        st = pc_io_nomem(err, "writing a warp");
+    }
+    for (size_t i = 0; st == PC_OK && i < nknots; i++) {
+        vals[i] = lo + knots[i] * (hi - lo);
+    }
+    if (st == PC_OK) {
+        st = axis_floats(vals, nknots, &v, err);
+        st = pc_io3_put(body, key, &v, st, err);
+    }
+    free(vals);
+    if (st != PC_OK) {
+        pc_psd_desc_free(body);
+        return st;
+    }
+    memset(out, 0, sizeof *out);
+    out->kind = PC_PSD_V_OBJECT_ARRAY;
+    out->prefix = (uint32_t)nknots;
+    out->desc = body;
+    return PC_OK;
+}
+
+/* The quiltWarp descriptor of a split warp: deformNumCols x deformNumRows control points and the
+ * patch boundaries (quiltSliceX / quiltSliceY) across the warp's box. */
+static pc_status quilt_desc(const pc_warp *w, const pc_mesh *mesh, pc_psd_desc *out, pc_error *err)
+{
+    pc_psd_desc env;
+    pc_psd_desc d;
+    pc_psd_value v;
+    pc_status st = pc_psd_desc_init(&env, "customEnvelopeWarp", err);
+    if (st != PC_OK) {
+        return st;
+    }
+    if (st == PC_OK) {
+        st = quilt_slice("quiltSliceX", mesh->us, mesh->nus, w->bounds[0], w->bounds[2], &v, err);
+        st = pc_io3_put(&env, "quiltSliceX", &v, st, err);
+    }
+    if (st == PC_OK) {
+        st = quilt_slice("quiltSliceY", mesh->vs, mesh->nvs, w->bounds[1], w->bounds[3], &v, err);
+        st = pc_io3_put(&env, "quiltSliceY", &v, st, err);
+    }
+    if (st == PC_OK) {
+        st = mesh_points(mesh, &v, err);
+        st = pc_io3_put(&env, "meshPoints", &v, st, err);
+    }
+    if (st != PC_OK) {
+        pc_psd_desc_fini(&env);
+        return st;
+    }
+    st = warp_head("quiltWarp", w, &d, err);
+    if (st != PC_OK) {
+        pc_psd_desc_fini(&env);
+        return st;
+    }
+    v = pc_psd_value_int((int32_t)pc_mesh_ny(mesh));
+    st = pc_io3_put(&d, "deformNumRows", &v, st, err);
+    v = pc_psd_value_int((int32_t)pc_mesh_nx(mesh));
+    st = pc_io3_put(&d, "deformNumCols", &v, st, err);
+    st = pc_io3_put_obj(&d, "customEnvelopeWarp", &env, st, err);
+    if (st != PC_OK) {
+        pc_psd_desc_fini(&d);
+        return st;
+    }
+    *out = d;
+    return PC_OK;
+}
+
+/* set_before: replace key in place if present, else insert it just before `before` (or at the
+ * end). Takes ownership of *v. */
+static pc_status set_before(pc_psd_desc *d, const char *key, pc_psd_value *v, const char *before,
+                            pc_error *err)
+{
+    pc_psd_item *g;
+    size_t at;
+    for (size_t i = 0; i < d->n; i++) {
+        if (pc_psd_id_is(&d->items[i].key, key)) {
+            pc_psd_value_fini(&d->items[i].value);
+            d->items[i].value = *v;
+            memset(v, 0, sizeof *v);
+            return PC_OK;
+        }
+    }
+    g = pc_grow_array(d->items, &d->cap, d->n + 1, sizeof *d->items);
+    if (g == NULL) {
+        pc_psd_value_fini(v);
+        return pc_io_nomem(err, "writing a warp");
+    }
+    d->items = g;
+    at = d->n;
+    for (size_t i = 0; i < d->n; i++) {
+        if (pc_psd_id_is(&d->items[i].key, before)) {
+            at = i;
+            break;
+        }
+    }
+    memmove(&d->items[at + 1], &d->items[at], (d->n - at) * sizeof *d->items);
+    memset(&d->items[at], 0, sizeof d->items[at]);
+    {
+        pc_status st = pc_psd_id_make(key, &d->items[at].key, err);
+        if (st != PC_OK) {
+            memmove(&d->items[at], &d->items[at + 1], (d->n - at) * sizeof *d->items);
+            pc_psd_value_fini(v);
+            return st;
+        }
+    }
+    d->items[at].value = *v;
+    memset(v, 0, sizeof *v);
+    d->n++;
     return PC_OK;
 }
 
@@ -339,7 +543,8 @@ static pc_status pad4(pc_buf *b, pc_error *err)
 }
 
 /* A fresh soLD descriptor in Photoshop's key order. */
-static pc_status fresh_sold(const pc_io_placed_spec *s, pc_psd_desc *warp, pc_psd_desc *out, pc_error *err)
+static pc_status fresh_sold(const pc_io_placed_spec *s, const pc_warp *stored, const pc_mesh *split,
+                            pc_psd_desc *warp, pc_psd_desc *out, pc_error *err)
 {
     pc_psd_desc d;
     pc_psd_desc sz;
@@ -371,12 +576,17 @@ static pc_status fresh_sold(const pc_io_placed_spec *s, pc_psd_desc *warp, pc_ps
     v = pc_psd_value_int(2);
     st = pc_io3_put(&d, "Type", &v, st, err);
     if (st == PC_OK) {
-        st = quad(s, &v, err);
+        st = quad(s, stored, &v, err);
         st = pc_io3_put(&d, "Trnf", &v, st, err);
     }
     if (st == PC_OK) {
-        st = quad(s, &v, err);
+        st = quad(s, stored, &v, err);
         st = pc_io3_put(&d, "nonAffineTransform", &v, st, err);
+    }
+    if (st == PC_OK && split != NULL) {
+        pc_psd_desc quilt;
+        st = quilt_desc(stored, split, &quilt, err);
+        st = pc_io3_put_obj(&d, "quiltWarp", &quilt, st, err);
     }
     st = pc_io3_put_obj(&d, "warp", warp, st, err);
     if (st == PC_OK) {
@@ -426,10 +636,16 @@ pc_status pc_io_sold_bytes(const pc_psd_desc *tmpl, const pc_io_placed_spec *s, 
     pc_psd_bytes vb = {NULL, 0};
     pc_buf b = PC_BUF_INIT;
     uint8_t hdr[8] = {'s', 'o', 'L', 'D', 0, 0, 0, 4};
-    pc_status st = warp_desc(s->warp, s->size, warnings, &warp, err);
+    const pc_warp *stored = NULL;
+    const pc_mesh *split = NULL;
+    pc_status st = sold_warp(s->warp, warnings, &stored, err);
+    if (st == PC_OK) {
+        st = warp_desc(stored, s->size, warnings, &warp, err);
+    }
     if (st != PC_OK) {
         return st;
     }
+    split = split_mesh(stored);
     if (tmpl != NULL) {
         pc_psd_value v;
         st = pc_psd_desc_clone(tmpl, &d, err);
@@ -437,11 +653,11 @@ pc_status pc_io_sold_bytes(const pc_psd_desc *tmpl, const pc_io_placed_spec *s, 
             pc_psd_desc_fini(&warp);
             return st;
         }
-        if (pc_io_quad_moved(tmpl, s)) {
-            st = quad(s, &v, err);
+        if (quad_moved(tmpl, s, stored)) {
+            st = quad(s, stored, &v, err);
             st = st == PC_OK ? pc_io3_set(&d, "Trnf", &v, err) : st;
             if (st == PC_OK) {
-                st = quad(s, &v, err);
+                st = quad(s, stored, &v, err);
                 st = st == PC_OK ? pc_io3_set(&d, "nonAffineTransform", &v, err) : st;
             }
         }
@@ -450,6 +666,42 @@ pc_status pc_io_sold_bytes(const pc_psd_desc *tmpl, const pc_io_placed_spec *s, 
             st = st == PC_OK ? pc_io3_set(&d, "warp", &v, err) : st;
         } else {
             pc_psd_desc_fini(&warp);
+        }
+        /* quiltWarp is read before warp, so the imported one stays only while it still says what
+         * the layer's warp is; otherwise it is rewritten, or dropped for a warp that isn't split. */
+        if (st == PC_OK) {
+            const pc_psd_desc *old = pc_io_desc_get(&d, "quiltWarp");
+            bool kept = false;
+            if (old != NULL) {
+                pc_io_plld_warp_kind kind;
+                pc_warp rw;
+                st = pc_io_warp_of_desc(old, &kind, &rw, err);
+                if (st == PC_OK) {
+                    if (kind == PC_IO_PLLD_WARP_NONE) {
+                        kept = stored == NULL;
+                    } else if (kind == PC_IO_PLLD_WARP_SOME) {
+                        kept = stored != NULL && pc_warp_eq(&rw, stored);
+                        pc_warp_fini(&rw);
+                    } else {
+                        kept = s->warp == NULL;
+                    }
+                }
+            }
+            if (st == PC_OK && !kept) {
+                if (split != NULL) {
+                    pc_psd_desc quilt;
+                    pc_psd_value qv;
+                    st = quilt_desc(stored, split, &quilt, err);
+                    if (st == PC_OK) {
+                        st = pc_psd_value_object(&quilt, &qv, err);
+                    }
+                    if (st == PC_OK) {
+                        st = set_before(&d, "quiltWarp", &qv, "warp", err);
+                    }
+                } else {
+                    pc_io3_remove(&d, "quiltWarp");
+                }
+            }
         }
         if (st == PC_OK && s->filter_fx != NULL) {
             pc_psd_desc fx;
@@ -466,7 +718,7 @@ pc_status pc_io_sold_bytes(const pc_psd_desc *tmpl, const pc_io_placed_spec *s, 
             return st;
         }
     } else {
-        st = fresh_sold(s, &warp, &d, err);
+        st = fresh_sold(s, stored, split, &warp, &d, err);
         if (st != PC_OK) {
             return st;
         }
@@ -501,6 +753,8 @@ pc_status pc_io_plld_bytes(const pc_io_placed_spec *s, pc_io_warnings *warnings,
     size_t n = strlen(s->idnt);
     pc_psd_desc warp;
     pc_psd_bytes vb = {NULL, 0};
+    /* PlLd has no split warp: it stores none, its corners framed by the source rect. */
+    const pc_warp *warp_in = split_mesh(s->warp) != NULL ? NULL : s->warp;
     pc_status st = pc_buf_append(&b, "plcL\0\0\0\3", 8, err);
     n = n < 255 ? n : 255;
     if (st == PC_OK) {
@@ -513,7 +767,7 @@ pc_status pc_io_plld_bytes(const pc_io_placed_spec *s, pc_io_warnings *warnings,
         pc_store_be32(tmp, (uint32_t)FIELDS[i]);
         st = pc_buf_append(&b, tmp, 4, err);
     }
-    quad_points(s, q);
+    quad_points(s, warp_in, q);
     for (size_t i = 0; i < 8 && st == PC_OK; i++) {
         uint64_t bits;
         memcpy(&bits, &q[i], 8);
@@ -525,7 +779,7 @@ pc_status pc_io_plld_bytes(const pc_io_placed_spec *s, pc_io_warnings *warnings,
         st = pc_buf_append(&b, tmp, 4, err);
     }
     if (st == PC_OK) {
-        st = warp_desc(s->warp, s->size, warnings, &warp, err);
+        st = warp_desc(warp_in, s->size, warnings, &warp, err);
         if (st == PC_OK) {
             st = pc_psd_vdesc_to_bytes(&warp, &vb, err);
             pc_psd_desc_fini(&warp);
@@ -849,6 +1103,106 @@ pc_status pc_io_feid_item(const char *placed, const pc_surface *unfiltered, cons
     }
     it.rect = (pc_psd_rect){r.y0, r.x0, r.y1, r.x1};
     *out = it;
+    *has = true;
+    return PC_OK;
+}
+
+pc_status pc_io_unfiltered_from_item(const pc_psd_fx_item *item, pc_pixel_format fmt, bool *has,
+                                     pc_surface *out, pc_error *err)
+{
+    size_t cc = pc_color_mode_channels(fmt.mode);
+    size_t ch = cc + 1;
+    size_t w;
+    size_t h;
+    size_t n;
+    uint16_t depth;
+    pc_psd_bytes decoded[PC_RASTER_MAX_CHANNELS];
+    pc_io_plane planes[PC_RASTER_MAX_CHANNELS];
+    uint8_t fill[PC_RASTER_MAX_CHANNELS][4];
+    bool invert[PC_RASTER_MAX_CHANNELS];
+    uint8_t *bytes = NULL;
+    size_t blen = 0;
+    pc_surface surface;
+    pc_status st = PC_OK;
+    pc_error pe;
+    *has = false;
+    if (ch > PC_RASTER_MAX_CHANNELS) {
+        return PC_OK;
+    }
+    /* The planes must match the document depth and the document must carry alpha (the inverse of
+     * feid_item, which stores transparency in the last slot). */
+    if (item->depth > UINT16_MAX || item->depth != pc_io_psd_depth(fmt.sample) || !fmt.alpha) {
+        return PC_OK;
+    }
+    depth = (uint16_t)item->depth;
+    if (pc_psd_rect_size(item->rect, &w, &h, &pe) != PC_OK || !pc_size_mul(w, h, &n)) {
+        return PC_OK;
+    }
+    for (size_t i = 0; i < ch; i++) {
+        decoded[i] = (pc_psd_bytes){NULL, 0};
+    }
+    /* Colour channels from slots 0..cc, transparency from the last slot. */
+    for (size_t i = 0; i < ch && st == PC_OK; i++) {
+        size_t slot = i < cc ? i : (item->nslots > 0 ? item->nslots - 1 : 0);
+        bool present = slot < item->nslots && item->slot_written[slot];
+        planes[i].present = false;
+        planes[i].data = NULL;
+        planes[i].len = 0;
+        if (present) {
+            pc_status d = pc_psd_fx_plane_decode(&item->slots[slot], w, h, depth, &decoded[i], &pe);
+            if (d == PC_ERR_NOMEM) {
+                st = pc_fail(err, PC_ERR_NOMEM, "%s", pe.msg);
+                break;
+            }
+            if (d != PC_OK) {
+                st = PC_ERR_FORMAT; /* a plane that doesn't decode: no unfiltered pixels */
+                break;
+            }
+            planes[i].present = true;
+            planes[i].data = decoded[i].data;
+            planes[i].len = decoded[i].len;
+        } else if (i < cc) {
+            st = PC_ERR_FORMAT; /* a missing colour plane: no unfiltered pixels */
+            break;
+        }
+        /* colour: zero fill, CMYK inverted; alpha: opaque (max), never inverted. */
+        if (i < cc) {
+            (void)pc_io_zero_sample(fmt.sample, fill[i]);
+            invert[i] = fmt.mode == PC_COLOR_MODE_CMYK;
+        } else {
+            (void)pc_io_max_sample(fmt.sample, fill[i]);
+            invert[i] = false;
+        }
+    }
+    if (st == PC_OK) {
+        st = pc_io_interleave(planes, ch, (const uint8_t (*)[4])fill, n, fmt.sample, invert, &bytes, &blen,
+                              err);
+    }
+    for (size_t i = 0; i < ch; i++) {
+        pc_psd_bytes_fini(&decoded[i]);
+    }
+    if (st == PC_ERR_FORMAT) {
+        return PC_OK; /* no unfiltered pixels: *has stays false */
+    }
+    if (st != PC_OK) {
+        return st;
+    }
+    if (fmt.mode == PC_COLOR_MODE_LAB && fmt.sample == PC_SAMPLE_TYPE_U16) {
+        /* 16-bit Lab a and b from Photoshop's scale into the document's, as in layer channels. */
+        pc_io_lab16_chroma(bytes, blen, cc + 1, true);
+    }
+    pc_surface_init(&surface, fmt);
+    st = pc_surface_write_interleaved(&surface,
+                                      pc_rect_make(item->rect.left, item->rect.top, item->rect.right,
+                                                   item->rect.bottom),
+                                      bytes, blen, err);
+    free(bytes);
+    if (st != PC_OK) {
+        pc_surface_fini(&surface);
+        return st;
+    }
+    pc_surface_prune(&surface);
+    *out = surface;
     *has = true;
     return PC_OK;
 }

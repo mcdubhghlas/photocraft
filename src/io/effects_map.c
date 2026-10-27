@@ -307,6 +307,7 @@ static pc_status parse_stroke(const pc_psd_desc *d, pc_stroke_fx *s, pc_error *e
     s->position = enum_is(d, "Styl", "InsF")   ? PC_STROKE_INSIDE
                   : enum_is(d, "Styl", "CtrF") ? PC_STROKE_CENTER
                                                : PC_STROKE_OUTSIDE;
+    s->overprint = pc_io_desc_bool(d, "overprint");
     if (enum_is(d, "PntT", "GrFl")) {
         s->paint.kind = PC_FX_PAINT_GRADIENT;
         st = gradient_from(d, &s->paint.u.gradient, err);
@@ -351,6 +352,7 @@ static pc_status parse_bevel(const pc_psd_desc *d, pc_bevel *b, pc_error *err)
     b->shadow = (pc_fx_common){true, blend_of(d, "sdwM", PC_BLEND_MULTIPLY), pct(d, "sdwO", 0.75f)};
     b->shadow_color = color_of(d, "sdwC");
     st = contour_of(d, "TrnS", &b->gloss_contour, err);
+    b->gloss_anti_alias = pc_io_desc_bool(d, "antialiasGloss");
     if (st == PC_OK && pc_io_desc_bool(d, "useShape")) {
         b->has_contour = true;
         b->contour.range = pct(d, "Inpr", 0.5f);
@@ -740,6 +742,7 @@ static pc_status write_stroke(pc_psd_desc *d, const pc_stroke_fx *s, pc_error *e
     pc_status st = with_common(d, &s->common, err);
     st = st != PC_OK ? st : add_enum(d, "Styl", "FStl", styl, err);
     st = st != PC_OK ? st : add_unit(d, "Sz  ", "#Pxl", s->size, err);
+    st = st != PC_OK ? st : add_bool(d, "overprint", s->overprint, err);
     if (st != PC_OK) {
         return st;
     }
@@ -798,6 +801,7 @@ static pc_status write_bevel(pc_psd_desc *d, const pc_bevel *b, pc_error *err)
     st = st != PC_OK ? st : add_unit(d, "blur", "#Pxl", b->size, err);
     st = st != PC_OK ? st : add_enum(d, "bvlD", "BESs", b->up ? "In  " : "Out ", err);
     st = st != PC_OK ? st : add_contour(d, "TrnS", &b->gloss_contour, err);
+    st = st != PC_OK ? st : add_bool(d, "antialiasGloss", b->gloss_anti_alias, err);
     st = st != PC_OK ? st : add_unit(d, "Sftn", "#Pxl", b->soften, err);
     if (st != PC_OK) {
         return st;

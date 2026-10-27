@@ -219,7 +219,9 @@ void pc_duotone_render(const pc_duotone *d, float gray, float out[3])
     out[0] = out[1] = out[2] = 1.0f;
     for (i = 0; i < d->ninks; i++) {
         const pc_duotone_ink *ink = &d->inks[i];
-        float v = pc_duotone_curve_eval(ink->curve.pts, ink->curve.len, density);
+        /* Clamp ink density like the Multichannel conversion so curves above 100 % cannot push
+         * the simulated print out of gamut. */
+        float v = pc_duotone_ink_density(ink, density);
         for (k = 0; k < 3; k++) {
             /* Each ink filters light: full density transmits the ink colour. */
             out[k] *= 1.0f - v * (1.0f - ink->color[k]);

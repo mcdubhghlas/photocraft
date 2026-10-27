@@ -50,6 +50,12 @@
 #include "content_fill_cmds.h"     /* GAP3: edit.contentAwareFill */
 #include "vp_cmds.h"               /* GAP3: filter.vanishingPoint */
 #include "exr_parts_cmds.h"        /* GAP3: file.openExrParts + file.exrParts */
+#include "layer_list_cmds.h"       /* R0-feat: layer.list */
+#include "face_cmds.h"             /* R0-feat: image.detectFaces (unsupported: no face detector) */
+#include "layer_xmp_cmds.h"        /* R0-feat: layer.xmpMetadata */
+#include "history_menu_cmds.h"     /* R0-feat: history.stepForward/stepBackward/clear + setSource */
+#include "contour_lib_cmds.h"      /* R0-feat: layer.layerStyle.contours.* */
+#include "export_preset_cmds.h"    /* R0-feat: file.export.presets.* */
 
 /* ---- owned JSON results ------------------------------------------------------------------- */
 
@@ -910,6 +916,20 @@ static void register_modules(pc_engine_command **arr, size_t *n, size_t *cap)
     const pc_engine_command *exr_parts =
         pc_engine_exr_parts_specs(&m); /* GAP3: file.openExrParts + file.exrParts */
     (void)append_specs(arr, n, cap, exr_parts, m);
+    const pc_engine_command *layer_list = pc_engine_layer_list_specs(&m); /* R0-feat: layer.list */
+    (void)append_specs(arr, n, cap, layer_list, m);
+    const pc_engine_command *face = pc_engine_face_specs(&m); /* R0-feat: image.detectFaces */
+    (void)append_specs(arr, n, cap, face, m);
+    const pc_engine_command *layer_xmp = pc_engine_layer_xmp_specs(&m); /* R0-feat: layer.xmpMetadata */
+    (void)append_specs(arr, n, cap, layer_xmp, m);
+    const pc_engine_command *history_menu = pc_engine_history_menu_specs(&m); /* R0-feat: step/clear */
+    (void)append_specs(arr, n, cap, history_menu, m);
+    const pc_engine_command *history_source = pc_engine_history_source_specs(&m); /* R0-feat: setSource */
+    (void)append_specs(arr, n, cap, history_source, m);
+    const pc_engine_command *contour_lib = pc_engine_contour_lib_specs(&m); /* R0-feat: contours.* */
+    (void)append_specs(arr, n, cap, contour_lib, m);
+    const pc_engine_command *export_preset = pc_engine_export_preset_specs(&m); /* R0-feat */
+    (void)append_specs(arr, n, cap, export_preset, m);
     /* E3..E12: append your module's specs() here. */
 }
 

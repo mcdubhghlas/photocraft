@@ -24,12 +24,24 @@
 /* Sub-pixel sample offsets (a 4x4 grid) for the area coverage of small tips. */
 static const float SUBPIXEL[4] = {-0.375f, -0.125f, 0.125f, 0.375f};
 
+/* grid_cell(v, 0.5): the centre of the pixel cell holding v, with a value within rounding noise of
+ * a cell boundary counted as on it (so line stepping and snapping agree; port of paint curve.rs /
+ * dynamics.rs grid_cell). */
+static double grid_cell_half(double v)
+{
+    double w = v, r = round(v);
+    if (fabs(w - r) < 1e-7) {
+        w = r;
+    }
+    return floor(w) + 0.5;
+}
+
 void pc_paint_grid_center(double x, double y, float diameter, float *cx, float *cy)
 {
     int64_t n = isfinite(diameter) ? pc_f32_to_i64(pc_paint_maxf_k(roundf(diameter), 1.0f)) : 1;
     bool odd = n % 2 == 1;
-    *cx = pc_f64_to_f32(odd ? floor(x) + 0.5 : round(x));
-    *cy = pc_f64_to_f32(odd ? floor(y) + 0.5 : round(y));
+    *cx = pc_f64_to_f32(odd ? grid_cell_half(x) : round(x));
+    *cy = pc_f64_to_f32(odd ? grid_cell_half(y) : round(y));
 }
 
 void pc_paint_grid_square(double x, double y, float diameter, double out[4])
@@ -578,15 +590,21 @@ void pc_paint_over_native(pc_pixel_format fmt, float *dst, const float *src, flo
 {
     size_t a;
     if (pc_paint_alpha_index(fmt, &a)) {
-        float da = dst[a], sa = src[a] * k, oa = sa + da * (1.0f - sa);
+        float da = dst[a], sa = src[a] * k, oa;
+        if (lock_transparency) {
+            /* Alpha kept: source atop, the colour moves by the source alpha alone (#5783). */
+            for (size_t c = 0; c < a; c++) {
+                dst[c] += (src[c] - dst[c]) * sa;
+            }
+            return;
+        }
+        oa = sa + da * (1.0f - sa);
         if (oa > 0.0f) {
             for (size_t c = 0; c < a; c++) {
                 dst[c] = (src[c] * sa + dst[c] * da * (1.0f - sa)) / oa;
             }
         }
-        if (!lock_transparency) {
-            dst[a] = oa;
-        }
+        dst[a] = oa;
     } else {
         for (size_t c = 0, n = pc_pixel_format_channels(fmt); c < n; c++) {
             dst[c] += (src[c] - dst[c]) * k;

@@ -5,6 +5,10 @@
 
 #include "text/psd.h"
 
+/* Upper bound on EngineData run counts processed (matches the reference's `MAX_ENGINE_RUNS`),
+ * so a crafted block with billions of run lengths can't make a save/load allocate for ever. */
+#define PC_PSD_MAX_ENGINE_RUNS 65536u
+
 /* A list of owned strings (font names, sheet names). */
 typedef struct psd_names {
     pc_str *v;
@@ -38,8 +42,10 @@ pc_paragraph_style psd_para_style(const pc_ed_value *base, const pc_ed_value *d,
 pc_status psd_style_sheet_data(const pc_char_style *s, size_t font, float k, pc_ed_value *out, pc_error *err);
 pc_status psd_paragraph_properties(const pc_paragraph_style *p, float k, pc_ed_value *out, pc_error *err);
 pc_status psd_font_entry(const pc_str *name, pc_ed_value *out, pc_error *err);
-/* An array of font_entry for every name. */
-pc_status psd_font_set(const psd_names *fonts, pc_ed_value *out, pc_error *err);
+/* An array of font entries for every name, keeping the template's `original` FontSet entries
+ * where a name matches and using `psd_font_entry` for new fonts. */
+pc_status psd_font_set(const psd_names *fonts, const pc_ed_value *original, pc_ed_value *out,
+                       pc_error *err);
 
 /* Sets dict[key] = Int(i) / Bool(b) / Real(r) / String(s). */
 pc_status psd_set_int(pc_ed_value *d, const char *key, int64_t i, pc_error *err);

@@ -271,6 +271,8 @@ static void test_closed_rect_stroke_and_alignment(void)
     for (i = 0; i < 3; i++) {
         pc_shape_layer sh;
         memset(&sh, 0, sizeof sh);
+    sh.density = 1.0f; /* ShapeLayer::default(): a hard fill, no soft mask */
+    sh.feather = 0.0f;
         sh.path = vh_clone(&sq);
         sh.has_stroke = true;
         pc_shape_stroke_default(&sh.stroke);
@@ -314,6 +316,8 @@ static void test_aligned_dashes_keep_width_units_and_open_paths_stay_centered(vo
         float (*rgba)[4];
         float *dashes = malloc(2 * sizeof *dashes);
         memset(&sh, 0, sizeof sh);
+    sh.density = 1.0f; /* ShapeLayer::default(): a hard fill, no soft mask */
+    sh.feather = 0.0f;
         sh.path = vh_clone(&sq);
         sh.has_stroke = true;
         pc_shape_stroke_default(&sh.stroke);
@@ -339,6 +343,8 @@ static void test_aligned_dashes_keep_width_units_and_open_paths_stay_centered(vo
         pc_shape_layer sh;
         float (*rgba)[4];
         memset(&sh, 0, sizeof sh);
+    sh.density = 1.0f; /* ShapeLayer::default(): a hard fill, no soft mask */
+    sh.feather = 0.0f;
         sh.path = vh_clone(&open);
         sh.has_stroke = true;
         pc_shape_stroke_default(&sh.stroke);
@@ -396,6 +402,8 @@ static pc_shape_layer red_square_blue_stroke(void)
 {
     pc_shape_layer sh;
     memset(&sh, 0, sizeof sh);
+    sh.density = 1.0f; /* ShapeLayer::default(): a hard fill, no soft mask */
+    sh.feather = 0.0f;
     sh.path = vh_rect(2.0, 2.0, 10.0, 10.0);
     sh.has_fill = true;
     sh.fill = pc_fill_solid(pc_color_rgb(1.0f, 0.0f, 0.0f));
@@ -458,6 +466,8 @@ static float (*grad(pc_fill fill, pc_rect canvas))[4]
     size_t n = 0;
     pc_rect c = pc_rect_make(0, 0, canvas.x1 < 100 ? canvas.x1 : 100, canvas.y1 < 10 ? canvas.y1 : 10);
     memset(&sh, 0, sizeof sh);
+    sh.density = 1.0f; /* ShapeLayer::default(): a hard fill, no soft mask */
+    sh.feather = 0.0f;
     sh.path = vh_rect(0.0, 0.0, 100.0, 10.0);
     sh.has_fill = true;
     sh.fill = fill;
@@ -724,6 +734,8 @@ static void check_rendered_bounds(const pc_path *path, pc_rect want, const char 
     pc_vec_rasterizer r;
     size_t si;
     memset(&sh, 0, sizeof sh);
+    sh.density = 1.0f; /* ShapeLayer::default(): a hard fill, no soft mask */
+    sh.feather = 0.0f;
     sh.path = vh_clone(path);
     sh.has_fill = true;
     sh.fill = pc_fill_solid(pc_color_rgb(0.0f, 0.0f, 1.0f));
@@ -1002,6 +1014,8 @@ static void test_perf_6016(void)
     e = vh_ellipse(2000.0, 2000.0, 2016.0, 2016.0);
     vh_push(&path, vh_take0(&e, PC_PATH_EXCLUDE));
     memset(&sh, 0, sizeof sh);
+    sh.density = 1.0f; /* ShapeLayer::default(): a hard fill, no soft mask */
+    sh.feather = 0.0f;
     sh.path = vh_clone(&path);
     sh.has_fill = true;
     sh.fill = pc_fill_solid(pc_color_rgb(0.2f, 0.5f, 0.9f));

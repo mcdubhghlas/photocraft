@@ -127,14 +127,27 @@ static pc_status paint_fx_map(const fxc *c, pc_compose_buffer *dst, size_t i, si
 
 /* Keeps an exterior effect behind the layer's shape where Fill is partly or wholly transparent;
  * under a fully opaque fill the layer covers it anyway (no double-attenuated anti-aliased edges). */
-static void knock_out_exterior(pc_fxm *m, const fxc *c)
+static void knock_out_exterior(pc_fxm *m, const fxc *c, float fill_opacity)
 {
-    float see = 1.0f - pc_clampf(c->layer->fill_opacity, 0.0f, 1.0f);
+    float see = 1.0f - pc_clampf(fill_opacity, 0.0f, 1.0f);
     size_t n = pc_fxm_len(m) < c->n ? pc_fxm_len(m) : c->n;
     size_t i;
     for (i = 0; i < n; i++) {
         m->v[i] *= 1.0f - c->shape.v[i] * see;
     }
+}
+
+/* How far the layer lets a knocked-out drop shadow show beneath its own shape (Layer Knocks Out
+ * Drop Shadow): in a normal mode an opaque layer covers it anyway, so only see-through fill knocks
+ * it out; in any other mode the layer blends with what's beneath it (shadow and all), so Photoshop
+ * keeps it out from under the shape wholly. */
+static float shadow_see_through(const pc_layer *layer)
+{
+    if (layer->blend == PC_BLEND_NORMAL || layer->blend == PC_BLEND_DISSOLVE ||
+        layer->blend == PC_BLEND_PASS_THROUGH) {
+        return 1.0f - pc_clampf(layer->fill_opacity, 0.0f, 1.0f);
+    }
+    return 1.0f;
 }
 
 /* The exterior effects below the layer: drop shadows, then outer glows. */
@@ -154,9 +167,10 @@ static pc_status exterior_below(const fxc *c, pc_compose_buffer *work, pc_error 
             break;
         }
         if (e->u.shadow.knocks_out) {
-            /* The layer hides the shadow beneath it only where its fill is see-through: at 100 %
-             * fill the layer covers it anyway, at 0 % the shape shows the bare backdrop. */
-            knock_out_exterior(&m, c);
+            /* The layer hides the shadow beneath it where its fill is see-through (at 100 % fill in
+             * a normal mode it covers it anyway; at 0 % the shape shows the bare backdrop), and
+             * wholly in a mode that blends with it (shadow_see_through). */
+            knock_out_exterior(&m, c, 1.0f - shadow_see_through(c->layer));
         }
         pc_color_to_rgb(&e->u.shadow.color, rgb);
         pc_fx_paint_color(work, &m, rgb, e->u.shadow.common.blend, e->u.shadow.common.opacity);
@@ -170,8 +184,9 @@ static pc_status exterior_below(const fxc *c, pc_compose_buffer *work, pc_error 
         }
         st = fx_map(c, r, 0, &m, err);
         if (st == PC_OK) {
-            /* The glow is behind the shape, not painted across its interior at 0 % Fill. */
-            knock_out_exterior(&m, c);
+            /* The glow is behind the shape, not painted across its interior at 0 % Fill; a fully
+             * opaque fill keeps the existing anti-aliased edge. */
+            knock_out_exterior(&m, c, c->layer->fill_opacity);
             st = pc_fx_paint_glow(work, &m, &e->u.glow, c->sb, c->anchor, c->big, c->patterns, err);
             pc_fxm_free(&m);
         }
@@ -287,10 +302,13 @@ static pc_status inside_strokes(const fxc *c, pc_compose_buffer *lay, const floa
  * A higher stroke covers the ones below it: each stroke's share is its coverage x opacity not yet
  * taken by strokes above (for Normal strokes this equals stacking them top over bottom). */
 static pc_status outside_strokes(const fxc *c, pc_compose_buffer *work, const pc_compose_buffer *lay,
-                                 const float *dout, const float *vdout, pc_error *err)
+                                 const float *dout, const float *dout_exact, const float *vdout,
+                                 const float *vdout_exact, pc_error *err)
 {
     bool vector_shape = c->layer->content.kind == PC_LAYER_SHAPE;
-    const float *d = vdout != NULL ? vdout : dout;
+    /* Shape layers without a filled outline stroke their vector outline (estimated from local
+     * coverage); every other layer strokes its shape. The width then picks the field. */
+    bool vector_outline = vector_shape && !c->maps->outline;
     pc_compose_buffer base = {PC_RECT_EMPTY, NULL, 0};
     pc_compose_buffer blended = {PC_RECT_EMPTY, NULL, 0};
     float (*acc)[4] = NULL;
@@ -336,6 +354,9 @@ static pc_status outside_strokes(const fxc *c, pc_compose_buffer *work, const pc
         if (out_w <= 0.0f) {
             continue;
         }
+        /* The outside edge's field depends on this stroke's width (#3646). */
+        bool exact = pc_compose_fx_stroke_outside_exact(out_w);
+        const float *d = vector_outline ? (exact ? vdout_exact : vdout) : (exact ? dout_exact : dout);
         for (i = 0; i < c->n; i++) {
             /* Shape layers: Photoshop strokes the vector outline; the stroke never shows through
              * the shape's pixels. Along a filled shape's outline it covers the part of each edge
@@ -359,16 +380,29 @@ static pc_status outside_strokes(const fxc *c, pc_compose_buffer *work, const pc
             } else {
                 k = band;
             }
-            share[i] = k * e->u.stroke.common.opacity * (1.0f - cover[i]);
+            /* The stroke's own opacity, then (for a Dissolve stroke) the effect-Dissolve speckle:
+             * the pixel takes the stroke fully or not at all with probability k, by the same
+             * document-coordinate noise as a Dissolve layer (#6995). The share then carries the
+             * choice, so the paint itself composites as Normal (below). */
+            k *= e->u.stroke.common.opacity;
+            if (e->u.stroke.common.blend == PC_BLEND_DISSOLVE) {
+                int64_t dx = (int64_t)c->big.x0 + (int64_t)(i % c->w);
+                int64_t dy = (int64_t)c->big.y0 + (int64_t)(i / c->w);
+                k = (k > 0.0f && pc_compose_fx_hash_noise(dx, dy) < k) ? 1.0f : 0.0f;
+            }
+            share[i] = k * (1.0f - cover[i]);
             cover[i] += share[i];
             ones.v[i] = share[i] > 0.0f ? 1.0f : 0.0f;
         }
-        /* The stroke blended over the backdrop at full coverage. */
+        /* The stroke blended over the backdrop at full coverage. The share already carries the
+         * Dissolve choice, so a Dissolve stroke paints as Normal. */
         pc_compose_buffer_fini(&blended);
         st = pc_compose_buffer_clone(&base, &blended, err);
         if (st == PC_OK) {
+            pc_blend_mode paint_blend =
+                e->u.stroke.common.blend == PC_BLEND_DISSOLVE ? PC_BLEND_NORMAL : e->u.stroke.common.blend;
             st = pc_fx_paint_fx(&blended, &ones, &e->u.stroke.paint, stroke_frame_of(c, &e->u.stroke),
-                                c->anchor, c->big, e->u.stroke.common.blend, 1.0f, c->patterns, err);
+                                c->anchor, c->big, paint_blend, 1.0f, c->patterns, err);
         }
         for (i = 0; st == PC_OK && i < c->n; i++) {
             float s = share[i];
@@ -433,14 +467,91 @@ static pc_status paint_bevels(const fxc *c, pc_compose_buffer *dst, pc_compose_b
     return st;
 }
 
+/* True if an enabled interior effect (painted with the layer's content) blends in a mode other
+ * than Normal. */
+static bool blends_inside(const pc_layer *layer)
+{
+    size_t i;
+    for (i = 0; i < layer->effects.nitems; i++) {
+        const pc_effect *e = &layer->effects.items[i];
+        if (!pc_effect_enabled(e)) {
+            continue;
+        }
+        switch (e->kind) {
+        case PC_FX_COLOR_OVERLAY:
+            if (e->u.color_overlay.common.blend != PC_BLEND_NORMAL) {
+                return true;
+            }
+            break;
+        case PC_FX_GRADIENT_OVERLAY:
+            if (e->u.gradient_overlay.common.blend != PC_BLEND_NORMAL) {
+                return true;
+            }
+            break;
+        case PC_FX_PATTERN_OVERLAY:
+            if (e->u.pattern_overlay.common.blend != PC_BLEND_NORMAL) {
+                return true;
+            }
+            break;
+        case PC_FX_SATIN:
+            if (e->u.satin.common.blend != PC_BLEND_NORMAL) {
+                return true;
+            }
+            break;
+        case PC_FX_INNER_GLOW:
+            if (e->u.glow.common.blend != PC_BLEND_NORMAL) {
+                return true;
+            }
+            break;
+        case PC_FX_INNER_SHADOW:
+            if (e->u.shadow.common.blend != PC_BLEND_NORMAL) {
+                return true;
+            }
+            break;
+        case PC_FX_STROKE: {
+            float in_w;
+            float out_w;
+            pc_compose_fx_stroke_widths(&e->u.stroke, &in_w, &out_w);
+            if (in_w > 0.0f && e->u.stroke.common.blend != PC_BLEND_NORMAL) {
+                return true;
+            }
+            break;
+        }
+        case PC_FX_BEVEL_EMBOSS:
+            if (pc_compose_fx_bevel_geom(&e->u.bevel).paint == PC_COMPOSE_BEVEL_PAINT_INNER &&
+                (e->u.bevel.highlight.blend != PC_BLEND_NORMAL ||
+                 e->u.bevel.shadow.blend != PC_BLEND_NORMAL)) {
+                return true;
+            }
+            break;
+        default:
+            break;
+        }
+    }
+    return false;
+}
+
 /* Blend Interior Effects as Group off (Photoshop's default): the layer's mode applies to its own
  * pixels only, and the interior effects paint over the blended result. The layer is merged into
  * the backdrop before they paint, so an Overlay colour overlay on a black Color-mode layer tints
- * the grey beneath it (#3996). Normal-like modes give the same result either way. */
+ * the grey beneath it (#3996). A Normal layer merges only when an interior effect blends in another
+ * mode: below 100 % fill that effect sees the backdrop through the layer (#6232). Normal effects
+ * give the same result either way, and the merge would count a half-transparent backdrop twice, so
+ * those layers keep the plain composite. */
 static bool premerges_layer(const pc_layer *layer)
 {
-    return !layer->advanced.blend_interior && layer->blend != PC_BLEND_NORMAL &&
-           layer->blend != PC_BLEND_PASS_THROUGH && layer->blend != PC_BLEND_DISSOLVE;
+    if (layer->advanced.blend_interior) {
+        return false;
+    }
+    switch (layer->blend) {
+    case PC_BLEND_PASS_THROUGH:
+    case PC_BLEND_DISSOLVE:
+        return false;
+    case PC_BLEND_NORMAL:
+        return blends_inside(layer);
+    default:
+        return true;
+    }
 }
 
 /* The layer plus its interior effects (straight RGBA over big), then its outside strokes and
@@ -455,12 +566,13 @@ static pc_status layer_and_strokes(fxc *c, pc_compose_buffer *work, pc_error *er
     float content_fill = interior_group ? 1.0f : fill;
     bool shapeless = !layer->advanced.transparency_shapes;
     bool relative = shapeless || c->maps->outline || c->vs != NULL;
-    bool vector_shape = layer->content.kind == PC_LAYER_SHAPE;
     bool has_strokes = false;
     pc_compose_buffer lay = {PC_RECT_EMPTY, NULL, 0};
     float *din = NULL;
     float *dout = NULL;
+    float *dout_exact = NULL;
     float *vdout = NULL;
+    float *vdout_exact = NULL;
     pc_blend_mode mode;
     float gamma;
     size_t i;
@@ -528,10 +640,18 @@ static pc_status layer_and_strokes(fxc *c, pc_compose_buffer *work, pc_error *er
     for (r = 0; r < c->nitems; r++) {
         has_strokes = has_strokes || c->items[r]->kind == PC_FX_STROKE;
     }
-    if (st == PC_OK && has_strokes && c->maps->din != NULL && c->maps->dout != NULL) {
-        st = pc_fx_crop_vec(c->maps, c->maps->din, c->big, 0.0f, &din, err);
-        if (st == PC_OK) {
+    if (st == PC_OK && has_strokes) {
+        /* A stroke's outer edge picks the chamfer or the exact field by its width
+         * (pc_compose_fx_stroke_outside_exact); both are cropped here, and only the ones a stroke
+         * needs exist. The inside field is cropped independently. */
+        if (c->maps->din != NULL) {
+            st = pc_fx_crop_vec(c->maps, c->maps->din, c->big, 0.0f, &din, err);
+        }
+        if (st == PC_OK && c->maps->dout != NULL) {
             st = pc_fx_crop_vec(c->maps, c->maps->dout, c->big, PC_FX_FAR, &dout, err);
+        }
+        if (st == PC_OK && c->maps->dout_exact != NULL) {
+            st = pc_fx_crop_vec(c->maps, c->maps->dout_exact, c->big, PC_FX_FAR, &dout_exact, err);
         }
     }
     if (st == PC_OK) {
@@ -545,12 +665,15 @@ static pc_status layer_and_strokes(fxc *c, pc_compose_buffer *work, pc_error *er
         for (i = 0; i < c->n; i++) {
             lay.px[i][3] *= pc_rs_minf_k(c->shape.v[i], 1.0f);
         }
-        if (c->maps->vdout != NULL && vector_shape && has_strokes) {
+        if (has_strokes && c->maps->vdout != NULL) {
             st = pc_fx_crop_vec(c->maps, c->maps->vdout, c->big, PC_FX_FAR, &vdout, err);
+        }
+        if (st == PC_OK && has_strokes && c->maps->vdout_exact != NULL) {
+            st = pc_fx_crop_vec(c->maps, c->maps->vdout_exact, c->big, PC_FX_FAR, &vdout_exact, err);
         }
     }
     if (st == PC_OK) {
-        st = outside_strokes(c, work, &lay, dout, vdout, err);
+        st = outside_strokes(c, work, &lay, dout, dout_exact, vdout, vdout_exact, err);
     }
     if (st == PC_OK) {
         st = paint_bevels(c, work, PC_COMPOSE_BEVEL_PAINT_OUTER, false, err);
@@ -570,7 +693,9 @@ static pc_status layer_and_strokes(fxc *c, pc_compose_buffer *work, pc_error *er
     }
     free(din);
     free(dout);
+    free(dout_exact);
     free(vdout);
+    free(vdout_exact);
     pc_compose_buffer_fini(&lay);
     return st;
 }
@@ -677,7 +802,14 @@ pc_status pc_compose_fx_composite(const pc_layer *layer, const pc_compose_buffer
                     k = (size_t)((int64_t)y - c.big.y0) * c.w + (size_t)((int64_t)x - c.big.x0);
                     b = work.px[k];
                 }
-                mix_premul(a, b, op, backdrop->px[i]);
+                if (layer->blend == PC_BLEND_DISSOLVE) {
+                    /* Dissolve applies layer opacity to the completed effect stack as pixel
+                     * coverage, not continuous gray interpolation (#3051). */
+                    const float *src = pc_cmp_dissolve_noise(x, y) < op ? b : a;
+                    memcpy(backdrop->px[i], src, 4 * sizeof(float));
+                } else {
+                    mix_premul(a, b, op, backdrop->px[i]);
+                }
             }
         }
     }

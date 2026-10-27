@@ -573,8 +573,11 @@ static void test_photo_filter_matches_photoshop(void)
                                          {{0.949f, 0.949f, 0.949f}, {255, 238, 229}},
                                          {{1, 1, 1}, {255, 255, 255}},
                                          {{0, 0, 0}, {0, 0, 0}}};
-    static const float c32[3][2][3] = {
-        {{0.2159f, 0.2159f, 0.2159f}, {66, 53, 40}}, {{1, 1, 0}, {255, 251, 0}}, {{1, 0, 0}, {255, 0, 0}}};
+    /* The 32-bit file's results are unclipped (above 1 and below 0): photoshop corpus rgb32
+     * photo-filter.psd, matching crates/compose tests::photo_filter_matches_photoshop. */
+    static const float c32[3][2][3] = {{{0.2159f, 0.2159f, 0.2159f}, {65.7f, 53.4f, 39.5f}},
+                                       {{1, 1, 0}, {271.7f, 250.9f, -9.0f}},
+                                       {{1, 0, 0}, {262.2f, -2.0f, -1.2f}}};
     const float warming[3] = {236.0f / 255.0f, 138.0f / 255.0f, 0.0f};
     const float warming32[3] = {0.9664456f, 0.7618063f, 0.0f};
     const pc_sample_type depths[2] = {PC_SAMPLE_TYPE_U8, PC_SAMPLE_TYPE_U16};

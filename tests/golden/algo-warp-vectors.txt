@@ -2172,12 +2172,12 @@ deform	blob8	{"pins":[{"src":[28,30],"dst":[28,30],"rotate":90}],"mode":"rigid"}
 identity	{"pins":[{"src":[28,30],"dst":[28,30],"rotate":90}],"mode":"rigid"}	0
 warp	blob8	0	{"pins":[{"src":[28,14],"dst":[10,30]},{"src":[64,62],"dst":[70,50]},{"src":[28,62],"dst":[28,62]}],"mode":"distort","density":"more"}	774456c47f842224
 warp	blob8	1	{"pins":[{"src":[28,14],"dst":[10,30]},{"src":[64,62],"dst":[70,50]},{"src":[28,62],"dst":[28,62]}],"mode":"distort","density":"more"}	7f20b133a9e6eb91
-warp	blob8	2	{"pins":[{"src":[28,14],"dst":[10,30]},{"src":[64,62],"dst":[70,50]},{"src":[28,62],"dst":[28,62]}],"mode":"distort","density":"more"}	0a40443650c75478
+warp	blob8	2	{"pins":[{"src":[28,14],"dst":[10,30]},{"src":[64,62],"dst":[70,50]},{"src":[28,62],"dst":[28,62]}],"mode":"distort","density":"more"}	c7a24bec84e2367d
 deform	blob8	{"pins":[{"src":[28,14],"dst":[10,30]},{"src":[64,62],"dst":[70,50]},{"src":[28,62],"dst":[28,62]}],"mode":"distort","density":"more"}	949de565af730bb2
 identity	{"pins":[{"src":[28,14],"dst":[10,30]},{"src":[64,62],"dst":[70,50]},{"src":[28,62],"dst":[28,62]}],"mode":"distort","density":"more"}	0
 warp	blob8	0	{"pins":[{"src":[28,20],"dst":[50,60],"depth":3},{"src":[60,62],"dst":[30,30]},{"src":[28,62],"dst":[28,62],"depth":-1}],"density":"fewer"}	40b1c54190ac9976
 warp	blob8	1	{"pins":[{"src":[28,20],"dst":[50,60],"depth":3},{"src":[60,62],"dst":[30,30]},{"src":[28,62],"dst":[28,62],"depth":-1}],"density":"fewer"}	6734a6fa8afa43f8
-warp	blob8	2	{"pins":[{"src":[28,20],"dst":[50,60],"depth":3},{"src":[60,62],"dst":[30,30]},{"src":[28,62],"dst":[28,62],"depth":-1}],"density":"fewer"}	4e113169f7a8e607
+warp	blob8	2	{"pins":[{"src":[28,20],"dst":[50,60],"depth":3},{"src":[60,62],"dst":[30,30]},{"src":[28,62],"dst":[28,62],"depth":-1}],"density":"fewer"}	95c91953ae3306b4
 deform	blob8	{"pins":[{"src":[28,20],"dst":[50,60],"depth":3},{"src":[60,62],"dst":[30,30]},{"src":[28,62],"dst":[28,62],"depth":-1}],"density":"fewer"}	750cc5396af6aa53
 identity	{"pins":[{"src":[28,20],"dst":[50,60],"depth":3},{"src":[60,62],"dst":[30,30]},{"src":[28,62],"dst":[28,62],"depth":-1}],"density":"fewer"}	0
 warp	blob8	0	{"pins":[{"src":[28,30],"dst":[38,25]}],"expansion":-200}	a1fa74c7a257d9fa
@@ -2197,7 +2197,7 @@ deform	blob8	{"pins":[{"src":[28,20],"dst":[28,20]},{"src":[60,62],"dst":[-1e7,6
 identity	{"pins":[{"src":[28,20],"dst":[28,20]},{"src":[60,62],"dst":[-1e7,62]}]}	0
 warp	blob8	0	{"pins":[{"src":[10,30],"dst":[20,30]},{"src":[100,10],"dst":[100,20]}],"expansion":10}	73bd60e9b53af04b
 warp	blob8	1	{"pins":[{"src":[10,30],"dst":[20,30]},{"src":[100,10],"dst":[100,20]}],"expansion":10}	5db85ec521f2eecd
-warp	blob8	2	{"pins":[{"src":[10,30],"dst":[20,30]},{"src":[100,10],"dst":[100,20]}],"expansion":10}	22b58c45b64145a9
+warp	blob8	2	{"pins":[{"src":[10,30],"dst":[20,30]},{"src":[100,10],"dst":[100,20]}],"expansion":10}	b3beccfac9058e60
 deform	blob8	{"pins":[{"src":[10,30],"dst":[20,30]},{"src":[100,10],"dst":[100,20]}],"expansion":10}	6094491c88be5631
 identity	{"pins":[{"src":[10,30],"dst":[20,30]},{"src":[100,10],"dst":[100,20]}],"expansion":10}	0
 warp	blob32	0	{"pins":[]}	555888e3ed593472
@@ -2222,12 +2222,12 @@ deform	blob32	{"pins":[{"src":[28,30],"dst":[28,30],"rotate":90}],"mode":"rigid"
 identity	{"pins":[{"src":[28,30],"dst":[28,30],"rotate":90}],"mode":"rigid"}	0
 warp	blob32	0	{"pins":[{"src":[28,14],"dst":[10,30]},{"src":[64,62],"dst":[70,50]},{"src":[28,62],"dst":[28,62]}],"mode":"distort","density":"more"}	147b4f78a5876a0e
 warp	blob32	1	{"pins":[{"src":[28,14],"dst":[10,30]},{"src":[64,62],"dst":[70,50]},{"src":[28,62],"dst":[28,62]}],"mode":"distort","density":"more"}	e7c368772c543afe
-warp	blob32	2	{"pins":[{"src":[28,14],"dst":[10,30]},{"src":[64,62],"dst":[70,50]},{"src":[28,62],"dst":[28,62]}],"mode":"distort","density":"more"}	4dc94718ec66e5d6
+warp	blob32	2	{"pins":[{"src":[28,14],"dst":[10,30]},{"src":[64,62],"dst":[70,50]},{"src":[28,62],"dst":[28,62]}],"mode":"distort","density":"more"}	72186485adc4217d
 deform	blob32	{"pins":[{"src":[28,14],"dst":[10,30]},{"src":[64,62],"dst":[70,50]},{"src":[28,62],"dst":[28,62]}],"mode":"distort","density":"more"}	949de565af730bb2
 identity	{"pins":[{"src":[28,14],"dst":[10,30]},{"src":[64,62],"dst":[70,50]},{"src":[28,62],"dst":[28,62]}],"mode":"distort","density":"more"}	0
 warp	blob32	0	{"pins":[{"src":[28,20],"dst":[50,60],"depth":3},{"src":[60,62],"dst":[30,30]},{"src":[28,62],"dst":[28,62],"depth":-1}],"density":"fewer"}	16f8cf03bea3e84f
 warp	blob32	1	{"pins":[{"src":[28,20],"dst":[50,60],"depth":3},{"src":[60,62],"dst":[30,30]},{"src":[28,62],"dst":[28,62],"depth":-1}],"density":"fewer"}	cadc3cc6b785aae7
-warp	blob32	2	{"pins":[{"src":[28,20],"dst":[50,60],"depth":3},{"src":[60,62],"dst":[30,30]},{"src":[28,62],"dst":[28,62],"depth":-1}],"density":"fewer"}	e02e63ea40e62761
+warp	blob32	2	{"pins":[{"src":[28,20],"dst":[50,60],"depth":3},{"src":[60,62],"dst":[30,30]},{"src":[28,62],"dst":[28,62],"depth":-1}],"density":"fewer"}	e17211a2139b8b5a
 deform	blob32	{"pins":[{"src":[28,20],"dst":[50,60],"depth":3},{"src":[60,62],"dst":[30,30]},{"src":[28,62],"dst":[28,62],"depth":-1}],"density":"fewer"}	750cc5396af6aa53
 identity	{"pins":[{"src":[28,20],"dst":[50,60],"depth":3},{"src":[60,62],"dst":[30,30]},{"src":[28,62],"dst":[28,62],"depth":-1}],"density":"fewer"}	0
 warp	blob32	0	{"pins":[{"src":[28,30],"dst":[38,25]}],"expansion":-200}	555888e3ed593472
@@ -2247,7 +2247,7 @@ deform	blob32	{"pins":[{"src":[28,20],"dst":[28,20]},{"src":[60,62],"dst":[-1e7,
 identity	{"pins":[{"src":[28,20],"dst":[28,20]},{"src":[60,62],"dst":[-1e7,62]}]}	0
 warp	blob32	0	{"pins":[{"src":[10,30],"dst":[20,30]},{"src":[100,10],"dst":[100,20]}],"expansion":10}	8ba580050a8f479f
 warp	blob32	1	{"pins":[{"src":[10,30],"dst":[20,30]},{"src":[100,10],"dst":[100,20]}],"expansion":10}	5327af713e3b863f
-warp	blob32	2	{"pins":[{"src":[10,30],"dst":[20,30]},{"src":[100,10],"dst":[100,20]}],"expansion":10}	b9d3e3c0d52a4527
+warp	blob32	2	{"pins":[{"src":[10,30],"dst":[20,30]},{"src":[100,10],"dst":[100,20]}],"expansion":10}	75f0acdc5c46bdae
 deform	blob32	{"pins":[{"src":[10,30],"dst":[20,30]},{"src":[100,10],"dst":[100,20]}],"expansion":10}	6094491c88be5631
 identity	{"pins":[{"src":[10,30],"dst":[20,30]},{"src":[100,10],"dst":[100,20]}],"expansion":10}	0
 warp	blobrgb	0	{"pins":[]}	36273a04f4252dfa
@@ -2272,12 +2272,12 @@ deform	blobrgb	{"pins":[{"src":[28,30],"dst":[28,30],"rotate":90}],"mode":"rigid
 identity	{"pins":[{"src":[28,30],"dst":[28,30],"rotate":90}],"mode":"rigid"}	0
 warp	blobrgb	0	{"pins":[{"src":[28,14],"dst":[10,30]},{"src":[64,62],"dst":[70,50]},{"src":[28,62],"dst":[28,62]}],"mode":"distort","density":"more"}	4b0992b9159ba979
 warp	blobrgb	1	{"pins":[{"src":[28,14],"dst":[10,30]},{"src":[64,62],"dst":[70,50]},{"src":[28,62],"dst":[28,62]}],"mode":"distort","density":"more"}	9d3b6b3e60202b58
-warp	blobrgb	2	{"pins":[{"src":[28,14],"dst":[10,30]},{"src":[64,62],"dst":[70,50]},{"src":[28,62],"dst":[28,62]}],"mode":"distort","density":"more"}	c8919fd07ac1f55b
+warp	blobrgb	2	{"pins":[{"src":[28,14],"dst":[10,30]},{"src":[64,62],"dst":[70,50]},{"src":[28,62],"dst":[28,62]}],"mode":"distort","density":"more"}	a3469adcd7b57bc7
 deform	blobrgb	{"pins":[{"src":[28,14],"dst":[10,30]},{"src":[64,62],"dst":[70,50]},{"src":[28,62],"dst":[28,62]}],"mode":"distort","density":"more"}	e7180603c8b70056
 identity	{"pins":[{"src":[28,14],"dst":[10,30]},{"src":[64,62],"dst":[70,50]},{"src":[28,62],"dst":[28,62]}],"mode":"distort","density":"more"}	0
 warp	blobrgb	0	{"pins":[{"src":[28,20],"dst":[50,60],"depth":3},{"src":[60,62],"dst":[30,30]},{"src":[28,62],"dst":[28,62],"depth":-1}],"density":"fewer"}	b0c50512cb784939
 warp	blobrgb	1	{"pins":[{"src":[28,20],"dst":[50,60],"depth":3},{"src":[60,62],"dst":[30,30]},{"src":[28,62],"dst":[28,62],"depth":-1}],"density":"fewer"}	dd4ccbdf1b3a7db4
-warp	blobrgb	2	{"pins":[{"src":[28,20],"dst":[50,60],"depth":3},{"src":[60,62],"dst":[30,30]},{"src":[28,62],"dst":[28,62],"depth":-1}],"density":"fewer"}	b24e8aa105e75e16
+warp	blobrgb	2	{"pins":[{"src":[28,20],"dst":[50,60],"depth":3},{"src":[60,62],"dst":[30,30]},{"src":[28,62],"dst":[28,62],"depth":-1}],"density":"fewer"}	fb10ea1449601b76
 deform	blobrgb	{"pins":[{"src":[28,20],"dst":[50,60],"depth":3},{"src":[60,62],"dst":[30,30]},{"src":[28,62],"dst":[28,62],"depth":-1}],"density":"fewer"}	2128168ea0b73b45
 identity	{"pins":[{"src":[28,20],"dst":[50,60],"depth":3},{"src":[60,62],"dst":[30,30]},{"src":[28,62],"dst":[28,62],"depth":-1}],"density":"fewer"}	0
 warp	blobrgb	0	{"pins":[{"src":[28,30],"dst":[38,25]}],"expansion":-200}	b5a224d044f9409e
@@ -2297,7 +2297,7 @@ deform	blobrgb	{"pins":[{"src":[28,20],"dst":[28,20]},{"src":[60,62],"dst":[-1e7
 identity	{"pins":[{"src":[28,20],"dst":[28,20]},{"src":[60,62],"dst":[-1e7,62]}]}	0
 warp	blobrgb	0	{"pins":[{"src":[10,30],"dst":[20,30]},{"src":[100,10],"dst":[100,20]}],"expansion":10}	9b302fdbd56fef45
 warp	blobrgb	1	{"pins":[{"src":[10,30],"dst":[20,30]},{"src":[100,10],"dst":[100,20]}],"expansion":10}	53933c5a7857d222
-warp	blobrgb	2	{"pins":[{"src":[10,30],"dst":[20,30]},{"src":[100,10],"dst":[100,20]}],"expansion":10}	a24da0de56535937
+warp	blobrgb	2	{"pins":[{"src":[10,30],"dst":[20,30]},{"src":[100,10],"dst":[100,20]}],"expansion":10}	bde21356be294e25
 deform	blobrgb	{"pins":[{"src":[10,30],"dst":[20,30]},{"src":[100,10],"dst":[100,20]}],"expansion":10}	63acd4ad33cd83ee
 identity	{"pins":[{"src":[10,30],"dst":[20,30]},{"src":[100,10],"dst":[100,20]}],"expansion":10}	0
 warp	islands	0	{"pins":[]}	33e344dc472ec8c8

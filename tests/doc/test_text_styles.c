@@ -172,7 +172,8 @@ static void test_attrs_validate_and_diff(void)
     CHECK_EQ_INT(pc_char_style_all_attrs(&x, &all, NULL), PC_OK);
     CHECK(pc_style_attrs_get(&all, "style_sheet") == NULL);
     CHECK(pc_style_attrs_get(&all, "size_pt") != NULL);
-    CHECK_EQ_UINT(pc_style_attrs_len(&all), 24);
+    CHECK(pc_style_attrs_get(&all, "baseline") != NULL);
+    CHECK_EQ_UINT(pc_style_attrs_len(&all), 25);
     pc_json_value_fini(&a);
     pc_json_value_fini(&b);
     pc_json_value_fini(&c);

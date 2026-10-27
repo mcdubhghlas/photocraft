@@ -121,7 +121,7 @@ void pc_coverage_line(pc_coverage *c, double p0x, double p0y, double p1x, double
     float w = (float)c->width, h = (float)c->height, dir, x0, y0, x1, y1, dxdy, x, ys, ye, y;
     size_t stride = c->width, row;
     float *acc = c->acc;
-    if (p0y == p1y || !(isfinite(p0x) && isfinite(p0y) && isfinite(p1x) && isfinite(p1y))) {
+    if (p0y == p1y) {
         return;
     }
     if (p0y < p1y) {
@@ -136,6 +136,10 @@ void pc_coverage_line(pc_coverage *c, double p0x, double p0y, double p1x, double
         y0 = (float)p1y;
         x1 = (float)p0x;
         y1 = (float)p0y;
+    }
+    /* A finite f64 beyond f32 range becomes infinite in the cast above; skip such a segment. */
+    if (!(isfinite(x0) && isfinite(y0) && isfinite(x1) && isfinite(y1))) {
+        return;
     }
     if (y1 <= 0.0f || y0 >= h) {
         return;

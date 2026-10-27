@@ -49,6 +49,11 @@ typedef struct pc_psd_file {
     pc_psd_bytes layer_mask_trailing; /* bytes at the end of the layer/mask section that form no block */
     uint16_t image_compression;       /* merged image */
     pc_psd_bytes image_data;          /* encoded, verbatim to the end of the file */
+    /* Out-of-band parse signal, not part of the serialised model (ignored by clone/eq/to_bytes):
+     * set only by pc_psd_file_parse_recovering when the merged image was damaged but the file was
+     * accepted so its intact layers can still be read. */
+    bool image_damaged;
+    pc_error image_error; /* the merged validate/decode error (meaningful only when image_damaged) */
 } pc_psd_file;
 
 /* An empty model (zeroed header, no anything). */
@@ -58,6 +63,16 @@ pc_status pc_psd_file_clone(const pc_psd_file *f, pc_psd_file *out, pc_error *er
 bool pc_psd_file_eq(const pc_psd_file *a, const pc_psd_file *b);
 
 pc_status pc_psd_file_parse(const uint8_t *data, size_t len, pc_psd_file *out, pc_error *err);
+/* Parses like pc_psd_file_parse, but after the header, resources and the whole layer and mask
+ * section have been read successfully, a merged-image failure that `recover` accepts does not
+ * reject the file: the available encoded bytes are kept in image_data and the file is returned
+ * with image_damaged set and image_error holding the failure (the caller rebuilds the document
+ * from its intact layers and should report image_error). A decode bomb (PC_ERR_LIMIT) or an
+ * allocation failure (PC_ERR_NOMEM) stays fatal, as does any error before the merged image or
+ * when `recover` returns false. `recover` sees the fully-parsed file (its image_data still empty).
+ * Mirrors crates/psd from_bytes_and_merged_recovering. `recover` must not be NULL. */
+pc_status pc_psd_file_parse_recovering(const uint8_t *data, size_t len, bool (*recover)(const pc_psd_file *f),
+                                       pc_psd_file *out, pc_error *err);
 pc_status pc_psd_file_to_bytes(const pc_psd_file *f, pc_psd_bytes *out, pc_error *err);
 /* Reads / writes a file on disk (PC_ERR_IO with errno, or the parse error). */
 pc_status pc_psd_file_open(const char *path, pc_psd_file *out, pc_error *err);

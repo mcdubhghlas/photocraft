@@ -498,5 +498,19 @@ sv_unode *svt_flatten(sv_conv *c, const svt_text *t, const svt_lspan *spans, siz
     if (!rect_to_nz(g->stroke_bbox, stroke_bbox)) {
         return NULL;
     }
+    /* The glyph and decoration outlines are built in the text element's own space with identity
+     * absolute transforms (so g->bbox/stroke_bbox above stay local, as sv_convert_text expects),
+     * but svg.c draws each path from its own abs_transform. Carry the text node's absolute
+     * transform (t->abs = parent->abs_transform, which includes any <use> x/y or transform and
+     * every ancestor transform) onto the group and its children so the outlines land in the right
+     * place; matches the reference's abs = t.abs_transform().pre_concat(t.flattened().transform())
+     * (resvg #4806, text placed by its own or a <use>/ancestor transform). */
+    {
+        size_t i;
+        g->abs_transform = t->abs;
+        for (i = 0; i < g->nchildren; i++) {
+            g->children[i]->abs_transform = ts_pre_concat(t->abs, g->children[i]->abs_transform);
+        }
+    }
     return g;
 }

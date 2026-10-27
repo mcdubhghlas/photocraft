@@ -493,11 +493,17 @@ static yyjson_mut_val *param_json(yyjson_mut_doc *doc, const pc_param_spec *ps)
         ok = ok && add(doc, o, "min", yyjson_mut_real(doc, ps->min)) &&
              add(doc, o, "max", yyjson_mut_real(doc, ps->max)) &&
              add(doc, o, "default", yyjson_mut_real(doc, ps->def));
+        if (ok && ps->unit_px) {
+            ok = add(doc, o, "unit", yyjson_mut_str(doc, "px"));
+        }
         break;
     case PC_PARAM_INT:
         ok = ok && add(doc, o, "min", yyjson_mut_sint(doc, ps->imin)) &&
              add(doc, o, "max", yyjson_mut_sint(doc, ps->imax)) &&
              add(doc, o, "default", yyjson_mut_sint(doc, ps->idef));
+        if (ok && ps->unit_px) {
+            ok = add(doc, o, "unit", yyjson_mut_str(doc, "px"));
+        }
         break;
     case PC_PARAM_BOOL:
         ok = ok && add(doc, o, "default", yyjson_mut_bool(doc, ps->bdef));

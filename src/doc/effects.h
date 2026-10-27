@@ -130,6 +130,7 @@ typedef struct pc_stroke_fx {
     float size;
     pc_stroke_position position;
     pc_fx_paint paint;
+    bool overprint; /* PSD `overprint`; #[serde(default)] = false */
 } pc_stroke_fx;
 
 typedef struct pc_satin {
@@ -185,6 +186,7 @@ typedef struct pc_bevel {
     float altitude;
     bool use_global_light;
     pc_contour gloss_contour;
+    bool gloss_anti_alias; /* Gloss Contour > Anti-aliased (PSD `antialiasGloss`); #[serde(default)] = false */
     pc_fx_common highlight;
     pc_color highlight_color;
     pc_fx_common shadow;

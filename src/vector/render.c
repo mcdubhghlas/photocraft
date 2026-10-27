@@ -459,6 +459,187 @@ pc_status pc_vec_coverage_surface(const pc_vec_rasterizer *r, pc_pixel_format fo
 
 /* ---- shape layers ---- */
 
+/* Whether the fill's edge is softened by a density below 100% or a feather (non-finite values
+ * count as the defaults: density 1, feather 0). */
+static bool shape_has_soft_mask(const pc_shape_layer *shape)
+{
+    return (isfinite(shape->density) && shape->density < 1.0f) ||
+           (isfinite(shape->feather) && shape->feather > 0.0f);
+}
+
+/* Builds the fill's coverage for `shape` over the frame `canvas` (a feather is blurred within it,
+ * as the compositor blurs a vector mask within the canvas). Port of FillCoverage::new; `area` is
+ * the fill rasteriser. On a too-large or failed blur allocation it keeps the edge hard (DENSE)
+ * rather than failing the render. */
+static pc_status fill_coverage_new(const pc_shape_layer *shape, const pc_vec_rasterizer *area,
+                                   pc_rect canvas, pc_vec_compiled_shape *cs, pc_error *err)
+{
+    float density;
+    float sigma;
+    pc_rect far_rect;
+    float *far = NULL;
+    size_t nfar = 0;
+    float outside;
+    pc_rect region;
+    size_t w;
+    size_t h;
+    size_t n = 0;
+    float *values = NULL;
+    pc_status st;
+    if (!shape_has_soft_mask(shape)) {
+        cs->fill_cov = PC_VEC_FILL_COV_PATH;
+        return PC_OK;
+    }
+    density = isfinite(shape->density) ? pc_clampf(shape->density, 0.0f, 1.0f) : 1.0f;
+    sigma = pc_vec_feather_sigma(shape->feather);
+    if (sigma <= 0.0f) {
+        cs->fill_cov = PC_VEC_FILL_COV_DENSE;
+        cs->fill_density = density;
+        return PC_OK;
+    }
+    /* The far-outside coverage (0, or 1 for an inverted path), with density applied. */
+    far_rect = pc_rect_from_xywh(pc_i32_sat_sub(canvas.x0, 1000000), pc_i32_sat_sub(canvas.y0, 1000000), 1, 1);
+    st = pc_vec_rasterizer_render(area, far_rect, &far, &nfar, err);
+    if (st != PC_OK) {
+        return st;
+    }
+    outside = nfar > 0 ? far[0] : 0.0f;
+    if (density < 1.0f) {
+        outside = 1.0f - density * (1.0f - outside);
+    }
+    free(far);
+    region = pc_rect_intersect(pc_vec_feather_path_area(&shape->path, sigma), canvas);
+    w = pc_rect_width(region);
+    h = pc_rect_height(region);
+    if (!pc_size_mul(w, h, &n) || n > PC_VEC_MAX_PIXELS) {
+        /* Too large to blur: keep the edge hard rather than fail the render (bounds + memory). */
+        cs->fill_cov = PC_VEC_FILL_COV_DENSE;
+        cs->fill_density = density;
+        return PC_OK;
+    }
+    if (n > 0) {
+        size_t i;
+        values = pc_calloc_array(n, sizeof *values);
+        if (values == NULL) {
+            cs->fill_cov = PC_VEC_FILL_COV_DENSE;
+            cs->fill_density = density;
+            return PC_OK;
+        }
+        st = pc_vec_rasterizer_render_into(area, region, values, n, err);
+        if (st != PC_OK) {
+            free(values);
+            return st;
+        }
+        if (density < 1.0f) {
+            for (i = 0; i < n; i++) {
+                values[i] = 1.0f - density * (1.0f - values[i]);
+            }
+        }
+        st = pc_vec_feather_gaussian(values, w, h, sigma, err);
+        if (st != PC_OK) {
+            free(values);
+            return st;
+        }
+    }
+    cs->fill_cov = PC_VEC_FILL_COV_PLANE;
+    cs->fill_plane_area = region;
+    cs->fill_plane_values = values;
+    cs->fill_plane_len = n;
+    cs->fill_plane_outside = outside;
+    return PC_OK;
+}
+
+/* Pixel bounds of the visible fill (false = nothing). Port of FillCoverage::bounds. */
+static bool fill_coverage_bounds(const pc_vec_compiled_shape *cs, const pc_vec_rasterizer *area, pc_rect *out)
+{
+    static const pc_rect ALL = {INT32_MIN / 4, INT32_MIN / 4, INT32_MAX / 4, INT32_MAX / 4};
+    switch (cs->fill_cov) {
+    case PC_VEC_FILL_COV_PATH:
+        return pc_vec_rasterizer_pixel_bounds(area, out);
+    case PC_VEC_FILL_COV_DENSE:
+        if (cs->fill_density < 1.0f) {
+            *out = ALL;
+            return true;
+        }
+        return pc_vec_rasterizer_pixel_bounds(area, out);
+    case PC_VEC_FILL_COV_PLANE:
+        if (cs->fill_plane_outside > 0.0f) {
+            *out = ALL;
+            return true;
+        }
+        if (!pc_rect_is_empty(cs->fill_plane_area)) {
+            *out = cs->fill_plane_area;
+            return true;
+        }
+        return false;
+    }
+    return false;
+}
+
+/* The fill's coverage over rect (malloc'd, *len pixels). Port of FillCoverage::render. */
+static pc_status fill_coverage_render(const pc_vec_compiled_shape *s, pc_rect rect, float **out, size_t *len,
+                                      pc_error *err)
+{
+    switch (s->fill_cov) {
+    case PC_VEC_FILL_COV_PATH:
+        return pc_vec_rasterizer_render(&s->fill, rect, out, len, err);
+    case PC_VEC_FILL_COV_DENSE: {
+        float *v = NULL;
+        size_t n = 0;
+        size_t i;
+        pc_status st = pc_vec_rasterizer_render(&s->fill, rect, &v, &n, err);
+        if (st != PC_OK) {
+            return st;
+        }
+        for (i = 0; i < n; i++) {
+            v[i] = 1.0f - s->fill_density * (1.0f - v[i]);
+        }
+        *out = v;
+        *len = n;
+        return PC_OK;
+    }
+    case PC_VEC_FILL_COV_PLANE: {
+        size_t w = pc_rect_width(rect);
+        size_t aw = pc_rect_width(s->fill_plane_area);
+        size_t count;
+        float *v;
+        size_t i;
+        pc_status st = pixel_count(rect, &count, err);
+        if (st != PC_OK) {
+            return st;
+        }
+        if (count == 0) {
+            *out = NULL;
+            *len = 0;
+            return PC_OK;
+        }
+        v = pc_malloc_array(count, sizeof *v);
+        if (v == NULL) {
+            return pc_fail(err, PC_ERR_NOMEM, "vector: out of memory");
+        }
+        for (i = 0; i < count; i++) {
+            int64_t px = (int64_t)rect.x0 + (int64_t)(i % w);
+            int64_t py = (int64_t)rect.y0 + (int64_t)(i / w);
+            float val = s->fill_plane_outside;
+            if (px >= s->fill_plane_area.x0 && px < s->fill_plane_area.x1 && py >= s->fill_plane_area.y0 &&
+                py < s->fill_plane_area.y1) {
+                size_t pi = (size_t)(py - s->fill_plane_area.y0) * aw + (size_t)(px - s->fill_plane_area.x0);
+                if (pi < s->fill_plane_len) {
+                    val = s->fill_plane_values[pi];
+                }
+            }
+            v[i] = val;
+        }
+        *out = v;
+        *len = count;
+        return PC_OK;
+    }
+    }
+    *out = NULL;
+    *len = 0;
+    return PC_OK;
+}
+
 void pc_vec_compiled_shape_fini(pc_vec_compiled_shape *s)
 {
     if (s == NULL) {
@@ -466,6 +647,7 @@ void pc_vec_compiled_shape_fini(pc_vec_compiled_shape *s)
     }
     pc_vec_rasterizer_fini(&s->fill);
     pc_vec_paint_fini(&s->fill_paint);
+    free(s->fill_plane_values);
     pc_vec_rasterizer_fini(&s->stroke);
     pc_vec_paint_fini(&s->stroke_paint);
     pc_vec_rasterizer_fini(&s->align);
@@ -498,8 +680,11 @@ pc_status pc_vec_compiled_shape_new(const pc_shape_layer *shape, double tol, pc_
         return st;
     }
     if (shape->has_fill) {
-        cs.has_bounds = pc_vec_rasterizer_pixel_bounds(&area, &cs.bounds);
-        st = pc_vec_rasterizer_clone(&area, &cs.fill, err);
+        st = fill_coverage_new(shape, &area, canvas, &cs, err);
+        if (st == PC_OK) {
+            cs.has_bounds = fill_coverage_bounds(&cs, &area, &cs.bounds);
+            st = pc_vec_rasterizer_clone(&area, &cs.fill, err);
+        }
         if (st == PC_OK) {
             st = pc_vec_paint_from_fill(&shape->fill, pb, cb, &cs.fill_paint, err);
         }
@@ -587,12 +772,12 @@ pc_status pc_vec_compiled_shape_render_rgba(const pc_vec_compiled_shape *s, pc_r
         return pc_fail(err, PC_ERR_NOMEM, "vector: out of memory");
     }
     if (s->has_fill) {
-        st = pc_vec_rasterizer_render(&s->fill, rect, &cov, &ncov, err);
+        st = fill_coverage_render(s, rect, &cov, &ncov, err);
         if (st != PC_OK) {
             free(px);
             return st;
         }
-        for (i = 0; i < count; i++) {
+        for (i = 0; cov != NULL && i < count; i++) {
             if (cov[i] > 0.0f) {
                 double x = (double)((int64_t)rect.x0 + (int64_t)(i % w)) + 0.5;
                 double y = (double)((int64_t)rect.y0 + (int64_t)(i / w)) + 0.5;

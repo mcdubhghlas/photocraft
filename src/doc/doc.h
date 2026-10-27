@@ -231,6 +231,8 @@ struct pc_layer {
     pc_advanced_blending advanced;
     bool has_video;
     pc_video_data video;
+    bool has_xmp;
+    pc_str xmp; /* the layer's own XMP packet (Photoshop's layer.xmpMetadata.rawData); None = absent */
 };
 
 /* A visible Normal layer at 100 % with a fresh id, effects enabled, Photoshop's advanced
@@ -354,6 +356,8 @@ typedef struct pc_file_encoding {
     bool webp_lossless;
     bool has_webp_quality;
     uint8_t webp_quality;
+    bool has_png_stereo; /* sTER chunk mode: 0 cross-fuse, 1 diverging-fuse (eye order) */
+    uint8_t png_stereo;
 } pc_file_encoding;
 
 bool pc_file_encoding_eq(const pc_file_encoding *a, const pc_file_encoding *b);
@@ -408,6 +412,7 @@ struct pc_document {
     bool has_timeline;
     pc_timeline timeline;
     pc_file_encoding file_encoding; /* how the lossy file was encoded, reused by File > Save */
+    double ruler_origin[2];         /* ruler zero point in document pixels; default [0, 0] */
 };
 
 /* An empty document at 72 dpi with a fresh id. */

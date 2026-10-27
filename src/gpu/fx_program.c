@@ -301,9 +301,14 @@ pc_status pc_gpu_fx_program_build(const pc_effect *effect, pc_global_light light
             if (widths[i] <= 0) {
                 continue;
             }
-            pc_compose_fx_field_kind kind = i              ? PC_COMPOSE_FIELD_STROKE_INSIDE
-                                            : vector_shape ? PC_COMPOSE_FIELD_STROKE_OUTSIDE_VECTOR
-                                                           : PC_COMPOSE_FIELD_STROKE_OUTSIDE;
+            /* The outer field (i == 0) picks the chamfer or the exact transform by the stroke's
+             * width, matching the CPU (pc_compose_fx_stroke_outside_exact, #3646). */
+            bool exact = pc_compose_fx_stroke_outside_exact(out_w);
+            pc_compose_fx_field_kind kind =
+                i              ? PC_COMPOSE_FIELD_STROKE_INSIDE
+                : vector_shape ? (exact ? PC_COMPOSE_FIELD_STROKE_OUTSIDE_VECTOR
+                                        : PC_COMPOSE_FIELD_STROKE_OUTSIDE_VECTOR_CHAMFER)
+                               : (exact ? PC_COMPOSE_FIELD_STROKE_OUTSIDE_EXACT : PC_COMPOSE_FIELD_STROKE_OUTSIDE);
             pc_gpu_fx_stage s = stage(PC_GPU_FX_STROKE, field(&b, kind, widths[i]), no_input);
             s.params[0][0] = widths[i];
             s.output = (int)i;

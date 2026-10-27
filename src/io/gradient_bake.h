@@ -32,4 +32,18 @@ pc_status pc_io_gradient_bake(const pc_io_color_stop *stops, size_t n, const flo
                               float smoothness, pc_io_bake_method method, pc_io_color_stop **out,
                               size_t *nout, pc_error *err);
 
+typedef struct pc_io_opacity_stop {
+    float at;
+    float opacity;
+} pc_io_opacity_stop;
+
+/* Dense linear opacity stops reproducing Photoshop's interpolation of a gradient's transparency
+ * (Smoothness, opacity midpoints and the method: Perceptual/Linear use the fitted opacity
+ * response, Smooth keeps Classic's curve). A copy of the input when it already interpolates
+ * linearly (fewer than two stops, or Classic without smoothness or midpoints). *out malloc'd
+ * (free()). Fails only on out of memory. */
+pc_status pc_io_gradient_bake_opacity(const pc_io_opacity_stop *stops, size_t n, const float *midpoints,
+                                      size_t nmid, float smoothness, pc_io_bake_method method,
+                                      pc_io_opacity_stop **out, size_t *nout, pc_error *err);
+
 #endif

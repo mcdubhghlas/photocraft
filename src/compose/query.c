@@ -12,6 +12,13 @@
 
 /* ---- shapes ---- */
 
+/* ShapeLayer::has_soft_mask: the fill's edge is softened by a density below 100 % or a feather
+ * (non-finite values count as the defaults). */
+static bool shape_has_soft_mask(const pc_shape_layer *sh)
+{
+    return (isfinite(sh->density) && sh->density < 1.0f) || (isfinite(sh->feather) && sh->feather > 0.0f);
+}
+
 const pc_path *pc_compose_effect_outline(const pc_layer *layer)
 {
     const pc_shape_layer *sh;
@@ -21,10 +28,81 @@ const pc_path *pc_compose_effect_outline(const pc_layer *layer)
     }
     sh = &layer->content.u.shape;
     stroke_inside = !sh->has_stroke || sh->stroke.width <= 0.0f || sh->stroke.align == PC_STROKE_ALIGN_INSIDE;
-    if (sh->has_fill && stroke_inside && !pc_path_is_empty(&sh->path) && !sh->path.inverted) {
+    /* A soft (feathered or less dense) fill's own alpha is its outline, not the path. */
+    if (sh->has_fill && stroke_inside && !pc_path_is_empty(&sh->path) && !sh->path.inverted &&
+        !shape_has_soft_mask(sh)) {
         return &sh->path;
     }
     return NULL;
+}
+
+/* feather::grow: r grown by a feather of Gaussian sigma (three sigmas and two pixels). */
+static pc_rect feather_grow(pc_rect r, float sigma)
+{
+    int32_t m;
+    if (pc_rect_is_empty(r)) {
+        return r;
+    }
+    m = pc_i32_sat_add(pc_f32_to_i32(ceilf(sigma * 3.0f)), 2);
+    return pc_rect_inflate(r, m);
+}
+
+/* feather::path_area: where a feathered path mask can differ far outside the path (its control
+ * bounds, two pixels of anti-aliasing, grown by the feather). Empty for a path without knots. */
+static pc_rect feather_path_area(const pc_path *path, float sigma)
+{
+    double b[4];
+    pc_rect r;
+    if (!pc_path_control_bounds(path, b)) {
+        return PC_RECT_EMPTY;
+    }
+    r = pc_rect_make(pc_i32_sat_sub(pc_f64_to_i32(floor(b[0])), 2), pc_i32_sat_sub(pc_f64_to_i32(floor(b[1])), 2),
+                     pc_i32_sat_add(pc_f64_to_i32(ceil(b[2])), 2), pc_i32_sat_add(pc_f64_to_i32(ceil(b[3])), 2));
+    return feather_grow(r, sigma);
+}
+
+/* hard_shape_bounds: path control bounds plus stroke width, ignoring Density and Feather. */
+static bool hard_shape_bounds(const pc_shape_layer *sh, pc_rect *out)
+{
+    double b[4];
+    int32_t stroke_margin;
+    pc_rect r;
+    bool stroke_active = sh->has_stroke && sh->stroke.width > 0.0f && sh->stroke.opacity > 0.0f;
+    if (!sh->has_fill && !stroke_active) {
+        return false;
+    }
+    if (!pc_path_control_bounds(&sh->path, b)) {
+        return false;
+    }
+    stroke_margin = (sh->has_stroke && sh->stroke.opacity > 0.0f) ? pc_f32_to_i32(ceilf(sh->stroke.width)) : 0;
+    r = pc_rect_inflate(pc_rect_make(pc_f64_to_i32(floor(b[0])), pc_f64_to_i32(floor(b[1])),
+                                     pc_f64_to_i32(ceil(b[2])), pc_f64_to_i32(ceil(b[3]))),
+                        stroke_margin);
+    if (pc_rect_is_empty(r)) {
+        return false;
+    }
+    *out = r;
+    return true;
+}
+
+/* shape_bounds: the vector content's box, including the reach of a soft fill (its feather, or the
+ * whole plane everywhere below 100 % density). */
+static bool shape_bounds(const pc_shape_layer *sh, pc_rect *out)
+{
+    pc_rect r;
+    if (!hard_shape_bounds(sh, &r)) {
+        return false;
+    }
+    if (sh->has_fill && shape_has_soft_mask(sh)) {
+        if (isfinite(sh->density) && sh->density < 1.0f) {
+            *out = pc_rect_make(INT32_MIN / 4, INT32_MIN / 4, INT32_MAX / 4, INT32_MAX / 4);
+            return true;
+        }
+        *out = pc_rect_union(r, feather_path_area(&sh->path, pc_compose_feather_sigma(sh->feather)));
+        return true;
+    }
+    *out = r;
+    return true;
 }
 
 bool pc_compose_paint_bounds(const pc_layer *layer, pc_rect *out)
@@ -54,11 +132,22 @@ static bool surface_transparent_outside(const pc_surface *s)
 }
 
 /* A leaf's own bounds (not a group, not a fill, not shapeless). */
-static pc_rect leaf_bounds(const pc_layer *layer)
+static pc_rect leaf_bounds(const pc_layer *layer, pc_rect canvas)
 {
     const pc_surface *s = pc_layer_surface(layer);
     pc_rect b = s != NULL ? pc_compose_content_bounds(s) : PC_RECT_EMPTY;
     pc_rect p;
+    /* A shape's vector content (path, stroke and any soft-fill reach) joins its pixel bounds. */
+    if (layer->content.kind == PC_LAYER_SHAPE) {
+        pc_rect sb;
+        pc_rect pi =
+            shape_bounds(&layer->content.u.shape, &sb) ? pc_rect_intersect(sb, canvas) : PC_RECT_EMPTY;
+        if (!pc_rect_is_empty(b) && !pc_rect_is_empty(pi)) {
+            b = pc_rect_union(b, pi);
+        } else if (!pc_rect_is_empty(pi)) {
+            b = pi;
+        }
+    }
     /* Effects follow a filled shape's outline, also where its fill is transparent. */
     if (pc_compose_effect_outline(layer) != NULL && pc_compose_paint_bounds(layer, &p) &&
         pc_compose_has_effects(layer)) {
@@ -102,7 +191,7 @@ pc_rect pc_compose_layer_bounds(const pc_layer *layer, pc_rect canvas)
         } else if (l->content.kind == PC_LAYER_FILL) {
             b = canvas;
         } else {
-            b = leaf_bounds(l);
+            b = leaf_bounds(l, canvas);
         }
         if (!pc_rect_is_empty(b)) {
             acc = pc_rect_is_empty(acc) ? b : pc_rect_union(acc, b);
@@ -242,8 +331,22 @@ static bool reaches_below(const pc_layer *l, unsigned depth)
         return !l->clipped;
     }
     if (l->content.kind == PC_LAYER_GROUP && l->blend == PC_BLEND_PASS_THROUGH) {
-        for (i = 0; i < l->content.u.group.nchildren; i++) {
-            if (reaches_below(&l->content.u.group.children[i], depth + 1)) {
+        const pc_group *g = &l->content.u.group;
+        for (i = 0; i < g->nchildren; i++) {
+            const pc_layer *c = &g->children[i];
+            /* A clipped adjustment with no non-clipped base below it in its list composites as an
+             * ordinary adjustment and reaches below the group (#6535). */
+            bool orphan = c->clipped && c->content.kind == PC_LAYER_ADJUSTMENT;
+            if (orphan) {
+                size_t j;
+                for (j = 0; j < i; j++) {
+                    if (!g->children[j].clipped) {
+                        orphan = false;
+                        break;
+                    }
+                }
+            }
+            if (orphan || reaches_below(c, depth + 1)) {
                 return true;
             }
         }

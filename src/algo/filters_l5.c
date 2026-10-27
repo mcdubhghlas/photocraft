@@ -92,7 +92,7 @@ static void radial_init(void *p)
 static pc_algo_halo halo_g(float sigma)
 {
     return pc_algo_halo_radius(
-        pc_i32_wrapping_add(pc_f32_to_i32(ceilf(pc_rs_maxf_k(sigma, 0.0f) * 3.0f)), 1));
+        pc_i32_sat_add(pc_f32_to_i32(ceilf(pc_rs_maxf_k(sigma, 0.0f) * 3.0f)), 1));
 }
 
 static pc_algo_halo h_gauss(const void *p, const pc_rect *b)
@@ -141,12 +141,13 @@ static pc_algo_halo h_reduce_noise(const void *p, const pc_rect *b)
 static pc_algo_halo h_smart_blur(const void *p, const pc_rect *b)
 {
     (void)b;
-    return pc_algo_halo_reach(((const pc_algo_smart_blur_params *)p)->radius);
+    /* The kernels clamp the radius to 100 px: size the source window by what they use. */
+    return pc_algo_halo_reach(pc_rs_minf_k(((const pc_algo_smart_blur_params *)p)->radius, 100.0f));
 }
 static pc_algo_halo h_lens_blur(const void *p, const pc_rect *b)
 {
     (void)b;
-    return pc_algo_halo_reach(((const pc_algo_lens_blur_params *)p)->radius);
+    return pc_algo_halo_reach(pc_rs_minf_k(((const pc_algo_lens_blur_params *)p)->radius, 100.0f));
 }
 static pc_algo_halo h_shape_blur(const void *p, const pc_rect *b)
 {
@@ -191,6 +192,12 @@ KERNEL(k_unsharp)
 {
     (void)prep;
     return pc_algo_unsharp_k(src, out, ctx, p, dst, err);
+}
+/* Unsharp Mask's exact path yields an empty result for non-finite params or out-of-range geometry. */
+static bool unsharp_empty(const void *p, pc_rect out, const pc_algo_image *src)
+{
+    const pc_algo_unsharp_params *u = p;
+    return !pc_algo_unsharp_valid(u->amount, u->radius, u->threshold, out, src->rect);
 }
 KERNEL(k_smart_sharpen)
 {
@@ -253,8 +260,8 @@ KERNEL(k_shape_blur)
 /* ---- defs ---- */
 
 #define DEF(name, tg, T, F, init, halo, kern, apply, flags)                                                  \
-    const pc_algo_filter_def name = {(tg), sizeof(T), (F),  N(F),   (init),  NULL,   (halo),                 \
-                                     NULL, NULL,      NULL, (kern), (apply), (flags)}
+    const pc_algo_filter_def name = {(tg), sizeof(T), (F),  N(F),   (init),  NULL,    (halo),                \
+                                     NULL, NULL,      NULL, (kern), (apply), (flags), NULL}
 
 DEF(PC_ALGO_FILTER_GAUSSIAN_BLUR, "gaussianBlur", pc_algo_radius_params, RADIUS_F, NULL, h_gauss, k_gauss,
     pc_algo_box_blur_apply, 0);
@@ -266,8 +273,14 @@ DEF(PC_ALGO_FILTER_RADIAL_BLUR, "radialBlur", pc_algo_radial_params, RADIAL_F, r
     k_radial, NULL, 0);
 DEF(PC_ALGO_FILTER_SURFACE_BLUR, "surfaceBlur", pc_algo_radius_threshold_params, RADIUS_THRESHOLD_F, NULL,
     h_radius_threshold, k_surface, NULL, 0);
-DEF(PC_ALGO_FILTER_UNSHARP_MASK, "unsharpMask", pc_algo_unsharp_params, UNSHARP_F, NULL, h_unsharp, k_unsharp,
-    NULL, 0);
+const pc_algo_filter_def PC_ALGO_FILTER_UNSHARP_MASK = {
+    "unsharpMask", sizeof(pc_algo_unsharp_params),
+    UNSHARP_F,     N(UNSHARP_F),
+    NULL,          NULL,
+    h_unsharp,     NULL,
+    NULL,          NULL,
+    k_unsharp,     NULL,
+    0,             unsharp_empty};
 DEF(PC_ALGO_FILTER_SMART_SHARPEN, "smartSharpen", pc_algo_smart_sharpen_params, SMART_SHARPEN_F, NULL,
     h_smart_sharpen, k_smart_sharpen, NULL, 0);
 DEF(PC_ALGO_FILTER_HIGH_PASS, "highPass", pc_algo_radius_params, RADIUS_F, NULL, h_gauss, k_high_pass, NULL,
@@ -299,7 +312,8 @@ const pc_algo_filter_def PC_ALGO_FILTER_SHAPE_BLUR = {"shapeBlur",
                                                       k_shape_blur,
                                                       NULL,
                                                       PC_ALGO_FILTER_CLAMP_TILE |
-                                                          PC_ALGO_FILTER_KEEP_ON_FAIL};
+                                                          PC_ALGO_FILTER_KEEP_ON_FAIL,
+                                                      NULL};
 
 const pc_algo_filter_def *const pc_algo_filters_l5[] = {
     &PC_ALGO_FILTER_GAUSSIAN_BLUR,      &PC_ALGO_FILTER_BOX_BLUR,

@@ -318,6 +318,15 @@ typedef struct pc_preset_state {
     size_t ndocuments;
     struct pc_document_settings *recent_documents;
     size_t nrecent;
+    /* R0-feat: the user contour library of the Layer Style dialog (layer.layerStyle.contours.*)
+     * and the named Export As configurations (file.export.presets.*). The struct layout and all
+     * logic live in contour_lib_cmds.c / export_preset_cmds.c; freed by their *_fini below. */
+    struct pc_contour *contours;
+    size_t ncontours;
+    size_t cap_contours;
+    struct pc_export_preset *export_presets;
+    size_t nexport_presets;
+    size_t cap_export_presets;
     uint64_t rev;
 } pc_preset_state;
 
@@ -333,6 +342,18 @@ void pc_engine_document_presets_fini(pc_preset_state *st);
 void pc_engine_document_presets_to_json(const pc_preset_state *st, struct yyjson_mut_doc *d,
                                         struct yyjson_mut_val *root);
 void pc_engine_document_presets_load(pc_preset_state *st, struct yyjson_val *v);
+
+/* R0-feat: free / serialise / restore the user contour library (key "contours") and the Export As
+ * presets (key "export_presets"); declared here so presets.c and presets_persist.c can call them
+ * without the contour / export-preset layout. */
+void pc_engine_contour_lib_fini(pc_preset_state *st);
+void pc_engine_contour_lib_to_json(const pc_preset_state *st, struct yyjson_mut_doc *d,
+                                   struct yyjson_mut_val *root);
+void pc_engine_contour_lib_load(pc_preset_state *st, struct yyjson_val *v);
+void pc_engine_export_presets_fini(pc_preset_state *st);
+void pc_engine_export_presets_to_json(const pc_preset_state *st, struct yyjson_mut_doc *d,
+                                      struct yyjson_mut_val *root);
+void pc_engine_export_presets_load(pc_preset_state *st, struct yyjson_val *v);
 
 /* Default (built-in) PresetState. On OOM leaves a valid but possibly partial state (never crashes). */
 void pc_preset_state_init(pc_preset_state *st);

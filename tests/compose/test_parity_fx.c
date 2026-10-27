@@ -1056,6 +1056,9 @@ static pc_layer layer_kind(rng *r, int32_t w, int32_t h)
             pts[i][1] = (double)y + 0.25;
         }
         c.kind = PC_LAYER_SHAPE;
+        /* ShapeLayer::default(): density 1.0, feather 0.0 (not the memset zero). */
+        c.u.shape.density = 1.0f;
+        c.u.shape.feather = 0.0f;
         c.u.shape.path = ch_polygon((const double (*)[2])pts, (size_t)n);
         if (below(r, 4) != 0) {
             c.u.shape.has_fill = true;
@@ -1416,6 +1419,9 @@ static pc_layer gen_layer(rng *r, const gen *g, unsigned level)
         bool filled;
         pc_color cc;
         c.kind = PC_LAYER_SHAPE;
+        /* ShapeLayer::default(): density 1.0, feather 0.0 (not the memset zero). */
+        c.u.shape.density = 1.0f;
+        c.u.shape.feather = 0.0f;
         c.u.shape.path = polygon(r, w, h, k);
         filled = below(r, 4) != 0;
         cc = color(r);
