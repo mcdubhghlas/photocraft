@@ -67,8 +67,12 @@ void pc_ui_native_menu_bar(pc_ui_shell_app *app, pc_ui_native_menus *m)
         (void)snprintf(id, sizeof id, "menu.%s", PC_UI_TOP_MENUS[t]);
         pc_ui_shell_widget_mapping(app, id, r);
         struct nk_style_item normal = c->style.button.normal;
+        float border = c->style.button.border;
         c->style.button.normal =
             nk_style_item_color(pc_ui_nk_color(m->nav.top == t ? tokens->accent_soft : tokens->chrome));
+        /* egui's top menu bar is frameless (no box around each item); drop Nuklear's default
+         * 1px button border for the menu bar. */
+        c->style.button.border = 0;
         if (nk_button_label(c, label)) {
             if (m->nav.top == t) {
                 close_menu(m);
@@ -81,6 +85,7 @@ void pc_ui_native_menu_bar(pc_ui_shell_app *app, pc_ui_native_menus *m)
             open_top(m, t);
         }
         c->style.button.normal = normal;
+        c->style.button.border = border;
     }
     nk_layout_row_end(c);
 }

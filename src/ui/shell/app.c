@@ -1688,9 +1688,19 @@ static void draw_dock_group(pc_ui_shell_app *a, pc_ui_group g, float w)
         nk_layout_row_push(c, fit.shown[i].width);
         bool is_sel = tab == *selected && !collapsed;
         struct nk_style_button sb = c->style.button;
+        /* egui draws panel tabs as a flat strip (no box around each tab): the active tab is a
+         * slightly lighter fill with bright text, inactive tabs blend into the strip with dim
+         * text. Drop the per-tab border/rounding Nuklear adds by default. */
+        c->style.button.border = 0;
+        c->style.button.rounding = 0;
         if (is_sel) {
             c->style.button.normal = nk_style_item_color(pc_ui_nk_color(a->tokens.card));
+            c->style.button.hover = nk_style_item_color(pc_ui_nk_color(a->tokens.card));
             c->style.button.text_normal = pc_ui_nk_color(a->tokens.text);
+        } else {
+            c->style.button.normal = nk_style_item_color(pc_ui_nk_color(a->tokens.tab_strip));
+            c->style.button.hover = nk_style_item_color(pc_ui_nk_color(a->tokens.hover));
+            c->style.button.text_normal = pc_ui_nk_color(a->tokens.text_dim);
         }
         struct nk_rect tab_rect = nk_widget_bounds(c);
         pc_ui_docking_tab(&a->docking, g, tab, labels[tab], tab_rect);
@@ -2111,7 +2121,9 @@ pc_status pc_ui_shell_app_open_window(pc_ui_shell_app *a, const char *font_path,
     }
     a->ui_scale = scale;
     const char *fp = a->font_path ? a->font_path : "assets/fonts/Inter-Regular.ttf";
-    if (ui_font_init(&a->font, fp, 14.0f, scale, err) != PC_OK) {
+    /* egui's Body/Button text is 12px (theme.rs set_visuals); match it so the chrome is the same
+     * density as the reference rather than Nuklear's chunkier default. */
+    if (ui_font_init(&a->font, fp, 12.0f, scale, err) != PC_OK) {
         return err ? err->code : PC_ERR_IO;
     }
     a->font_ready = 1;
